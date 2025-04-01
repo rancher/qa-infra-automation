@@ -1,0 +1,21 @@
+plugin: cloud.terraform.terraform_provider
+project_path: ../../terraform/aws/cluster_nodes
+binary_path: terraform
+workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
+keyed_groups:
+  - key: name
+    prefix: ""
+  - key: variables.ansible_role
+    prefix: ""
+  - key: variables.ansible_role
+    prefix: etcd
+    regex: '^etcd.*$'
+  - key: variables.ansible_role
+    prefix: cp
+    regex: '^cp.*$'
+  - key: variables.ansible_role
+    prefix: worker
+    regex: '^worker.*$'
+  - key: variables.is_server
+    prefix: server
+    regex: '^true$'

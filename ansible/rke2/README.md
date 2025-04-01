@@ -1,0 +1,48 @@
+# RKE2 Cluster Ansible Playbook
+
+This playbook deploys an RKE2 Kubernetes cluster.
+
+## Prerequisites
+
+* Python 3.7 or later.
+* Ansible installed.
+* `ansible-inventory-terraform` installed.
+* SSH access to the target nodes.
+* A valid inventory file (e.g., `terraform-inventory.yml`).
+* A `vars.yaml` file with necessary variables.
+
+## Installation
+
+1.  **Install Ansible and its dependencies:**
+
+    ```bash
+    pip install --include-deps ansible
+    pip install ansible-inventory-terraform
+    ```
+
+## Usage
+
+1.  **Generate and Check Inventory:**
+    If using terraform to create your nodes, you can use the terraform-inventory.yml to dynamically generate the inventory.
+    To check the inventory and view variables and the host graph run the following command.
+    ```bash
+    ansible-inventory -i terraform-inventory.yml --graph --vars
+    ```
+
+2.  **Run the Playbook with Verbose output:**
+
+    ```bash
+    ansible-playbook -i terraform-inventory.yml rke2_playbook.yml -vvvv --extra-vars "@vars.yaml"
+    ```
+    The `-vvvv` flag provides very verbose output, which is helpful for debugging. The `--extra-vars "@vars.yaml"` flag loads variables from the `vars.yaml` file.
+
+## Inventory
+
+The inventory file should contain the target nodes' IP addresses and SSH connection details. The `terraform-inventory.yml` file dynamically generates this inventory from Terraform outputs.
+
+## Sample `vars.yaml`
+
+```yaml
+kubernetes_version: 'v1.28.15+rke2r1'
+cni: 'calico'
+kubeconfig_file: './kubeconfig.yaml'
