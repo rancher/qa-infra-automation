@@ -1,0 +1,101 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml # Assuming this file contains rancher_version and cert_manager_version
+  vars:
+    # Get the current Terraform workspace name
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
+    # Construct the path to the workspace's state file
+    terraform_state_file: "../../terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+  tasks:
+    - name: Check if kubeconfig file exists
+      stat:
+        path: "{{ kubeconfig_file }}"
+      register: kubeconfig_file_stat
+
+    - name: Fail if kubeconfig file does not exist
+      fail:
+        msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
+      when: not kubeconfig_file_stat.stat.exists
+
+    - name: Install cert-manager CRDs
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_file }}"
+        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
+        state: present
+      when: cert_manager_version != ""
+
+    - name: Install cert-manager
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_file }}"
+        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml
+        state: present
+        wait: true
+        wait_timeout: 300
+      when: cert_manager_version != ""
+
+    - name: Wait for cert-manager to be ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: apps/v1
+        kind: Deployment
+        namespace: cert-manager
+        name: cert-manager
+      register: cert_manager_deployment
+      until: cert_manager_deployment.resources[0].status.readyReplicas == cert_manager_deployment.resources[0].status.replicas
+      retries: 10
+      delay: 30
+      when: cert_manager_version != ""
+
+    - name: Add Rancher Helm repository
+      kubernetes.core.helm_repository:
+        kubeconfig: "{{ kubeconfig_file }}"
+        name: "{{ rancher_chart_repo }}"
+        repo_url: "{{ rancher_chart_repo_url }}"
+      when: rancher_version != ""
+
+    - name: Install Rancher
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_file }}"
+        name: rancher
+        chart_ref: "{{ rancher_chart_repo }}/rancher"
+        release_namespace: cattle-system
+        create_namespace: true
+        chart_version: "{{ rancher_version }}"
+        wait: true
+        wait_timeout: "600s"
+        values:
+          hostname: "{{ fqdn }}"
+          bootstrapPassword: "{{ bootstrap_password }}"
+      when: rancher_version != ""
+
+    - name: Wait for Rancher to be ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: apps/v1
+        kind: Deployment
+        namespace: cattle-system
+        name: rancher
+      register: rancher_deployment
+      until: rancher_deployment.resources[0].status.readyReplicas == rancher_deployment.resources[0].status.replicas
+      retries: 10
+      delay: 30
+      when: rancher_version != ""
+
+    - name: Get Rancher Ingress Host
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: networking.k8s.io/v1
+        kind: Ingress
+        namespace: cattle-system
+        name: rancher
+      register: rancher_ingress
+      when: rancher_version != ""
+
+    - name: Display Rancher URL
+      debug:
+        msg: "Rancher URL: https://{{ rancher_ingress.resources[0].spec.rules[0].host }}"
+      when: rancher_version != "" and rancher_ingress.resources|length > 0 and rancher_ingress.resources[0].spec.rules|length > 0 and rancher_ingress.resources[0].spec.rules[0].host is defined

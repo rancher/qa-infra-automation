@@ -7,8 +7,39 @@ tls-san:
   - ${KUBE_API_HOST}
 "
 
-# Configure RKE2 based on the NODE_ROLE
-if [[ "$NODE_ROLE" == "etcd" ]]; then
+# Parse NODE_ROLE into an array (comma-separated)
+IFS=',' read -r -a ROLES <<< "$NODE_ROLE"
+
+# Initialize role flags
+has_etcd=false
+has_cp=false
+has_worker=false
+
+# Check for specific roles
+for role in "${ROLES[@]}"; do
+  case "$role" in
+    etcd) has_etcd=true ;;
+    cp) has_cp=true ;;
+    worker) has_worker=true ;;
+  esac
+done
+
+# Configure RKE2 based on the role combinations
+if [[ "$has_etcd" == true && "$has_cp" == true && "$has_worker" == false ]]; then
+  echo "Configuring etcd-cp node"
+  config="$config
+node-taint:
+  - node-role.kubernetes.io/control-plane:NoSchedule
+  - node-role.kubernetes.io/etcd:NoExecute
+"
+elif [[ "$has_etcd" == true && "$has_worker" == true && "$has_cp" == false ]]; then
+  echo "Configuring etcd-worker node"
+  config="$config
+disable-apiserver: true
+disable-controller-manager: true
+disable-scheduler: true
+"
+elif [[ "$has_etcd" == true && "$has_cp" == false && "$has_worker" == false ]]; then
   echo "Configuring etcd-only node"
   config="$config
 disable-apiserver: true
@@ -16,20 +47,6 @@ disable-controller-manager: true
 disable-scheduler: true
 node-taint:
   - node-role.kubernetes.io/etcd:NoExecute
-"
-elif [[ "$NODE_ROLE" == *"etcd"* && "$NODE_ROLE" == *"cp"* ]]; then
-  echo "Configuring etcd-cp node"
-  config="$config
-node-taint:
-  - node-role.kubernetes.io/control-plane:NoSchedule
-  - node-role.kubernetes.io/etcd:NoExecute
-"
-elif [[ "$NODE_ROLE" == *"etcd"* && "$NODE_ROLE" == *"worker"* ]]; then
-  echo "Configuring etcd-worker node"
-  config="$config
-disable-apiserver: true
-disable-controller-manager: true
-disable-scheduler: true
 "
 fi
 

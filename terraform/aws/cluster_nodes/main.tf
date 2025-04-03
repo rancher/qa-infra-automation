@@ -123,7 +123,7 @@ resource "aws_lb_target_group_attachment" "aws_tg_attachment_6443" {
 }
 
 resource "aws_lb" "aws_nlb" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   internal           = false
   load_balancer_type = "network"
   subnets            = [var.aws_subnet]
@@ -131,7 +131,7 @@ resource "aws_lb" "aws_nlb" {
 }
 
 resource "aws_lb_target_group" "aws_tg_80" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   port             = 80
   protocol         = "TCP"
   vpc_id           = var.aws_vpc
@@ -149,7 +149,7 @@ resource "aws_lb_target_group" "aws_tg_80" {
 }
 
 resource "aws_lb_target_group" "aws_tg_443" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   port             = 443
   protocol         = "TCP"
   vpc_id           = var.aws_vpc
@@ -167,7 +167,7 @@ resource "aws_lb_target_group" "aws_tg_443" {
 }
 
 resource "aws_lb_target_group" "aws_tg_6443" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   port             = 6443
   protocol         = "TCP"
   vpc_id           = var.aws_vpc
@@ -185,7 +185,7 @@ resource "aws_lb_target_group" "aws_tg_6443" {
 }
 
 resource "aws_lb_target_group" "aws_tg_9345" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   port             = 9345
   protocol         = "TCP"
   vpc_id           = var.aws_vpc
@@ -203,7 +203,7 @@ resource "aws_lb_target_group" "aws_tg_9345" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_80" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port              = "80"
   protocol          = "TCP"
@@ -214,7 +214,7 @@ resource "aws_lb_listener" "aws_nlb_listener_80" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_443" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port              = "443"
   protocol          = "TCP"
@@ -225,7 +225,7 @@ resource "aws_lb_listener" "aws_nlb_listener_443" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_6443" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port              = "6443"
   protocol          = "TCP"
@@ -236,7 +236,7 @@ resource "aws_lb_listener" "aws_nlb_listener_6443" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_9345" {
-  count = length(local.cp_nodes) > 1 ? 1 : 0
+  count = local.cp_node_count  > 1 ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port              = "9345"
   protocol          = "TCP"
