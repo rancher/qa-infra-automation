@@ -4,9 +4,11 @@ This repository contains infrastructure automation scripts using Terraform and A
 
 ## Current Directory Structure
 
+```
 ├── ansible/
 │   └── rke2/
 │       
 ├── terraform/
 │   └── aws/
 │       └── cluster_nodes/
+```

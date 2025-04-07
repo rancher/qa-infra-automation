@@ -97,7 +97,7 @@
         NODE_TOKEN: "{{ node_token }}"
         NODE_ROLE: "{{ ansible_role }}" # Pass the role to the script
       register: script_result
-      when: '"cp" in ansible_role or "etcd" in ansible_role and inventory_hostname != "master"'
+      when: 'inventory_hostname != "master" and ("cp" in ansible_role or "etcd" in ansible_role)'
 
     - name: Transfer and execute init-agent.sh (Agent)
       script: ./init-agent.sh

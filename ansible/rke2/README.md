@@ -32,7 +32,7 @@ This playbook deploys an RKE2 Kubernetes cluster.
 2.  **Run the Playbook with Verbose output:**
 
     ```bash
-    ansible-playbook -i terraform-inventory.yml rke2_playbook.yml -vvvv --extra-vars "@vars.yaml"
+    ansible-playbook -i terraform-inventory.yml rke2-playbook.yml -vvvv --extra-vars "@vars.yaml"
     ```
     The `-vvvv` flag provides very verbose output, which is helpful for debugging. The `--extra-vars "@vars.yaml"` flag loads variables from the `vars.yaml` file.
 
