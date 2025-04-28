@@ -70,6 +70,7 @@
         values:
           hostname: "{{ fqdn }}"
           bootstrapPassword: "{{ bootstrap_password }}"
+          rancherImageTag: "{{ rancher_image_tag | default(omit) }}"
       when: rancher_version != ""
 
     - name: Wait for Rancher to be ready
