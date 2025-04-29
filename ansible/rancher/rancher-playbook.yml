@@ -10,6 +10,11 @@
     # Construct the path to the workspace's state file
     terraform_state_file: "../../terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+    # Use default values if not defined in vars.yaml
+    rancher_chart_repo_url: "{{ rancher_chart_repo_url | default(rancher_chart_repo_url_default) }}"
+    rancher_chart_repo: "{{ rancher_chart_repo | default(rancher_chart_repo_default) }}"
+    rancher_chart_repo_url_default: "https://releases.rancher.com/server-charts/latest"
+    rancher_chart_repo_default: "rancher-latest"
   tasks:
     - name: Check if kubeconfig file exists
       stat:
