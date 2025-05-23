@@ -57,7 +57,7 @@ resource "random_id" "cluster_id" {
 
 resource "aws_key_pair" "ssh_public_key" {
   key_name       = "tf-key-${var.user_id}-${random_id.cluster_id.hex}"
-  public_key = var.public_ssh_key
+  public_key = file(var.public_ssh_key)
 }
 
 resource "aws_instance" "node" {

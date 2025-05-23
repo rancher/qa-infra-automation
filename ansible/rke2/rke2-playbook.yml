@@ -8,7 +8,8 @@
     # Get the current Terraform workspace name
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
     # Construct the path to the workspace's state file
-    terraform_state_file: "../../terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    terraform_state_file: "terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+
     # Use the constructed path in the lookups
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
@@ -66,7 +67,7 @@
     # Get the current Terraform workspace name
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
     # Construct the path to the workspace's state file
-    terraform_state_file: "../../terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    terraform_state_file: "terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     # Use the constructed path in the lookups
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
@@ -109,3 +110,29 @@
         NODE_TOKEN: "{{ node_token }}"
       register: script_result
       when: ansible_role == "worker"
+
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  tasks:
+    - name: Check if all RKE2 pods are running
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - app.kubernetes.io/managed-by=Helm
+      register: rke2_pods
+
+    - name: Assert that all pods are running
+      assert:
+        that:
+          - item.status.phase == "Running"
+        fail_msg: "Pod {{ item.metadata.name }} is not in Running state."
+      retries: 5
+      delay: 60
+      timeout: 300
+      with_items: "{{ rke2_pods.resources }}"

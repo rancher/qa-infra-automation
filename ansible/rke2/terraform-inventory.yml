@@ -1,5 +1,5 @@
 plugin: cloud.terraform.terraform_provider
-project_path: ../../terraform/aws/cluster_nodes
+project_path: terraform/aws/cluster_nodes
 binary_path: terraform
 workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
 keyed_groups:

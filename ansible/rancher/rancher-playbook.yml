@@ -8,13 +8,14 @@
     # Get the current Terraform workspace name
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
     # Construct the path to the workspace's state file
-    terraform_state_file: "../../terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    terraform_state_file: "terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
     # Use default values if not defined in vars.yaml
-    rancher_chart_repo_url: "{{ rancher_chart_repo_url | default(rancher_chart_repo_url_default) }}"
-    rancher_chart_repo: "{{ rancher_chart_repo | default(rancher_chart_repo_default) }}"
-    rancher_chart_repo_url_default: "https://releases.rancher.com/server-charts/latest"
     rancher_chart_repo_default: "rancher-latest"
+    rancher_chart_repo_final: "{{ rancher_chart_repo | default(rancher_chart_repo_default) }}"
+    rancher_chart_repo_url_default: "https://releases.rancher.com/server-charts/latest"
+    rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default(rancher_chart_repo_url_default) }}"
+
   tasks:
     - name: Check if kubeconfig file exists
       stat:
@@ -58,15 +59,15 @@
     - name: Add Rancher Helm repository
       kubernetes.core.helm_repository:
         kubeconfig: "{{ kubeconfig_file }}"
-        name: "{{ rancher_chart_repo }}"
-        repo_url: "{{ rancher_chart_repo_url }}"
+        name: "{{ rancher_chart_repo_final }}"
+        repo_url: "{{ rancher_chart_repo_url_final }}"
       when: rancher_version != ""
 
     - name: Install Rancher
       kubernetes.core.helm:
         kubeconfig: "{{ kubeconfig_file }}"
         name: rancher
-        chart_ref: "{{ rancher_chart_repo }}/rancher"
+        chart_ref: "{{ rancher_chart_repo_final }}/rancher"
         release_namespace: cattle-system
         create_namespace: true
         chart_version: "{{ rancher_version }}"
@@ -77,6 +78,8 @@
           bootstrapPassword: "{{ bootstrap_password }}"
           rancherImageTag: "{{ rancher_image_tag | default(omit) }}"
       when: rancher_version != ""
+      retries: 5
+      delay: 60
 
     - name: Wait for Rancher to be ready
       kubernetes.core.k8s_info:
@@ -86,7 +89,7 @@
         namespace: cattle-system
         name: rancher
       register: rancher_deployment
-      until: rancher_deployment.resources[0].status.readyReplicas == rancher_deployment.resources[0].status.replicas
+      until: rancher_deployment.resources[0].status.readyReplicas is defined and rancher_deployment.resources[0].status.readyReplicas == rancher_deployment.resources[0].status.replicas
       retries: 10
       delay: 30
       when: rancher_version != ""
