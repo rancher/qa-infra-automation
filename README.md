@@ -1,6 +1,6 @@
 # Infrastructure Automation Repository
 
-This repository contains infrastructure automation scripts using Terraform and Ansible. It is organized into directories for each tool and specific infrastructure components.
+This repository contains infrastructure automation scripts using Terraform and Ansible. It is organized into directories for each tool and specific infrastructure components. Below is an overview that highlights the most important things to keep in mind for contributors. See the `docs/` folder for all other documentation related to this repository.
 
 ## Contributing
 
@@ -14,7 +14,8 @@ See below for a visual representation of the directory structure. In the ansible
 ├── ansible/
 │   ├── product/
 │   │   └── feature/
-│   └── scripts/
+│   │       └── scripts/
+│   └── roles/
 │       
 ├── terraform/
 │   ├── provider/
@@ -22,17 +23,8 @@ See below for a visual representation of the directory structure. In the ansible
 │   │   └── modules-with-context/
 ```
 
-## Open Questions
-
-- Who is the current admin for https://github.com/rancher/qa-infra-automation? I'd like to have "Issues" enabled so that people can open them directly when there is a problem.
-
-## Ideas
-- Coding standards?
-- Design doc required before creating modules/playbooks?
-- 'actions' where shared resources live + 'infra' where ansible + tf stuff would live
-  - any change to actions would involve rigorous testing + multiple team reviews
-    - possible that the TF side of things lives here
-  - additions to 'infra' would require minimal cross-team reviews/involvement
-  - changes to 'infra' would only involve direct teams
-- Ansible should be provider-agnostic
+## Standards
+- Ansible playbooks should be provider-agnostic.
 - Terraform should contain modular TF pieces that can work together or on their own.
+- Everything should be as modular as possible.
+- Any collection of tasks that are easily reusable should be a *role* and called from playbooks that need them

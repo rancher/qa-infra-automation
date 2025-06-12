@@ -8,7 +8,7 @@
     # Get the current Terraform workspace name
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
     # Construct the path to the workspace's state file
-    terraform_state_file: "terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    terraform_state_file: "terraform/aws/modules/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
 
     # Use the constructed path in the lookups
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
@@ -67,7 +67,7 @@
     # Get the current Terraform workspace name
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
     # Construct the path to the workspace's state file
-    terraform_state_file: "terraform/aws/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    terraform_state_file: "terraform/aws/modules/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     # Use the constructed path in the lookups
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
