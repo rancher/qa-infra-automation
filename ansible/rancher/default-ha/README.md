@@ -49,4 +49,4 @@ Before running the playbook, ensure you have the following:
 To run the playbook, use the following command:
 
 ```bash
-ansible-playbook "ansible/rancher/rancher-playbook.yml" -vvvv -e "@$VARS_FILE"
+ansible-playbook "ansible/rancher/default-ha/rancher-playbook.yml" -vvvv -e "@$VARS_FILE"
