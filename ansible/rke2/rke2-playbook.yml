@@ -117,7 +117,7 @@
   vars_files:
     - vars.yaml
   tasks:
-    - name: Check if all RKE2 pods are running
+    - name: Wait until all RKE2 Helm-managed pods in kube-system are Running or Succeeded
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig_file }}"
         api_version: v1
@@ -125,14 +125,9 @@
         namespace: kube-system
         label_selectors:
           - app.kubernetes.io/managed-by=Helm
-      register: rke2_pods
-
-    - name: Assert that all pods are running
-      assert:
-        that:
-          - item.status.phase == "Running"
-        fail_msg: "Pod {{ item.metadata.name }} is not in Running state."
-      retries: 5
-      delay: 60
-      timeout: 300
-      with_items: "{{ rke2_pods.resources }}"
+      register: rke2_pods_check
+      until: >
+        rke2_pods_check.resources is defined and
+        (rke2_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
+      retries: 5 # Number of retries after the first attempt fails (total 6 attempts).
+      delay: 60  # Seconds to wait between retries. Effective timeout ~5 minutes.
