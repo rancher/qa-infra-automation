@@ -1,17 +1,3 @@
-terraform {
-  required_version = ">= 0.13.1"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 3.0"
-    }
-    ansible = {
-      source  = "ansible/ansible"
-      version = "1.3.0"
-    }
-  }
-}
-
 # Create a local variable to store the node names
 locals {
   temp_node_names = flatten([
