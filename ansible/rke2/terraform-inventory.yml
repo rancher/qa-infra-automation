@@ -1,6 +1,6 @@
 plugin: cloud.terraform.terraform_provider
-project_path: terraform/aws/cluster_nodes
-binary_path: terraform
+project_path: tofu/aws/cluster_nodes
+binary_path: tofu
 workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
 keyed_groups:
   - key: name
