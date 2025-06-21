@@ -8,7 +8,13 @@ This repository contains infrastructure automation scripts using Terraform and A
 ├── ansible/
 │   └── rke2/
 │       
-├── terraform/
+├── tofu/
 │   └── aws/
 │       └── cluster_nodes/
 ```
+
+## Getting Started
+
+[TF -> Tofu Migration](https://opentofu.org/docs/intro/migration/terraform-1.9/)
+
+[Environment Variables](./vars.example-env)
