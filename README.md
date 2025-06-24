@@ -8,7 +8,7 @@ All are welcome and encouraged to contribute! Try to keep any changes generalize
 
 ## Directory Structure
 
-See below for a visual representation of the directory structure. In the ansible directory, a product might be "rke2" or "rancher", and a feature might be "airgap." Scripts are there for reusable scripts, for example to run the set of commands required to install an rke2 server node. In the terraform directory, a provider might be "aws" or "harvester", and modules-with-context might be "airgap-modules".
+See below for a visual representation of the directory structure. In the ansible directory, a product might be "rke2" or "rancher", and a feature might be "airgap." Scripts are there for reusable scripts, for example to run the set of commands required to install an rke2 server node. In the terraform directory, a provider might be "aws" or "harvester", and context might be "airgap".
 
 ```
 ├── ansible/
@@ -20,7 +20,7 @@ See below for a visual representation of the directory structure. In the ansible
 ├── terraform/
 │   ├── provider/
 │   │   ├── modules/
-│   │   └── modules-with-context/
+│   │   │   └── context/
 ```
 
 ## Standards
