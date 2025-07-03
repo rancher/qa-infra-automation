@@ -108,3 +108,56 @@
       debug:
         msg: "Rancher URL: https://{{ rancher_ingress.resources[0].spec.rules[0].host }}"
       when: rancher_version != "" and rancher_ingress.resources|length > 0 and rancher_ingress.resources[0].spec.rules|length > 0 and rancher_ingress.resources[0].spec.rules[0].host is defined
+
+    - name: Get Rancher UserID and Token
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3-public/localproviders/local?action=login"
+        body:
+          username: admin
+          password: "{{ bootstrap_password }}"
+        method: POST
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 201
+        body_format: json
+      register: rancherjson
+
+    - name: Extract Rancher UserID and Token
+      set_fact:
+        rancher_user_id: "{{ rancherjson.json.userId }}"
+        API_KEY: "{{ rancherjson.json.token }}"
+
+    - name: Set Rancher Password
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3/users/{{ rancher_user_id }}?action=setpassword"
+        method: POST
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ API_KEY }}"
+        body: 
+          newPassword: "{{ password }}"
+        body_format: json
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 200
+
+    - name: Set Rancher Server URL
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3/settings/server-url"
+        method: PUT
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ API_KEY }}"
+        body: 
+          name: "server-url"
+          value: "https://{{ fqdn }}"
+        body_format: json
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 200
+    
+    - name: Print Token
+      debug:
+        msg: "RANCHER_API_KEY: {{ API_KEY }}"
