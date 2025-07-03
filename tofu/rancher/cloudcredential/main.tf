@@ -11,15 +11,15 @@ resource "rancher2_cloud_credential" "this" {
   dynamic "amazonec2_credential_config" {
     for_each = var.cloud_provider == "aws" ? [1] : []
     content {
-      access_key     = var.node_config.access_key
-      secret_key     = var.node_config.secret_key
-      default_region = var.node_config.region
+      access_key     = var.node_config.aws_access_key
+      secret_key     = var.node_config.aws_secret_key
+      default_region = var.node_config.aws_region
     }
   }
   dynamic "linode_credential_config" {
     for_each = var.cloud_provider == "linode" ? [1] : []
     content {
-      token = var.node_config.token
+      token = var.node_config.linode_token
     }
   }
   dynamic "harvester_credential_config" {

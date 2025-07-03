@@ -1,6 +1,6 @@
 # Downstream Rancher Cluster rke2/k3s module
 
-This module deploys a downstream cluster using a cloud credential on your rancher setup
+This module deploys a downstream cluster on your rancher setup
 
 ## Prerequisites
 
@@ -46,43 +46,39 @@ this will highly depend on the selected provider. This example includes options 
 
 ```tofu
 
-api_key = ""
-fqdn = "https://rancher.io"
-
-cloud_provider = "aws"
+kubernetes_version = "v1.32.5+rke2r1"
+is_network_policy = false
+machine_pools = [ {
+  control_plane_role = true
+  worker_role = true
+  etcd_role = true
+  quantity = 1
+} ]
 create_new = true
-
+generate_name = "tf"
 node_config = {
-  access_key = ""
-  secret_key = ""
+  aws_access_key = ""
+  aws_secret_key= ""
 
   aws_ami = "ami-0e01311d1f112d4d0"
 
-  aws_instance_type = "t3a.xlarge"
+  aws_instance_type = "t3a.2xlarge"
+  aws_security_group = ["rancher-nodes"] 
 
-  aws_security_group_names =   ["allopen-dualstack"]
-  aws_vpc = "vpc-081cec85dbe35e9bd"
-  aws_subnet = "subnet-0377a1ca391d51cae"
-  aws_subnet    = "subnet-6d011e0a"
-  airgap_setup  = false
-  proxy_setup   = false
+  aws_subnet = "subnet-123"
+  aws_availability_zone = "b"
+  aws_vpc = "vpc-123"
+  aws_region    = "us-west-1"
+
   aws_volume_size   = 50
   aws_volume_type   = "gp3"
-  aws_hostname_prefix  = "tfex"
-  aws_region    = "us-west-1"
-  aws_route53_zone  = ""
-  aws_availability_zone = "b"
-  aws_ssh_user = "ec2-user"
-
+  aws_hostname_prefix  = "tf"
+  aws_route53_zone  = "qa.rancher.space"
 }
 
-kubernetes_version = "v1.31.9+rke2r1"
-machine_pools = [
-  {
-    control_plane_role = true
-    worker_role = true
-    etcd_role = true
-    quantity = 1
-  }
-]
+fqdn = "https://rancher-setup.example"
+api_key =  ""
+
+cloud_provider = "aws"
+insecure = true
 ```

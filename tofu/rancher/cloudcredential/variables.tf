@@ -22,10 +22,10 @@ variable "cloud_provider" {
 
 variable "node_config" {
   type = object({
-    access_key         = optional(string)             # for amazonec2_credential_config
-    secret_key         = optional(string)             # for amazonec2_credential_config
-    region             = optional(string)             # for amazonec2_credential_config
-    token              = optional(string)             # for linode_credential_config
+    aws_access_key         = optional(string)             # for amazonec2_credential_config
+    aws_secret_key         = optional(string)             # for amazonec2_credential_config
+    aws_region             = optional(string)             # for amazonec2_credential_config
+    linode_token              = optional(string)             # for linode_credential_config
     cluster_v1_id      = optional(string)             # for harvester_credential_config
     cluster_type       = optional(string, "imported") # for harvester_credential_config
     kubeconfig_content = optional(string)             # for harvester_credential_config
