@@ -4,19 +4,12 @@ This playbook deploys an RKE2 Kubernetes cluster.
 
 ## Prerequisites
 
-* Python 3.7 or later.
-* Ansible installed and run from the root of the repository.
-* `ansible-inventory-terraform` installed.
-* SSH access to the target nodes.
-* A valid inventory file (e.g., `terraform-inventory.yml`).
-* A `vars.yaml` file with necessary variables.
+Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../README.md):
 
-## Installation
-
-1.  **Install Ansible and its dependencies:**
-    ```bash
-    ansible-galaxy collection install cloud.terraform
-    ```
+* `ansible-inventory-terraform` installed
+* SSH access to the target nodes
+* A valid inventory file (e.g., `terraform-inventory.yml`)
+* A `vars.yaml` file with necessary variables
 
 ## Usage
 

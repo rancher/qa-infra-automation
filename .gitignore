@@ -5,5 +5,8 @@
 *.tfstate.backup
 .terraform
 .terraform.lock.hcl
+*terraform.tfstate.d
 **/terraform.tfstate.d/*
 vars.yaml
+*.env
+kubeconfig.yaml
