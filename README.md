@@ -4,7 +4,7 @@ This repository contains infrastructure automation scripts using Tofu and Ansibl
 
 ## Getting Started
 
-All are welcome and encouraged to contribute! Try to keep any changes generalized, easy to understand, and reusable by all. There may be cases, however, where some specifics are required. In these cases, make sure to include yourself or your team in the CODEOWNERS file for the necessary path. Any new ansible playbook or tofu module should have a README that explains usage, including input params, output params, and an example. Please follow best practices for both [Tofu](https://opentofu.org/docs/language/syntax/style/) and [Ansible](https://docs.ansible.com/ansible/latest/tips_tricks/ansible_tips_tricks.html).
+All are welcome and encouraged to contribute! Try to keep any changes generalized, easy to understand, and reusable by all. There may be cases, however, where some specifics are required. In these cases, make sure to include yourself or your team in the [CODEOWNERS](./CODEOWNERS) file for the necessary path. Any new ansible playbook or tofu module should have a README that explains usage, including input params, output params, and an example. Please follow best practices for both [Tofu](https://opentofu.org/docs/language/syntax/style/) and [Ansible](https://docs.ansible.com/ansible/latest/tips_tricks/ansible_tips_tricks.html).
 
 Some contributors may be more familiar with Terraform than Tofu. Tofu is the open-source alternative but is otherwise almost identical. See their docs to learn more about how to [migrate from Terraform to Tofu](https://opentofu.org/docs/intro/migration/). 
 
