@@ -5,6 +5,7 @@ This module deploys a set of cluster nodes on AWS.
 ## Prerequisites
 
 * AWS account configured with appropriate credentials.
+* AWS account configured already with a VPC, Subnet, and Security Group that you will use as variables in this module.
 * Terraform installed.
 
 ## Usage

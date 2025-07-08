@@ -31,4 +31,5 @@ See below for a visual representation of the directory structure. In the ansible
 - Ansible playbooks should be provider-agnostic.
 - Tofu should contain modular TF pieces that can work together or on their own.
 - Everything should be as modular as possible.
-- Any collection of tasks that are easily reusable should be a *role* and called from playbooks that need them
+- Any collection of tasks that are easily reusable should be a *role* and called from playbooks that need them.
+- If a value may be different in someone else's environment, then use a variable to set it. These variables should also have descriptions so it is clear how to use them, and more information in the associated playbook or module's README if it needs further clarification.
