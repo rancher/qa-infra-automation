@@ -1,7 +1,7 @@
 
 REPO_ROOT=$(pwd)
 WORKSPACE_NAME="tofu_workspace"
-TERRAFORM_DIR="tofu/aws/cluster_nodes"
+TERRAFORM_DIR="tofu/aws/modules/cluster_nodes"
 RKE2_PLAYBOOK_PATH="ansible/rke2/rke2-playbook.yml"
 TERRAFORM_INVENTORY="ansible/rke2/terraform-inventory.yml"
 ANSIBLE_CONFIG="$REPO_ROOT/ansible/rke2/ansible.cfg"

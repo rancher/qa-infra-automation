@@ -15,7 +15,7 @@ Before running the playbook, ensure you have the following in addition to the [g
 
 Before running the playbook, you may need to set the `ANSIBLE_CONFIG` environment variable to point to the `ansible.cfg` file in this directory:
     ```bash
-    export ANSIBLE_CONFIG=/path/to/go/src/github.com/rancher/qa-infra-automation/ansible/rke2/ansible.cfg
+    export ANSIBLE_CONFIG=/path/to/go/src/github.com/rancher/qa-infra-automation/ansible/rke2/default/ansible.cfg
     ```
 1.  **Generate and Check Inventory:**
     If using terraform to create your nodes, you can use the terraform-inventory.yml to dynamically generate the inventory.
