@@ -10,3 +10,8 @@
 vars.yaml
 *.env
 kubeconfig.yaml
+
+.vscode/
+.idea/
+.kube/
+*.pem
