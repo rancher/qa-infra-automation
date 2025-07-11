@@ -1,34 +1,34 @@
-# AWS Airgap Terraform Module
+# AWS Airgap tofu Module
 
 This module deploys airgap rancher on AWS.
 
 ## Prerequisites
 
 * AWS account configured with appropriate credentials.
-* Terraform installed.
+* tofu installed.
 
 ## Usage
 
 1.  **Create a Workspace:**
 
     ```bash
-    terraform workspace new <workspace_name>
+    tofu workspace new <workspace_name>
     ```
 
 2.  **Select the Workspace:**
 
     ```bash
-    terraform workspace select <workspace_name>
+    tofu workspace select <workspace_name>
     ```
 
 3.  **Apply the Configuration:**
 
     ```bash
-    terraform apply -var-file="terraform.tfvars"
+    tofu apply -var-file="terraform.tfvars"
     ```
     or
     ```bash
-    terraform apply -var="<variable_name>=<variable_value>"
+    tofu apply -var="<variable_name>=<variable_value>"
     ```
 
     Create a `terraform.tfvars` file or use the `-var` flag to provide values for the variables defined in `variables.tf`.
@@ -36,11 +36,11 @@ This module deploys airgap rancher on AWS.
 4.  **Destroy the Infrastructure:**
 
     ```bash
-    terraform destroy -var-file="terraform.tfvars"
+    tofu destroy -var-file="terraform.tfvars"
     ```
     or
     ```bash
-    terraform destroy -var="<variable_name>=<variable_value>"
+    tofu destroy -var="<variable_name>=<variable_value>"
     ```
 
     Use the same `terraform.tfvars` file or `-var` flags used during `apply`.
