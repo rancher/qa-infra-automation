@@ -26,9 +26,9 @@ variable "node_config" {
     aws_secret_key         = optional(string)             # for amazonec2_credential_config
     aws_region             = optional(string)             # for amazonec2_credential_config
     linode_token              = optional(string)             # for linode_credential_config
-    cluster_v1_id      = optional(string)             # for harvester_credential_config
-    cluster_type       = optional(string, "imported") # for harvester_credential_config
-    kubeconfig_content = optional(string)             # for harvester_credential_config
+    harvester_cluster_v1_id      = optional(string)             # for harvester_credential_config
+    harvester_cluster_type       = optional(string, "imported") # for harvester_credential_config
+    harvester_kubeconfig_content = optional(string)             # for harvester_credential_config
   })
   description = "An object containing your cloud provider's specific rancher2_cloud_credential config fields in order to dynamically map to them"
   nullable    = false

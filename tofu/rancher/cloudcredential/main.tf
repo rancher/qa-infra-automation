@@ -25,9 +25,9 @@ resource "rancher2_cloud_credential" "this" {
   dynamic "harvester_credential_config" {
     for_each = var.cloud_provider == "harvester" ? [1] : []
     content {
-      cluster_id         = var.node_config.cluster_v1_id
-      cluster_type       = var.node_config.cluster_type
-      kubeconfig_content = var.node_config.kubeconfig_content
+      cluster_id         = var.node_config.harvester_cluster_v1_id
+      cluster_type       = var.node_config.harvester_cluster_type
+      kubeconfig_content = var.node_config.harvester_kubeconfig_content
     }
   }
 }

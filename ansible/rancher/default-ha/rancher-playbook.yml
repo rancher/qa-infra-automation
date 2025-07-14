@@ -8,7 +8,8 @@
     # Get the current Terraform workspace name
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
     # Construct the path to the workspace's state file
-    terraform_state_file: "tofu/aws/modules/cluster_nodes/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('default_value', 'tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
     # Use default values if not defined in vars.yaml
     rancher_chart_repo_default: "rancher-latest"
@@ -104,6 +105,17 @@
       register: rancher_ingress
       when: rancher_version != ""
 
+    - name: Wait for Rancher UI
+      uri:
+        url: "https://{{ fqdn }}"
+        method: GET
+        status_code: 200
+        validate_certs: false
+      register: webpage_result
+      retries: 30
+      delay: 5
+      until: webpage_result.status == 200
+
     - name: Display Rancher URL
       debug:
         msg: "Rancher URL: https://{{ rancher_ingress.resources[0].spec.rules[0].host }}"
@@ -161,3 +173,10 @@
     - name: Print Token
       debug:
         msg: "RANCHER_API_KEY: {{ API_KEY }}"
+
+    - name: Write multiple variables to file
+      copy:
+        dest: generated.tfvars
+        content: |
+          fqdn = "https://{{ fqdn }}"
+          api_key = "{{ API_KEY }}"
