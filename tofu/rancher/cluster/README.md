@@ -25,15 +25,16 @@ This module deploys a downstream cluster on your rancher setup
 3.  **Create the downstream cluster**
     * see the [variables section](#sample) to configure the cluster
     ```bash
-    tofu -chdir=tofu/rancher/cluster apply -auto-approve -var-file=/path/to/vars.tfvars
+    tofu -chdir=tofu/rancher/cluster apply -auto-approve -var-file=/path/to/vars.tfvars -var-file=$REPO_ROOT/ansible/rancher/generated.tfvars
     ```
+    omit the last -var-file if not using rancher installed via ansible
 
     Create a `vars.tfvars` file or use the `-var` flag to provide values for the variables defined in `variables.tf`.
 
 4.  **Destroy the downstream cluster:**
 
     ```bash
-    tofu -chdir=tofu/rancher/cluster destroy -auto-approve -var-file=/path/to/vars.tfvars
+    tofu -chdir=tofu/rancher/cluster destroy -auto-approve -var-file=/path/to/vars.tfvars -var-file=$REPO_ROOT/ansible/rancher/generated.tfvars
     ```
 
     Use the same `vars.tfvars` file or `-var` flags used during `apply`.
