@@ -52,5 +52,5 @@ nodes = [
   }
 ]
 ssh_key = "your-public-key"
-hostname_prefix   = "hostnameprefix"
+generate_name   = "hostnameprefix"
 ```

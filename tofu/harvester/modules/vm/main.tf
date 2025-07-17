@@ -4,7 +4,7 @@ locals {
   temp_node_names = flatten([
     for node_group in var.nodes : [
       for i in range(node_group.count) : {
-        name =  "${var.hostname_prefix}-${join("-", node_group.role)}-${i}"
+        name =  "${join("-", node_group.role)}-${i}"
         role = node_group.role
         is_server = false
       }
@@ -14,7 +14,7 @@ locals {
   # Update the is_server attribute for the first etcd node
   node_names = [
     for node in local.temp_node_names : {
-      name = node.name == local.temp_node_names[local.first_etcd_index].name ? "${var.hostname_prefix}-master" : node.name
+      name = node.name == local.temp_node_names[local.first_etcd_index].name ? "master" : node.name
       role = node.role
     }
   ]
@@ -34,53 +34,39 @@ resource "random_string" "random_suffix" {
 }
 
 resource "harvester_ssh_key" "ssh-key" {
-  name      = "${var.hostname_prefix}-ssh-key-${random_string.random_suffix.result}"
+  name      = "${var.generate_name}-ssh-key-${random_string.random_suffix.result}"
   namespace = var.namespace
 
   public_key = var.ssh_key
 }
 
-locals {
-  cloud_init = <<-EOT
-    #cloud-config
-    package_update: true
-    packages:
-      - qemu-guest-agent
-    runcmd:
-      - - systemctl
-        - enable
-        - --now
-        - qemu-guest-agent.service
-    ssh_authorized_keys:
-      - ${var.ssh_key}
-    EOT
-}
-
 resource "kubernetes_secret" "cloud-config-secret" {
   metadata {
-    name      = "${var.hostname_prefix}-secret-${random_string.random_suffix.result}"
+    name      = "${var.generate_name}-secret-${random_string.random_suffix.result}"
     namespace = var.namespace
     labels = {
       "sensitive" = "false"
     }
   }
   data = {
-    "userdata" = local.cloud_init
+    "userdata" = "${var.cloud_init}\nssh_authorized_keys:\n  - ${var.ssh_key}\n"
   } 
 }
 
-
 resource "harvester_virtualmachine" "vm" {
-
   for_each = { for node in local.node_names : node.name => node }
+  # increate timeout to allow for updates
+  timeouts {
+    create = "6m"
+  }
   depends_on = [
   kubernetes_secret.cloud-config-secret
   ]
-  name                 = "${each.value.name}"
+  name                 = "${var.generate_name}-${each.value.name}"
   namespace            = var.namespace
   restart_after_update = true
 
-  description = "Automated VM"
+  description = "Automated Terraform VM"
   tags = {
   ssh-user = var.ssh_user
   }
@@ -92,7 +78,7 @@ resource "harvester_virtualmachine" "vm" {
   secure_boot = false
 
   run_strategy = "RerunOnFailure"
-  hostname     = "${each.value.name}"
+  hostname     = "${var.generate_name}-${each.value.name}"
   machine_type = var.machine_type
 
   ssh_keys = [
@@ -119,7 +105,20 @@ resource "harvester_virtualmachine" "vm" {
   }
 
   cloudinit {
-  user_data_secret_name = "${var.hostname_prefix}-secret-${random_string.random_suffix.result}"
+  user_data_secret_name = "${var.generate_name}-secret-${random_string.random_suffix.result}"
   network_data = ""
   }
+}
+
+resource "ansible_host" "node" {
+  for_each = { for node in local.node_names : node.name => node }
+  name = each.value.name
+  variables = {
+    # Connection vars.
+    ansible_user = var.ssh_user
+    ansible_host = harvester_virtualmachine.vm[each.key].network_interface[0].ip_address
+    ansible_role = join(",", each.value.role)
+
+  }
+  depends_on = [harvester_virtualmachine.vm]
 }

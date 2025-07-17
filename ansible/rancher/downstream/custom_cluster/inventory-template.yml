@@ -2,6 +2,7 @@ plugin: cloud.terraform.terraform_provider
 project_path: "$TERRAFORM_NODE_SOURCE"
 workspace: "$TF_WORKSPACE"
 binary_path: tofu
+
 keyed_groups:
   - key: name
     prefix: ""
@@ -21,4 +22,4 @@ keyed_groups:
     regex: '^true$'
 all:
   vars:
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"

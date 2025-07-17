@@ -3,6 +3,22 @@ variable "ssh_key" {
   type = string
 }
 
+variable "cloud_init" {
+  default = <<-EOT
+    #cloud-config
+    package_update: true
+    package_upgrade: true
+    package_reboot_if_required: true
+    packages:
+      - qemu-guest-agent
+    runcmd:
+      - - systemctl
+        - enable
+        - --now
+        - qemu-guest-agent.service
+  EOT
+}
+
 variable "cpu" {
   description = "the desired cpu count"
   type = number
@@ -36,7 +52,7 @@ variable "nodes" {
   description = "Configuration for RKE2 nodes."
   type = list(object({
     count = number
-    role  = list(string) # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
+    role  = list(string)
   }))
 }
 
@@ -54,6 +70,8 @@ variable "namespace" {
   default = "default"
 }
 
-variable "hostname_prefix" {
-  description = "prefix to append to created resources"
+variable "generate_name" {
+  type     = string
+  default = "tf"
+  nullable = false
 }

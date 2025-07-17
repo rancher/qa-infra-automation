@@ -24,7 +24,7 @@ variable "machine_pools" {
 
 variable "generate_name" {
   type     = string
-  default = "ctw"
+  default = "tf"
   nullable = false
 }
 

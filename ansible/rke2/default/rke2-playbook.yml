@@ -11,7 +11,7 @@
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     # Use the constructed path in the lookups
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
 
     - name: Wait for SSH on node
@@ -36,7 +36,7 @@
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
     - name: Transfer and execute init-cluster.sh (initial etcd node)
       script: ./init-cluster.sh
@@ -97,6 +97,7 @@
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
     server_host: "{{ (groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
     - name: Read node_token from local file
       delegate_to: localhost
@@ -120,7 +121,7 @@
         FQDN: "{{ fqdn }}"
         CNI: "{{ cni }}"
         NODE_TOKEN: "{{ node_token }}"
-        NODE_ROLE: "{{ ansible_role }}" # Pass the role to the script
+        NODE_ROLE: "{{ ansible_role }}"
       register: script_result
       when: 'inventory_hostname != "master" and ("cp" in ansible_role or "etcd" in ansible_role)'
 
@@ -153,5 +154,5 @@
       until: >
         rke2_pods_check.resources is defined and
         (rke2_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
-      retries: 5 # Number of retries after the first attempt fails (total 6 attempts).
-      delay: 60  # Seconds to wait between retries. Effective timeout ~5 minutes.
+      retries: 5
+      delay: 60
