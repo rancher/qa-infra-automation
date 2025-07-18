@@ -55,7 +55,7 @@ resource "kubernetes_secret" "cloud-config-secret" {
 
 resource "harvester_virtualmachine" "vm" {
   for_each = { for node in local.node_names : node.name => node }
-  # increate timeout to allow for updates
+  # increase timeout to allow for updates
   timeouts {
     create = "6m"
   }

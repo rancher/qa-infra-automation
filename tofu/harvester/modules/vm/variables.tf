@@ -4,6 +4,7 @@ variable "ssh_key" {
 }
 
 variable "cloud_init" {
+  description = "valid cloud-init that applies to each node. Default updates Ubuntu."
   default = <<-EOT
     #cloud-config
     package_update: true
@@ -71,6 +72,7 @@ variable "namespace" {
 }
 
 variable "generate_name" {
+  description = "short name to append to created resources"
   type     = string
   default = "tf"
   nullable = false

@@ -1,36 +1,32 @@
-variable "kubernetes_version" {}
+variable "kubernetes_version" {
+  description = "desired, valid k8s version. Should be available in the rancher setup."
+}
 
 variable "is_network_policy" {
-    default = false
-    type    = bool
+  description = "boolean, whether or not to set network policy"
+  default = false
+  type    = bool
 }
 variable "psa" {
-    default = "" # "rancher-privileged"
-}
-variable "machine_pools" {
-  type = list(object({
-    control_plane_role        = optional(bool, false)
-    worker_role      = optional(bool, false)
-    etcd_role     = optional(bool, false)
-    quantity = optional(number, 1)
-  }))
-  default     = [{
-    control_plane_role = true
-    worker_role = true
-    etcd_role = true
-    quantity = 1
-  }]
+  description = "valid PSA. Should already be available in rancher setup."
+  default = "" # "rancher-privileged"
 }
 
 variable "generate_name" {
+  description = "short name to append to created resources"
   type     = string
   default = "tf"
   nullable = false
 }
 
-variable fqdn {}
-variable api_key {}
+variable fqdn {
+  description = "https://your-rancher-setup"
+}
+variable api_key {
+  description = "valid api key from your rancher setup."
+}
 variable insecure {
-    default = true
-    type    = bool
+  description = "use insecure if your TLS certs aren't officially signed."
+  default = true
+  type    = bool
 }

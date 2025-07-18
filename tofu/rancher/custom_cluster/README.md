@@ -9,7 +9,6 @@ This module deploys a downstream cluster on your rancher setup
 
 ## Usage
 
-
 1.  **Create the downstream cluster**
     * see the [variables section](#sample) to configure the cluster
     ```bash
@@ -27,10 +26,11 @@ This module deploys a downstream cluster on your rancher setup
     Use the same `vars.tfvars` file or `-var` flags used during `apply`.
 
 ## Outputs
-Refer to [outputs.tf](./outputs.tf) for a list of exported values.
+`cluster_registration_token` -- the (insecure) registration token for the rancher custom cluster (with no roles).
 
-## Sample `vars.tfvars`
+## Sample
 
+`vars.tfvars`
 ```tofu
 kubernetes_version = "v1.32.5+rke2r1"
 is_network_policy = false
