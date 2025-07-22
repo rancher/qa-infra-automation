@@ -31,7 +31,7 @@ variable "create_new" {
 
 variable "generate_name" {
   type     = string
-  default = "ctw"
+  default = "tf"
   nullable = false
 }
 

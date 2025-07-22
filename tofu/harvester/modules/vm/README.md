@@ -42,7 +42,9 @@ Refer to `variables.tf` for a list of configurable variables.
 
 Refer to `outputs.tf` for a list of exported values.
 
-## Sample `terraform.tfvars`
+## Sample
+
+`terraform.tfvars`
 
 ```terraform
 nodes = [
@@ -52,5 +54,5 @@ nodes = [
   }
 ]
 ssh_key = "your-public-key"
-hostname_prefix   = "hostnameprefix"
+generate_name   = "hostnameprefix"
 ```

@@ -1,0 +1,86 @@
+---
+- hosts: "localhost"
+  connection: local
+  gather_facts: false
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
+    # Construct the path to the workspace's state file
+    terraform_state_path: "{{ 'tofu/rancher/custom_cluster' }}"
+    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    # Use the constructed path in the lookups
+    cluster_registration_token: "{{ lookup('cloud.terraform.tf_output', 'cluster_registration_token', state_file=terraform_state_file) }}"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+  tasks:
+    - name: Set Registration Token
+      set_fact:
+        cluster_registration_token: "{{ cluster_registration_token }}"
+      delegate_to: localhost
+      run_once: true
+
+# ensure downstream nodes are fully reachable
+- hosts: "localhost"
+  connection: local
+  gather_facts: false
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
+    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('default_value', 'tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  tasks:
+    - name: Wait for SSH on main node
+      wait_for:
+        host: "{{ kube_api_host }}"
+        port: 22
+        timeout: 120
+        state: started
+
+- hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
+    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('default_value', 'tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    server_host: "{{ (groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | map('inventory_hostname') | list)[0] }}"
+
+  tasks:
+
+    - name: Display Token
+      debug:
+        var: hostvars['localhost']['cluster_registration_token']
+
+    - name: Transfer and Node Registration
+      script: ./register-node.sh
+      environment:
+        TOKEN: "{{ hostvars['localhost']['cluster_registration_token'] }}"
+        NODE_ROLE: "{{ ansible_role }}"
+        NODE_IP: "{{ ansible_host }}"
+        NODE_NAME: "{{ inventory_hostname }}"
+      register: script_result
+
+    - name: Display script output (stdout)
+      debug:
+        var: script_result.stdout_lines
+
+- hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
+    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('default_value', 'tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    server_host: "{{ (groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | map('inventory_hostname') | list)[0] }}"
+  tasks:
+    - name: Wait for Node Registration to Complete
+      script: ./wait-to-complete.sh
+      register: script_result
+      when: '"cp" in ansible_role or "etcd" in ansible_role'
+
+    - name: Display script output (stdout)
+      debug:
+        var: script_result.stdout_lines
+      when: '"cp" in ansible_role or "etcd" in ansible_role'

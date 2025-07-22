@@ -8,6 +8,10 @@ terraform {
       source = "hashicorp/kubernetes"
       version = "2.37.1"
     }
+    ansible = {
+      source  = "ansible/ansible"
+      version = "1.3.0"
+    }
   }
 }
 
