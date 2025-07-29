@@ -8,7 +8,7 @@
     # Get the current Terraform workspace name
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
     # Construct the path to the workspace's state file
-    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('default_value', 'tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
     # Use default values if not defined in vars.yaml
@@ -133,11 +133,16 @@
         status_code: 201
         body_format: json
       register: rancherjson
+      retries: 5
+      delay: 10
+      until: rancherjson.status == 201
+      when: rancher_version != ""
 
     - name: Extract Rancher UserID and Token
       set_fact:
         rancher_user_id: "{{ rancherjson.json.userId }}"
         API_KEY: "{{ rancherjson.json.token }}"
+      when: rancher_version != ""
 
     - name: Set Rancher Password
       ansible.builtin.uri:
@@ -153,6 +158,11 @@
         force_basic_auth: true
         validate_certs: false
         status_code: 200
+      register: set_password_result
+      retries: 5
+      delay: 10
+      until: set_password_result.status == 200
+      when: rancher_version != ""
 
     - name: Set Rancher Server URL
       ansible.builtin.uri:
@@ -169,6 +179,11 @@
         force_basic_auth: true
         validate_certs: false
         status_code: 200
+      register: set_server_url_result
+      retries: 5
+      delay: 10
+      until: set_server_url_result.status == 200
+      when: rancher_version != ""
     
     - name: Print Token
       debug:
