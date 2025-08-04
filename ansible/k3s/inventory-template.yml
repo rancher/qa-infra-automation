@@ -1,0 +1,10 @@
+plugin: cloud.terraform.terraform_provider
+project_path: "$TERRAFORM_NODE_SOURCE"
+workspace: "$TF_WORKSPACE"
+binary_path: /usr/bin/tofu
+keyed_groups:
+  - key: ansible_role
+    prefix: ""
+all:
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
