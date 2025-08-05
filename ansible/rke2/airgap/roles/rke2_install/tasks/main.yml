@@ -171,9 +171,10 @@
         # Create required directories
         mkdir -p /tmp/rke2-artifacts
 
-        # Move files
+        # Move files from the extracted bundle structure
         if [ -f /tmp/rke2-extract/tmp/rke2-install.sh ]; then
           mv /tmp/rke2-extract/tmp/rke2-install.sh /tmp/rke2-install.sh
+          chmod +x /tmp/rke2-install.sh
         fi
 
         if [ -d /tmp/rke2-extract/tmp/rke2-artifacts ]; then
@@ -182,26 +183,21 @@
 
         # Show final structure
         echo "Final directory structure:"
-        find /tmp/rke2-artifacts /tmp/rke2-install.sh -type f -ls
+        ls -la /tmp/rke2-artifacts/
+        ls -la /tmp/rke2-install.sh 2>/dev/null || echo "Install script not found"
       register: move_result
       become: true
 
     - name: Display move result
       debug:
-        msg: |
-          Move command output:
-          stdout: {{ move_result.stdout_lines | default([]) | join('\n') }}
-          stderr: {{ move_result.stderr_lines | default([]) | join('\n') }}
+        msg: "{{ move_result.stdout_lines | default([]) | join('\n') }}"
 
     - name: Set correct permissions
       file:
-        path: "{{ item }}"
+        path: /tmp/rke2-install.sh
         mode: '0755'
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-      loop:
-        - /tmp/rke2-install.sh
-        - /tmp/rke2-artifacts/rke2
       become: true
 
     - name: Clean up temp directory
@@ -210,135 +206,20 @@
         state: absent
       become: true
 
-    - name: Debug artifacts directory contents
-      shell: |
-        echo "=== Contents of /tmp/rke2-artifacts ==="
-        ls -la /tmp/rke2-artifacts/ || echo "Directory does not exist"
-        echo ""
-        echo "=== Looking for RKE2 tarballs anywhere in extracted content ==="
-        find /tmp/rke2-extract -name "*.tar.gz" -type f 2>/dev/null || echo "No tar.gz files found in extract directory"
-        echo ""
-        echo "=== Looking for RKE2 binaries ==="
-        find /tmp/rke2-extract -name "rke2*" -type f 2>/dev/null || echo "No rke2 files found"
-      register: debug_artifacts
-      become: true
-      changed_when: false
+    - name: Verify RKE2 tarball exists after extraction
+      stat:
+        path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+      register: rke2_tarball_check
+      failed_when: not rke2_tarball_check.stat.exists
 
-    - name: Display debug information
+    - name: Display RKE2 tarball status
       debug:
-        msg: "{{ debug_artifacts.stdout_lines }}"
-
-    - name: Fix file extraction and organization
-      shell: |
-        set -x
-        echo "=== Current extraction directory structure ==="
-        find /tmp/rke2-extract -type f -ls 2>/dev/null || echo "Extract directory not found"
-        
-        # Create artifacts directory
-        mkdir -p /tmp/rke2-artifacts
-        
-        # Look for and move RKE2 tarball files
-        if find /tmp/rke2-extract -name "rke2*.tar.gz" -type f | head -1 | grep -q .; then
-          echo "Found RKE2 tarball files, moving them..."
-          find /tmp/rke2-extract -name "rke2*.tar.gz" -type f -exec cp {} /tmp/rke2-artifacts/ \;
-        fi
-        
-        # Look for and move other required files
-        if find /tmp/rke2-extract -name "rke2-images*.tar.gz" -type f | head -1 | grep -q .; then
-          echo "Found RKE2 images tarball, moving it..."
-          find /tmp/rke2-extract -name "rke2-images*.tar.gz" -type f -exec cp {} /tmp/rke2-artifacts/ \;
-        fi
-        
-        if find /tmp/rke2-extract -name "sha256sum*.txt" -type f | head -1 | grep -q .; then
-          echo "Found checksum file, moving it..."
-          find /tmp/rke2-extract -name "sha256sum*.txt" -type f -exec cp {} /tmp/rke2-artifacts/ \;
-        fi
-        
-        if find /tmp/rke2-extract -name "rke2" -type f | head -1 | grep -q .; then
-          echo "Found RKE2 binary, moving it..."
-          find /tmp/rke2-extract -name "rke2" -type f -exec cp {} /tmp/rke2-artifacts/ \;
-        fi
-        
-        if find /tmp/rke2-extract -name "rke2-install.sh" -type f | head -1 | grep -q .; then
-          echo "Found install script, moving it..."
-          find /tmp/rke2-extract -name "rke2-install.sh" -type f -exec cp {} /tmp/ \;
-        fi
-        
-        echo "=== Final artifacts directory ==="
-        ls -la /tmp/rke2-artifacts/
-        echo "=== Install script ==="
-        ls -la /tmp/rke2-install.sh 2>/dev/null || echo "Install script not found"
-      register: fix_extraction
-      become: true
-
-    - name: Display extraction fix results
-      debug:
-        msg: "{{ fix_extraction.stdout_lines }}"
-
-    - name: Download RKE2 tarball on bastion and copy to airgap nodes
-      block:
-        - name: Check if RKE2 tarball exists locally
-          stat:
-            path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-          register: rke2_tarball_check
-
-        - name: Download RKE2 tarball on bastion host
-          get_url:
-            url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version | default('v1.31.1+rke2r1') }}/rke2.linux-amd64.tar.gz"
-            dest: /opt/rke2-files/rke2.linux-amd64.tar.gz
-            mode: '0644'
-            timeout: 300
-          delegate_to: "{{ groups['bastion'][0] }}"
-          when: not rke2_tarball_check.stat.exists
-          vars:
-            ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-
-        - name: Copy RKE2 tarball from bastion to airgap node
-          command: >
-            scp -i {{ ssh_private_key_file }}
-            -o StrictHostKeyChecking=no
-            -o UserKnownHostsFile=/dev/null
-            -o ProxyCommand="ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}"
-            {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}:/opt/rke2-files/rke2.linux-amd64.tar.gz
-            /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-          when: not rke2_tarball_check.stat.exists
-          become: false
-          vars:
-            ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-            ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand='ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}'"
-
-        - name: Verify RKE2 tarball exists
-          stat:
-            path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-          register: rke2_tarball_final
-          failed_when: not rke2_tarball_final.stat.exists
-
-        - name: Display RKE2 tarball status
-          debug:
-            msg: |
-              RKE2 Tarball Status:
-              - Version: {{ rke2_version | default('v1.31.1+rke2r1') }}
-              - Path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-              - Exists: {{ rke2_tarball_final.stat.exists }}
-              - Size: {{ rke2_tarball_final.stat.size | default('N/A') }} bytes
-              - Downloaded from bastion: {{ not rke2_tarball_check.stat.exists }}
-
-    - name: Create symlink for RKE2 tarball naming compatibility
-      shell: |
-        if [ -f /tmp/rke2-artifacts/rke2-linux-amd64.tar.gz ] && [ ! -f /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz ]; then
-          echo "Creating symlink: rke2-linux-amd64.tar.gz -> rke2.linux-amd64.tar.gz"
-          ln -sf rke2-linux-amd64.tar.gz /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-          echo "Symlink created successfully"
-        else
-          echo "No symlink needed or file already exists"
-        fi
-      register: tarball_fix
-      become: true
-      changed_when: "'Symlink created successfully' in tarball_fix.stdout"
-
-    - name: Display tarball fix results
-      debug:
-        msg: "Symlink creation result: {{ tarball_fix.stdout_lines }}"
+        msg: |
+          RKE2 Tarball Status:
+          - Version: {{ rke2_version }}
+          - Path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+          - Exists: {{ rke2_tarball_check.stat.exists }}
+          - Size: {{ rke2_tarball_check.stat.size | default('N/A') }} bytes
 
     - name: Verify required files
       stat:
@@ -346,36 +227,37 @@
       register: file_check
       failed_when: not file_check.stat.exists
       loop:
-        - /tmp/rke2-artifacts/rke2
+        - /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
         - /tmp/rke2-artifacts/rke2-images.tar.gz
         - /tmp/rke2-artifacts/sha256sum-amd64.txt
         - /tmp/rke2-install.sh
-
-    - name: Verify RKE2 tarball (either naming convention)
-      shell: |
-        if [ -f /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz ]; then
-          echo "Found: rke2.linux-amd64.tar.gz"
-          exit 0
-        elif [ -f /tmp/rke2-artifacts/rke2-linux-amd64.tar.gz ]; then
-          echo "Found: rke2-linux-amd64.tar.gz"
-          exit 0
-        else
-          echo "ERROR: No RKE2 tarball found"
-          exit 1
-        fi
-      register: tarball_check
-      changed_when: false
 
     - name: Display artifacts status
       debug:
         msg: |
           RKE2 Artifacts Status:
           - Bundle extracted to: /tmp/rke2-artifacts/
-          - RKE2 binary: {{ file_check.results[0].stat.exists }}
+          - RKE2 tarball: {{ file_check.results[0].stat.exists }}
           - Images bundle: {{ file_check.results[1].stat.exists }}
           - Checksums file: {{ file_check.results[2].stat.exists }}
           - Install script: {{ file_check.results[3].stat.exists }}
-          - RKE2 tarball: {{ tarball_check.stdout }}
+
+- name: Create RKE2 images directory
+  file:
+    path: /var/lib/rancher/rke2/agent/images
+    state: directory
+    mode: '0755'
+  become: true
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Copy RKE2 images to proper location
+  copy:
+    src: /tmp/rke2-artifacts/rke2-images.tar.gz
+    dest: /var/lib/rancher/rke2/agent/images/
+    remote_src: true
+    mode: '0644'
+  become: true
+  when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Run RKE2 server install script
   shell: |
