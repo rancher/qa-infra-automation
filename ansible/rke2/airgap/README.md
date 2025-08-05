@@ -246,7 +246,7 @@ For detailed upgrade procedures, troubleshooting, and best practices, see [`docs
 
 ## Configuration
 
-### Global Variables (`group_vars/all.yml`)
+### Global Variables (`inventory/group_vars/all.yml`)
 
 Key configuration options:
 
