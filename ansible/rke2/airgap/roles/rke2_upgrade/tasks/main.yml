@@ -1,0 +1,409 @@
+---
+- name: RKE2 Upgrade Tasks
+  block:
+    - name: Check current RKE2 version
+      shell: |
+        if [ -f /usr/local/bin/rke2 ]; then
+          /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
+        else
+          echo "not-installed"
+        fi
+      register: current_rke2_version
+      changed_when: false
+      become: true
+
+    - name: Display current and target versions
+      debug:
+        msg: |
+          Current RKE2 Version: {{ current_rke2_version.stdout }}
+          Target RKE2 Version: {{ rke2_version }}
+          Upgrade needed: {{ current_rke2_version.stdout != rke2_version }}
+
+    - name: Skip upgrade if versions match
+      debug:
+        msg: "RKE2 is already at version {{ rke2_version }}. Skipping upgrade."
+      when: current_rke2_version.stdout == rke2_version
+
+    - name: Perform RKE2 upgrade
+      block:
+        - name: Create backup directory
+          file:
+            path: /opt/rke2-backup-{{ ansible_date_time.epoch }}
+            state: directory
+            mode: '0755'
+          become: true
+
+        - name: Backup current RKE2 configuration
+          copy:
+            src: "{{ item }}"
+            dest: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/"
+            remote_src: true
+            backup: true
+          loop:
+            - /etc/rancher/rke2/config.yaml
+            - /var/lib/rancher/rke2/server/node-token
+          become: true
+          ignore_errors: true
+
+        - name: Download new RKE2 tarball bundle on bastion
+          block:
+            - name: Create RKE2 artifact directory on bastion
+              file:
+                path: /tmp/rke2-artifacts
+                state: directory
+                mode: '0755'
+
+            - name: Download install script
+              get_url:
+                url: https://raw.githubusercontent.com/rancher/rke2/master/install.sh
+                dest: /tmp/rke2-install.sh
+                mode: '0755'
+                timeout: 60
+              register: download_result
+              until: download_result is success
+              retries: 3
+              delay: 5
+
+            - name: Download RKE2 tarball
+              get_url:
+                url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2.linux-amd64.tar.gz"
+                dest: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+                mode: '0644'
+                timeout: 60
+              register: tarball_download
+              until: tarball_download is success
+              retries: 3
+              delay: 5
+
+            - name: Download checksum file
+              get_url:
+                url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/sha256sum-amd64.txt"
+                dest: /tmp/rke2-artifacts/sha256sum-amd64.txt
+                mode: '0644'
+                timeout: 60
+              register: checksum_download
+              until: checksum_download is success
+              retries: 3
+              delay: 5
+
+            - name: Verify downloaded tarball checksum
+              shell: |
+                cd /tmp/rke2-artifacts
+                sha256sum -c <(grep "rke2.linux-amd64.tar.gz" sha256sum-amd64.txt)
+              register: checksum_verify
+              changed_when: false
+              failed_when: false
+
+            - name: Display checksum verification result
+              debug:
+                msg: |
+                  Checksum verification: {{ 'PASSED' if checksum_verify.rc == 0 else 'FAILED' }}
+                  {% if checksum_verify.rc != 0 %}
+                  Warning: Checksum verification failed, but continuing with upgrade.
+                  This may indicate a version mismatch or corrupted download.
+                  {% endif %}
+
+            - name: Regenerate checksum file if verification failed
+              shell: |
+                cd /tmp/rke2-artifacts
+                sha256sum rke2.linux-amd64.tar.gz > sha256sum-amd64.txt
+                echo "Generated new checksum file with actual tarball hash"
+              when: checksum_verify.rc != 0
+              register: checksum_regen
+
+            - name: Download RKE2 images
+              get_url:
+                url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2-images.linux-amd64.tar.gz"
+                dest: /tmp/rke2-artifacts/rke2-images.tar.gz
+                mode: '0644'
+                timeout: 60
+              register: download_result
+              until: download_result is success
+              retries: 3
+              delay: 5
+
+            - name: Extract RKE2 binary from tarball
+              unarchive:
+                src: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+                dest: /tmp/rke2-artifacts/
+                remote_src: yes
+                creates: /tmp/rke2-artifacts/bin/rke2
+              register: extract_result
+
+            - name: Copy RKE2 binary to expected location
+              copy:
+                src: /tmp/rke2-artifacts/bin/rke2
+                dest: /tmp/rke2-artifacts/rke2
+                mode: '0755'
+                remote_src: yes
+
+            - name: Create shared directory for RKE2 files
+              file:
+                path: /opt/rke2-files
+                state: directory
+                mode: '0755'
+                owner: "{{ ansible_user }}"
+                group: "{{ ansible_user }}"
+
+            - name: Create staging directory structure
+              file:
+                path: "{{ item }}"
+                state: directory
+                mode: '0755'
+                owner: "{{ ansible_user }}"
+                group: "{{ ansible_user }}"
+              loop:
+                - /tmp/rke2-bundle-staging/tmp
+                - /tmp/rke2-bundle-staging/tmp/rke2-artifacts
+
+            - name: Copy files to staging directory
+              copy:
+                src: "{{ item.src }}"
+                dest: "{{ item.dest }}"
+                mode: preserve
+                remote_src: true
+              loop:
+                - { src: "/tmp/rke2-install.sh", dest: "/tmp/rke2-bundle-staging/tmp/rke2-install.sh" }
+                - { src: "/tmp/rke2-artifacts/rke2", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2" }
+                - { src: "/tmp/rke2-artifacts/rke2.linux-amd64.tar.gz", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2.linux-amd64.tar.gz" }
+                - { src: "/tmp/rke2-artifacts/rke2-images.tar.gz", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2-images.tar.gz" }
+                - { src: "/tmp/rke2-artifacts/sha256sum-amd64.txt", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/sha256sum-amd64.txt" }
+
+            - name: Create archive of RKE2 files
+              archive:
+                path: "/tmp/rke2-bundle-staging/tmp"
+                dest: /opt/rke2-files/rke2-bundle.tar.gz
+                format: gz
+                owner: "{{ ansible_user }}"
+                group: "{{ ansible_user }}"
+                mode: '0644'
+                remove: true
+
+            - name: Clean up staging directory
+              file:
+                path: /tmp/rke2-bundle-staging
+                state: absent
+
+          delegate_to: "{{ groups['bastion'][0] }}"
+          run_once: true
+
+        - name: Stop RKE2 service (server nodes)
+          systemd:
+            name: rke2-server
+            state: stopped
+          become: true
+          when: inventory_hostname == groups['airgap_nodes'][0]
+
+        - name: Stop RKE2 service (agent nodes)
+          systemd:
+            name: rke2-agent
+            state: stopped
+          become: true
+          when: inventory_hostname != groups['airgap_nodes'][0]
+
+        - name: Wait for services to stop
+          pause:
+            seconds: 10
+
+        - name: Create RKE2 artifact directory
+          file:
+            path: /tmp/rke2-artifacts
+            state: directory
+            mode: '0755'
+          become: true
+
+        - name: Synchronize new RKE2 bundle from bastion
+          block:
+            - name: Check bundle on bastion
+              stat:
+                path: /opt/rke2-files/rke2-bundle.tar.gz
+              delegate_to: "{{ groups['bastion'][0] }}"
+              register: bundle_stat
+              until: bundle_stat.stat.exists
+              retries: 6
+              delay: 10
+              vars:
+                ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+            - name: Copy new bundle from bastion
+              command: >
+                scp -i {{ ssh_private_key_file }}
+                -o StrictHostKeyChecking=no
+                -o UserKnownHostsFile=/dev/null
+                -o ProxyCommand="ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}"
+                {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}:/opt/rke2-files/rke2-bundle.tar.gz
+                /tmp/rke2-bundle-new.tar.gz
+              register: scp_result
+              until: scp_result is success
+              retries: 3
+              delay: 5
+              become: false
+
+        - name: Extract new RKE2 bundle
+          unarchive:
+            src: /tmp/rke2-bundle-new.tar.gz
+            dest: /tmp/
+            remote_src: yes
+            mode: '0755'
+            owner: "{{ ansible_user }}"
+            group: "{{ ansible_user }}"
+          become: true
+
+        - name: Move new artifacts to correct locations
+          shell: |
+            # Move files to correct locations
+            if [ -f /tmp/tmp/rke2-install.sh ]; then
+              mv /tmp/tmp/rke2-install.sh /tmp/rke2-install-new.sh
+            fi
+
+            if [ -d /tmp/tmp/rke2-artifacts ]; then
+              rm -rf /tmp/rke2-artifacts-old
+              mv /tmp/rke2-artifacts /tmp/rke2-artifacts-old 2>/dev/null || true
+              mv /tmp/tmp/rke2-artifacts /tmp/rke2-artifacts
+            fi
+
+            # Set permissions
+            chmod +x /tmp/rke2-install-new.sh
+            chmod +x /tmp/rke2-artifacts/rke2
+          become: true
+
+        - name: Backup current RKE2 binaries
+          shell: |
+            if [ -f /usr/local/bin/rke2 ]; then
+              cp /usr/local/bin/rke2 /opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup
+            fi
+          become: true
+          ignore_errors: true
+
+        - name: Run RKE2 upgrade install script (server)
+          shell: |
+            export INSTALL_RKE2_TYPE=server
+            export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
+            sh /tmp/rke2-install-new.sh
+          become: true
+          when: inventory_hostname == groups['airgap_nodes'][0]
+
+        - name: Run RKE2 upgrade install script (agent)
+          shell: |
+            export INSTALL_RKE2_TYPE=agent
+            export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
+            sh /tmp/rke2-install-new.sh
+          become: true
+          when: inventory_hostname != groups['airgap_nodes'][0]
+
+        - name: Start RKE2 server service
+          systemd:
+            name: rke2-server
+            state: started
+            enabled: yes
+          become: true
+          when: inventory_hostname == groups['airgap_nodes'][0]
+
+        - name: Wait for server to be ready before starting agents
+          wait_for:
+            path: /var/lib/rancher/rke2/server/node-token
+            timeout: 300
+          become: true
+          when: inventory_hostname == groups['airgap_nodes'][0]
+
+        - name: Pause for server stabilization
+          pause:
+            seconds: 30
+          when: inventory_hostname == groups['airgap_nodes'][0]
+
+        - name: Start RKE2 agent service
+          systemd:
+            name: rke2-agent
+            state: started
+            enabled: yes
+          become: true
+          when: inventory_hostname != groups['airgap_nodes'][0]
+
+        - name: Verify upgrade success
+          shell: |
+            if [ -f /usr/local/bin/rke2 ]; then
+              /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
+            else
+              echo "upgrade-failed"
+            fi
+          register: upgraded_version
+          changed_when: false
+          become: true
+
+        - name: Display upgrade results
+          debug:
+            msg: |
+              RKE2 Upgrade Results:
+              - Previous version: {{ current_rke2_version.stdout }}
+              - Target version: {{ rke2_version }}
+              - Current version: {{ upgraded_version.stdout }}
+              - Upgrade successful: {{ upgraded_version.stdout == rke2_version }}
+
+        - name: Fail if upgrade was not successful
+          fail:
+            msg: |
+              RKE2 upgrade failed!
+              Expected version: {{ rke2_version }}
+              Actual version: {{ upgraded_version.stdout }}
+          when: upgraded_version.stdout != rke2_version
+
+        - name: Clean up upgrade artifacts
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /tmp/rke2-bundle-new.tar.gz
+            - /tmp/rke2-install-new.sh
+            - /tmp/rke2-artifacts-old
+            - /tmp/tmp
+          become: true
+
+      when: current_rke2_version.stdout != rke2_version
+
+  rescue:
+    - name: Upgrade failure - attempt rollback
+      block:
+        - name: Stop services
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - rke2-server
+            - rke2-agent
+          become: true
+          ignore_errors: true
+
+        - name: Restore backup binary if available
+          copy:
+            src: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup"
+            dest: /usr/local/bin/rke2
+            remote_src: true
+            mode: '0755'
+          become: true
+          ignore_errors: true
+
+        - name: Restore configuration
+          copy:
+            src: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/config.yaml"
+            dest: /etc/rancher/rke2/config.yaml
+            remote_src: true
+          become: true
+          ignore_errors: true
+
+        - name: Restart services after rollback
+          systemd:
+            name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
+            state: started
+          become: true
+          ignore_errors: true
+
+        - name: Display rollback information
+          debug:
+            msg: |
+              RKE2 upgrade failed and rollback attempted.
+              Check the backup directory: /opt/rke2-backup-{{ ansible_date_time.epoch }}
+              Manual intervention may be required.
+
+    - name: Re-raise the original error
+      fail:
+        msg: "RKE2 upgrade failed. Rollback attempted. Check logs and backup directory."

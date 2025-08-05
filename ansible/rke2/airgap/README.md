@@ -43,16 +43,19 @@ The system supports 4 different installation methods, each optimized for differe
 - **Playbook**: `playbooks/rke2-registry-distribution-playbook.yml`
 - **Best for**: Centralized image management, multiple clusters
 - **Features**: Sets up private registry on bastion and distributes images
+- **Status**:  **In Progress**
 
 ### 3. **Docker Hub Method**
 - **Playbook**: `playbooks/rke2-dockerhub-playbook.yml`
 - **Best for**: Testing, development environments with internet access
 - **Features**: Pulls images directly from Docker Hub (requires internet)
+- **Status**:  **In Progress**
 
 ### 4. **Dynamic Images Method**
 - **Playbook**: `playbooks/rke2-dynamic-images-playbook.yml`
 - **Best for**: Latest versions, automated image discovery
 - **Features**: Auto-discovers images from RKE2 GitHub releases
+- **Status**:  **In Progress**
 
 ## Quick Start
 
@@ -150,6 +153,57 @@ This will:
 
 **Note**: The tarball playbook (`rke2-tarball-playbook.yml`) automatically includes kubectl setup, so this step is only needed if you want to set up kubectl access separately or after using other installation methods.
 
+## Upgrading RKE2
+
+### 1. Validate Upgrade Readiness
+
+Before upgrading, run the validation playbook to ensure your cluster is ready:
+
+```bash
+ansible-playbook -i inventory/inventory.yml playbooks/validate-upgrade-readiness.yml
+```
+
+This will check:
+- Current RKE2 versions on all nodes
+- Service status and cluster health
+- Disk space and system resources
+- SSH connectivity and bastion host readiness
+- Generate a comprehensive readiness report
+
+### 2. Update Target Version
+
+Edit `group_vars/all.yml` to specify the target RKE2 version:
+
+```yaml
+# RKE2 Configuration
+rke2_version: "v1.31.11+rke2r1"  # Update to desired version
+```
+
+### 3. Run the Upgrade
+
+Execute the upgrade playbook:
+
+```bash
+ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml
+```
+
+The upgrade process will:
+- Download the new RKE2 version on the bastion host
+- Upgrade the server node first (with automatic rollback on failure)
+- Upgrade agent nodes one by one to maintain cluster availability
+- Verify cluster functionality after each upgrade
+- Update kubectl on the bastion host
+
+### 4. Upgrade Features
+
+- **Zero-downtime upgrades**: Agents are upgraded serially while maintaining cluster availability
+- **Automatic rollback**: Failed upgrades trigger automatic rollback to previous version
+- **Comprehensive validation**: Pre and post-upgrade checks ensure cluster health
+- **Backup creation**: Automatic backups of configuration and binaries before upgrade
+- **Progress monitoring**: Detailed logging and status reporting throughout the process
+
+For detailed upgrade procedures, troubleshooting, and best practices, see [`docs/RKE2_UPGRADE_GUIDE.md`](docs/RKE2_UPGRADE_GUIDE.md).
+
 ## Configuration
 
 ### Global Variables (`group_vars/all.yml`)
@@ -240,6 +294,9 @@ ip-172-31-4-247   Ready    control-plane,etcd,master   8m19s   v1.31.1+rke2r1   
 The project includes several diagnostic playbooks:
 
 ```bash
+# Validate upgrade readiness
+ansible-playbook -i inventory/inventory.yml playbooks/validate-upgrade-readiness.yml
+
 # Check registry status
 ansible-playbook -i inventory/inventory.yml playbooks/diagnose-registry.yml
 
@@ -297,6 +354,10 @@ The system supports multi-node clusters:
 Detailed documentation is available in the `docs/` directory:
 
 - **`INVENTORY_CONFIGURATION.md`**: Complete inventory setup guide
+- **`RKE2_UPGRADE_GUIDE.md`**: Comprehensive RKE2 upgrade procedures and troubleshooting
+- **`GROUP_VARS_GUIDE.md`**: Configuration variables reference
+- **`TARBALL_DEPLOYMENT_GUIDE.md`**: Detailed tarball deployment instructions
+- **`SSH_TROUBLESHOOTING.md`**: SSH connectivity troubleshooting guide
 
 ## Notes
 

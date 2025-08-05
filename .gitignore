@@ -19,3 +19,4 @@ local.yaml
 *.pem
 ansible/rke2/airgap/inventory/inventory.yml
 ansible/rke2/airgap/group_vars/all.yml
+ansible/rke2/airgap/playbooks/*.txt
