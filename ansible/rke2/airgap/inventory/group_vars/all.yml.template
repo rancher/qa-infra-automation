@@ -3,7 +3,14 @@
 
 # RKE2 Configuration
 rke2_version: "v1.31.11+rke2r1"
-rke2_server_options: ""
+rke2_server_options: |
+  cluster-cidr: {{ cluster_cidr }}
+  service-cidr: {{ service_cidr }}
+  cluster-dns: {{ cluster_dns }}
+  disable:
+    - rke2-snapshot-controller
+    - rke2-snapshot-controller-crd
+    - rke2-snapshot-validation-webhook
 rke2_agent_options: ""
 tarball_type: "tar.gz"
 
@@ -31,6 +38,7 @@ installation_method: "tarball"
 # External Registry Configuration (only accessible from bastion)
 # This registry contains the RKE2 images but is not accessible from airgap nodes
 external_registry_url: "https://index.docker.io/v2"
+# external_registry_url: "https://privateregistry.qa.rancher.space"
 
 external_registry_username: "<changeme>"
 external_registry_password: "<changeme>"
@@ -64,12 +72,57 @@ custom_images: []
 #   - "your-app/backend:v1.2.3"
 
 # SSH Configuration
-ssh_private_key_file: "{{ ssh_private_key_file }}"
+ssh_private_key_file: "~/.ssh/id_rsa"
 
 # Network Configuration
 cluster_cidr: "10.42.0.0/16"
 service_cidr: "10.43.0.0/16"
 cluster_dns: "10.43.0.10"
+
+# CNI Configuration
+# Available CNI options:
+#   - "canal" (default): Flannel + Calico for network policy (RKE2 default)
+#   - "calico": Calico CNI for advanced networking and network policies
+#   - "cilium": Cilium CNI for advanced networking, security, and observability
+#   - "multus": Enable Multus for multiple network interfaces (can be combined with others)
+#   - "none": Disable CNI installation (bring your own CNI)
+cni_plugin: "canal"  # Default RKE2 CNI
+
+# CNI-specific configuration
+cni_config:
+  # Calico specific settings
+  calico:
+    # IP-in-IP encapsulation mode: Always, CrossSubnet, Never
+    ipip_mode: "Always"
+    # BGP configuration
+    bgp_enabled: true
+    # Network policy enforcement
+    network_policy: true
+    
+  # Cilium specific settings
+  cilium:
+    # Enable Hubble for observability
+    hubble_enabled: true
+    # Enable network policies
+    network_policy: true
+    # Enable BGP
+    bgp_enabled: false
+    # Enable service mesh features
+    service_mesh: false
+    
+  # Canal specific settings (Flannel + Calico)
+  canal:
+    # Flannel backend: vxlan, host-gw, udp
+    flannel_backend: "vxlan"
+    # Enable Calico network policies
+    network_policy: true
+    
+  # Multus specific settings
+  multus:
+    # Default CNI to use with Multus (canal, calico, cilium)
+    default_cni: "canal"
+    # Enable SR-IOV support
+    sriov_enabled: false
 
 # Security Configuration
 disable_components:

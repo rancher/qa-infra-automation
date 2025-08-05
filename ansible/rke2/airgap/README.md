@@ -21,8 +21,10 @@ This directory contains Ansible roles and playbooks for installing RKE2 in an ai
 ```
 airgap/
 ├── docs/
-├── group_vars/
 ├── inventory/
+│   ├── group_vars/
+│   │   └── all.yml
+│   └── inventory.yml
 ├── playbooks/
 ├── roles/
 ├── ansible.cfg
@@ -206,7 +208,7 @@ For detailed upgrade procedures, troubleshooting, and best practices, see [`docs
 
 ## Configuration
 
-### Global Variables (`group_vars/all.yml`)
+### Global Variables (`inventory/group_vars/all.yml`)
 
 Key configuration options:
 
@@ -223,12 +225,50 @@ cluster_cidr: "10.42.0.0/16"
 service_cidr: "10.43.0.0/16"
 cluster_dns: "10.43.0.10"
 
+# CNI Configuration
+cni_plugin: "canal"  # Options: canal, calico, cilium, multus, none
+
 # Security Configuration
 disable_components:
   - rke2-snapshot-controller
   - rke2-snapshot-controller-crd
   - rke2-snapshot-validation-webhook
 ```
+
+## CNI (Container Network Interface) Configuration
+
+The system supports multiple CNI plugins for different networking requirements:
+
+### Available CNI Options
+
+- **Canal (Default)**: Flannel + Calico for balanced features and performance
+- **Calico**: Advanced networking with BGP support and network policies
+- **Cilium**: eBPF-based networking with advanced security and observability
+- **Multus**: Multiple network interfaces per pod
+- **None**: Bring your own CNI solution
+
+### Quick CNI Selection
+
+Edit [`group_vars/all.yml`](group_vars/all.yml) to choose your CNI:
+
+```yaml
+# For default balanced networking
+cni_plugin: "canal"
+
+# For advanced networking and policies
+cni_plugin: "calico"
+
+# For security and observability
+cni_plugin: "cilium"
+
+# For multiple network interfaces
+cni_plugin: "multus"
+
+# For custom CNI solutions
+cni_plugin: "none"
+```
+
+For detailed CNI configuration options, troubleshooting, and best practices, see [`docs/CNI_CONFIGURATION_GUIDE.md`](docs/CNI_CONFIGURATION_GUIDE.md).
 
 ### Bastion Configuration (`group_vars/bastion.yml`)
 
@@ -297,6 +337,9 @@ The project includes several diagnostic playbooks:
 # Validate upgrade readiness
 ansible-playbook -i inventory/inventory.yml playbooks/validate-upgrade-readiness.yml
 
+# Fix RKE2 checksum verification issues
+ansible-playbook -i inventory/inventory.yml playbooks/fix-checksum-issues.yml
+
 # Check registry status
 ansible-playbook -i inventory/inventory.yml playbooks/diagnose-registry.yml
 
@@ -312,22 +355,31 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup-kubectl-access.yml
 
 ### Common Issues
 
-1. **SSH Connectivity Issues**
+1. **Checksum Verification Failures**
+   - **Error**: `download sha256 does not match` during RKE2 installation
+   - **Cause**: Corrupted downloads, version mismatches, or cached files
+   - **Solution**: Run the checksum fix playbook:
+     ```bash
+     ansible-playbook -i inventory/inventory.yml playbooks/fix-checksum-issues.yml
+     ```
+   - **Prevention**: Ensure `rke2_version` in `group_vars/all.yml` matches an existing GitHub release
+
+2. **SSH Connectivity Issues**
    - Ensure SSH keys are properly distributed: `playbooks/setup-ssh-keys.yml`
    - Check SSH proxy configuration in inventory
    - Verify bastion host accessibility
 
-2. **Registry Connection Issues** (for registry-based methods)
+3. **Registry Connection Issues** (for registry-based methods)
    - Check if registry service is running: `docker ps | grep registry`
    - Verify port 5000 is accessible: `nc -zv bastion-host 5000`
    - Check registry logs: `docker logs registry`
 
-3. **RKE2 Service Issues**
+4. **RKE2 Service Issues**
    - Check service status: `systemctl status rke2-server`
    - View logs: `journalctl -u rke2-server --no-pager -n 50`
    - Verify configuration: `cat /etc/rancher/rke2/config.yaml`
 
-4. **Installation Method Mismatch**
+5. **Installation Method Mismatch**
    - Ensure `installation_method` in `group_vars/all.yml` matches your chosen playbook
    - Use `playbooks/fix-rke2-config.yml` to regenerate configuration
 
@@ -355,6 +407,7 @@ Detailed documentation is available in the `docs/` directory:
 
 - **`INVENTORY_CONFIGURATION.md`**: Complete inventory setup guide
 - **`RKE2_UPGRADE_GUIDE.md`**: Comprehensive RKE2 upgrade procedures and troubleshooting
+- **`CNI_CONFIGURATION_GUIDE.md`**: Container Network Interface (CNI) configuration and selection
 - **`GROUP_VARS_GUIDE.md`**: Configuration variables reference
 - **`TARBALL_DEPLOYMENT_GUIDE.md`**: Detailed tarball deployment instructions
 - **`SSH_TROUBLESHOOTING.md`**: SSH connectivity troubleshooting guide

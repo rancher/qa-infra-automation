@@ -1,0 +1,90 @@
+---
+- name: Fix RKE2 Checksum Issues
+  hosts: bastion
+  become: true
+  gather_facts: true
+  vars:
+    force_clean_download: true
+
+  tasks:
+    - name: Display current RKE2 version
+      debug:
+        msg: "Fixing checksum issues for RKE2 version: {{ rke2_version }}"
+
+    - name: Clean up any corrupted or cached files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/rke2-artifacts
+        - /opt/rke2-files
+        - /tmp/rke2-install.sh
+        - /tmp/rke2-bundle.tar.gz
+
+    - name: Create fresh RKE2 artifact directory
+      file:
+        path: /tmp/rke2-artifacts
+        state: directory
+        mode: '0755'
+
+    - name: Download install script fresh
+      get_url:
+        url: https://raw.githubusercontent.com/rancher/rke2/master/install.sh
+        dest: /tmp/rke2-install.sh
+        mode: '0755'
+        timeout: 60
+        force: true
+
+    - name: Check if RKE2 version exists on GitHub
+      uri:
+        url: "https://api.github.com/repos/rancher/rke2/releases/tags/{{ rke2_version }}"
+        method: GET
+        status_code: [200, 404]
+      register: version_check
+
+    - name: Display version check result
+      debug:
+        msg: |
+          RKE2 Version Check:
+          - Version: {{ rke2_version }}
+          - Status: {{ 'EXISTS' if version_check.status == 200 else 'NOT FOUND' }}
+          - URL: https://github.com/rancher/rke2/releases/tag/{{ rke2_version }}
+      when: version_check is defined
+
+    - name: Skip version check in check mode
+      debug:
+        msg: |
+          RKE2 Version Check:
+          - Version: {{ rke2_version }}
+          - Status: SKIPPED (check mode)
+          - URL: https://github.com/rancher/rke2/releases/tag/{{ rke2_version }}
+      when: version_check is not defined
+
+    - name: Fail if version doesn't exist
+      fail:
+        msg: |
+          RKE2 version {{ rke2_version }} does not exist on GitHub.
+          Please check https://github.com/rancher/rke2/releases for available versions.
+      when: version_check is defined and version_check.status == 404
+
+    - name: Download and verify checksums
+      include_role:
+        name: rke2_tarball
+        tasks_from: verify_checksums
+
+    - name: Create bundle with verified files
+      include_role:
+        name: rke2_tarball
+
+    - name: Display success message
+      debug:
+        msg: |
+          ✅ RKE2 checksum issues have been resolved!
+          
+          Summary:
+          - Version: {{ rke2_version }}
+          - All files downloaded with verified checksums
+          - Bundle created at: /opt/rke2-files/rke2-bundle.tar.gz
+          
+          You can now run the main deployment playbook:
+          ansible-playbook -i inventory/inventory.yml playbooks/rke2-tarball-playbook.yml

@@ -22,47 +22,8 @@
       delay: 5
       become: true
 
-    - name: Download checksum file
-      get_url:
-        url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version | default('v1.24.1+rke2r1') }}/sha256sum-amd64.txt"
-        dest: /tmp/rke2-artifacts/sha256sum-amd64.txt
-        mode: '0644'
-        timeout: 60
-        headers:
-          Accept: application/octet-stream
-      register: download_result
-      until: download_result is success
-      retries: 3
-      delay: 5
-      become: true
-
-    - name: Download RKE2 binary
-      get_url:
-        url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version | default('v1.24.1+rke2r1') }}/rke2.linux-amd64"
-        dest: /tmp/rke2-artifacts/rke2
-        mode: '0755'
-        timeout: 60
-        headers:
-          Accept: application/octet-stream
-      register: download_result
-      until: download_result is success
-      retries: 3
-      delay: 5
-      become: true
-
-    - name: Download RKE2 images
-      get_url:
-        url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version | default('v1.24.1+rke2r1') }}/rke2-images.linux-amd64.tar.gz"
-        dest: /tmp/rke2-artifacts/rke2-images.tar.gz
-        mode: '0644'
-        timeout: 60
-        headers:
-          Accept: application/octet-stream
-      register: download_result
-      until: download_result is success
-      retries: 3
-      delay: 5
-      become: true
+    - name: Download and verify RKE2 files with checksums
+      include_tasks: verify_checksums.yml
 
     - name: Verify downloaded files
       stat:
@@ -72,7 +33,7 @@
       loop:
         - /tmp/rke2-install.sh
         - /tmp/rke2-artifacts/sha256sum-amd64.txt
-        - /tmp/rke2-artifacts/rke2
+        - /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
         - /tmp/rke2-artifacts/rke2-images.tar.gz
 
 - name: Create shared directory for RKE2 files
@@ -104,7 +65,7 @@
     remote_src: true
   loop:
     - { src: "/tmp/rke2-install.sh", dest: "/tmp/rke2-bundle-staging/tmp/rke2-install.sh" }
-    - { src: "/tmp/rke2-artifacts/rke2", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2" }
+    - { src: "/tmp/rke2-artifacts/rke2.linux-amd64.tar.gz", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2.linux-amd64.tar.gz" }
     - { src: "/tmp/rke2-artifacts/rke2-images.tar.gz", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2-images.tar.gz" }
     - { src: "/tmp/rke2-artifacts/sha256sum-amd64.txt", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/sha256sum-amd64.txt" }
 
