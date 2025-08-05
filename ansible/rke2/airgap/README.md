@@ -196,6 +196,57 @@ The upgrade process will:
 
 For detailed upgrade procedures, troubleshooting, and best practices, see [`docs/configuration/RKE2_UPGRADE_GUIDE.md`](docs/configuration/RKE2_UPGRADE_GUIDE.md).
 
+## Upgrading RKE2
+
+### 1. Validate Upgrade Readiness
+
+Before upgrading, run the validation playbook to ensure your cluster is ready:
+
+```bash
+ansible-playbook -i inventory/inventory.yml playbooks/validate-upgrade-readiness.yml
+```
+
+This will check:
+- Current RKE2 versions on all nodes
+- Service status and cluster health
+- Disk space and system resources
+- SSH connectivity and bastion host readiness
+- Generate a comprehensive readiness report
+
+### 2. Update Target Version
+
+Edit `group_vars/all.yml` to specify the target RKE2 version:
+
+```yaml
+# RKE2 Configuration
+rke2_version: "v1.31.11+rke2r1"  # Update to desired version
+```
+
+### 3. Run the Upgrade
+
+Execute the upgrade playbook:
+
+```bash
+ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml
+```
+
+The upgrade process will:
+- Download the new RKE2 version on the bastion host
+- Upgrade the server node first (with automatic rollback on failure)
+- Upgrade agent nodes one by one to maintain cluster availability
+- Verify cluster functionality after each upgrade
+- Update kubectl on the bastion host
+
+### 4. Upgrade Features
+
+- **Zero-downtime upgrades**: Agents are upgraded serially while maintaining cluster availability
+- **Automatic rollback**: Failed upgrades trigger automatic rollback to previous version
+- **Comprehensive validation**: Pre and post-upgrade checks ensure cluster health
+- **Backup creation**: Automatic backups of configuration and binaries before upgrade
+- **Progress monitoring**: Detailed logging and status reporting throughout the process
+
+For detailed upgrade procedures, troubleshooting, and best practices, see [`docs/RKE2_UPGRADE_GUIDE.md`](docs/RKE2_UPGRADE_GUIDE.md).
+
 ## Configuration
 
 ### Global Variables (`inventory/group_vars/all.yml`)
