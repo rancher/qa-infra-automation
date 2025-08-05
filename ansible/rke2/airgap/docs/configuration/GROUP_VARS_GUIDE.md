@@ -6,19 +6,21 @@ This guide explains how to configure the RKE2 airgap deployment using Ansible gr
 
 ```
 ansible/rke2/airgap/
-├── group_vars/
-│   ├── all.yml           # Global variables for all hosts
-│   ├── bastion.yml       # Variables specific to bastion hosts
-│   └── airgap_nodes.yml  # Variables specific to airgap nodes
-├── inventory.yml         # Host inventory
-└── rke2-registry-distribution-playbook.yml
+├── inventory/
+│   └── group_vars/
+│       └── all.yml.template  # Global variables template for all hosts
+├── inventory/
+│   └── inventory.yml.template  # Host inventory template
+└── playbooks/
+    └── deploy/
+        └── rke2-registry-distribution-playbook.yml
 ```
 
 ## Quick Start
 
 ### 1. Configure Your Registry Settings
 
-Edit `group_vars/all.yml`:
+Edit `inventory/group_vars/all.yml`:
 
 ```yaml
 # External Registry (replace with your values)
@@ -36,7 +38,7 @@ rke2_version: "v1.24.1+rke2r1"
 
 ### 2. Customize Bastion Settings (Optional)
 
-Edit `group_vars/bastion.yml` if you need to change:
+Edit `inventory/group_vars/all.yml` if you need to change:
 - Registry port (default: 5000)
 - Storage directories
 - SSL certificate details
@@ -44,7 +46,7 @@ Edit `group_vars/bastion.yml` if you need to change:
 
 ### 3. Customize Airgap Node Settings (Optional)
 
-Edit `group_vars/airgap_nodes.yml` if you need to change:
+Edit `inventory/group_vars/all.yml` if you need to change:
 - RKE2 directories
 - Container runtime settings
 - Node labels/taints
@@ -52,15 +54,15 @@ Edit `group_vars/airgap_nodes.yml` if you need to change:
 
 ### 4. Run the Playbook
 
-```bashansible-playbook -i inventory.yml rke2-registr
-y-distribution-playbook.yml
+```bash
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-distribution-playbook.yml
 ```
 
 ## Configuration Examples
 
 ### Basic Configuration
 
-Minimal configuration in `group_vars/all.yml`:
+Minimal configuration in `inventory/group_vars/all.yml`:
 
 ```yaml
 # Required settings
@@ -77,7 +79,7 @@ rke2_version: "v1.24.1+rke2r1"
 Production-ready configuration with security:
 
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 external_registry_url: "harbor.prod.company.com"
 external_registry_username: "{{ vault_external_registry_username }}"
 external_registry_password: "{{ vault_external_registry_password }}"
@@ -110,7 +112,7 @@ audit_log_maxage: 30
 Development environment with relaxed security:
 
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 external_registry_url: "registry.dev.company.com"
 external_registry_username: "dev-user"
 external_registry_password: "dev-password"
@@ -135,7 +137,7 @@ cleanup_temp_files: false  # Keep files for debugging
 1. **Encrypt sensitive variables**:
    ```bash
    # Create encrypted vars file
-   ansible-vault create group_vars/vault.yml
+   ansible-vault create inventory/group_vars/vault.yml
    ```
 
 2. **Add sensitive variables to vault.yml**:
@@ -164,29 +166,28 @@ cleanup_temp_files: false  # Keep files for debugging
 Create separate configurations for different environments:
 
 ```
-group_vars/
-├── all.yml                    # Common settings
-├── bastion.yml               # Bastion settings
-├── airgap_nodes.yml          # Node settings
-├── production/
-│   ├── all.yml               # Production overrides
-│   └── vault.yml             # Production secrets
-├── staging/
-│   ├── all.yml               # Staging overrides
-│   └── vault.yml             # Staging secrets
-└── development/
-    └── all.yml               # Development overrides
+inventory/
+└── group_vars/
+    ├── all.yml                    # Common settings
+    ├── production/
+    │   ├── all.yml               # Production overrides
+    │   └── vault.yml             # Production secrets
+    ├── staging/
+    │   ├── all.yml               # Staging overrides
+    │   └── vault.yml             # Staging secrets
+    └── development/
+        └── all.yml               # Development overrides
 ```
 
 Run with environment-specific vars:
 ```bash
 # Production
-ansible-playbook -i inventory.yml rke2-registry-distribution-playbook.yml \
-  -e @group_vars/production/all.yml --vault-password-file .vault_pass
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-distribution-playbook.yml \
+  -e @inventory/group_vars/production/all.yml --vault-password-file .vault_pass
 
 # Staging
-ansible-playbook -i inventory.yml rke2-registry-distribution-playbook.yml \
-  -e @group_vars/staging/all.yml --ask-vault-pass
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-distribution-playbook.yml \
+  -e @inventory/group_vars/staging/all.yml --ask-vault-pass
 ```
 
 ## Variable Precedence
@@ -208,23 +209,23 @@ Ansible variable precedence (highest to lowest):
 
 ```bash
 # Debug variables for a specific host
-ansible -i inventory.yml bastion-node -m debug -a "var=external_registry_url"
+ansible -i inventory/inventory.yml bastion-node -m debug -a "var=external_registry_url"
 
 # Debug all variables for a host
-ansible -i inventory.yml bastion-node -m debug -a "var=hostvars[inventory_hostname]"
+ansible -i inventory/inventory.yml bastion-node -m debug -a "var=hostvars[inventory_hostname]"
 ```
 
 ### Validate Configuration
 
 ```bash
 # Check syntax
-ansible-playbook -i inventory.yml rke2-registry-distribution-playbook.yml --syntax-check
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-distribution-playbook.yml --syntax-check
 
 # Dry run
-ansible-playbook -i inventory.yml rke2-registry-distribution-playbook.yml --check
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-distribution-playbook.yml --check
 
 # List tasks
-ansible-playbook -i inventory.yml rke2-registry-distribution-playbook.yml --list-tasks
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-distribution-playbook.yml --list-tasks
 ```
 
 ### Common Issues
@@ -232,4 +233,4 @@ ansible-playbook -i inventory.yml rke2-registry-distribution-playbook.yml --list
 1. **Variable not found**: Check spelling and file location
 2. **Vault decryption failed**: Verify vault password
 3. **Template errors**: Check Jinja2 syntax in variable references
-4. **Permission denied**: Ensure proper file permissions on group_vars files
+4. **Permission denied**: Ensure proper file permissions on inventory/group_vars files

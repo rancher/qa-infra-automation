@@ -29,7 +29,7 @@ The RKE2 upgrade process for airgap environments involves:
 
 ### 1. Update Target Version
 
-Edit [`group_vars/all.yml`](../group_vars/all.yml) to specify the target RKE2 version:
+Edit [`inventory/group_vars/all.yml`](../../inventory/group_vars/all.yml.template) to specify the target RKE2 version:
 
 ```yaml
 # RKE2 Configuration
@@ -38,7 +38,7 @@ rke2_version: "v1.31.11+rke2r1"  # Update to desired version
 
 ### 2. Verify Inventory
 
-Ensure your [`inventory/inventory.yml`](../inventory/inventory-template.yml) is correctly configured:
+Ensure your [`inventory/inventory.yml`](../../inventory/inventory.yml.template) is correctly configured:
 
 ```yaml
 all:
@@ -82,7 +82,7 @@ Execute the upgrade playbook from your control machine:
 
 ```bash
 cd ansible/rke2/airgap
-ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbook.yml
 ```
 
 ### Step 3: Monitor the Upgrade Process
@@ -196,7 +196,7 @@ If only some nodes fail:
 2. **Manually fix** failed nodes using troubleshooting steps
 3. **Re-run upgrade** playbook with `--limit` flag:
    ```bash
-   ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml --limit failed_node
+   ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbook.yml --limit failed_node
    ```
 
 ## Validation Commands
@@ -255,7 +255,7 @@ For production environments, consider:
 cat > /opt/rke2-upgrade.sh << 'EOF'
 #!/bin/bash
 cd /path/to/ansible/rke2/airgap
-ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbook.yml
 EOF
 
 # Schedule with cron (example: monthly on first Sunday at 2 AM)
@@ -271,7 +271,7 @@ rke2-upgrade:
   stage: deploy
   script:
     - cd ansible/rke2/airgap
-    - ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml
+    - ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbook.yml
   when: manual
   only:
     - main

@@ -34,11 +34,11 @@ You already have excellent roles that handle the entire tarball deployment proce
 
 ## Files
 
-- **`rke2-tarball-playbook.yml`**: Main playbook orchestrating the deployment
-- **`group_vars/tarball.yml`**: Configuration variables for tarball deployment
+- **`playbooks/deploy/rke2-tarball-playbook.yml`**: Main playbook orchestrating the deployment
+- **`inventory/group_vars/all.yml`**: Configuration variables for tarball deployment
 - **`roles/rke2_tarball/`**: Your existing role for artifact preparation
 - **`roles/rke2_install/`**: Your existing role for RKE2 installation
-- **`TARBALL_DEPLOYMENT_GUIDE.md`**: This documentation
+- **`docs/configuration/TARBALL_DEPLOYMENT_GUIDE.md`**: This documentation
 
 ## Prerequisites
 
@@ -53,7 +53,7 @@ You already have excellent roles that handle the entire tarball deployment proce
 
 ```bash
 cd ansible/rke2/airgap
-ansible-playbook -i inventory.yml rke2-tarball-playbook.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
 
 ### 2. **What Happens**
@@ -83,7 +83,7 @@ ansible-playbook -i inventory.yml rke2-tarball-playbook.yml
 
 ## Configuration
 
-### **Basic Configuration** (`group_vars/tarball.yml`)
+### **Basic Configuration** (`inventory/group_vars/all.yml`)
 
 ```yaml
 # RKE2 Version
@@ -239,7 +239,7 @@ sudo ctr --address /run/k3s/containerd/containerd.sock images list
 
 ### **Different RKE2 Version**
 
-1. Update `group_vars/tarball.yml`:
+1. Update `inventory/group_vars/all.yml`:
 ```yaml
 rke2_version: "v1.32.0+rke2r1"
 ```

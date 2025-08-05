@@ -54,7 +54,7 @@ Run the SSH key setup playbook first:
 
 ```bash
 # Setup SSH keys on all hosts
-ansible-playbook -i inventory.yml setup-ssh-keys.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-ssh-keys.yml
 ```
 
 This playbook will:
@@ -82,17 +82,17 @@ If you encounter SSH connectivity issues:
 
 1. **Verify key permissions**:
    ```bash
-   ansible all -i inventory.yml -m shell -a "ls -la ~/.ssh/"
+   ansible all -i inventory/inventory.yml -m shell -a "ls -la ~/.ssh/"
    ```
 
 2. **Test bastion connectivity**:
    ```bash
-   ansible bastion -i inventory.yml -m ping
+   ansible bastion -i inventory/inventory.yml -m ping
    ```
 
 3. **Test airgap node connectivity**:
    ```bash
-   ansible airgap_nodes -i inventory.yml -m ping
+   ansible airgap_nodes -i inventory/inventory.yml -m ping
    ```
 
 4. **Manual SSH test**:
@@ -177,9 +177,9 @@ Where:
 
 ## Environment-Specific Overrides
 
-You can override variables for specific environments using group_vars or host_vars:
+You can override variables for specific environments using inventory/group_vars or host_vars:
 
-### group_vars/all.yml
+### inventory/group_vars/all.yml
 ```yaml
 # Production environment
 ssh_private_key_file: "/etc/ansible/keys/prod-key"
@@ -187,7 +187,7 @@ bastion_user: "ec2-user"
 bastion_host: "prod-bastion.company.com"
 ```
 
-### group_vars/staging.yml
+### inventory/group_vars/staging.yml
 ```yaml
 # Staging environment
 bastion_host: "staging-bastion.company.com"
@@ -199,13 +199,13 @@ To verify your configuration:
 
 ```bash
 # Test bastion connectivity
-ansible bastion -i inventory.yml -m ping
+ansible bastion -i inventory/inventory.yml -m ping
 
 # Test airgap node connectivity through bastion
-ansible airgap_nodes -i inventory.yml -m ping
+ansible airgap_nodes -i inventory/inventory.yml -m ping
 
 # Display resolved variables
-ansible-inventory -i inventory.yml --list
+ansible-inventory -i inventory/inventory.yml --list
 ```
 
 ## Troubleshooting
@@ -220,11 +220,11 @@ ansible-inventory -i inventory.yml --list
 
 ```bash
 # Show resolved inventory
-ansible-inventory -i inventory.yml --list --yaml
+ansible-inventory -i inventory/inventory.yml --list --yaml
 
 # Test SSH connectivity
-ansible all -i inventory.yml -m setup --limit bastion
-ansible all -i inventory.yml -m setup --limit airgap_nodes
+ansible all -i inventory/inventory.yml -m setup --limit bastion
+ansible all -i inventory/inventory.yml -m setup --limit airgap_nodes
 ```
 
 This parameterized approach makes the inventory much more maintainable and adaptable to different environments while ensuring consistency across all SSH proxy configurations.

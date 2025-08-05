@@ -21,12 +21,36 @@ This directory contains Ansible roles and playbooks for installing RKE2 in an ai
 ```
 airgap/
 ├── docs/
+│   ├── configuration/
+│   │   ├── CNI_CONFIGURATION_GUIDE.md
+│   │   ├── GROUP_VARS_GUIDE.md
+│   │   ├── INVENTORY_CONFIGURATION.md
+│   │   ├── RKE2_UPGRADE_GUIDE.md
+│   │   └── TARBALL_DEPLOYMENT_GUIDE.md
+│   └── knowledge_base/
+│       └── SSH_TROUBLESHOOTING.md
 ├── inventory/
 │   ├── group_vars/
-│   │   └── all.yml
-│   └── inventory.yml
+│   │   └── all.yml.template
+│   └── inventory.yml.template
 ├── playbooks/
+│   ├── debug/
+│   │   ├── diagnose-registry.yml
+│   │   ├── fix-checksum-issues.yml
+│   │   ├── fix-rke2-config.yml
+│   │   ├── test-ssh-connectivity.yml
+│   │   └── validate-upgrade-readiness.yml
+│   └── deploy/
+│       ├── rke2-tarball-playbook.yml
+│       ├── rke2-upgrade-playbook.yml
+│       ├── setup-agent-nodes.yml
+│       ├── setup-kubectl-access.yml
+│       └── setup-ssh-keys.yml
 ├── roles/
+│   ├── rke2_install/
+│   ├── rke2_tarball/
+│   ├── rke2_upgrade/
+│   └── ssh_setup/
 ├── ansible.cfg
 └── README.md
 ```
@@ -36,25 +60,25 @@ airgap/
 The system supports 4 different installation methods, each optimized for different scenarios:
 
 ### 1. **Tarball Method** (Recommended for Pure Airgap) ✅
-- **Playbook**: `playbooks/rke2-tarball-playbook.yml`
+- **Playbook**: `playbooks/deploy/rke2-tarball-playbook.yml`
 - **Best for**: Pure airgap environments, simple deployments
 - **Features**: Uses pre-downloaded RKE2 tarballs with embedded images (no registry required)
 - **Status**: ✅ **Currently Working and Tested**
 
 ### 2. **Registry Distribution Method**
-- **Playbook**: `playbooks/rke2-registry-distribution-playbook.yml`
+- **Playbook**: `playbooks/deploy/rke2-registry-distribution-playbook.yml`
 - **Best for**: Centralized image management, multiple clusters
 - **Features**: Sets up private registry on bastion and distributes images
 - **Status**:  **In Progress**
 
 ### 3. **Docker Hub Method**
-- **Playbook**: `playbooks/rke2-dockerhub-playbook.yml`
+- **Playbook**: `playbooks/deploy/rke2-dockerhub-playbook.yml`
 - **Best for**: Testing, development environments with internet access
 - **Features**: Pulls images directly from Docker Hub (requires internet)
 - **Status**:  **In Progress**
 
 ### 4. **Dynamic Images Method**
-- **Playbook**: `playbooks/rke2-dynamic-images-playbook.yml`
+- **Playbook**: `playbooks/deploy/rke2-dynamic-images-playbook.yml`
 - **Best for**: Latest versions, automated image discovery
 - **Features**: Auto-discovers images from RKE2 GitHub releases
 - **Status**:  **In Progress**
@@ -63,25 +87,25 @@ The system supports 4 different installation methods, each optimized for differe
 
 ### 1. Configure Installation Method
 
-Edit `group_vars/all.yml` to set your preferred installation method:
+Edit `inventory/group_vars/all.yml` to set your preferred installation method:
 
 ```yaml
 # Installation Method Configuration
 # Available methods:
 #   - "tarball": Uses pre-downloaded RKE2 tarballs with embedded images (no registry required)
-#     Playbook: rke2-tarball-playbook.yml
+#     Playbook: playbooks/deploy/rke2-tarball-playbook.yml
 #     Best for: Pure airgap environments, simple deployments
 #
 #   - "registry_distribution": Sets up private registry on bastion and distributes images
-#     Playbook: rke2-registry-distribution-playbook.yml  
+#     Playbook: playbooks/deploy/rke2-registry-distribution-playbook.yml
 #     Best for: Centralized image management, multiple clusters
 #
 #   - "dockerhub": Pulls images directly from Docker Hub (requires internet)
-#     Playbook: rke2-dockerhub-playbook.yml
+#     Playbook: playbooks/deploy/rke2-dockerhub-playbook.yml
 #     Best for: Testing, development environments with internet access
 #
 #   - "dynamic_images": Auto-discovers images from RKE2 GitHub releases
-#     Playbook: rke2-dynamic-images-playbook.yml
+#     Playbook: playbooks/deploy/rke2-dynamic-images-playbook.yml
 #     Best for: Latest versions, automated image discovery
 installation_method: "tarball"
 ```
@@ -126,7 +150,7 @@ all:
 First, ensure SSH keys are properly distributed:
 
 ```bash
-ansible-playbook -i inventory/inventory.yml playbooks/setup-ssh-keys.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-ssh-keys.yml
 ```
 
 ### 4. Run Installation
@@ -135,7 +159,7 @@ Choose your installation method:
 
 ```bash
 # Tarball method
-ansible-playbook -i inventory/inventory.yml playbooks/rke2-tarball-playbook.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
 
 ### 5. Setup kubectl Access (Optional)
@@ -144,7 +168,7 @@ After RKE2 installation, you can set up kubectl access on the bastion node:
 
 ```bash
 # Setup kubectl and copy KUBECONFIG from airgap nodes
-ansible-playbook -i inventory/inventory.yml playbooks/setup-kubectl-access.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-kubectl-access.yml
 ```
 
 This will:
@@ -153,7 +177,7 @@ This will:
 - Configure kubectl for both root and the ansible user
 - Test connectivity to the cluster
 
-**Note**: The tarball playbook (`rke2-tarball-playbook.yml`) automatically includes kubectl setup, so this step is only needed if you want to set up kubectl access separately or after using other installation methods.
+**Note**: The tarball playbook (`playbooks/deploy/rke2-tarball-playbook.yml`) automatically includes kubectl setup, so this step is only needed if you want to set up kubectl access separately or after using other installation methods.
 
 ## Upgrading RKE2
 
@@ -162,7 +186,7 @@ This will:
 Before upgrading, run the validation playbook to ensure your cluster is ready:
 
 ```bash
-ansible-playbook -i inventory/inventory.yml playbooks/validate-upgrade-readiness.yml
+ansible-playbook -i inventory/inventory.yml playbooks/debug/validate-upgrade-readiness.yml
 ```
 
 This will check:
@@ -174,7 +198,7 @@ This will check:
 
 ### 2. Update Target Version
 
-Edit `group_vars/all.yml` to specify the target RKE2 version:
+Edit `inventory/group_vars/all.yml` to specify the target RKE2 version:
 
 ```yaml
 # RKE2 Configuration
@@ -186,7 +210,7 @@ rke2_version: "v1.31.11+rke2r1"  # Update to desired version
 Execute the upgrade playbook:
 
 ```bash
-ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbook.yml
 ```
 
 The upgrade process will:
@@ -204,7 +228,7 @@ The upgrade process will:
 - **Backup creation**: Automatic backups of configuration and binaries before upgrade
 - **Progress monitoring**: Detailed logging and status reporting throughout the process
 
-For detailed upgrade procedures, troubleshooting, and best practices, see [`docs/RKE2_UPGRADE_GUIDE.md`](docs/RKE2_UPGRADE_GUIDE.md).
+For detailed upgrade procedures, troubleshooting, and best practices, see [`docs/configuration/RKE2_UPGRADE_GUIDE.md`](docs/configuration/RKE2_UPGRADE_GUIDE.md).
 
 ## Configuration
 
@@ -249,7 +273,7 @@ The system supports multiple CNI plugins for different networking requirements:
 
 ### Quick CNI Selection
 
-Edit [`group_vars/all.yml`](group_vars/all.yml) to choose your CNI:
+Edit [`inventory/group_vars/all.yml`](inventory/group_vars/all.yml.template) to choose your CNI:
 
 ```yaml
 # For default balanced networking
@@ -268,7 +292,7 @@ cni_plugin: "multus"
 cni_plugin: "none"
 ```
 
-For detailed CNI configuration options, troubleshooting, and best practices, see [`docs/CNI_CONFIGURATION_GUIDE.md`](docs/CNI_CONFIGURATION_GUIDE.md).
+For detailed CNI configuration options, troubleshooting, and best practices, see [`docs/configuration/CNI_CONFIGURATION_GUIDE.md`](docs/configuration/CNI_CONFIGURATION_GUIDE.md).
 
 ### Bastion Configuration (`group_vars/bastion.yml`)
 
@@ -335,22 +359,22 @@ The project includes several diagnostic playbooks:
 
 ```bash
 # Validate upgrade readiness
-ansible-playbook -i inventory/inventory.yml playbooks/validate-upgrade-readiness.yml
+ansible-playbook -i inventory/inventory.yml playbooks/debug/validate-upgrade-readiness.yml
 
 # Fix RKE2 checksum verification issues
-ansible-playbook -i inventory/inventory.yml playbooks/fix-checksum-issues.yml
+ansible-playbook -i inventory/inventory.yml playbooks/debug/fix-checksum-issues.yml
 
 # Check registry status
-ansible-playbook -i inventory/inventory.yml playbooks/diagnose-registry.yml
+ansible-playbook -i inventory/inventory.yml playbooks/debug/diagnose-registry.yml
 
 # Fix RKE2 configuration issues
-ansible-playbook -i inventory/inventory.yml playbooks/fix-rke2-config.yml
+ansible-playbook -i inventory/inventory.yml playbooks/debug/fix-rke2-config.yml
 
 # Setup agent nodes (for multi-node clusters)
-ansible-playbook -i inventory/inventory.yml playbooks/setup-agent-nodes.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-agent-nodes.yml
 
 # Setup kubectl access on bastion (if not done during installation)
-ansible-playbook -i inventory/inventory.yml playbooks/setup-kubectl-access.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-kubectl-access.yml
 ```
 
 ### Common Issues
@@ -360,12 +384,12 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup-kubectl-access.yml
    - **Cause**: Corrupted downloads, version mismatches, or cached files
    - **Solution**: Run the checksum fix playbook:
      ```bash
-     ansible-playbook -i inventory/inventory.yml playbooks/fix-checksum-issues.yml
+     ansible-playbook -i inventory/inventory.yml playbooks/debug/fix-checksum-issues.yml
      ```
-   - **Prevention**: Ensure `rke2_version` in `group_vars/all.yml` matches an existing GitHub release
+   - **Prevention**: Ensure `rke2_version` in `inventory/group_vars/all.yml` matches an existing GitHub release
 
 2. **SSH Connectivity Issues**
-   - Ensure SSH keys are properly distributed: `playbooks/setup-ssh-keys.yml`
+   - Ensure SSH keys are properly distributed: `playbooks/deploy/setup-ssh-keys.yml`
    - Check SSH proxy configuration in inventory
    - Verify bastion host accessibility
 
@@ -380,15 +404,15 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup-kubectl-access.yml
    - Verify configuration: `cat /etc/rancher/rke2/config.yaml`
 
 5. **Installation Method Mismatch**
-   - Ensure `installation_method` in `group_vars/all.yml` matches your chosen playbook
-   - Use `playbooks/fix-rke2-config.yml` to regenerate configuration
+   - Ensure `installation_method` in `inventory/group_vars/all.yml` matches your chosen playbook
+   - Use `playbooks/debug/fix-rke2-config.yml` to regenerate configuration
 
 ### Debug Mode
 
 Run with increased verbosity for troubleshooting:
 
 ```bash
-ansible-playbook -vv -i inventory/inventory.yml playbooks/rke2-tarball-playbook.yml
+ansible-playbook -vv -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
 
 ## Advanced Configuration
@@ -405,12 +429,12 @@ The system supports multi-node clusters:
 
 Detailed documentation is available in the `docs/` directory:
 
-- **`INVENTORY_CONFIGURATION.md`**: Complete inventory setup guide
-- **`RKE2_UPGRADE_GUIDE.md`**: Comprehensive RKE2 upgrade procedures and troubleshooting
-- **`CNI_CONFIGURATION_GUIDE.md`**: Container Network Interface (CNI) configuration and selection
-- **`GROUP_VARS_GUIDE.md`**: Configuration variables reference
-- **`TARBALL_DEPLOYMENT_GUIDE.md`**: Detailed tarball deployment instructions
-- **`SSH_TROUBLESHOOTING.md`**: SSH connectivity troubleshooting guide
+- **`docs/configuration/INVENTORY_CONFIGURATION.md`**: Complete inventory setup guide
+- **`docs/configuration/RKE2_UPGRADE_GUIDE.md`**: Comprehensive RKE2 upgrade procedures and troubleshooting
+- **`docs/configuration/CNI_CONFIGURATION_GUIDE.md`**: Container Network Interface (CNI) configuration and selection
+- **`docs/configuration/GROUP_VARS_GUIDE.md`**: Configuration variables reference
+- **`docs/configuration/TARBALL_DEPLOYMENT_GUIDE.md`**: Detailed tarball deployment instructions
+- **`docs/knowledge_base/SSH_TROUBLESHOOTING.md`**: SSH connectivity troubleshooting guide
 
 ## Notes
 

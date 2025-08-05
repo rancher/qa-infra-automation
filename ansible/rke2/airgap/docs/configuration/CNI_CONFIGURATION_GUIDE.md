@@ -4,7 +4,7 @@ This guide explains how to configure different Container Network Interface (CNI)
 
 ## Overview
 
-RKE2 supports multiple CNI plugins, each with different capabilities and use cases. The airgap deployment system allows you to easily switch between CNI plugins by modifying the configuration in [`group_vars/all.yml`](../group_vars/all.yml).
+RKE2 supports multiple CNI plugins, each with different capabilities and use cases. The airgap deployment system allows you to easily switch between CNI plugins by modifying the configuration in [`inventory/group_vars/all.yml`](../../inventory/group_vars/all.yml.template).
 
 ## Available CNI Options
 
@@ -14,7 +14,7 @@ RKE2 supports multiple CNI plugins, each with different capabilities and use cas
 Canal combines Flannel for networking and Calico for network policies, providing a good balance of features and simplicity.
 
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 cni_plugin: "canal"
 
 cni_config:
@@ -38,7 +38,7 @@ cni_config:
 Pure Calico CNI provides advanced networking features and excellent network policy support.
 
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 cni_plugin: "calico"
 
 cni_config:
@@ -65,7 +65,7 @@ cni_config:
 Cilium provides eBPF-based networking with advanced security and observability features.
 
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 cni_plugin: "cilium"
 
 cni_config:
@@ -95,7 +95,7 @@ cni_config:
 Multus enables multiple network interfaces per pod, useful for complex networking scenarios.
 
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 cni_plugin: "multus"
 
 cni_config:
@@ -120,7 +120,7 @@ cni_config:
 Disables RKE2's built-in CNI installation, allowing you to install your own.
 
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 cni_plugin: "none"
 ```
 
@@ -133,7 +133,7 @@ cni_plugin: "none"
 
 ### Example 1: High-Performance Calico Setup
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 cni_plugin: "calico"
 cluster_cidr: "10.42.0.0/16"
 service_cidr: "10.43.0.0/16"
@@ -150,7 +150,7 @@ cni_config:
 
 ### Example 2: Cilium with Observability
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 cni_plugin: "cilium"
 cluster_cidr: "10.42.0.0/16"
 service_cidr: "10.43.0.0/16"
@@ -167,7 +167,7 @@ cni_config:
 
 ### Example 3: Multus with Canal Backend
 ```yaml
-# group_vars/all.yml
+# inventory/group_vars/all.yml
 cni_plugin: "multus"
 cluster_cidr: "10.42.0.0/16"
 service_cidr: "10.43.0.0/16"
@@ -309,9 +309,9 @@ kubectl describe pod <pod-name> | grep -A 10 "Annotations"
 # 1. Backup current configuration
 kubectl get networkpolicies -A -o yaml > network-policies-backup.yaml
 
-# 2. Update group_vars/all.yml with new CNI
+# 2. Update inventory/group_vars/all.yml with new CNI
 # 3. Run upgrade playbook (will recreate cluster)
-ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbook.yml
 
 # 4. Restore network policies
 kubectl apply -f network-policies-backup.yaml
@@ -361,13 +361,5 @@ curl http://localhost:9090/metrics
 - **Cilium Documentation**: https://docs.cilium.io/
 - **Multus Documentation**: https://github.com/k8snetworkplumbingwg/multus-cni
 - **Kubernetes Network Policies**: https://kubernetes.io/docs/concepts/services-networking/network-policies/
-
-## Version Compatibility
-
-| RKE2 Version | Canal | Calico | Cilium | Multus |
-|--------------|-------|--------|--------|--------|
-| v1.31.x      | ✅    | ✅     | ✅     | ✅     |
-| v1.30.x      | ✅    | ✅     | ✅     | ✅     |
-| v1.29.x      | ✅    | ✅     | ✅     | ✅     |
 
 Always check the official RKE2 documentation for the latest compatibility information.

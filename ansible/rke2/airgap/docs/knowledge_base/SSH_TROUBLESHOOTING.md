@@ -5,7 +5,7 @@
 ### Step 1: Test Basic Connectivity
 ```bash
 # Test the connectivity fix
-ansible-playbook -i inventory/inventory.yml test-ssh-connectivity.yml
+ansible-playbook -i inventory/inventory.yml playbooks/debug/test-ssh-connectivity.yml
 ```
 
 ### Step 3: Manual SSH Tests
