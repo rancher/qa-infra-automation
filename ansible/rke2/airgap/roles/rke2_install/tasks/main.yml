@@ -1,0 +1,634 @@
+---
+- name: Create RKE2 config directory
+  file:
+    path: /etc/rancher/rke2
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Configure RKE2 server
+  template:
+    src: config.yaml.j2
+    dest: /etc/rancher/rke2/config.yaml
+    mode: '0644'
+  become: true
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Create RKE2 artifact directory
+  file:
+    path: /tmp/rke2-artifacts
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Synchronize RKE2 bundle from bastion
+  block:
+    - name: Check bundle on bastion
+      stat:
+        path: /opt/rke2-files/rke2-bundle.tar.gz
+      delegate_to: "{{ groups['bastion'][0] }}"
+      register: bundle_stat
+      until: bundle_stat.stat.exists
+      retries: 6
+      delay: 10
+      vars:
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+    - name: Ensure local temp directory exists with proper permissions
+      file:
+        path: /tmp
+        state: directory
+        mode: '1777'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: true
+
+    - name: Ensure bundle destination has proper permissions
+      file:
+        path: /tmp/rke2-bundle.tar.gz
+        state: touch
+        mode: '0644'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: true
+
+    - name: Get bundle info from bastion
+      block:
+        - name: Get bundle size
+          stat:
+            path: /opt/rke2-files/rke2-bundle.tar.gz
+          register: bastion_bundle
+
+        - name: Calculate bundle checksum
+          command: sha256sum /opt/rke2-files/rke2-bundle.tar.gz
+          register: bastion_checksum
+          changed_when: false
+      delegate_to: "{{ groups['bastion'][0] }}"
+      vars:
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+    - name: Copy bundle from bastion
+      command: >
+        scp -i {{ ssh_private_key_file }}
+        -o StrictHostKeyChecking=no
+        -o UserKnownHostsFile=/dev/null
+        -o ProxyCommand="ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}"
+        {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}:/opt/rke2-files/rke2-bundle.tar.gz
+        /tmp/rke2-bundle.tar.gz
+      register: scp_result
+      until: scp_result is success
+      retries: 3
+      delay: 5
+      become: false
+      vars:
+        ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand='ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}'"
+
+    - name: Verify bundle copy
+      block:
+        - name: Check local bundle
+          stat:
+            path: /tmp/rke2-bundle.tar.gz
+          register: local_bundle
+          failed_when: >
+            not local_bundle.stat.exists or
+            local_bundle.stat.size == 0 or
+            local_bundle.stat.size != bastion_bundle.stat.size
+
+        - name: Calculate local checksum
+          command: sha256sum /tmp/rke2-bundle.tar.gz
+          register: local_checksum
+          changed_when: false
+
+        - name: Compare checksums
+          fail:
+            msg: "Bundle checksums do not match. Transfer may be corrupted."
+          when: bastion_checksum.stdout.split()[0] != local_checksum.stdout.split()[0]
+
+        - name: Display bundle information
+          debug:
+            msg: |
+              Bundle Status:
+              - Source size: {{ bastion_bundle.stat.size }}
+              - Local size: {{ local_bundle.stat.size }}
+              - Source checksum: {{ bastion_checksum.stdout.split()[0] }}
+              - Local checksum: {{ local_checksum.stdout.split()[0] }}
+              - Source path: {{ bastion_bundle.stat.path }}
+              - Local path: {{ local_bundle.stat.path }}
+
+- name: Extract and organize RKE2 artifacts
+  block:
+    - name: Create artifacts directory
+      file:
+        path: /tmp/rke2-artifacts
+        state: directory
+        mode: '0755'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: true
+
+    - name: Create temp extraction directory
+      file:
+        path: /tmp/rke2-extract
+        state: directory
+        mode: '0755'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: true
+
+    - name: Extract RKE2 bundle to temp directory
+      unarchive:
+        src: /tmp/rke2-bundle.tar.gz
+        dest: /tmp/rke2-extract/
+        remote_src: yes
+        mode: '0755'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        list_files: yes
+      register: extract_result
+      become: true
+
+    - name: Display extracted files
+      debug:
+        msg: "Extracted files: {{ extract_result.files }}"
+
+    - name: List temp directory contents
+      shell: "ls -la /tmp/rke2-extract/"
+      register: temp_dir_contents
+      changed_when: false
+
+    - name: Display temp directory contents
+      debug:
+        msg: "Temp directory contents: {{ temp_dir_contents.stdout_lines }}"
+
+    - name: Move files to correct locations
+      shell: |
+        set -x
+        # Show current structure
+        echo "Extracted directory structure:"
+        find /tmp/rke2-extract -type f -ls
+
+        # Create required directories
+        mkdir -p /tmp/rke2-artifacts
+
+        # Move files
+        if [ -f /tmp/rke2-extract/tmp/rke2-install.sh ]; then
+          mv /tmp/rke2-extract/tmp/rke2-install.sh /tmp/rke2-install.sh
+        fi
+
+        if [ -d /tmp/rke2-extract/tmp/rke2-artifacts ]; then
+          mv /tmp/rke2-extract/tmp/rke2-artifacts/* /tmp/rke2-artifacts/
+        fi
+
+        # Show final structure
+        echo "Final directory structure:"
+        find /tmp/rke2-artifacts /tmp/rke2-install.sh -type f -ls
+      register: move_result
+      become: true
+
+    - name: Display move result
+      debug:
+        msg: |
+          Move command output:
+          stdout: {{ move_result.stdout_lines | default([]) | join('\n') }}
+          stderr: {{ move_result.stderr_lines | default([]) | join('\n') }}
+
+    - name: Set correct permissions
+      file:
+        path: "{{ item }}"
+        mode: '0755'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      loop:
+        - /tmp/rke2-install.sh
+        - /tmp/rke2-artifacts/rke2
+      become: true
+
+    - name: Clean up temp directory
+      file:
+        path: /tmp/rke2-extract
+        state: absent
+      become: true
+
+    - name: Debug artifacts directory contents
+      shell: |
+        echo "=== Contents of /tmp/rke2-artifacts ==="
+        ls -la /tmp/rke2-artifacts/ || echo "Directory does not exist"
+        echo ""
+        echo "=== Looking for RKE2 tarballs anywhere in extracted content ==="
+        find /tmp/rke2-extract -name "*.tar.gz" -type f 2>/dev/null || echo "No tar.gz files found in extract directory"
+        echo ""
+        echo "=== Looking for RKE2 binaries ==="
+        find /tmp/rke2-extract -name "rke2*" -type f 2>/dev/null || echo "No rke2 files found"
+      register: debug_artifacts
+      become: true
+      changed_when: false
+
+    - name: Display debug information
+      debug:
+        msg: "{{ debug_artifacts.stdout_lines }}"
+
+    - name: Fix file extraction and organization
+      shell: |
+        set -x
+        echo "=== Current extraction directory structure ==="
+        find /tmp/rke2-extract -type f -ls 2>/dev/null || echo "Extract directory not found"
+        
+        # Create artifacts directory
+        mkdir -p /tmp/rke2-artifacts
+        
+        # Look for and move RKE2 tarball files
+        if find /tmp/rke2-extract -name "rke2*.tar.gz" -type f | head -1 | grep -q .; then
+          echo "Found RKE2 tarball files, moving them..."
+          find /tmp/rke2-extract -name "rke2*.tar.gz" -type f -exec cp {} /tmp/rke2-artifacts/ \;
+        fi
+        
+        # Look for and move other required files
+        if find /tmp/rke2-extract -name "rke2-images*.tar.gz" -type f | head -1 | grep -q .; then
+          echo "Found RKE2 images tarball, moving it..."
+          find /tmp/rke2-extract -name "rke2-images*.tar.gz" -type f -exec cp {} /tmp/rke2-artifacts/ \;
+        fi
+        
+        if find /tmp/rke2-extract -name "sha256sum*.txt" -type f | head -1 | grep -q .; then
+          echo "Found checksum file, moving it..."
+          find /tmp/rke2-extract -name "sha256sum*.txt" -type f -exec cp {} /tmp/rke2-artifacts/ \;
+        fi
+        
+        if find /tmp/rke2-extract -name "rke2" -type f | head -1 | grep -q .; then
+          echo "Found RKE2 binary, moving it..."
+          find /tmp/rke2-extract -name "rke2" -type f -exec cp {} /tmp/rke2-artifacts/ \;
+        fi
+        
+        if find /tmp/rke2-extract -name "rke2-install.sh" -type f | head -1 | grep -q .; then
+          echo "Found install script, moving it..."
+          find /tmp/rke2-extract -name "rke2-install.sh" -type f -exec cp {} /tmp/ \;
+        fi
+        
+        echo "=== Final artifacts directory ==="
+        ls -la /tmp/rke2-artifacts/
+        echo "=== Install script ==="
+        ls -la /tmp/rke2-install.sh 2>/dev/null || echo "Install script not found"
+      register: fix_extraction
+      become: true
+
+    - name: Display extraction fix results
+      debug:
+        msg: "{{ fix_extraction.stdout_lines }}"
+
+    - name: Download RKE2 tarball on bastion and copy to airgap nodes
+      block:
+        - name: Check if RKE2 tarball exists locally
+          stat:
+            path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+          register: rke2_tarball_check
+
+        - name: Download RKE2 tarball on bastion host
+          get_url:
+            url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version | default('v1.31.1+rke2r1') }}/rke2.linux-amd64.tar.gz"
+            dest: /opt/rke2-files/rke2.linux-amd64.tar.gz
+            mode: '0644'
+            timeout: 300
+          delegate_to: "{{ groups['bastion'][0] }}"
+          when: not rke2_tarball_check.stat.exists
+          vars:
+            ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+        - name: Copy RKE2 tarball from bastion to airgap node
+          command: >
+            scp -i {{ ssh_private_key_file }}
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ProxyCommand="ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}"
+            {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}:/opt/rke2-files/rke2.linux-amd64.tar.gz
+            /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+          when: not rke2_tarball_check.stat.exists
+          become: false
+          vars:
+            ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
+            ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand='ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}'"
+
+        - name: Verify RKE2 tarball exists
+          stat:
+            path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+          register: rke2_tarball_final
+          failed_when: not rke2_tarball_final.stat.exists
+
+        - name: Display RKE2 tarball status
+          debug:
+            msg: |
+              RKE2 Tarball Status:
+              - Version: {{ rke2_version | default('v1.31.1+rke2r1') }}
+              - Path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+              - Exists: {{ rke2_tarball_final.stat.exists }}
+              - Size: {{ rke2_tarball_final.stat.size | default('N/A') }} bytes
+              - Downloaded from bastion: {{ not rke2_tarball_check.stat.exists }}
+
+    - name: Create symlink for RKE2 tarball naming compatibility
+      shell: |
+        if [ -f /tmp/rke2-artifacts/rke2-linux-amd64.tar.gz ] && [ ! -f /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz ]; then
+          echo "Creating symlink: rke2-linux-amd64.tar.gz -> rke2.linux-amd64.tar.gz"
+          ln -sf rke2-linux-amd64.tar.gz /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+          echo "Symlink created successfully"
+        else
+          echo "No symlink needed or file already exists"
+        fi
+      register: tarball_fix
+      become: true
+      changed_when: "'Symlink created successfully' in tarball_fix.stdout"
+
+    - name: Display tarball fix results
+      debug:
+        msg: "Symlink creation result: {{ tarball_fix.stdout_lines }}"
+
+    - name: Verify required files
+      stat:
+        path: "{{ item }}"
+      register: file_check
+      failed_when: not file_check.stat.exists
+      loop:
+        - /tmp/rke2-artifacts/rke2
+        - /tmp/rke2-artifacts/rke2-images.tar.gz
+        - /tmp/rke2-artifacts/sha256sum-amd64.txt
+        - /tmp/rke2-install.sh
+
+    - name: Verify RKE2 tarball (either naming convention)
+      shell: |
+        if [ -f /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz ]; then
+          echo "Found: rke2.linux-amd64.tar.gz"
+          exit 0
+        elif [ -f /tmp/rke2-artifacts/rke2-linux-amd64.tar.gz ]; then
+          echo "Found: rke2-linux-amd64.tar.gz"
+          exit 0
+        else
+          echo "ERROR: No RKE2 tarball found"
+          exit 1
+        fi
+      register: tarball_check
+      changed_when: false
+
+    - name: Display artifacts status
+      debug:
+        msg: |
+          RKE2 Artifacts Status:
+          - Bundle extracted to: /tmp/rke2-artifacts/
+          - RKE2 binary: {{ file_check.results[0].stat.exists }}
+          - Images bundle: {{ file_check.results[1].stat.exists }}
+          - Checksums file: {{ file_check.results[2].stat.exists }}
+          - Install script: {{ file_check.results[3].stat.exists }}
+          - RKE2 tarball: {{ tarball_check.stdout }}
+
+- name: Run RKE2 server install script
+  shell: |
+    export INSTALL_RKE2_TYPE=server
+    export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
+    sh /tmp/rke2-install.sh
+  args:
+    creates: /usr/local/lib/systemd/system/rke2-server.service
+    executable: /bin/bash
+  become: true
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Start RKE2 server
+  block:
+    - name: Start RKE2 server service
+      systemd:
+        name: rke2-server
+        state: started
+        enabled: yes
+      become: true
+      register: rke2_start_result
+
+    - name: Display RKE2 start success
+      debug:
+        msg: "RKE2 server started successfully"
+      when: rke2_start_result is success
+
+  rescue:
+    - name: Get RKE2 server service status
+      shell: systemctl status rke2-server.service
+      register: rke2_status
+      become: true
+      failed_when: false
+
+    - name: Get RKE2 server journal logs
+      shell: journalctl -xeu rke2-server.service --no-pager -n 50
+      register: rke2_logs
+      become: true
+      failed_when: false
+
+    - name: Display RKE2 service status and logs
+      debug:
+        msg: |
+          RKE2 Server Service Status:
+          {{ rke2_status.stdout_lines | join('\n') }}
+          
+          RKE2 Server Journal Logs:
+          {{ rke2_logs.stdout_lines | join('\n') }}
+
+    - name: Check RKE2 configuration file
+      shell: cat /etc/rancher/rke2/config.yaml
+      register: rke2_config_content
+      become: true
+      failed_when: false
+
+    - name: Display RKE2 configuration
+      debug:
+        msg: |
+          RKE2 Configuration (/etc/rancher/rke2/config.yaml):
+          {{ rke2_config_content.stdout_lines | join('\n') }}
+
+    - name: Fail with detailed error information
+      fail:
+        msg: |
+          RKE2 server failed to start. Check the service status and logs above for details.
+          Common issues:
+          - Configuration file syntax errors
+          - Missing or incorrect certificates
+          - Network connectivity issues
+          - Insufficient system resources
+          - Container runtime issues
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Wait for RKE2 server to be ready
+  wait_for:
+    path: /var/lib/rancher/rke2/server/node-token
+    timeout: 300
+  become: true
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Wait for RKE2 server to be fully operational
+  block:
+    - name: Monitor RKE2 server startup progress
+      shell: |
+        echo "=== RKE2 Service Status ==="
+        systemctl is-active rke2-server.service || echo "Service not active"
+        echo ""
+        echo "=== RKE2 Directory Structure ==="
+        ls -la /var/lib/rancher/rke2/server/ 2>/dev/null || echo "Server directory not found"
+        echo ""
+        echo "=== Recent RKE2 Logs ==="
+        journalctl -u rke2-server.service --no-pager -n 10 --since "5 minutes ago" || echo "No recent logs"
+        echo ""
+        echo "=== Container Runtime Status ==="
+        crictl version 2>/dev/null || echo "crictl not available"
+        echo ""
+        echo "=== System Resources ==="
+        free -h
+        df -h /var/lib/rancher
+      register: rke2_progress
+      become: true
+      changed_when: false
+
+    - name: Display RKE2 startup progress
+      debug:
+        msg: "{{ rke2_progress.stdout_lines }}"
+
+    - name: Wait for RKE2 server manifests directory (extended timeout)
+      wait_for:
+        path: /var/lib/rancher/rke2/server/manifests
+        timeout: 600
+      become: true
+
+    - name: Verify RKE2 server is fully operational
+      shell: |
+        echo "=== Final RKE2 Status ==="
+        systemctl status rke2-server.service --no-pager -l
+        echo ""
+        echo "=== Manifests Directory ==="
+        ls -la /var/lib/rancher/rke2/server/manifests/ 2>/dev/null || echo "Manifests directory empty"
+        echo ""
+        echo "=== Node Token ==="
+        ls -la /var/lib/rancher/rke2/server/node-token 2>/dev/null || echo "Node token not found"
+      register: rke2_final_status
+      become: true
+      changed_when: false
+
+    - name: Display final RKE2 status
+      debug:
+        msg: "{{ rke2_final_status.stdout_lines }}"
+
+  rescue:
+    - name: Get detailed RKE2 failure information
+      shell: |
+        echo "=== RKE2 Service Status ==="
+        systemctl status rke2-server.service --no-pager -l
+        echo ""
+        echo "=== RKE2 Logs (last 100 lines) ==="
+        journalctl -u rke2-server.service --no-pager -n 100
+        echo ""
+        echo "=== System Resources ==="
+        free -h
+        df -h
+        echo ""
+        echo "=== Network Status ==="
+        ip addr show
+        echo ""
+        echo "=== RKE2 Directory Contents ==="
+        find /var/lib/rancher/rke2 -type f -ls 2>/dev/null || echo "RKE2 directory not accessible"
+      register: rke2_failure_info
+      become: true
+      failed_when: false
+
+    - name: Display RKE2 failure information
+      debug:
+        msg: "{{ rke2_failure_info.stdout_lines }}"
+
+    - name: Fail with timeout information
+      fail:
+        msg: |
+          RKE2 server failed to become fully operational within 10 minutes.
+          This could indicate:
+          - Slow container image pulls in airgap environment
+          - Insufficient system resources (CPU/Memory/Disk)
+          - Network connectivity issues
+          - Container runtime problems
+          - RKE2 configuration issues
+          
+          Check the detailed logs above for specific error messages.
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Wait for RKE2 server service
+  systemd:
+    name: rke2-server
+    state: started
+  become: true
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Pause for server initialization
+  pause:
+    seconds: 30
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Get node token from server
+  slurp:
+    src: /var/lib/rancher/rke2/server/node-token
+  become: true
+  register: node_token_result
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Set node token fact on all hosts
+  set_fact:
+    rke2_token: "{{ hostvars[groups['airgap_nodes'][0]]['node_token_result']['content'] | b64decode | trim }}"
+  when: hostvars[groups['airgap_nodes'][0]]['node_token_result'] is defined
+
+- name: Configure RKE2 agent
+  template:
+    src: agent-config.yaml.j2
+    dest: /etc/rancher/rke2/config.yaml
+    mode: '0644'
+  become: true
+  when: inventory_hostname != groups['airgap_nodes'][0]
+
+- name: Run RKE2 agent install script
+  shell: |
+    export INSTALL_RKE2_TYPE=agent
+    export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
+    sh /tmp/rke2-install.sh
+  args:
+    creates: /usr/local/lib/systemd/system/rke2-agent.service
+    executable: /bin/bash
+  become: true
+  when: inventory_hostname != groups['airgap_nodes'][0]
+
+- name: Start RKE2 agent
+  systemd:
+    name: rke2-agent
+    state: started
+    enabled: yes
+  become: true
+  when: inventory_hostname != groups['airgap_nodes'][0]
+
+- name: Wait for kubeconfig
+  wait_for:
+    path: /etc/rancher/rke2/rke2.yaml
+  become: true
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Get kubeconfig
+  slurp:
+    src: /etc/rancher/rke2/rke2.yaml
+  become: true
+  register: kubeconfig
+  when: inventory_hostname == groups['airgap_nodes'][0]
+
+- name: Create local kubeconfig directory
+  file:
+    path: ~/.kube
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  become: false
+  when: inventory_hostname == groups['airgap_nodes'][0]
+  vars:
+    ansible_connection: local
+
+- name: Save kubeconfig locally
+  copy:
+    content: "{{ kubeconfig['content'] | b64decode }}"
+    dest: ~/.kube/config
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  when: inventory_hostname == groups['airgap_nodes'][0]
+  vars:
+    ansible_connection: local

@@ -1,0 +1,25 @@
+---
+# Server configuration
+token: {{ rke2_token | default('') }}
+cluster-cidr: {{ cluster_cidr | default('10.42.0.0/16') }}
+service-cidr: {{ service_cidr | default('10.43.0.0/16') }}
+cluster-dns: {{ cluster_dns | default('10.43.0.10') }}
+disable:
+{% for component in disable_components | default(['rke2-snapshot-controller', 'rke2-snapshot-controller-crd', 'rke2-snapshot-validation-webhook']) %}
+  - {{ component }}
+{% endfor %}
+
+tls-san:
+  - {{ ansible_host }}
+{% if installation_method is defined and installation_method == 'registry_distribution' and hostvars[groups['bastion'][0]].ansible_host is defined %}
+system-default-registry: {{ hostvars[groups['bastion'][0]].ansible_host }}:5000
+{% endif %}
+{% if rke2_server_options is defined and 'calico' in rke2_server_options %}
+cni: calico
+{% endif %}
+{% if rke2_server_options is defined and 'cilium' in rke2_server_options %}
+cni: cilium
+{% endif %}
+{% if rke2_server_options is defined and 'multus' in rke2_server_options %}
+enable-multus: true
+{% endif %}

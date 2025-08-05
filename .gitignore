@@ -17,3 +17,5 @@ local.yaml
 .idea/
 .kube/
 *.pem
+ansible/rke2/airgap/inventory/inventory.yml
+ansible/rke2/airgap/group_vars/all.yml
