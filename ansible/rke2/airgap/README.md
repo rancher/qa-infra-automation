@@ -203,7 +203,7 @@ For detailed upgrade procedures, troubleshooting, and best practices, see [`docs
 Before upgrading, run the validation playbook to ensure your cluster is ready:
 
 ```bash
-ansible-playbook -i inventory/inventory.yml playbooks/validate-upgrade-readiness.yml
+ansible-playbook -i inventory/inventory.yml playbooks/debug/validate-upgrade-readiness.yml
 ```
 
 This will check:
@@ -215,7 +215,7 @@ This will check:
 
 ### 2. Update Target Version
 
-Edit `group_vars/all.yml` to specify the target RKE2 version:
+Edit `inventory/group_vars/all.yml` to specify the target RKE2 version:
 
 ```yaml
 # RKE2 Configuration
@@ -227,7 +227,7 @@ rke2_version: "v1.31.11+rke2r1"  # Update to desired version
 Execute the upgrade playbook:
 
 ```bash
-ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbook.yml
 ```
 
 The upgrade process will:
@@ -245,7 +245,7 @@ The upgrade process will:
 - **Backup creation**: Automatic backups of configuration and binaries before upgrade
 - **Progress monitoring**: Detailed logging and status reporting throughout the process
 
-For detailed upgrade procedures, troubleshooting, and best practices, see [`docs/RKE2_UPGRADE_GUIDE.md`](docs/RKE2_UPGRADE_GUIDE.md).
+For detailed upgrade procedures, troubleshooting, and best practices, see [`docs/configuration/RKE2_UPGRADE_GUIDE.md`](docs/configuration/RKE2_UPGRADE_GUIDE.md).
 
 ## Configuration
 
