@@ -233,19 +233,3 @@ ansible-playbook -i inventory.yml rke2-registry-distribution-playbook.yml --list
 2. **Vault decryption failed**: Verify vault password
 3. **Template errors**: Check Jinja2 syntax in variable references
 4. **Permission denied**: Ensure proper file permissions on group_vars files
-
-## Migration from Environment Variables
-
-If you have existing environment variables, convert them:
-
-```bash
-# Old way
-export EXTERNAL_REGISTRY_URL="harbor.company.com"
-export EXTERNAL_REGISTRY_USERNAME="user"
-
-# New way - add to group_vars/all.yml
-external_registry_url: "harbor.company.com"
-external_registry_username: "user"
-```
-
-The group_vars approach is more maintainable, version-controllable, and follows Ansible best practices.
