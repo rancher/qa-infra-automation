@@ -268,15 +268,18 @@
           failed_when: false
           changed_when: false
 
+        - name: Extract Kubernetes version from RKE2 version
+          set_fact:
+            expected_k8s_version: "{{ rke2_version | regex_replace('^v([0-9]+\\.[0-9]+\\.[0-9]+).*', 'v\\1') }}"
+
         - name: Download matching kubectl version
           get_url:
-            url: "https://dl.k8s.io/release/{{ k8s_version.stdout }}/bin/linux/amd64/kubectl"
+            url: "https://dl.k8s.io/release/{{ expected_k8s_version }}/bin/linux/amd64/kubectl"
             dest: /usr/local/bin/kubectl
             mode: '0755'
             owner: root
             group: root
             backup: yes
-          when: k8s_version.rc == 0
           register: kubectl_update
 
         - name: Verify kubectl update
@@ -289,7 +292,8 @@
           debug:
             msg: |
               kubectl Update Status:
-              - Cluster Kubernetes Version: {{ k8s_version.stdout | default('Unable to determine') }}
+              - Expected Kubernetes Version: {{ expected_k8s_version }}
+              - Cluster Kubernetes Version: {{ k8s_version.stdout | default('Unable to determine from cluster') }}
               - kubectl Updated: {{ kubectl_update is changed }}
               {% if kubectl_update is changed %}
               - New kubectl Version: {{ kubectl_version_check.stdout }}

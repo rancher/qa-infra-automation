@@ -31,7 +31,6 @@ installation_method: "tarball"
 # External Registry Configuration (only accessible from bastion)
 # This registry contains the RKE2 images but is not accessible from airgap nodes
 external_registry_url: "https://index.docker.io/v2"
-# external_registry_url: "https://privateregistry.qa.rancher.space"
 
 external_registry_username: "<changeme>"
 external_registry_password: "<changeme>"

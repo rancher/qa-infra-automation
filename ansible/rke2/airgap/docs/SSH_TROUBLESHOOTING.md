@@ -1,15 +1,5 @@
 # SSH Connectivity Troubleshooting Guide
 
-## Problem Summary
-The private_registry role was failing with "Connection to UNKNOWN port 65535 timed out" errors when using `delegate_to` tasks from the bastion host to airgap nodes.
-
-## Root Cause
-The issue was caused by a conflict between SSH proxy configuration and Ansible's `delegate_to` mechanism:
-
-1. **Local machine → airgap nodes**: Uses SSH proxy through bastion (correct)
-2. **Bastion host → airgap nodes**: Should use direct SSH connection (was incorrectly trying to proxy through itself)
-
-
 ## Testing Steps
 
 ### Step 1: Test Basic Connectivity
@@ -54,19 +44,4 @@ ansible-inventory -i inventory/inventory.yml --list
 
 # Test connectivity to all hosts
 ansible -i inventory/inventory.yml all -m ping
-
-
 ```
-
-## Alternative Solutions (if needed)
-
-If the current fix doesn't work, consider these alternatives:
-
-### Option 1: Use add_host for Dynamic Inventory
-Create separate host entries for delegate_to scenarios.
-
-### Option 2: Use SSH Config File
-Create a proper SSH config file instead of command-line arguments.
-
-### Option 3: Split the Role
-Separate the registry setup from the airgap node configuration.
