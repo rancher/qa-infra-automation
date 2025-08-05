@@ -1,6 +1,6 @@
 # RKE2 Airgap Installation with Ansible
 
-This directory contains Ansible roles and playbooks for installing RKE2 in an airgap environment using the tarball installation method. It provides comprehensive SSH proxy configuration for true airgap deployments with no registry dependency.
+This directory contains Ansible roles and playbooks for installing RKE2 in an airgap environment. It supports multiple installation methods with comprehensive SSH proxy configuration for true airgap deployments.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ This directory contains Ansible roles and playbooks for installing RKE2 in an ai
 - SSH access to all nodes through the bastion host
 - Sudo privileges on all nodes
 - Sufficient disk space:
-  - Bastion: At least 5GB for RKE2 tarballs and temporary files
+  - Bastion: At least 10GB for registry and images
   - Airgap nodes: At least 20GB for RKE2 installation
 
 ## Directory Structure
@@ -104,14 +104,6 @@ all:
           ansible_host: "<AIRGAP_NODE_PRIVATE_IP>"
 ```
 
-### 2. Generate Inventory (Alternative Method)
-
-If you need to manually generate the inventory from Terraform state:
-
-```bash
-ansible-playbook playbooks/setup/generate-inventory-from-terraform.yml
-```
-
 ### 3. Setup SSH Keys
 
 First, ensure SSH keys are properly distributed:
@@ -199,12 +191,18 @@ For detailed upgrade procedures, troubleshooting, and best practices, see [`docs
 ## Configuration
 
 ### Global Variables (`inventory/group_vars/all.yml`)
+**Note**: The tarball playbook (`rke2-tarball-playbook.yml`) automatically includes kubectl setup, so this step is only needed if you want to set up kubectl access separately or after using other installation methods.
+
+## Configuration
+
+### Global Variables (`group_vars/all.yml`)
 
 Key configuration options:
 
 ```yaml
 # RKE2 Configuration
 rke2_version: "v1.31.11+rke2r1"
+installation_method: "tarball"
 
 # SSH Configuration
 ssh_private_key_file: "~/.ssh/id_rsa"
