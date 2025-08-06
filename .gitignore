@@ -17,3 +17,4 @@ local.yaml
 .idea/
 .kube/
 *.pem
+terraform-inventory.yml

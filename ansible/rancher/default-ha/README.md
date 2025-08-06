@@ -33,6 +33,7 @@ Before running the playbook, ensure you have the following in addition to the [g
     *   `cert_manager_version`: The cert-manager version to install (e.g., "1.11.0").
     *   `kubeconfig_file`: The path to your `kubeconfig` file.  **Ensure this path is accessible from the environment where Ansible is running (e.g., within a Docker container if applicable).**
     *   `bootstrap_password`: The initial password for the Rancher admin user.
+    *   `password`: The password for the Rancher admin user.
 
 ## Running the Playbook
 
