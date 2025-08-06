@@ -18,3 +18,5 @@ local.yaml
 .kube/
 *.pem
 terraform-inventory.yml
+
+.python-version
