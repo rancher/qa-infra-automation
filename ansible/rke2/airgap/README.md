@@ -71,6 +71,8 @@ This system uses the **Tarball Method** for pure airgap deployments:
 
 *** Inventory is automatically generated after Tofu apply ***
 
+*** Inventory is automatically generated after Tofu apply ***
+
 Update `inventory/inventory.yml` with your environment details:
 
 ```yaml
@@ -120,7 +122,7 @@ First, ensure SSH keys are properly distributed:
 ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-ssh-keys.yml
 ```
 
-### 4. Run Installation
+### 5. Run Installation
 
 Execute the tarball installation:
 
@@ -128,7 +130,7 @@ Execute the tarball installation:
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
 
-### 5. Setup kubectl Access (Optional)
+### 6. Setup kubectl Access (Optional)
 
 After RKE2 installation, you can set up kubectl access on the bastion node:
 
