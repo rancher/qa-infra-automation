@@ -40,9 +40,10 @@ airgap/
 │   │   ├── fix-rke2-config.yml
 │   │   ├── test-ssh-connectivity.yml
 │   │   └── validate-upgrade-readiness.yml
-│   └── deploy/
-│       ├── rke2-tarball-playbook.yml
-│       ├── rke2-upgrade-playbook.yml
+│   ├── deploy/
+│   │   ├── rke2-tarball-playbook.yml
+│   │   └── rke2-upgrade-playbook.yml
+│   └── setup/
 │       ├── setup-agent-nodes.yml
 │       ├── setup-kubectl-access.yml
 │       └── setup-ssh-keys.yml
@@ -112,6 +113,8 @@ installation_method: "tarball"
 
 ### 2. Configure Inventory
 
+*** Inventory is automatically generated after Tofu apply ***
+
 Update `inventory/inventory.yml` with your environment details:
 
 ```yaml
@@ -145,15 +148,23 @@ all:
           ansible_host: "<AIRGAP_NODE_PRIVATE_IP>"
 ```
 
-### 3. Setup SSH Keys
+### 3. Generate Inventory (Alternative Method)
+
+If you need to manually generate the inventory from Terraform state:
+
+```bash
+ansible-playbook playbooks/setup/generate-inventory-from-terraform.yml
+```
+
+### 4. Setup SSH Keys
 
 First, ensure SSH keys are properly distributed:
 
 ```bash
-ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-ssh-keys.yml
+ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-ssh-keys.yml
 ```
 
-### 4. Run Installation
+### 5. Run Installation
 
 Choose your installation method:
 
@@ -162,13 +173,13 @@ Choose your installation method:
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
 
-### 5. Setup kubectl Access (Optional)
+### 6. Setup kubectl Access (Optional)
 
 After RKE2 installation, you can set up kubectl access on the bastion node:
 
 ```bash
 # Setup kubectl and copy KUBECONFIG from airgap nodes
-ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-kubectl-access.yml
+ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access.yml
 ```
 
 This will:
@@ -371,10 +382,10 @@ ansible-playbook -i inventory/inventory.yml playbooks/debug/diagnose-registry.ym
 ansible-playbook -i inventory/inventory.yml playbooks/debug/fix-rke2-config.yml
 
 # Setup agent nodes (for multi-node clusters)
-ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-agent-nodes.yml
+ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-agent-nodes.yml
 
 # Setup kubectl access on bastion (if not done during installation)
-ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-kubectl-access.yml
+ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access.yml
 ```
 
 ### Common Issues
@@ -389,7 +400,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-kubectl-acces
    - **Prevention**: Ensure `rke2_version` in `inventory/group_vars/all.yml` matches an existing GitHub release
 
 2. **SSH Connectivity Issues**
-   - Ensure SSH keys are properly distributed: `playbooks/deploy/setup-ssh-keys.yml`
+   - Ensure SSH keys are properly distributed: `playbooks/setup/setup-ssh-keys.yml`
    - Check SSH proxy configuration in inventory
    - Verify bastion host accessibility
 

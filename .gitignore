@@ -20,3 +20,4 @@ local.yaml
 ansible/rke2/airgap/inventory/inventory.yml
 ansible/rke2/airgap/playbooks/*.txt
 ansible/rke2/airgap/inventory/group_vars/all.yml
+ansible/rke2/airgap/playbooks/debug/rke2-upgrade-readiness-unknown.txt
