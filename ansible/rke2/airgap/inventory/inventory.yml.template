@@ -1,7 +1,8 @@
 all:
   vars:
     # Global SSH configuration - update this path to match your environment
-    ssh_private_key_file: "<< SSH_PRIVATE_KEY_PATH >>" # ~/.ssh/id_rsa for AWS this has to be an key pair in the region
+    # Either specify the private key here or in the groups_vars/all.yml file
+    # ssh_private_key_file: "<< SSH_PRIVATE_KEY_PATH >>" # ~/.ssh/id_rsa for AWS this has to be an key pair in the region
     bastion_user: "ubuntu"
     bastion_host: "<< BASTION_HOST_PUBLIC_DNS >>"
     

@@ -1,5 +1,5 @@
 ---
-# Global variables for RKE2 airgap deployment with registry image distribution
+# Global variables for RKE2 airgap deployment with tarball installation
 
 # RKE2 Configuration
 rke2_version: "v1.31.11+rke2r1"
@@ -12,66 +12,16 @@ rke2_server_options: |
     - rke2-snapshot-controller-crd
     - rke2-snapshot-validation-webhook
 rke2_agent_options: ""
-tarball_type: "tar.gz"
 
 # Installation Method Configuration
 # Available methods:
 #   - "tarball": Uses pre-downloaded RKE2 tarballs with embedded images (no registry required)
 #     Playbook: rke2-tarball-playbook.yml
 #     Best for: Pure airgap environments, simple deployments
-#
-#   - "registry_distribution": Sets up private registry on bastion and distributes images
-#     Playbook: rke2-registry-distribution-playbook.yml
-#     Best for: Centralized image management, multiple clusters
-#
-#   - "dockerhub": Pulls images directly from Docker Hub (requires internet)
-#     Playbook: rke2-dockerhub-playbook.yml
-#     Best for: Testing, development environments with internet access
-#
-#   - "dynamic_images": Auto-discovers images from RKE2 GitHub releases
-#     Playbook: rke2-dynamic-images-playbook.yml
-#     Best for: Latest versions, automated image discovery
 installation_method: "tarball"
 
-
-
-# External Registry Configuration (only accessible from bastion)
-# This registry contains the RKE2 images but is not accessible from airgap nodes
-external_registry_url: "https://index.docker.io/v2"
-# external_registry_url: "https://privateregistry.qa.rancher.space"
-
-external_registry_username: "<changeme>"
-external_registry_password: "<changeme>"
-external_registry_verify_ssl: false
-
-# Local Registry Configuration (on bastion host)
-# This will be set up on the bastion host and accessible to airgap nodes
-registry_username: "admin"
-registry_password: "admin"
-registry_auth: true
-
-# RKE2 Images to distribute
-# These will be pulled from external registry and distributed to airgap nodes
-rke2_images:
-  - "rancher/rke2-runtime:{{ rke2_version }}"
-  - "rancher/rke2-cloud-provider:{{ rke2_version }}"
-  - "rancher/mirrored-pause:3.6"
-  - "rancher/mirrored-coredns-coredns:1.9.3"
-  - "rancher/mirrored-library-traefik:v2.9.4"
-  - "rancher/klipper-helm:v0.7.3-build20220613"
-  - "rancher/mirrored-metrics-server:v0.6.1"
-  - "rancher/mirrored-library-busybox:1.34.1"
-  - "rancher/mirrored-ingress-nginx-controller:v1.5.1-hardened1"
-  - "rancher/rke2-multus-cni:v3.8.0-build20220613"
-
-# Additional custom images (add your application images here)
-custom_images: []
-# Example:
-# custom_images:
-#   - "your-app/frontend:latest"
-#   - "your-app/backend:v1.2.3"
-
 # SSH Configuration
+# This only needs to be set here or in the inventory file, but not both
 ssh_private_key_file: "~/.ssh/id_rsa"
 
 # Network Configuration
@@ -133,50 +83,6 @@ disable_components:
 # Performance Tuning
 max_pods_per_node: 110
 node_cidr_mask_size: 24
-
-# AWS Secrets Manager Configuration
-# Set to true to retrieve certificates from AWS Secrets Manager
-use_aws_secrets_manager: false
-aws_region: "us-east-2"
-hide_secrets: true  # Set to false for debugging (not recommended in production)
-
-# AWS Secrets Manager secret names and JSON keys
-# Configure these when use_aws_secrets_manager is true
-aws_secrets_to_retrieve:
-  - secret_name: "PRIVATE_REGISTRY_COMBINED_CERTIFICATES"
-  - secret_name: "PRIVATE_REGISTRY_CREDENTIALS"
-
-# Certificate secret configuration
-registry_cert_secret_name: "PRIVATE_REGISTRY_COMBINED_CERTIFICATES"
-registry_cert_json_key: "certificate"
-registry_key_secret_name: "PRIVATE_REGISTRY_COMBINED_CERTIFICATES"
-registry_key_json_key: "private_key"
-ca_cert_secret_name: "PRIVATE_REGISTRY_COMBINED_CERTIFICATES"
-ca_cert_json_key: "ca_certificate"
-
-# Credentials secret configuration
-registry_credentials_secret_name: "PRIVATE_REGISTRY_CREDENTIALS"
-registry_username_json_key: "username"
-registry_password_json_key: "password"
-
-# Local Certificate Files Configuration
-# Set to true to copy certificates from your local machine
-use_local_certificates: true
-
-# Local certificate file paths (on your local machine)
-# Configure these when use_local_certificates is true
-local_registry_cert_path: "~/certs/privateregistry.qa.rancher.space.crt"
-local_registry_key_path: "~/certs/privateregistry.qa.rancher.space.key"
-local_ca_cert_path: "~/certs/ca.crt"  # Optional
-
-# Local registry credentials (optional)
-# These will override the default registry_username/registry_password
-local_registry_username: "admin"
-local_registry_password: "secure-password"
-
-# Directory paths on bastion server
-registry_certs_dir: "/opt/registry/certs"
-ca_trust_dir: "/etc/pki/ca-trust/source/anchors"
 
 # Logging and Monitoring
 enable_audit_log: false
