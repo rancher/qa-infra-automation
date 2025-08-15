@@ -1,6 +1,6 @@
 # RKE2 Airgap Installation with Ansible
 
-This directory contains Ansible roles and playbooks for installing RKE2 in an airgap environment. It supports multiple installation methods with comprehensive SSH proxy configuration for true airgap deployments.
+This directory contains Ansible roles and playbooks for installing RKE2 in an airgap environment using the tarball installation method. It provides comprehensive SSH proxy configuration for true airgap deployments with no registry dependency.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ This directory contains Ansible roles and playbooks for installing RKE2 in an ai
 - SSH access to all nodes through the bastion host
 - Sudo privileges on all nodes
 - Sufficient disk space:
-  - Bastion: At least 10GB for registry and images
+  - Bastion: At least 5GB for RKE2 tarballs and temporary files
   - Airgap nodes: At least 20GB for RKE2 installation
 
 ## Directory Structure
@@ -56,62 +56,18 @@ airgap/
 └── README.md
 ```
 
-## Installation Methods
+## Installation Method
 
-The system supports 4 different installation methods, each optimized for different scenarios:
+This system uses the **Tarball Method** for pure airgap deployments:
 
-### 1. **Tarball Method** (Recommended for Pure Airgap) ✅
 - **Playbook**: `playbooks/deploy/rke2-tarball-playbook.yml`
 - **Best for**: Pure airgap environments, simple deployments
 - **Features**: Uses pre-downloaded RKE2 tarballs with embedded images (no registry required)
 - **Status**: ✅ **Currently Working and Tested**
 
-### 2. **Registry Distribution Method**
-- **Playbook**: `playbooks/deploy/rke2-registry-distribution-playbook.yml`
-- **Best for**: Centralized image management, multiple clusters
-- **Features**: Sets up private registry on bastion and distributes images
-- **Status**:  **In Progress**
-
-### 3. **Docker Hub Method**
-- **Playbook**: `playbooks/deploy/rke2-dockerhub-playbook.yml`
-- **Best for**: Testing, development environments with internet access
-- **Features**: Pulls images directly from Docker Hub (requires internet)
-- **Status**:  **In Progress**
-
-### 4. **Dynamic Images Method**
-- **Playbook**: `playbooks/deploy/rke2-dynamic-images-playbook.yml`
-- **Best for**: Latest versions, automated image discovery
-- **Features**: Auto-discovers images from RKE2 GitHub releases
-- **Status**:  **In Progress**
-
 ## Quick Start
 
-### 1. Configure Installation Method
-
-Edit `inventory/group_vars/all.yml` to set your preferred installation method:
-
-```yaml
-# Installation Method Configuration
-# Available methods:
-#   - "tarball": Uses pre-downloaded RKE2 tarballs with embedded images (no registry required)
-#     Playbook: playbooks/deploy/rke2-tarball-playbook.yml
-#     Best for: Pure airgap environments, simple deployments
-#
-#   - "registry_distribution": Sets up private registry on bastion and distributes images
-#     Playbook: playbooks/deploy/rke2-registry-distribution-playbook.yml
-#     Best for: Centralized image management, multiple clusters
-#
-#   - "dockerhub": Pulls images directly from Docker Hub (requires internet)
-#     Playbook: playbooks/deploy/rke2-dockerhub-playbook.yml
-#     Best for: Testing, development environments with internet access
-#
-#   - "dynamic_images": Auto-discovers images from RKE2 GitHub releases
-#     Playbook: playbooks/deploy/rke2-dynamic-images-playbook.yml
-#     Best for: Latest versions, automated image discovery
-installation_method: "tarball"
-```
-
-### 2. Configure Inventory
+### 1. Configure Inventory
 
 *** Inventory is automatically generated after Tofu apply ***
 
@@ -148,7 +104,7 @@ all:
           ansible_host: "<AIRGAP_NODE_PRIVATE_IP>"
 ```
 
-### 3. Generate Inventory (Alternative Method)
+### 2. Generate Inventory (Alternative Method)
 
 If you need to manually generate the inventory from Terraform state:
 
@@ -156,7 +112,7 @@ If you need to manually generate the inventory from Terraform state:
 ansible-playbook playbooks/setup/generate-inventory-from-terraform.yml
 ```
 
-### 4. Setup SSH Keys
+### 3. Setup SSH Keys
 
 First, ensure SSH keys are properly distributed:
 
@@ -164,16 +120,15 @@ First, ensure SSH keys are properly distributed:
 ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-ssh-keys.yml
 ```
 
-### 5. Run Installation
+### 4. Run Installation
 
-Choose your installation method:
+Execute the tarball installation:
 
 ```bash
-# Tarball method
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
 
-### 6. Setup kubectl Access (Optional)
+### 5. Setup kubectl Access (Optional)
 
 After RKE2 installation, you can set up kubectl access on the bastion node:
 
@@ -188,7 +143,7 @@ This will:
 - Configure kubectl for both root and the ansible user
 - Test connectivity to the cluster
 
-**Note**: The tarball playbook (`playbooks/deploy/rke2-tarball-playbook.yml`) automatically includes kubectl setup, so this step is only needed if you want to set up kubectl access separately or after using other installation methods.
+**Note**: The tarball playbook (`playbooks/deploy/rke2-tarball-playbook.yml`) automatically includes kubectl setup, so this step is only needed if you want to set up kubectl access separately.
 
 ## Upgrading RKE2
 
@@ -250,7 +205,6 @@ Key configuration options:
 ```yaml
 # RKE2 Configuration
 rke2_version: "v1.31.11+rke2r1"
-installation_method: "tarball"
 
 # SSH Configuration
 ssh_private_key_file: "~/.ssh/id_rsa"
@@ -305,26 +259,6 @@ cni_plugin: "none"
 
 For detailed CNI configuration options, troubleshooting, and best practices, see [`docs/configuration/CNI_CONFIGURATION_GUIDE.md`](docs/configuration/CNI_CONFIGURATION_GUIDE.md).
 
-### Bastion Configuration (`group_vars/bastion.yml`)
-
-Registry and Docker configuration for the bastion host:
-
-```yaml
-# Registry Configuration
-registry_port: 5000
-registry_data_dir: "/opt/registry/data"
-registry_certs_dir: "/opt/registry/certs"
-registry_auth_dir: "/opt/registry/auth"
-
-# Docker Configuration
-docker_insecure_registries:
-  - "localhost:5000"
-
-# Network Configuration
-registry_allowed_networks:
-  - "172.31.0.0/16"  # Adjust to match your VPC CIDR
-  - "10.0.0.0/8"     # Common private network range
-```
 
 ## Verification
 
@@ -332,7 +266,7 @@ After installation, verify your cluster:
 
 ### From the Bastion Node (Recommended)
 
-If you used the tarball playbook or ran `setup-kubectl-access.yml`:
+After running the tarball playbook or `setup-kubectl-access.yml`:
 
 ```bash
 # kubectl is automatically configured on the bastion node
@@ -375,9 +309,6 @@ ansible-playbook -i inventory/inventory.yml playbooks/debug/validate-upgrade-rea
 # Fix RKE2 checksum verification issues
 ansible-playbook -i inventory/inventory.yml playbooks/debug/fix-checksum-issues.yml
 
-# Check registry status
-ansible-playbook -i inventory/inventory.yml playbooks/debug/diagnose-registry.yml
-
 # Fix RKE2 configuration issues
 ansible-playbook -i inventory/inventory.yml playbooks/debug/fix-rke2-config.yml
 
@@ -404,19 +335,14 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access
    - Check SSH proxy configuration in inventory
    - Verify bastion host accessibility
 
-3. **Registry Connection Issues** (for registry-based methods)
-   - Check if registry service is running: `docker ps | grep registry`
-   - Verify port 5000 is accessible: `nc -zv bastion-host 5000`
-   - Check registry logs: `docker logs registry`
-
-4. **RKE2 Service Issues**
+3. **RKE2 Service Issues**
    - Check service status: `systemctl status rke2-server`
    - View logs: `journalctl -u rke2-server --no-pager -n 50`
    - Verify configuration: `cat /etc/rancher/rke2/config.yaml`
 
-5. **Installation Method Mismatch**
-   - Ensure `installation_method` in `inventory/group_vars/all.yml` matches your chosen playbook
+4. **Configuration Issues**
    - Use `playbooks/debug/fix-rke2-config.yml` to regenerate configuration
+   - Verify RKE2 version matches an existing GitHub release
 
 ### Debug Mode
 
@@ -440,31 +366,31 @@ The system supports multi-node clusters:
 
 Detailed documentation is available in the `docs/` directory:
 
-- **`docs/configuration/INVENTORY_CONFIGURATION.md`**: Complete inventory setup guide
-- **`docs/configuration/RKE2_UPGRADE_GUIDE.md`**: Comprehensive RKE2 upgrade procedures and troubleshooting
-- **`docs/configuration/CNI_CONFIGURATION_GUIDE.md`**: Container Network Interface (CNI) configuration and selection
-- **`docs/configuration/GROUP_VARS_GUIDE.md`**: Configuration variables reference
-- **`docs/configuration/TARBALL_DEPLOYMENT_GUIDE.md`**: Detailed tarball deployment instructions
-- **`docs/knowledge_base/SSH_TROUBLESHOOTING.md`**: SSH connectivity troubleshooting guide
+- **[`docs/configuration/INVENTORY_CONFIGURATION.md`](docs/configuration/INVENTORY_CONFIGURATION.md)**: Complete inventory setup guide
+- **[`docs/configuration/RKE2_UPGRADE_GUIDE.md`](docs/configuration/RKE2_UPGRADE_GUIDE.md)**: Comprehensive RKE2 upgrade procedures and troubleshooting
+- **[`docs/configuration/CNI_CONFIGURATION_GUIDE.md`](docs/configuration/CNI_CONFIGURATION_GUIDE.md)**: Container Network Interface (CNI) configuration and selection
+- **[`docs/configuration/GROUP_VARS_GUIDE.md`](docs/configuration/GROUP_VARS_GUIDE.md)**: Configuration variables reference
+- **[`docs/configuration/TARBALL_DEPLOYMENT_GUIDE.md`](docs/configuration/TARBALL_DEPLOYMENT_GUIDE.md)**: Detailed tarball deployment instructions
+- **[`docs/knowledge_base/SSH_TROUBLESHOOTING.md`](docs/knowledge_base/SSH_TROUBLESHOOTING.md)**: SSH connectivity troubleshooting guide
 
 ## Notes
 
 - **Airgap Environment**: All communication between airgap nodes goes through the bastion host
 - **SSH Proxy**: Automatic SSH proxy configuration for true airgap deployment
-- **Installation Methods**: Templates automatically adapt based on `installation_method` setting
+- **Tarball Method**: Uses pre-downloaded RKE2 tarballs with embedded images, eliminating registry dependency
 - **Security**: TLS certificates, authentication, and secure communication by default
-- **Flexibility**: Multiple deployment approaches for different scenarios
+- **Simplicity**: Single, reliable deployment approach optimized for airgap environments
 - **Diagnostics**: Comprehensive troubleshooting tools and documentation
 
 ## Success Story
 
-This deployment system has been successfully tested and deployed:
+This tarball-based deployment system has been successfully tested and deployed:
 - ✅ **Working single-node RKE2 cluster** using tarball method
 - ✅ **kubectl access from bastion node** with automatic KUBECONFIG setup
 - ✅ **No registry dependency** for pure airgap environments
 - ✅ **Proper SSH proxy configuration** for airgap communication
 - ✅ **Comprehensive troubleshooting tools** for issue resolution
-- ✅ **Multiple deployment methods** for different scenarios
+- ✅ **Streamlined tarball deployment** optimized for airgap scenarios
 - ✅ **Complete documentation** and configuration examples
 
-The tarball method provides a robust, registry-free solution perfect for airgap environments, while other methods offer flexibility for different deployment scenarios. The automatic kubectl setup on the bastion node provides convenient cluster management without requiring direct access to airgap nodes.
+The tarball method provides a robust, registry-free solution perfect for airgap environments. The automatic kubectl setup on the bastion node provides convenient cluster management without requiring direct access to airgap nodes.
