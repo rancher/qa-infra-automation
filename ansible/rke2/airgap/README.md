@@ -122,7 +122,7 @@ First, ensure SSH keys are properly distributed:
 ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-ssh-keys.yml
 ```
 
-### 5. Run Installation
+### 4. Run Installation
 
 Execute the tarball installation:
 
@@ -130,7 +130,7 @@ Execute the tarball installation:
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
 
-### 6. Setup kubectl Access (Optional)
+### 5. Setup kubectl Access (Optional)
 
 After RKE2 installation, you can set up kubectl access on the bastion node:
 
