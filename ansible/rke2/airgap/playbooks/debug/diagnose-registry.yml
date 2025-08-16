@@ -1,0 +1,202 @@
+---
+- name: Diagnose Private Registry Issues on Bastion Host
+  hosts: bastion
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Check Docker service status
+      systemd:
+        name: docker
+      register: docker_status
+
+    - name: Display Docker service status
+      debug:
+        var: docker_status
+
+    - name: Check if Docker is running
+      command: systemctl is-active docker
+      register: docker_active
+      ignore_errors: yes
+
+    - name: Display Docker active status
+      debug:
+        msg: "Docker is {{ docker_active.stdout }}"
+
+    - name: List running Docker containers
+      command: docker ps -a
+      register: docker_containers
+      ignore_errors: yes
+
+    - name: Display Docker containers
+      debug:
+        msg: |
+          Docker Containers:
+          {{ docker_containers.stdout }}
+
+    - name: Check registry container specifically
+      command: docker ps -f name=registry
+      register: registry_container
+      ignore_errors: yes
+
+    - name: Display registry container status
+      debug:
+        msg: |
+          Registry Container:
+          {{ registry_container.stdout }}
+
+    - name: Check registry container logs (last 50 lines)
+      command: docker logs --tail 50 registry
+      register: registry_logs
+      ignore_errors: yes
+
+    - name: Display registry logs
+      debug:
+        msg: |
+          Registry Logs (last 50 lines):
+          {{ registry_logs.stdout }}
+          {{ registry_logs.stderr }}
+
+    - name: Check if port 5000 is listening
+      command: netstat -tlnp | grep :5000
+      register: port_5000
+      ignore_errors: yes
+
+    - name: Display port 5000 status
+      debug:
+        msg: |
+          Port 5000 Status:
+          {{ port_5000.stdout }}
+
+    - name: Test registry health endpoint locally
+      uri:
+        url: "http://localhost:5000/v2/"
+        method: GET
+        timeout: 10
+      register: registry_health_local
+      ignore_errors: yes
+
+    - name: Display local registry health
+      debug:
+        msg: |
+          Local Registry Health:
+          Status: {{ registry_health_local.status | default('Failed') }}
+          Response: {{ registry_health_local.json | default('No response') }}
+          Error: {{ registry_health_local.msg | default('No error') }}
+
+    - name: Test registry health endpoint via external IP
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}:5000/v2/"
+        method: GET
+        timeout: 10
+      register: registry_health_external
+      ignore_errors: yes
+
+    - name: Display external registry health
+      debug:
+        msg: |
+          External Registry Health:
+          Status: {{ registry_health_external.status | default('Failed') }}
+          Response: {{ registry_health_external.json | default('No response') }}
+          Error: {{ registry_health_external.msg | default('No error') }}
+
+    - name: Check firewall status
+      command: ufw status
+      register: firewall_status
+      ignore_errors: yes
+
+    - name: Display firewall status
+      debug:
+        msg: |
+          Firewall Status:
+          {{ firewall_status.stdout }}
+
+    - name: Check iptables rules
+      command: iptables -L -n
+      register: iptables_rules
+      ignore_errors: yes
+
+    - name: Display iptables rules
+      debug:
+        msg: |
+          IPTables Rules:
+          {{ iptables_rules.stdout }}
+
+    - name: Check registry directory structure
+      command: ls -la /opt/registry/
+      register: registry_dirs
+      ignore_errors: yes
+
+    - name: Display registry directory structure
+      debug:
+        msg: |
+          Registry Directory Structure:
+          {{ registry_dirs.stdout }}
+
+    - name: Check registry data directory
+      command: ls -la /opt/registry/data/
+      register: registry_data
+      ignore_errors: yes
+
+    - name: Display registry data directory
+      debug:
+        msg: |
+          Registry Data Directory:
+          {{ registry_data.stdout }}
+
+    - name: Check if registry images exist
+      command: find /opt/registry/data -name "*.json" -o -name "*.tar" | head -10
+      register: registry_images
+      ignore_errors: yes
+
+    - name: Display registry images
+      debug:
+        msg: |
+          Registry Images (first 10):
+          {{ registry_images.stdout }}
+
+- name: Test Registry Connectivity from Airgap Nodes
+  hosts: airgap_nodes
+  gather_facts: yes
+  become: no
+  tasks:
+    - name: Get bastion host IP
+      set_fact:
+        bastion_ip: "{{ hostvars[groups['bastion'][0]]['ansible_default_ipv4']['address'] | default(hostvars[groups['bastion'][0]]['ansible_host']) }}"
+
+    - name: Test registry connectivity from airgap node
+      uri:
+        url: "http://{{ bastion_ip }}:5000/v2/"
+        method: GET
+        timeout: 10
+      register: registry_connectivity
+      ignore_errors: yes
+
+    - name: Display registry connectivity from airgap
+      debug:
+        msg: |
+          Registry Connectivity from {{ inventory_hostname }} to {{ bastion_ip }}:5000:
+          Status: {{ registry_connectivity.status | default('Failed') }}
+          Error: {{ registry_connectivity.msg | default('No error') }}
+
+    - name: Test DNS resolution of registry hostname
+      command: nslookup {{ bastion_host }}
+      register: dns_resolution
+      ignore_errors: yes
+
+    - name: Display DNS resolution
+      debug:
+        msg: |
+          DNS Resolution for {{ bastion_host }}:
+          {{ dns_resolution.stdout }}
+
+    - name: Test network connectivity to bastion port 5000
+      command: nc -zv {{ bastion_ip }} 5000
+      register: nc_test
+      ignore_errors: yes
+
+    - name: Display network connectivity test
+      debug:
+        msg: |
+          Network Connectivity Test to {{ bastion_ip }}:5000:
+          {{ nc_test.stdout }}
+          {{ nc_test.stderr }}
