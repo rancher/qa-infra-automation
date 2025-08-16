@@ -1,0 +1,59 @@
+---
+# Default configuration for Rancher deployment via Helm
+
+# Deployment control
+deploy_rancher: false
+install_helm: true
+
+# Helm configuration
+helm_version: "v3.12.3"
+
+# Kubectl configuration
+kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+
+# Rancher configuration
+rancher_namespace: "cattle-system"
+rancher_hostname: "rancher.local"
+rancher_helm_repo_url: "https://releases.rancher.com/server-charts/stable"
+
+# TLS configuration options: "rancher", "letsEncrypt", "secret"
+rancher_tls_source: "rancher"
+
+# Rancher Helm chart values
+rancher_helm_values:
+  hostname: "{{ rancher_hostname }}"
+  bootstrapPassword: "admin"
+  ingress:
+    tls:
+      source: "{{ rancher_tls_source }}"
+  replicas: 3
+  auditLog:
+    level: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Private registry configuration for Rancher images (when using private registry)
+rancher_private_registry_config:
+  # Registry hostname for Rancher images
+  registry: "<your-private-registry-hostname>"
+  # Image path prefix in private registry
+  repository: "rancher"
+  # Image tag
+  tag: "v2.11.0"
+
+# Advanced configuration
+rancher_advanced_values: {}
+  # Example advanced configuration:
+  # global:
+  #   cattle:
+  #     psp:
+  #       enabled: false
+  # useBundledSystemChart: true
+  # extraEnv:
+  #   - name: CATTLE_TLS_MIN_VERSION
+  #     value: "1.2"

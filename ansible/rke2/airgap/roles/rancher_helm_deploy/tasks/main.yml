@@ -1,0 +1,139 @@
+---
+# Deploy Rancher to RKE2 cluster using Helm from bastion server
+- name: Deploy Rancher to RKE2 cluster
+  when: deploy_rancher | default(false) | bool
+  tags:
+    - rancher
+    - helm
+  block:
+    - name: Check if kubectl is configured on bastion
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_file
+
+    - name: Fail if kubectl is not configured
+      ansible.builtin.fail:
+        msg: "kubectl is not configured on bastion. Run setup-kubectl-access.yml first."
+      when: not kubeconfig_file.stat.exists
+
+    - name: Install Helm if not present
+      ansible.builtin.get_url:
+        url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        mode: '0644'
+      when: install_helm | bool
+
+    - name: Extract Helm binary
+      ansible.builtin.unarchive:
+        src: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: /tmp
+        remote_src: true
+        creates: /tmp/linux-amd64/helm
+      when: install_helm | bool
+
+    - name: Install Helm binary
+      ansible.builtin.copy:
+        src: /tmp/linux-amd64/helm
+        dest: /usr/local/bin/helm
+        mode: '0755'
+        remote_src: true
+      when: install_helm | bool
+
+    - name: Verify Helm installation
+      ansible.builtin.command: helm version --short
+      register: helm_version_output
+      changed_when: false
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Display Helm version
+      ansible.builtin.debug:
+        msg: "Helm version: {{ helm_version_output.stdout }}"
+
+    - name: Create Rancher namespace
+      kubernetes.core.k8s:
+        name: "{{ rancher_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Add Rancher Helm repository
+      kubernetes.core.helm_repository:
+        name: rancher-stable
+        repo_url: "{{ rancher_helm_repo_url }}"
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      changed_when: false
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Add jetstack Helm repository for cert-manager
+      kubernetes.core.helm_repository:
+        name: jetstack
+        repo_url: "https://charts.jetstack.io"
+      when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
+
+    - name: Install cert-manager if required
+      kubernetes.core.helm:
+        name: cert-manager
+        chart_ref: jetstack/cert-manager
+        release_namespace: cert-manager
+        create_namespace: true
+        values:
+          installCRDs: true
+        kubeconfig: "{{ kubeconfig_path }}"
+      when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
+
+    - name: Wait for cert-manager to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: cert-manager
+        namespace: cert-manager
+        kubeconfig: "{{ kubeconfig_path }}"
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+      when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
+
+    - name: Deploy Rancher using Helm
+      kubernetes.core.helm:
+        name: rancher
+        chart_ref: rancher-stable/rancher
+        release_namespace: "{{ rancher_namespace }}"
+        values: "{{ rancher_helm_values }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+        wait: true
+        wait_timeout: "600s"
+
+    - name: Wait for Rancher deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: rancher
+        namespace: "{{ rancher_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 600
+
+    - name: Get Rancher service information
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        name: rancher
+        namespace: "{{ rancher_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: rancher_service
+
+    - name: Display Rancher deployment status
+      ansible.builtin.debug:
+        msg: |
+          Rancher has been successfully deployed!
+          Namespace: {{ rancher_namespace }}
+          Hostname: {{ rancher_hostname }}
+          Access URL: https://{{ rancher_hostname }}
