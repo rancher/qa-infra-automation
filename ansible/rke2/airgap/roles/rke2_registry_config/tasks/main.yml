@@ -1,0 +1,39 @@
+---
+# Configure private registry settings for RKE2
+- name: Configure private registry for RKE2
+  block:
+    - name: Create RKE2 configuration directory
+      ansible.builtin.file:
+        path: /etc/rancher/rke2
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Generate registries.yaml configuration
+      ansible.builtin.template:
+        src: registries.yaml.j2
+        dest: /etc/rancher/rke2/registries.yaml
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+      notify:
+        - restart rke2-server
+        - restart rke2-agent
+
+    - name: Wait for registry configuration to be applied
+      ansible.builtin.pause:
+        seconds: 5
+        prompt: "Waiting for registry configuration to be written"
+
+    - name: Verify registries.yaml exists and is readable
+      ansible.builtin.stat:
+        path: /etc/rancher/rke2/registries.yaml
+      register: registries_file
+
+    - name: Display registry configuration status
+      ansible.builtin.debug:
+        msg: "Registry configuration file created: {{ registries_file.stat.exists }}"
+
+  when: enable_private_registry | default(false) | bool
