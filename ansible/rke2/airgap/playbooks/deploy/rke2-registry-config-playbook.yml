@@ -1,0 +1,91 @@
+---
+- name: Configure Private Registry for RKE2 Airgap Nodes
+  hosts: airgap_nodes
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Enable private registry configuration
+    enable_private_registry: true
+
+  pre_tasks:
+    - name: Check if RKE2 is installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/rke2
+      register: rke2_binary
+
+    - name: Fail if RKE2 is not installed
+      ansible.builtin.fail:
+        msg: "RKE2 must be installed before configuring private registries. Run the tarball playbook first."
+      when: not rke2_binary.stat.exists
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Display current RKE2 services status
+      ansible.builtin.debug:
+        msg: |
+          RKE2 Server Service: {{ ansible_facts.services['rke2-server.service'].state | default('not found') }}
+          RKE2 Agent Service: {{ ansible_facts.services['rke2-agent.service'].state | default('not found') }}
+
+  roles:
+    - role: rke2_registry_config
+      tags:
+        - registry
+        - config
+
+  post_tasks:
+    - name: Wait for RKE2 services to stabilize after restart
+      ansible.builtin.pause:
+        seconds: 30
+        prompt: "Waiting for RKE2 services to stabilize after registry configuration"
+
+    - name: Check RKE2 server service status (if applicable)
+      ansible.builtin.systemd:
+        name: rke2-server
+      register: rke2_server_status
+      when: ansible_facts.services['rke2-server.service'] is defined
+      ignore_errors: yes
+
+    - name: Check RKE2 agent service status (if applicable)
+      ansible.builtin.systemd:
+        name: rke2-agent
+      register: rke2_agent_status
+      when: ansible_facts.services['rke2-agent.service'] is defined
+      ignore_errors: yes
+
+    - name: Display service status after configuration
+      ansible.builtin.debug:
+        msg: |
+          RKE2 Server Status: {{ rke2_server_status.status.ActiveState | default('N/A') }}
+          RKE2 Agent Status: {{ rke2_agent_status.status.ActiveState | default('N/A') }}
+
+    - name: Verify registries.yaml configuration
+      ansible.builtin.slurp:
+        src: /etc/rancher/rke2/registries.yaml
+      register: registries_content
+      when: enable_private_registry | bool
+
+    - name: Display registries.yaml content (first 10 lines)
+      ansible.builtin.debug:
+        msg: "{{ (registries_content.content | b64decode).split('\n')[:10] }}"
+      when: 
+        - enable_private_registry | bool
+        - registries_content is defined
+
+  handlers:
+    - name: restart rke2-server
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: restarted
+      when: 
+        - ansible_facts['services']['rke2-server.service'] is defined
+        - ansible_facts['services']['rke2-server.service']['state'] == 'running'
+
+    - name: restart rke2-agent
+      ansible.builtin.systemd:
+        name: rke2-agent
+        state: restarted
+      when: 
+        - ansible_facts['services']['rke2-agent.service'] is defined
+        - ansible_facts['services']['rke2-agent.service']['state'] == 'running'

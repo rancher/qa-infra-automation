@@ -42,7 +42,8 @@ airgap/
 │   │   └── validate-upgrade-readiness.yml
 │   ├── deploy/
 │   │   ├── rke2-tarball-playbook.yml
-│   │   └── rke2-upgrade-playbook.yml
+│   │   ├── rke2-upgrade-playbook.yml
+│   │   └── rke2-registry-config-playbook.yml
 │   └── setup/
 │       ├── setup-agent-nodes.yml
 │       ├── setup-kubectl-access.yml
@@ -51,6 +52,7 @@ airgap/
 │   ├── rke2_install/
 │   ├── rke2_tarball/
 │   ├── rke2_upgrade/
+│   ├── rke2_registry_config/
 │   └── ssh_setup/
 ├── ansible.cfg
 └── README.md
@@ -144,6 +146,23 @@ This will:
 - Test connectivity to the cluster
 
 **Note**: The tarball playbook (`playbooks/deploy/rke2-tarball-playbook.yml`) automatically includes kubectl setup, so this step is only needed if you want to set up kubectl access separately.
+
+### 6. Configure Private Registry (Optional)
+
+If you need to configure RKE2 to use a private registry for pulling images after installation:
+
+```bash
+# Configure private registry settings on all airgap nodes
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-config-playbook.yml
+```
+
+This will:
+- Create `/etc/rancher/rke2/registries.yaml` on all airgap nodes
+- Configure registry mirrors and authentication
+- Restart RKE2 services to apply the changes
+- Verify the configuration is properly applied
+
+**Note**: This step should only be performed after RKE2 is successfully installed and running.
 
 ## Upgrading RKE2
 
@@ -278,6 +297,30 @@ disable_components:
   - rke2-snapshot-controller
   - rke2-snapshot-controller-crd
   - rke2-snapshot-validation-webhook
+
+# Private Registry Configuration (optional)
+enable_private_registry: false
+private_registry_mirrors:
+  - registry: "docker.io"
+    endpoints:
+      - "<PRIVATE_REGISTRY_URL>"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "proxycache/$1"
+  - registry: "quay.io"
+    endpoints:
+      - "<PRIVATE_REGISTRY_URL>"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "quaycache/$1"
+
+private_registry_configs:
+  - registry: "<PRIVATE_REGISTRY_URL>"
+    auth:
+      username: "<PRIVATE_REGISTRY_USERNAME>"
+      password: "<PRIVATE_REGISTERY_PASSWORD>"
+    tls:
+      insecure_skip_verify: true
 ```
 
 ## CNI (Container Network Interface) Configuration
@@ -315,6 +358,61 @@ cni: "none"
 
 For detailed CNI configuration options, troubleshooting, and best practices, see [`docs/configuration/CNI_CONFIGURATION_GUIDE.md`](docs/configuration/CNI_CONFIGURATION_GUIDE.md).
 
+## Private Registry Configuration
+
+After RKE2 is installed, you can optionally configure it to use private registries for pulling container images. This is useful when you need to redirect image pulls to internal registries or mirror registries.
+
+### Configuration Options
+
+Edit `inventory/group_vars/all.yml` to configure private registry settings:
+
+```yaml
+# Enable private registry configuration
+enable_private_registry: true
+
+# Configure registry mirrors
+private_registry_mirrors:
+  - registry: "docker.io"
+    endpoints:
+      - "https://your-private-registry.com"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "proxycache/$1"
+
+# Configure registry authentication and TLS
+private_registry_configs:
+  - registry: "your-private-registry.com"
+    auth:
+      username: "your-username"
+      password: "your-password"
+    tls:
+      insecure_skip_verify: true
+```
+
+### Apply Registry Configuration
+
+After RKE2 installation, run the registry configuration playbook:
+
+```bash
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-config-playbook.yml
+```
+
+This playbook will:
+- Create `/etc/rancher/rke2/registries.yaml` on all airgap nodes
+- Configure containerd to use the specified registry mirrors
+- Apply authentication and TLS settings
+- Restart RKE2 services to apply the changes
+- Verify the configuration is working
+
+### Registry Configuration Features
+
+- **Mirror Configuration**: Redirect pulls from public registries to private mirrors
+- **Path Rewriting**: Transform image paths using regex patterns for different registry layouts
+- **Authentication**: Support for username/password and token-based authentication
+- **TLS Configuration**: Custom certificates or skip TLS verification for testing
+- **Service Restart**: Automatic restart of RKE2 services to apply configuration changes
+
+**Important**: Private registry configuration should only be applied after RKE2 is successfully installed and running.
 
 ## Verification
 
@@ -373,6 +471,9 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-agent-nodes.ym
 
 # Setup kubectl access on bastion (if not done during installation)
 ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access.yml
+
+# Configure private registries (after RKE2 installation)
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-config-playbook.yml
 ```
 
 ### Common Issues
@@ -396,7 +497,23 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access
    - View logs: `journalctl -u rke2-server --no-pager -n 50`
    - Verify configuration: `cat /etc/rancher/rke2/config.yaml`
 
-4. **Configuration Issues**
+4. **Private Registry Issues**
+   - **Error**: `failed to pull image` or `connection refused` errors for container images
+   - **Cause**: Registry configuration not applied or incorrect registry settings
+   - **Solution**: Verify registry configuration and connectivity:
+     ```bash
+     # Check registries.yaml exists and is correct
+     cat /etc/rancher/rke2/registries.yaml
+     
+     # Test registry connectivity from airgap nodes
+     curl -k https://your-private-registry.com/v2/
+     
+     # Re-apply registry configuration if needed
+     ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-config-playbook.yml
+     ```
+   - **Check containerd logs**: `/var/lib/rancher/rke2/agent/containerd/containerd.log`
+
+5. **Configuration Issues**
    - Use `playbooks/debug/fix-rke2-config.yml` to regenerate configuration
    - Verify RKE2 version matches an existing GitHub release
 

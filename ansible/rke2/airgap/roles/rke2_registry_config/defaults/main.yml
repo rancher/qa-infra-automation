@@ -1,0 +1,34 @@
+---
+# Default private registry configuration
+# These can be overridden in inventory/group_vars/all.yml
+
+# Registry mirrors configuration
+private_registry_mirrors:
+  - registry: "docker.io"
+    endpoints:
+      - "<PRIVATE_REGISTRY_URL>"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "proxycache/$1"
+  - registry: "quay.io"
+    endpoints:
+      - "<PRIVATE_REGISTRY_URL>"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "quaycache/$1"
+
+# Registry authentication and TLS configuration
+private_registry_configs:
+  - registry: "<PRIVATE_REGISTRY_URL>"
+    auth:
+      username: "<PRIVATE_REGISTRY_USERNAME>"
+      password: "<PRIVATE_REGISTRY_PASSWORD>"
+    tls:
+      insecure_skip_verify: true
+      # Uncomment and configure these if using custom certificates
+      # cert_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.crt"
+      # key_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.key"
+      # ca_file: "/home/ubuntu/certs/ca.crt"
+
+# Whether to enable private registry configuration
+enable_private_registry: false

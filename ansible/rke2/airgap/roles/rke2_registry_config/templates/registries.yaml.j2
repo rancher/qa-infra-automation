@@ -1,0 +1,39 @@
+---
+mirrors:
+{% for mirror in private_registry_mirrors %}
+  {{ mirror.registry }}:
+    endpoint:
+{% for endpoint in mirror.endpoints %}
+      - "{{ endpoint }}"
+{% endfor %}
+{% if mirror.rewrite is defined %}
+    rewrite:
+{% for rewrite_rule in mirror.rewrite %}
+      "{{ rewrite_rule.pattern }}": "{{ rewrite_rule.replacement }}"
+{% endfor %}
+{% endif %}
+{% endfor %}
+configs:
+{% for config in private_registry_configs %}
+  "{{ config.registry }}":
+{% if config.auth is defined %}
+    auth:
+      username: {{ config.auth.username }}
+      password: {{ config.auth.password }}
+{% endif %}
+{% if config.tls is defined %}
+    tls:
+{% if config.tls.insecure_skip_verify is defined %}
+      insecure_skip_verify: {{ config.tls.insecure_skip_verify | bool | lower }}
+{% endif %}
+{% if config.tls.cert_file is defined %}
+      cert_file: {{ config.tls.cert_file }}
+{% endif %}
+{% if config.tls.key_file is defined %}
+      key_file: {{ config.tls.key_file }}
+{% endif %}
+{% if config.tls.ca_file is defined %}
+      ca_file: {{ config.tls.ca_file }}
+{% endif %}
+{% endif %}
+{% endfor %}
