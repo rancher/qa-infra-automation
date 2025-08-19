@@ -1,50 +1,123 @@
 ---
-- name: RKE2 Airgap Deployment - Tarball Installation
+- name: Prepare RKE2 Tarball Bundle on Bastion Host
   hosts: bastion
   become: true
   gather_facts: true
 
-  tasks:
-    - name: Download and prepare RKE2 tarball bundle
-      include_role:
-        name: rke2_tarball
+  vars:
+    # Enable RKE2 tarball distribution
+    enable_rke2_tarball_distribution: true
 
-- name: Install RKE2 on airgap nodes
+  pre_tasks:
+    - name: Display RKE2 tarball distribution status
+      ansible.builtin.debug:
+        msg: |
+          RKE2 Tarball Distribution:
+          - Enabled: {{ enable_rke2_tarball_distribution }}
+          - Version: {{ rke2_version }}
+          - Target Directory: /opt/rke2-files
+
+    - name: Fail if tarball distribution is disabled
+      ansible.builtin.fail:
+        msg: "RKE2 tarball distribution is disabled. Set enable_rke2_tarball_distribution: true to enable."
+      when: not enable_rke2_tarball_distribution | bool
+
+  roles:
+    - role: rke2_tarball
+      tags:
+        - rke2
+        - tarball
+
+  post_tasks:
+    - name: Wait for bundle creation
+      ansible.builtin.wait_for:
+        path: /opt/rke2-files/rke2-bundle.tar.gz
+        timeout: 300
+      register: bundle_wait
+
+    - name: Check bundle file
+      ansible.builtin.stat:
+        path: /opt/rke2-files/rke2-bundle.tar.gz
+      register: bundle_stat
+
+    - name: Display bundle information
+      ansible.builtin.debug:
+        msg: |
+          RKE2 Bundle Information:
+          - Location: /opt/rke2-files/rke2-bundle.tar.gz
+          - Size: {{ bundle_stat.stat.size | default('N/A') }} bytes
+          - Exists: {{ bundle_stat.stat.exists }}
+          - Created: {{ bundle_stat.stat.ctime | default('N/A') }}
+
+    - name: Fail if bundle was not created
+      ansible.builtin.fail:
+        msg: |
+          RKE2 tarball bundle was not created successfully.
+          Check the rke2_tarball role output for errors.
+      when: not bundle_stat.stat.exists
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: |
+          ✅ RKE2 Tarball Bundle Created Successfully!
+
+          Bundle Location: /opt/rke2-files/rke2-bundle.tar.gz
+          Bundle Size: {{ (bundle_stat.stat.size / 1024 / 1024) | round(2) }} MB
+
+          You can now run the RKE2 installation playbook:
+          ansible-playbook -i inventory/inventory.yml playbooks/rke2-install-playbook.yml
+
+- name: Install RKE2 on Airgap Nodes
   hosts: airgap_nodes
   become: true
   gather_facts: true
-  serial: 1  # Install one node at a time for stability
 
-  tasks:
-    - name: Install RKE2 from tarball
-      include_role:
-        name: rke2_install
+  vars:
+    # Enable RKE2 installation
+    enable_rke2_installation: true
 
-- name: Verify RKE2 installation
-  hosts: airgap_nodes[0]  # First server node
-  gather_facts: false
-  tasks:
+  pre_tasks:
+    - name: Display RKE2 installation status
+      ansible.builtin.debug:
+        msg: |
+          RKE2 Installation:
+          - Enabled: {{ enable_rke2_installation }}
+          - Version: {{ rke2_version }}
+          - Installation Method: Tarball
+
+    - name: Fail if RKE2 installation is disabled
+      ansible.builtin.fail:
+        msg: "RKE2 installation is disabled. Set enable_rke2_installation: true to enable."
+      when: not enable_rke2_installation | bool
+
+  roles:
+    - role: rke2_install
+      tags:
+        - rke2
+        - install
+
+  post_tasks:
     - name: Wait for RKE2 to be fully ready
-      wait_for:
+      ansible.builtin.wait_for:
         path: /etc/rancher/rke2/rke2.yaml
         timeout: 300
       become: true
 
     - name: Check RKE2 server status
-      systemd:
+      ansible.builtin.systemd:
         name: rke2-server
         state: started
       become: true
       register: rke2_status
 
     - name: Display RKE2 status
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Server Status: {{ rke2_status.status.ActiveState }}
           RKE2 is {{ 'running' if rke2_status.status.ActiveState == 'active' else 'not running' }}
 
     - name: Get cluster nodes (if kubectl is available)
-      shell: |
+      ansible.builtin.shell: |
         export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
         /var/lib/rancher/rke2/bin/kubectl get nodes -o wide
       become: true
@@ -53,25 +126,25 @@
       changed_when: false
 
     - name: Display cluster information
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Cluster Information:
           {{ cluster_nodes.stdout if cluster_nodes.rc == 0 else 'kubectl not available or cluster not ready' }}
       when: cluster_nodes is defined
 
     - name: Display kubeconfig location
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Installation Complete!
-          
+
           Kubeconfig locations:
           - Server: /etc/rancher/rke2/rke2.yaml
           - Local copy: ~/.kube/config (if copied successfully)
-          
+
           To use kubectl:
           export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
           /var/lib/rancher/rke2/bin/kubectl get nodes
-          
+
           Or add RKE2 bin directory to PATH:
           export PATH=$PATH:/var/lib/rancher/rke2/bin
 
@@ -79,114 +152,116 @@
   hosts: bastion
   become: true
   gather_facts: true
+
   tasks:
-   - name: Extract Kubernetes version from RKE2 version
-     set_fact:
-       k8s_version: "{{ rke2_version | regex_replace('^v([0-9]+\\.[0-9]+\\.[0-9]+).*', 'v\\1') }}"
+    - name: Extract Kubernetes version from RKE2 version
+      ansible.builtin.set_fact:
+        k8s_version: "{{ rke2_version | regex_replace('^v([0-9]+\\.[0-9]+\\.[0-9]+).*', 'v\\1') }}"
 
-   - name: Display Kubernetes version for kubectl
-     debug:
-       msg: "Installing kubectl version {{ k8s_version }} to match RKE2 {{ rke2_version }}"
+    - name: Display Kubernetes version for kubectl
+      ansible.builtin.debug:
+        msg: "Installing kubectl version {{ k8s_version }} to match RKE2 {{ rke2_version }}"
 
-   - name: Download kubectl binary matching RKE2 Kubernetes version
-     get_url:
-       url: "https://dl.k8s.io/release/{{ k8s_version }}/bin/linux/amd64/kubectl"
-       dest: /usr/local/bin/kubectl
-       mode: '0755'
-       owner: root
-       group: root
-     register: kubectl_download
-     retries: 3
-     delay: 5
+    - name: Download kubectl binary matching RKE2 Kubernetes version
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/{{ k8s_version }}/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+        owner: root
+        group: root
+      register: kubectl_download
+      retries: 3
+      delay: 5
 
-   - name: Verify kubectl installation
-     command: kubectl version --client
-     register: kubectl_version
-     changed_when: false
+    - name: Verify kubectl installation
+      ansible.builtin.command: kubectl version --client
+      register: kubectl_version
+      changed_when: false
 
-   - name: Display kubectl version
-     debug:
-       msg: "kubectl installed: {{ kubectl_version.stdout }}"
+    - name: Display kubectl version
+      ansible.builtin.debug:
+        msg: "kubectl installed: {{ kubectl_version.stdout }}"
 
-   - name: Create .kube directory for root
-     file:
-       path: /root/.kube
-       state: directory
-       mode: '0700'
-       owner: root
-       group: root
+    - name: Create .kube directory for root
+      ansible.builtin.file:
+        path: /root/.kube
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
 
-   - name: Create .kube directory for ansible user
-     file:
-       path: "/home/{{ ansible_user }}/.kube"
-       state: directory
-       mode: '0700'
-       owner: "{{ ansible_user }}"
-       group: "{{ ansible_user }}"
-     when: ansible_user is defined and ansible_user != 'root'
+    - name: Create .kube directory for ansible user
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.kube"
+        state: directory
+        mode: '0700'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      when: ansible_user is defined and ansible_user != 'root'
 
-   - name: Fetch KUBECONFIG from first airgap node
-     fetch:
-       src: /etc/rancher/rke2/rke2.yaml
-       dest: /tmp/rke2-{{ inventory_hostname }}.yaml
-       flat: yes
-     delegate_to: "{{ groups['airgap_nodes'][0] }}"
-     become: true
+    - name: Fetch KUBECONFIG from first airgap node
+      ansible.builtin.fetch:
+        src: /etc/rancher/rke2/rke2.yaml
+        dest: /tmp/rke2-{{ inventory_hostname }}.yaml
+        flat: true
+      delegate_to: "{{ groups['airgap_nodes'][0] }}"
+      become: true
 
-   - name: Read kubeconfig content
-     slurp:
-       src: "/tmp/rke2-{{ inventory_hostname }}.yaml"
-     register: kubeconfig_content
-     delegate_to: localhost
-     become: false
+    - name: Read kubeconfig content
+      ansible.builtin.slurp:
+        src: "/tmp/rke2-{{ inventory_hostname }}.yaml"
+      register: kubeconfig_content
+      delegate_to: localhost
+      become: false
 
-   - name: Update server URL in kubeconfig content
-     set_fact:
-       updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups['airgap_nodes'][0]]['ansible_host'] + ':6443') }}"
+    - name: Update server URL in kubeconfig content
+      ansible.builtin.set_fact:
+        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups['airgap_nodes'][0]]['ansible_host'] + ':6443') }}"
 
-   - name: Write kubeconfig to bastion root
-     copy:
-       content: "{{ updated_kubeconfig }}"
-       dest: /root/.kube/config
-       mode: '0600'
-       owner: root
-       group: root
+    - name: Write kubeconfig to bastion root
+      ansible.builtin.copy:
+        content: "{{ updated_kubeconfig }}"
+        dest: /root/.kube/config
+        mode: '0600'
+        owner: root
+        group: root
 
-   - name: Write kubeconfig to ansible user
-     copy:
-       content: "{{ updated_kubeconfig }}"
-       dest: "/home/{{ ansible_user }}/.kube/config"
-       mode: '0600'
-       owner: "{{ ansible_user }}"
-       group: "{{ ansible_user }}"
-     when: ansible_user is defined and ansible_user != 'root'
+    - name: Write kubeconfig to ansible user
+      ansible.builtin.copy:
+        content: "{{ updated_kubeconfig }}"
+        dest: "/home/{{ ansible_user }}/.kube/config"
+        mode: '0600'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      when: ansible_user is defined and ansible_user != 'root'
 
-   - name: Clean up temporary kubeconfig
-     file:
-       path: "/tmp/rke2-{{ inventory_hostname }}.yaml"
-       state: absent
-     delegate_to: localhost
-     become: false
+    - name: Clean up temporary kubeconfig
+      ansible.builtin.file:
+        path: "/tmp/rke2-{{ inventory_hostname }}.yaml"
+        state: absent
+      delegate_to: localhost
+      become: false
 
-   - name: Test kubectl connectivity
-     shell: kubectl get nodes -o wide
-     environment:
-       KUBECONFIG: /root/.kube/config
-     register: kubectl_test
-     failed_when: false
-     changed_when: false
+    - name: Test kubectl connectivity
+      ansible.builtin.command: kubectl get nodes -o wide
+      # Using command instead of shell because we need to set environment variables
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: kubectl_test
+      failed_when: false
+      changed_when: false
 
-   - name: Display kubectl test results
-     debug:
-       msg: |
-         kubectl connectivity test:
-         {% if kubectl_test.rc == 0 %}
-         SUCCESS - Cluster accessible from bastion:
-         {{ kubectl_test.stdout }}
-         {% else %}
-         FAILED - Error connecting to cluster:
-         {{ kubectl_test.stderr }}
-         {% endif %}
+    - name: Display kubectl test results
+      ansible.builtin.debug:
+        msg: |
+          kubectl connectivity test:
+          {% if kubectl_test.rc == 0 %}
+          SUCCESS - Cluster accessible from bastion:
+          {{ kubectl_test.stdout }}
+          {% else %}
+          FAILED - Error connecting to cluster:
+          {{ kubectl_test.stderr }}
+          {% endif %}
 
    - name: Display final instructions
      debug:

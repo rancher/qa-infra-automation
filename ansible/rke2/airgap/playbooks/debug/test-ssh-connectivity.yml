@@ -4,21 +4,21 @@
   gather_facts: false
   tasks:
     - name: Test bastion connectivity
-      ping:
-      
+      ansible.builtin.ping:
+
 - name: Test SSH connectivity from local machine to airgap nodes via proxy
   hosts: airgap_nodes
   gather_facts: false
   tasks:
     - name: Test airgap node connectivity via proxy
-      ping:
+      ansible.builtin.ping:
 
 - name: Test direct connectivity from bastion to airgap nodes
   hosts: bastion
   gather_facts: false
   tasks:
     - name: Test direct SSH to airgap nodes from bastion
-      shell: |
+      ansible.builtin.shell: |
         ssh -o BatchMode=yes \
             -o ConnectTimeout=5 \
             -o StrictHostKeyChecking=no \
@@ -29,7 +29,7 @@
       loop: "{{ groups['airgap_nodes'] }}"
       register: direct_ssh_test
       changed_when: false
-      
+
     - name: Display direct SSH test results
-      debug:
+      ansible.builtin.debug:
         msg: "{{ direct_ssh_test.results }}"

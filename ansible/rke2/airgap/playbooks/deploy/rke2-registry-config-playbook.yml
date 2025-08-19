@@ -1,8 +1,8 @@
 ---
 - name: Configure Private Registry for RKE2 Airgap Nodes
   hosts: airgap_nodes
-  become: yes
-  gather_facts: yes
+  become: true
+  gather_facts: true
 
   vars:
     # Enable private registry configuration
@@ -45,14 +45,14 @@
         name: rke2-server
       register: rke2_server_status
       when: ansible_facts.services['rke2-server.service'] is defined
-      ignore_errors: yes
+      failed_when: false
 
     - name: Check RKE2 agent service status (if applicable)
       ansible.builtin.systemd:
         name: rke2-agent
       register: rke2_agent_status
       when: ansible_facts.services['rke2-agent.service'] is defined
-      ignore_errors: yes
+      failed_when: false
 
     - name: Display service status after configuration
       ansible.builtin.debug:
@@ -69,23 +69,23 @@
     - name: Display registries.yaml content (first 10 lines)
       ansible.builtin.debug:
         msg: "{{ (registries_content.content | b64decode).split('\n')[:10] }}"
-      when: 
+      when:
         - enable_private_registry | bool
         - registries_content is defined
 
   handlers:
-    - name: restart rke2-server
+    - name: Restart rke2-server
       ansible.builtin.systemd:
         name: rke2-server
         state: restarted
-      when: 
+      when:
         - ansible_facts['services']['rke2-server.service'] is defined
         - ansible_facts['services']['rke2-server.service']['state'] == 'running'
 
-    - name: restart rke2-agent
+    - name: Restart rke2-agent
       ansible.builtin.systemd:
         name: rke2-agent
         state: restarted
-      when: 
+      when:
         - ansible_facts['services']['rke2-agent.service'] is defined
         - ansible_facts['services']['rke2-agent.service']['state'] == 'running'
