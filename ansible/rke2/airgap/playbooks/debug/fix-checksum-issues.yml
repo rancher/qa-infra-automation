@@ -79,7 +79,7 @@
     - name: Display success message
       debug:
         msg: |
-          ✅ RKE2 checksum issues have been resolved!
+          [OK] RKE2 checksum issues have been resolved!
           
           Summary:
           - Version: {{ rke2_version }}

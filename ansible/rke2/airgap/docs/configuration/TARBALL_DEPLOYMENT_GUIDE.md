@@ -267,13 +267,13 @@ node_taints:
 
 ## Advantages of Tarball Approach
 
-1. **✅ Official Support**: Uses Rancher's recommended airgap method
-2. **✅ Complete Packages**: Includes all necessary components
-3. **✅ Version Consistency**: Ensures all components match RKE2 version
-4. **✅ No Registry Dependencies**: Works without external registries
-5. **✅ Reliable Downloads**: GitHub releases are highly available
-6. **✅ Integrity Verification**: Includes checksums for verification
-7. **✅ Proven Method**: Widely used in production environments
+1. **[OK] Official Support**: Uses Rancher's recommended airgap method
+2. **[OK] Complete Packages**: Includes all necessary components
+3. **[OK] Version Consistency**: Ensures all components match RKE2 version
+4. **[OK] No Registry Dependencies**: Works without external registries
+5. **[OK] Reliable Downloads**: GitHub releases are highly available
+6. **[OK] Integrity Verification**: Includes checksums for verification
+7. **[OK] Proven Method**: Widely used in production environments
 
 ## Security Considerations
 

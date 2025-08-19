@@ -24,13 +24,13 @@ all:
 3. **Reusability**: Easy to adapt for different environments
 ### **IMPORTANT: SSH Key Path Configuration**
 
-⚠️ **Use absolute paths for SSH keys** to avoid tilde (`~`) expansion issues:
+**WARNING: Use absolute paths for SSH keys** to avoid tilde (`~`) expansion issues:
 
 ```yaml
-# ✅ CORRECT - Absolute path
+# CORRECT - Absolute path
 ssh_private_key_file: "/home/username/.ssh/id_rsa"
 
-# ❌ INCORRECT - Tilde expansion can cause issues
+# INCORRECT - Tilde expansion can cause issues
 ssh_private_key_file: "~/.ssh/id_rsa"
 ```
 

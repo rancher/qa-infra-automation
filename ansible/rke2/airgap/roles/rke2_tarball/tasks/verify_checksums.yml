@@ -94,16 +94,16 @@
       echo "Expected: $expected_checksum"
       echo "Actual:   $actual_checksum"
       if [ "$actual_checksum" = "$expected_checksum" ]; then
-        echo "✓ RKE2 tarball checksum matches"
+        echo "[OK] RKE2 tarball checksum matches"
       else
-        echo "✗ RKE2 tarball checksum mismatch"
+        echo "[FAILED] RKE2 tarball checksum mismatch"
         exit 1
       fi
     else
-      echo "✗ RKE2 tarball not found"
+      echo "[FAILED] RKE2 tarball not found"
       exit 1
     fi
-    
+
     echo ""
     echo "=== Verifying RKE2 Images ==="
     if [ -f /tmp/rke2-artifacts/rke2-images.tar.gz ]; then
@@ -112,13 +112,13 @@
       echo "Expected: $expected_checksum"
       echo "Actual:   $actual_checksum"
       if [ "$actual_checksum" = "$expected_checksum" ]; then
-        echo "✓ RKE2 images checksum matches"
+        echo "[OK] RKE2 images checksum matches"
       else
-        echo "✗ RKE2 images checksum mismatch"
+        echo "[FAILED] RKE2 images checksum mismatch"
         exit 1
       fi
     else
-      echo "✗ RKE2 images not found"
+      echo "[FAILED] RKE2 images not found"
       exit 1
     fi
     

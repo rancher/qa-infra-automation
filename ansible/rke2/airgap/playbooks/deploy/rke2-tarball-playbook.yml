@@ -191,11 +191,11 @@
    - name: Display final instructions
      debug:
        msg: |
-         🎉 RKE2 Cluster Setup Complete!
-         
-         ✅ RKE2 cluster deployed on airgap nodes
-         ✅ kubectl installed on bastion node
-         ✅ KUBECONFIG copied and configured
+         RKE2 Cluster Setup Complete!
+
+         [OK] RKE2 cluster deployed on airgap nodes
+         [OK] kubectl installed on bastion node
+         [OK] KUBECONFIG copied and configured
          
          To manage your cluster from the bastion node:
          

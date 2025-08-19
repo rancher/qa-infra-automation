@@ -42,9 +42,9 @@
       debug:
         msg: |
           Bastion Host Validation:
-          ✅ Internet Access: {{ 'OK' if internet_check.status == 200 else 'FAILED' }}
-          ✅ Disk Space: {{ bastion_disk_space.stdout }}
-          ✅ SSH Connectivity: {{ ssh_test.results | selectattr('rc', 'equalto', 0) | list | length }}/{{ groups['airgap_nodes'] | length }} nodes reachable
+          [INFO] Internet Access: {{ 'OK' if internet_check.status == 200 else 'FAILED' }}
+          [INFO] Disk Space: {{ bastion_disk_space.stdout }}
+          [INFO] SSH Connectivity: {{ ssh_test.results | selectattr('rc', 'equalto', 0) | list | length }}/{{ groups['airgap_nodes'] | length }} nodes reachable
 
 - name: Validate Airgap Nodes Readiness
   hosts: airgap_nodes
@@ -105,18 +105,18 @@
       debug:
         msg: |
           Node Validation for {{ inventory_hostname }}:
-          ✅ RKE2 Installed: {{ 'YES' if rke2_binary.stat.exists else 'NO' }}
+          [INFO] RKE2 Installed: {{ 'YES' if rke2_binary.stat.exists else 'NO' }}
           {% if rke2_binary.stat.exists %}
-          ✅ Current Version: {{ current_rke2_version.stdout }}
-          ✅ Target Version: {{ rke2_version | default('undefined') }}
-          ✅ Upgrade Needed: {{ 'YES' if current_rke2_version.stdout != (rke2_version | default('undefined')) else 'NO' }}
-          ✅ Service Status: {{ rke2_service_status.status.ActiveState | default('unknown') }}
+          [INFO] Current Version: {{ current_rke2_version.stdout }}
+          [INFO] Target Version: {{ rke2_version | default('undefined') }}
+          [INFO] Upgrade Needed: {{ 'YES' if current_rke2_version.stdout != (rke2_version | default('undefined')) else 'NO' }}
+          [INFO] Service Status: {{ rke2_service_status.status.ActiveState | default('unknown') }}
           {% endif %}
-          ✅ Disk Usage: {{ disk_usage_percent }}% ({{ disk_available }} available)
-          ✅ Memory Usage: {{ memory_usage.stdout }}
-          ✅ System Load: {{ system_load.stdout.strip() }}
+          [INFO] Disk Usage: {{ disk_usage_percent }}% ({{ disk_available }} available)
+          [INFO] Memory Usage: {{ memory_usage.stdout }}
+          [INFO] System Load: {{ system_load.stdout.strip() }}
           {% if non_running_pods is defined and non_running_pods.rc is defined and non_running_pods.rc == 0 %}
-          ✅ Non-running Pods: {{ non_running_pods.stdout | int - 1 }}
+          [INFO] Non-running Pods: {{ non_running_pods.stdout | int - 1 }}
           {% endif %}
 
 - name: Generate Upgrade Readiness Report
@@ -252,7 +252,7 @@
     - name: Final recommendation
       fail:
         msg: |
-          ❌ UPGRADE NOT RECOMMENDED
+          [FAILED] UPGRADE NOT RECOMMENDED
           Readiness score: {{ total_score }}/{{ max_score }} ({{ (total_score | int / max_score | int * 100) | round(1) }}%)
           Please fix the failed checks before proceeding with the upgrade.
       when: total_score | int < (max_score | int * 0.8)
@@ -260,7 +260,7 @@
     - name: Upgrade ready confirmation
       debug:
         msg: |
-          ✅ UPGRADE READY
+          [OK] UPGRADE READY
           Readiness score: {{ total_score }}/{{ max_score }} ({{ (total_score | int / max_score | int * 100) | round(1) }}%)
           You can proceed with the upgrade using:
           ansible-playbook -i inventory/inventory.yml playbooks/rke2-upgrade-playbook.yml

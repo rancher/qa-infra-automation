@@ -26,11 +26,11 @@ cni_config:
 ```
 
 **Features:**
-- ✅ Network policies (via Calico)
-- ✅ Simple configuration
-- ✅ Good performance
-- ✅ Wide compatibility
-- ❌ Limited advanced features
+- [OK] Network policies (via Calico)
+- [OK] Simple configuration
+- [OK] Good performance
+- [OK] Wide compatibility
+- [LIMITATION] Limited advanced features
 
 ### 2. Calico
 **Best for**: Advanced networking, strict network policies, BGP routing
@@ -52,12 +52,12 @@ cni_config:
 ```
 
 **Features:**
-- ✅ Advanced network policies
-- ✅ BGP routing support
-- ✅ IP-in-IP encapsulation
-- ✅ High performance
-- ✅ Enterprise features
-- ❌ More complex configuration
+- [OK] Advanced network policies
+- [OK] BGP routing support
+- [OK] IP-in-IP encapsulation
+- [OK] High performance
+- [OK] Enterprise features
+- [LIMITATION] More complex configuration
 
 ### 3. Cilium
 **Best for**: Advanced security, observability, service mesh features
@@ -81,13 +81,13 @@ cni_config:
 ```
 
 **Features:**
-- ✅ eBPF-based networking
-- ✅ Advanced security policies
-- ✅ Network observability (Hubble)
-- ✅ Service mesh capabilities
-- ✅ High performance
-- ❌ Requires newer kernels
-- ❌ More resource intensive
+- [OK] eBPF-based networking
+- [OK] Advanced security policies
+- [OK] Network observability (Hubble)
+- [OK] Service mesh capabilities
+- [OK] High performance
+- [LIMITATION] Requires newer kernels
+- [LIMITATION] More resource intensive
 
 ### 4. Multus
 **Best for**: Multiple network interfaces, SR-IOV, complex networking
@@ -107,12 +107,12 @@ cni_config:
 ```
 
 **Features:**
-- ✅ Multiple network interfaces per pod
-- ✅ SR-IOV support
-- ✅ Complex networking scenarios
-- ✅ Works with other CNIs
-- ❌ Increased complexity
-- ❌ Requires additional configuration
+- [OK] Multiple network interfaces per pod
+- [OK] SR-IOV support
+- [OK] Complex networking scenarios
+- [OK] Works with other CNIs
+- [LIMITATION] Increased complexity
+- [LIMITATION] Requires additional configuration
 
 ### 5. None (Bring Your Own CNI)
 **Best for**: Custom CNI solutions, specific requirements
@@ -292,7 +292,7 @@ kubectl describe pod <pod-name> | grep -A 10 "Annotations"
 
 ## Migration Between CNI Plugins
 
-⚠️ **Warning**: Changing CNI plugins requires cluster recreation in most cases.
+**WARNING**: Changing CNI plugins requires cluster recreation in most cases.
 
 ### Safe Migration Process
 

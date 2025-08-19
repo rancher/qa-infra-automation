@@ -215,20 +215,20 @@
         - name: Display final upgrade results
           debug:
             msg: |
-              🎉 RKE2 Cluster Upgrade Complete!
-              
-              ✅ Target Version: {{ rke2_version }}
-              
-              📊 Cluster Status:
+              RKE2 Cluster Upgrade Complete!
+
+              [INFO] Target Version: {{ rke2_version }}
+
+              [INFO] Cluster Status:
               {{ final_cluster_status.stdout }}
-              
-              🔧 Kubernetes Version:
+
+              [INFO] Kubernetes Version:
               {{ cluster_version.stdout }}
-              
-              🚀 System Pods Status:
+
+              [INFO] System Pods Status:
               {{ system_pods.stdout }}
-              
-              📝 Upgrade Summary:
+
+              [INFO] Upgrade Summary:
               - Server nodes upgraded: {{ groups['airgap_nodes'] | length >= 1 }}
               - Agent nodes upgraded: {{ (groups['airgap_nodes'] | length - 1) if groups['airgap_nodes'] | length > 1 else 0 }}
               - Total nodes in cluster: {{ final_cluster_status.stdout_lines | length - 1 }}
@@ -243,12 +243,12 @@
 
         - name: Warn about not ready nodes
           debug:
-            msg: "⚠️  WARNING: {{ not_ready_count.stdout }} nodes are not in Ready state. Check cluster status."
+            msg: "[WARNING] {{ not_ready_count.stdout }} nodes are not in Ready state. Check cluster status."
           when: not_ready_count.stdout | int > 0
 
         - name: Success message
           debug:
-            msg: "✅ All {{ final_cluster_status.stdout_lines | length - 1 }} nodes are Ready!"
+            msg: "[OK] All {{ final_cluster_status.stdout_lines | length - 1 }} nodes are Ready!"
           when: not_ready_count.stdout | int == 0
 
 - name: RKE2 Airgap Upgrade - Update kubectl on Bastion
@@ -317,9 +317,9 @@
         msg: |
           Final kubectl Connectivity Test:
           {% if final_kubectl_test.rc == 0 %}
-          ✅ SUCCESS - Cluster accessible from bastion:
+          [SUCCESS] Cluster accessible from bastion:
           {{ final_kubectl_test.stdout }}
           {% else %}
-          ❌ FAILED - Error connecting to cluster:
+          [FAILED] Error connecting to cluster:
           {{ final_kubectl_test.stderr }}
           {% endif %}

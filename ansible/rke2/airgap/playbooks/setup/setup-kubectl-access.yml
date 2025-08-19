@@ -121,10 +121,10 @@
     - name: Display final instructions
       debug:
         msg: |
-          🎉 kubectl Access Setup Complete!
-          
-          ✅ kubectl installed on bastion node
-          ✅ KUBECONFIG copied and configured
+          kubectl Access Setup Complete!
+
+          [OK] kubectl installed on bastion node
+          [OK] KUBECONFIG copied and configured
           
           To manage your cluster from the bastion node:
           
