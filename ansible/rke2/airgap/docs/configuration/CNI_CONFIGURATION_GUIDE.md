@@ -15,7 +15,7 @@ Canal combines Flannel for networking and Calico for network policies, providing
 
 ```yaml
 # inventory/group_vars/all.yml
-cni_plugin: "canal"
+cni: "canal"
 
 cni_config:
   canal:
@@ -39,7 +39,7 @@ Pure Calico CNI provides advanced networking features and excellent network poli
 
 ```yaml
 # inventory/group_vars/all.yml
-cni_plugin: "calico"
+cni: "calico"
 
 cni_config:
   calico:
@@ -66,7 +66,7 @@ Cilium provides eBPF-based networking with advanced security and observability f
 
 ```yaml
 # inventory/group_vars/all.yml
-cni_plugin: "cilium"
+cni: "cilium"
 
 cni_config:
   cilium:
@@ -96,7 +96,7 @@ Multus enables multiple network interfaces per pod, useful for complex networkin
 
 ```yaml
 # inventory/group_vars/all.yml
-cni_plugin: "multus"
+cni: "multus"
 
 cni_config:
   multus:
@@ -121,7 +121,7 @@ Disables RKE2's built-in CNI installation, allowing you to install your own.
 
 ```yaml
 # inventory/group_vars/all.yml
-cni_plugin: "none"
+cni: "none"
 ```
 
 **Use cases:**
@@ -134,7 +134,7 @@ cni_plugin: "none"
 ### Example 1: High-Performance Calico Setup
 ```yaml
 # inventory/group_vars/all.yml
-cni_plugin: "calico"
+cni: "calico"
 cluster_cidr: "10.42.0.0/16"
 service_cidr: "10.43.0.0/16"
 
@@ -151,7 +151,7 @@ cni_config:
 ### Example 2: Cilium with Observability
 ```yaml
 # inventory/group_vars/all.yml
-cni_plugin: "cilium"
+cni: "cilium"
 cluster_cidr: "10.42.0.0/16"
 service_cidr: "10.43.0.0/16"
 
@@ -168,7 +168,7 @@ cni_config:
 ### Example 3: Multus with Canal Backend
 ```yaml
 # inventory/group_vars/all.yml
-cni_plugin: "multus"
+cni: "multus"
 cluster_cidr: "10.42.0.0/16"
 service_cidr: "10.43.0.0/16"
 

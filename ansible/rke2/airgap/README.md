@@ -215,7 +215,7 @@ service_cidr: "10.43.0.0/16"
 cluster_dns: "10.43.0.10"
 
 # CNI Configuration
-cni_plugin: "canal"  # Options: canal, calico, cilium, multus, none
+cni: "canal"  # Options: canal, calico, cilium, multus, none
 
 # Security Configuration
 disable_components:
@@ -242,19 +242,19 @@ Edit [`inventory/group_vars/all.yml`](inventory/group_vars/all.yml.template) to 
 
 ```yaml
 # For default balanced networking
-cni_plugin: "canal"
+cni: "canal"
 
 # For advanced networking and policies
-cni_plugin: "calico"
+cni: "calico"
 
 # For security and observability
-cni_plugin: "cilium"
+cni: "cilium"
 
 # For multiple network interfaces
-cni_plugin: "multus"
+cni: "multus"
 
 # For custom CNI solutions
-cni_plugin: "none"
+cni: "none"
 ```
 
 For detailed CNI configuration options, troubleshooting, and best practices, see [`docs/configuration/CNI_CONFIGURATION_GUIDE.md`](docs/configuration/CNI_CONFIGURATION_GUIDE.md).

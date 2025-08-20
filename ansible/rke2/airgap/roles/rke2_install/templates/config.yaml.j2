@@ -10,7 +10,7 @@ disable:
 {% for component in disable_components | default(['rke2-snapshot-controller', 'rke2-snapshot-controller-crd', 'rke2-snapshot-validation-webhook']) %}
   - {{ component }}
 {% endfor %}
-{% if (cni_plugin | default('canal')) == 'none' %}
+{% if (cni | default('canal')) == 'none' %}
   - rke2-canal
 {% endif %}
 
@@ -24,7 +24,7 @@ system-default-registry: {{ hostvars[groups['bastion'][0]].ansible_host }}:5000
 {% endif %}
 
 # CNI Configuration
-{% set selected_cni = cni_plugin | default('canal') %}
+{% set selected_cni = cni | default('canal') %}
 {% if selected_cni == 'multus' %}
 # Enable Multus for multiple network interfaces
 cni: multus,{{ cni_config.multus.default_cni | default('canal') }}

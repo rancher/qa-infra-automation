@@ -31,12 +31,12 @@ cluster_dns: "10.43.0.10"
 
 # CNI Configuration
 # Available CNI options:
-#   - "canal" (default): Flannel + Calico for network policy (RKE2 default)
-#   - "calico": Calico CNI for advanced networking and network policies
-#   - "cilium": Cilium CNI for advanced networking, security, and observability
-#   - "multus": Enable Multus for multiple network interfaces (can be combined with others)
+#   - "canal" (default):
+#   - "calico":
+#   - "cilium":
+#   - "multus": Enable Multus for multiple network interfaces (has to be combined with others)
 #   - "none": Disable CNI installation (bring your own CNI)
-cni_plugin: "canal"  # Default RKE2 CNI
+cni: "canal"  # Default RKE2 CNI
 
 # CNI-specific configuration
 cni_config:
