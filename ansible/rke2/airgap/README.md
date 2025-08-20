@@ -73,8 +73,6 @@ This system uses the **Tarball Method** for pure airgap deployments:
 
 *** Inventory is automatically generated after Tofu apply ***
 
-*** Inventory is automatically generated after Tofu apply ***
-
 Update `inventory/inventory.yml` with your environment details:
 
 ```yaml
