@@ -1,0 +1,92 @@
+---
+# Global variables for RKE2 airgap deployment with tarball installation
+
+# RKE2 Configuration
+rke2_version: "v1.31.11+rke2r1"
+rke2_server_options: |
+  cluster-cidr: {{ cluster_cidr }}
+  service-cidr: {{ service_cidr }}
+  cluster-dns: {{ cluster_dns }}
+  disable:
+    - rke2-snapshot-controller
+    - rke2-snapshot-controller-crd
+    - rke2-snapshot-validation-webhook
+rke2_agent_options: ""
+
+# Installation Method Configuration
+# Available methods:
+#   - "tarball": Uses pre-downloaded RKE2 tarballs with embedded images (no registry required)
+#     Playbook: rke2-tarball-playbook.yml
+#     Best for: Pure airgap environments, simple deployments
+installation_method: "tarball"
+
+# SSH Configuration
+# This only needs to be set here or in the inventory file, but not both
+ssh_private_key_file: "~/.ssh/id_rsa"
+
+# Network Configuration
+cluster_cidr: "10.42.0.0/16"
+service_cidr: "10.43.0.0/16"
+cluster_dns: "10.43.0.10"
+
+# CNI Configuration
+# Available CNI options:
+#   - "canal" (default):
+#   - "calico":
+#   - "cilium":
+#   - "multus": Enable Multus for multiple network interfaces (has to be combined with others)
+#   - "none": Disable CNI installation (bring your own CNI)
+cni: "canal"  # Default RKE2 CNI
+
+# CNI-specific configuration
+cni_config:
+  # Calico specific settings
+  calico:
+    # IP-in-IP encapsulation mode: Always, CrossSubnet, Never
+    ipip_mode: "Always"
+    # BGP configuration
+    bgp_enabled: true
+    # Network policy enforcement
+    network_policy: true
+    
+  # Cilium specific settings
+  cilium:
+    # Enable Hubble for observability
+    hubble_enabled: true
+    # Enable network policies
+    network_policy: true
+    # Enable BGP
+    bgp_enabled: false
+    # Enable service mesh features
+    service_mesh: false
+    
+  # Canal specific settings (Flannel + Calico)
+  canal:
+    # Flannel backend: vxlan, host-gw, udp
+    flannel_backend: "vxlan"
+    # Enable Calico network policies
+    network_policy: true
+    
+  # Multus specific settings
+  multus:
+    # Default CNI to use with Multus (canal, calico, cilium)
+    default_cni: "canal"
+    # Enable SR-IOV support
+    sriov_enabled: false
+
+# Security Configuration
+disable_components:
+  - rke2-snapshot-controller
+  - rke2-snapshot-controller-crd
+  - rke2-snapshot-validation-webhook
+
+# Performance Tuning
+max_pods_per_node: 110
+node_cidr_mask_size: 24
+
+# Logging and Monitoring
+enable_audit_log: false
+audit_log_path: "/var/lib/rancher/rke2/server/logs/audit.log"
+audit_log_maxage: 30
+audit_log_maxbackup: 10
+audit_log_maxsize: 100

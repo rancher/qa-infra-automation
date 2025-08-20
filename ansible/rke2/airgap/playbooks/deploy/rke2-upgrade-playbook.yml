@@ -1,0 +1,325 @@
+---
+- name: RKE2 Airgap Upgrade - Pre-upgrade Validation
+  hosts: airgap_nodes
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Check current RKE2 installation
+      shell: |
+        if [ -f /usr/local/bin/rke2 ]; then
+          echo "installed"
+        else
+          echo "not-installed"
+        fi
+      register: rke2_installed
+      changed_when: false
+
+    - name: Fail if RKE2 is not installed
+      fail:
+        msg: "RKE2 is not installed on {{ inventory_hostname }}. Use the installation playbook first."
+      when: rke2_installed.stdout == "not-installed"
+
+    - name: Get current RKE2 version
+      shell: /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
+      register: current_version
+      changed_when: false
+
+    - name: Check RKE2 service status
+      systemd:
+        name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
+      register: service_status
+
+    - name: Display pre-upgrade status
+      debug:
+        msg: |
+          Pre-upgrade Status for {{ inventory_hostname }}:
+          - Current RKE2 Version: {{ current_version.stdout }}
+          - Target RKE2 Version: {{ rke2_version }}
+          - Service Status: {{ service_status.status.ActiveState }}
+          - Upgrade Required: {{ current_version.stdout != rke2_version }}
+
+    - name: Check disk space
+      shell: df -h /var/lib/rancher | tail -1 | awk '{print $4}'
+      register: disk_space
+      changed_when: false
+
+    - name: Warn about disk space
+      debug:
+        msg: "WARNING: Low disk space available: {{ disk_space.stdout }}"
+      when: disk_space.stdout | regex_replace('[^0-9]', '') | int < 5
+
+- name: RKE2 Airgap Upgrade - Download New Version
+  hosts: bastion
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Check if upgrade is needed
+      set_fact:
+        upgrade_needed: "{{ hostvars[groups['airgap_nodes'][0]]['current_version']['stdout'] != rke2_version }}"
+
+    - name: Download and prepare new RKE2 tarball bundle
+      include_role:
+        name: rke2_tarball
+      when: upgrade_needed
+
+    - name: Skip download if no upgrade needed
+      debug:
+        msg: "All nodes are already at version {{ rke2_version }}. Skipping download."
+      when: not upgrade_needed
+
+- name: RKE2 Airgap Upgrade - Upgrade Server Node
+  hosts: airgap_nodes[0]  # First server node only
+  become: true
+  gather_facts: true
+  serial: 1
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Check if upgrade is needed for server
+      set_fact:
+        server_upgrade_needed: "{{ current_version.stdout != rke2_version }}"
+
+    - name: Upgrade RKE2 server
+      include_role:
+        name: rke2_upgrade
+      when: server_upgrade_needed
+
+    - name: Skip server upgrade
+      debug:
+        msg: "Server is already at version {{ rke2_version }}. Skipping upgrade."
+      when: not server_upgrade_needed
+
+    - name: Verify server is operational after upgrade
+      block:
+        - name: Wait for RKE2 server to be ready
+          wait_for:
+            path: /var/lib/rancher/rke2/server/node-token
+            timeout: 300
+
+        - name: Check server service status
+          systemd:
+            name: rke2-server
+          register: server_status
+
+        - name: Verify kubectl functionality
+          shell: |
+            export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+            /var/lib/rancher/rke2/bin/kubectl get nodes
+          register: kubectl_test
+          failed_when: kubectl_test.rc != 0
+          changed_when: false
+          become: true
+
+        - name: Display server upgrade verification
+          debug:
+            msg: |
+              Server Upgrade Verification:
+              - Service Status: {{ server_status.status.ActiveState }}
+              - kubectl Test: {{ 'PASSED' if kubectl_test.rc == 0 else 'FAILED' }}
+              - Cluster Nodes: {{ kubectl_test.stdout_lines | length - 1 }} nodes visible
+
+      when: server_upgrade_needed
+
+- name: RKE2 Airgap Upgrade - Upgrade Agent Nodes
+  hosts: airgap_nodes[1:]  # All nodes except the first (server)
+  become: true
+  gather_facts: true
+  serial: 1  # Upgrade one agent at a time
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Check if upgrade is needed for agent
+      set_fact:
+        agent_upgrade_needed: "{{ current_version.stdout != rke2_version }}"
+
+    - name: Upgrade RKE2 agent
+      include_role:
+        name: rke2_upgrade
+      when: agent_upgrade_needed
+
+    - name: Skip agent upgrade
+      debug:
+        msg: "Agent {{ inventory_hostname }} is already at version {{ rke2_version }}. Skipping upgrade."
+      when: not agent_upgrade_needed
+
+    - name: Verify agent is operational after upgrade
+      block:
+        - name: Check agent service status
+          systemd:
+            name: rke2-agent
+          register: agent_status
+
+        - name: Wait for agent to join cluster
+          pause:
+            seconds: 30
+
+        - name: Verify agent joined cluster
+          shell: |
+            export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+            /var/lib/rancher/rke2/bin/kubectl get nodes {{ inventory_hostname }} -o wide
+          register: node_status
+          delegate_to: "{{ groups['airgap_nodes'][0] }}"
+          failed_when: false
+          changed_when: false
+          become: true
+
+        - name: Display agent upgrade verification
+          debug:
+            msg: |
+              Agent Upgrade Verification for {{ inventory_hostname }}:
+              - Service Status: {{ agent_status.status.ActiveState }}
+              - Node Status: {{ 'JOINED' if node_status.rc == 0 else 'NOT JOINED' }}
+              {% if node_status.rc == 0 %}
+              - Node Details: {{ node_status.stdout }}
+              {% endif %}
+
+      when: agent_upgrade_needed
+
+- name: RKE2 Airgap Upgrade - Post-upgrade Verification
+  hosts: airgap_nodes[0]  # Run verification from server node
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Final cluster verification
+      block:
+        - name: Get all cluster nodes
+          shell: |
+            export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+            /var/lib/rancher/rke2/bin/kubectl get nodes -o wide
+          register: final_cluster_status
+          changed_when: false
+          become: true
+
+        - name: Get cluster version info
+          shell: |
+            export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+            /var/lib/rancher/rke2/bin/kubectl version --output=yaml
+          register: cluster_version
+          changed_when: false
+          become: true
+          failed_when: false
+
+        - name: Get system pods status
+          shell: |
+            export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+            /var/lib/rancher/rke2/bin/kubectl get pods -n kube-system
+          register: system_pods
+          changed_when: false
+          become: true
+
+        - name: Display final upgrade results
+          debug:
+            msg: |
+              RKE2 Cluster Upgrade Complete!
+
+              [INFO] Target Version: {{ rke2_version }}
+
+              [INFO] Cluster Status:
+              {{ final_cluster_status.stdout }}
+
+              [INFO] Kubernetes Version:
+              {{ cluster_version.stdout }}
+
+              [INFO] System Pods Status:
+              {{ system_pods.stdout }}
+
+              [INFO] Upgrade Summary:
+              - Server nodes upgraded: {{ groups['airgap_nodes'] | length >= 1 }}
+              - Agent nodes upgraded: {{ (groups['airgap_nodes'] | length - 1) if groups['airgap_nodes'] | length > 1 else 0 }}
+              - Total nodes in cluster: {{ final_cluster_status.stdout_lines | length - 1 }}
+
+        - name: Verify all nodes are Ready
+          shell: |
+            export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+            /var/lib/rancher/rke2/bin/kubectl get nodes --no-headers | grep -v Ready | wc -l
+          register: not_ready_count
+          changed_when: false
+          become: true
+
+        - name: Warn about not ready nodes
+          debug:
+            msg: "[WARNING] {{ not_ready_count.stdout }} nodes are not in Ready state. Check cluster status."
+          when: not_ready_count.stdout | int > 0
+
+        - name: Success message
+          debug:
+            msg: "[OK] All {{ final_cluster_status.stdout_lines | length - 1 }} nodes are Ready!"
+          when: not_ready_count.stdout | int == 0
+
+- name: RKE2 Airgap Upgrade - Update kubectl on Bastion
+  hosts: bastion
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Update kubectl to match cluster version
+      block:
+        - name: Get Kubernetes version from cluster
+          shell: |
+            export KUBECONFIG=/root/.kube/config
+            kubectl version --output=json | jq -r '.serverVersion.gitVersion'
+          register: k8s_version
+          failed_when: false
+          changed_when: false
+
+        - name: Extract Kubernetes version from RKE2 version
+          set_fact:
+            expected_k8s_version: "{{ rke2_version | regex_replace('^v([0-9]+\\.[0-9]+\\.[0-9]+).*', 'v\\1') }}"
+
+        - name: Download matching kubectl version
+          get_url:
+            url: "https://dl.k8s.io/release/{{ expected_k8s_version }}/bin/linux/amd64/kubectl"
+            dest: /usr/local/bin/kubectl
+            mode: '0755'
+            owner: root
+            group: root
+            backup: yes
+          register: kubectl_update
+
+        - name: Verify kubectl update
+          command: kubectl version --client
+          register: kubectl_version_check
+          changed_when: false
+          when: kubectl_update is changed
+
+        - name: Display kubectl update status
+          debug:
+            msg: |
+              kubectl Update Status:
+              - Expected Kubernetes Version: {{ expected_k8s_version }}
+              - Cluster Kubernetes Version: {{ k8s_version.stdout | default('Unable to determine from cluster') }}
+              - kubectl Updated: {{ kubectl_update is changed }}
+              {% if kubectl_update is changed %}
+              - New kubectl Version: {{ kubectl_version_check.stdout }}
+              {% endif %}
+
+      rescue:
+        - name: kubectl update failed
+          debug:
+            msg: "kubectl update failed. Manual update may be required."
+
+    - name: Test kubectl connectivity after upgrade
+      shell: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: final_kubectl_test
+      failed_when: false
+      changed_when: false
+
+    - name: Display final connectivity test
+      debug:
+        msg: |
+          Final kubectl Connectivity Test:
+          {% if final_kubectl_test.rc == 0 %}
+          [SUCCESS] Cluster accessible from bastion:
+          {{ final_kubectl_test.stdout }}
+          {% else %}
+          [FAILED] Error connecting to cluster:
+          {{ final_kubectl_test.stderr }}
+          {% endif %}

@@ -1,0 +1,133 @@
+---
+# Verify RKE2 tarball checksums to prevent installation failures
+- name: Clean up any existing corrupted files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+    - /tmp/rke2-artifacts/rke2-images.tar.gz
+    - /tmp/rke2-artifacts/sha256sum-amd64.txt
+  become: true
+  when: force_clean_download | default(false)
+
+- name: Download fresh checksum file
+  get_url:
+    url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/sha256sum-amd64.txt"
+    dest: /tmp/rke2-artifacts/sha256sum-amd64.txt
+    mode: '0644'
+    timeout: 60
+    force: true
+  register: checksum_download
+  until: checksum_download is success
+  retries: 3
+  delay: 5
+  become: true
+
+- name: Display checksum file contents
+  shell: cat /tmp/rke2-artifacts/sha256sum-amd64.txt
+  register: checksum_contents
+  changed_when: false
+  become: true
+
+- name: Show expected checksums
+  debug:
+    msg: |
+      RKE2 {{ rke2_version }} Expected Checksums:
+      {{ checksum_contents.stdout_lines | join('\n') }}
+
+- name: Extract expected tarball checksum
+  shell: |
+    grep "rke2.linux-amd64.tar.gz" /tmp/rke2-artifacts/sha256sum-amd64.txt | awk '{print $1}'
+  register: expected_tarball_checksum
+  changed_when: false
+  become: true
+
+- name: Extract expected images checksum
+  shell: |
+    grep "rke2-images.linux-amd64.tar.gz" /tmp/rke2-artifacts/sha256sum-amd64.txt | awk '{print $1}'
+  register: expected_images_checksum
+  changed_when: false
+  become: true
+
+- name: Display expected checksums
+  debug:
+    msg: |
+      Expected Checksums for {{ rke2_version }}:
+      - RKE2 Tarball: {{ expected_tarball_checksum.stdout }}
+      - RKE2 Images: {{ expected_images_checksum.stdout }}
+
+- name: Download RKE2 tarball with checksum verification
+  get_url:
+    url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2.linux-amd64.tar.gz"
+    dest: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
+    mode: '0644'
+    timeout: 300
+    checksum: "sha256:{{ expected_tarball_checksum.stdout }}"
+    force: true
+  register: tarball_download
+  until: tarball_download is success
+  retries: 3
+  delay: 10
+  become: true
+
+- name: Download RKE2 images with checksum verification
+  get_url:
+    url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2-images.linux-amd64.tar.gz"
+    dest: /tmp/rke2-artifacts/rke2-images.tar.gz
+    mode: '0644'
+    timeout: 300
+    checksum: "sha256:{{ expected_images_checksum.stdout }}"
+    force: true
+  register: images_download
+  until: images_download is success
+  retries: 3
+  delay: 10
+  become: true
+
+- name: Verify downloaded files manually
+  shell: |
+    echo "=== Verifying RKE2 Tarball ==="
+    if [ -f /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz ]; then
+      actual_checksum=$(sha256sum /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz | awk '{print $1}')
+      expected_checksum="{{ expected_tarball_checksum.stdout }}"
+      echo "Expected: $expected_checksum"
+      echo "Actual:   $actual_checksum"
+      if [ "$actual_checksum" = "$expected_checksum" ]; then
+        echo "[OK] RKE2 tarball checksum matches"
+      else
+        echo "[FAILED] RKE2 tarball checksum mismatch"
+        exit 1
+      fi
+    else
+      echo "[FAILED] RKE2 tarball not found"
+      exit 1
+    fi
+
+    echo ""
+    echo "=== Verifying RKE2 Images ==="
+    if [ -f /tmp/rke2-artifacts/rke2-images.tar.gz ]; then
+      actual_checksum=$(sha256sum /tmp/rke2-artifacts/rke2-images.tar.gz | awk '{print $1}')
+      expected_checksum="{{ expected_images_checksum.stdout }}"
+      echo "Expected: $expected_checksum"
+      echo "Actual:   $actual_checksum"
+      if [ "$actual_checksum" = "$expected_checksum" ]; then
+        echo "[OK] RKE2 images checksum matches"
+      else
+        echo "[FAILED] RKE2 images checksum mismatch"
+        exit 1
+      fi
+    else
+      echo "[FAILED] RKE2 images not found"
+      exit 1
+    fi
+    
+    echo ""
+    echo "=== All checksums verified successfully ==="
+  register: checksum_verification
+  changed_when: false
+  become: true
+
+- name: Display checksum verification results
+  debug:
+    msg: "{{ checksum_verification.stdout_lines }}"

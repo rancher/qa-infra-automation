@@ -1,0 +1,62 @@
+---
+# Server configuration
+token: {{ rke2_token | default('') }}
+cluster-cidr: {{ cluster_cidr | default('10.42.0.0/16') }}
+service-cidr: {{ service_cidr | default('10.43.0.0/16') }}
+cluster-dns: {{ cluster_dns | default('10.43.0.10') }}
+
+# Disable components
+disable:
+{% for component in disable_components | default(['rke2-snapshot-controller', 'rke2-snapshot-controller-crd', 'rke2-snapshot-validation-webhook']) %}
+  - {{ component }}
+{% endfor %}
+{% if (cni | default('canal')) == 'none' %}
+  - rke2-canal
+{% endif %}
+
+# TLS configuration
+tls-san:
+  - {{ ansible_host }}
+
+# Registry configuration
+{% if installation_method is defined and installation_method == 'registry_distribution' and hostvars[groups['bastion'][0]].ansible_host is defined %}
+system-default-registry: {{ hostvars[groups['bastion'][0]].ansible_host }}:5000
+{% endif %}
+
+# CNI Configuration
+{% set selected_cni = cni | default('canal') %}
+{% if selected_cni == 'multus' %}
+# Enable Multus for multiple network interfaces
+cni: multus,{{ cni_config.multus.default_cni | default('canal') }}
+{% elif selected_cni == 'calico' %}
+cni: calico
+{% elif selected_cni == 'cilium' %}
+cni: cilium
+{% elif selected_cni == 'none' %}
+cni: none
+{% elif selected_cni == 'canal' %}
+# Canal is the default CNI for RKE2 (no explicit configuration needed)
+{% endif %}
+
+# CNI-specific configurations are handled via Helm values and manifests
+# RKE2 does not support direct CNI configuration flags in config.yaml
+
+# Performance and resource configuration
+# Note: These settings are applied via kubelet-arg instead of direct flags
+{% if max_pods_per_node is defined %}
+kubelet-arg:
+  - "max-pods={{ max_pods_per_node }}"
+{% endif %}
+{% if node_cidr_mask_size is defined %}
+kube-controller-manager-arg:
+  - "node-cidr-mask-size={{ node_cidr_mask_size }}"
+{% endif %}
+
+# Audit logging
+{% if enable_audit_log is defined and enable_audit_log %}
+audit-policy-file: /etc/rancher/rke2/audit-policy.yaml
+audit-log-path: {{ audit_log_path | default('/var/lib/rancher/rke2/server/logs/audit.log') }}
+audit-log-maxage: {{ audit_log_maxage | default(30) }}
+audit-log-maxbackup: {{ audit_log_maxbackup | default(10) }}
+audit-log-maxsize: {{ audit_log_maxsize | default(100) }}
+{% endif %}
