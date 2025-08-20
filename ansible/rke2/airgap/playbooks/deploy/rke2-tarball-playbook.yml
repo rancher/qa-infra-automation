@@ -263,27 +263,27 @@
           {{ kubectl_test.stderr }}
           {% endif %}
 
-   - name: Display final instructions
-     debug:
-       msg: |
-         RKE2 Cluster Setup Complete!
+    - name: Display final instructions
+      debug:
+        msg: |
+          RKE2 Cluster Setup Complete!
 
-         [OK] RKE2 cluster deployed on airgap nodes
-         [OK] kubectl installed on bastion node
-         [OK] KUBECONFIG copied and configured
-         
-         To manage your cluster from the bastion node:
-         
-         As root:
-         kubectl get nodes
-         kubectl get pods -A
-         
-         As {{ ansible_user | default('your user') }}:
-         kubectl get nodes
-         kubectl get pods -A
-         
-         The kubeconfig is located at:
-         - /root/.kube/config
-         {% if ansible_user is defined and ansible_user != 'root' %}
-         - /home/{{ ansible_user }}/.kube/config
-         {% endif %}
+          [OK] RKE2 cluster deployed on airgap nodes
+          [OK] kubectl installed on bastion node
+          [OK] KUBECONFIG copied and configured
+          
+          To manage your cluster from the bastion node:
+          
+          As root:
+          kubectl get nodes
+          kubectl get pods -A
+          
+          As {{ ansible_user | default('your user') }}:
+          kubectl get nodes
+          kubectl get pods -A
+          
+          The kubeconfig is located at:
+          - /root/.kube/config
+          {% if ansible_user is defined and ansible_user != 'root' %}
+          - /home/{{ ansible_user }}/.kube/config
+          {% endif %}
