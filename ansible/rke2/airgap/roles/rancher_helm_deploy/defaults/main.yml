@@ -14,7 +14,11 @@ kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
 # Rancher configuration
 rancher_namespace: "cattle-system"
 rancher_hostname: "rancher.local"
-rancher_helm_repo_url: "https://releases.rancher.com/server-charts/stable"
+rancher_helm_chart_repo_url: "https://releases.rancher.com/server-charts/latest"
+rancher_helm_chart_repo_name: "rancher-latest"
+rancher_bootstrap_password: "admin"
+rancher_use_bundled_system_charts: false
+rancher_image_tag: "head"
 
 # TLS configuration options: "rancher", "letsEncrypt", "secret"
 rancher_tls_source: "rancher"
@@ -22,29 +26,12 @@ rancher_tls_source: "rancher"
 # Rancher Helm chart values
 rancher_helm_values:
   hostname: "{{ rancher_hostname }}"
-  bootstrapPassword: "admin"
+  bootstrapPassword: "{{ rancher_bootstrap_password }}"
+  rancherImageTag: "{{ rancher_image_tag }}"
+  useBundledSystemChart: "{{ rancher_use_bundled_system_charts }}"
   ingress:
     tls:
       source: "{{ rancher_tls_source }}"
-  replicas: 3
-  auditLog:
-    level: 1
-  resources:
-    requests:
-      cpu: 250m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-
-# Private registry configuration for Rancher images (when using private registry)
-rancher_private_registry_config:
-  # Registry hostname for Rancher images
-  registry: "<your-private-registry-hostname>"
-  # Image path prefix in private registry
-  repository: "rancher"
-  # Image tag
-  tag: "v2.11.0"
 
 # Advanced configuration
 rancher_advanced_values: {}

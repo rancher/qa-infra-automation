@@ -60,8 +60,8 @@
 
     - name: Add Rancher Helm repository
       kubernetes.core.helm_repository:
-        name: rancher-stable
-        repo_url: "{{ rancher_helm_repo_url }}"
+        name: "{{ rancher_helm_chart_repo_name }}"
+        repo_url: "{{ rancher_helm_chart_repo_url }}"
 
     - name: Update Helm repositories
       ansible.builtin.command: helm repo update
@@ -99,15 +99,25 @@
         wait_timeout: 300
       when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
 
-    - name: Deploy Rancher using Helm
-      kubernetes.core.helm:
-        name: rancher
-        chart_ref: rancher-stable/rancher
-        release_namespace: "{{ rancher_namespace }}"
-        values: "{{ rancher_helm_values }}"
-        kubeconfig: "{{ kubeconfig_path }}"
-        wait: true
-        wait_timeout: "600s"
+    - name: Create temporary values file for Helm
+      ansible.builtin.copy:
+        content: "{{ rancher_helm_values | to_nice_yaml }}"
+        dest: "/tmp/rancher-values-{{ ansible_date_time.iso8601 }}.yaml"
+        mode: '0644'
+      when: rancher_helm_values is defined
+
+    - name: Deploy Rancher using Helm upgrade --install
+      ansible.builtin.command:
+        cmd: "helm upgrade --install rancher {{ rancher_helm_chart_repo_name }}/rancher{% if rancher_chart_version is defined and rancher_chart_version %} --version {{ rancher_chart_version }}{% endif %} --namespace {{ rancher_namespace }} --values /tmp/rancher-values-{{ ansible_date_time.iso8601 }}.yaml --wait --timeout 600s"
+        creates: "/tmp/rancher-helm-deployed-{{ ansible_date_time.iso8601 }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Cleanup temporary values file
+      ansible.builtin.file:
+        path: "/tmp/rancher-values-{{ ansible_date_time.iso8601 }}.yaml"
+        state: absent
+      when: rancher_helm_values is defined
 
     - name: Wait for Rancher deployment to be ready
       kubernetes.core.k8s_info:

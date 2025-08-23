@@ -35,10 +35,22 @@
       ansible.builtin.debug:
         msg: "RKE2 cluster nodes: {{ kubectl_nodes.stdout_lines }}"
 
+    - name: Check if python3-pip is already installed
+      ansible.builtin.command: python3 -m pip --version
+      register: pip_check
+      changed_when: false
+      failed_when: false
+
     - name: Install pip3 if not present
       ansible.builtin.package:
         name: python3-pip
         state: present
+      when: pip_check.rc != 0
+      ignore_errors: true
+
+    - name: Display pip installation status
+      ansible.builtin.debug:
+        msg: "Python3-pip installation: {{ 'Already installed' if pip_check.rc == 0 else 'Installation attempted (may have failed in airgap environment)' }}"
 
     - name: Install Ansible and required packages
       ansible.builtin.package:
@@ -47,6 +59,7 @@
           - python3-kubernetes
           - python3-yaml
         state: present
+      ignore_errors: true
 
     - name: Install Ansible Kubernetes collection if not present
       ansible.builtin.command: ansible-galaxy collection install kubernetes.core
