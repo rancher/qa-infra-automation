@@ -1,0 +1,180 @@
+---
+- name: Deploy Rancher to RKE2 Cluster using Helm
+  hosts: bastion
+  become: true
+  gather_facts: true
+
+  vars:
+    # Enable Rancher deployment
+    deploy_rancher: true
+    install_helm: true
+
+  pre_tasks:
+    - name: Check if kubectl is available
+      ansible.builtin.stat:
+        path: "/home/{{ ansible_user }}/.kube/config"
+      register: kubectl_config
+
+    - name: Fail if kubectl is not configured
+      ansible.builtin.fail:
+        msg: |
+          kubectl is not configured on the bastion node.
+          Please run the kubectl setup playbook first:
+          ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access.yml
+      when: not kubectl_config.stat.exists
+
+    - name: Test kubectl connectivity to RKE2 cluster
+      ansible.builtin.command: kubectl get nodes
+      register: kubectl_nodes
+      changed_when: false
+      environment:
+        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+      become_user: "{{ ansible_user }}"
+
+    - name: Display cluster nodes
+      ansible.builtin.debug:
+        msg: "RKE2 cluster nodes: {{ kubectl_nodes.stdout_lines }}"
+
+    - name: Check if python3-pip is already installed
+      ansible.builtin.command: python3 -m pip --version
+      register: pip_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install pip3 if not present
+      ansible.builtin.package:
+        name: python3-pip
+        state: present
+      when: pip_check.rc != 0
+      ignore_errors: true
+
+    - name: Display pip installation status
+      ansible.builtin.debug:
+        msg: "Python3-pip installation: {{ 'Already installed' if pip_check.rc == 0 else 'Installation attempted (may have failed in airgap environment)' }}"
+
+    - name: Install Ansible and required packages
+      ansible.builtin.package:
+        name:
+          - ansible
+          - python3-kubernetes
+          - python3-yaml
+        state: present
+      ignore_errors: true
+
+    - name: Install Ansible Kubernetes collection if not present
+      ansible.builtin.command: ansible-galaxy collection install kubernetes.core
+      register: collection_install
+      failed_when: collection_install.rc != 0 and 'already satisfied' not in collection_install.stderr
+      changed_when: collection_install.rc == 0 and 'already satisfied' not in collection_install.stderr
+
+  roles:
+    - role: rancher_helm_deploy
+      tags:
+        - rancher
+        - helm
+
+  post_tasks:
+    - name: Wait for Rancher pods to be ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ rancher_namespace }}"
+        label_selectors:
+          - app=rancher
+        kubeconfig: "/home/{{ ansible_user }}/.kube/config"
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 600
+
+    - name: Get Rancher pod status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ rancher_namespace }}"
+        label_selectors:
+          - app=rancher
+        kubeconfig: "/home/{{ ansible_user }}/.kube/config"
+      register: rancher_pods
+
+    - name: Display Rancher pod information
+      ansible.builtin.debug:
+        msg: |
+          Rancher Pods Status:
+          {% for pod in rancher_pods.resources %}
+          - {{ pod.metadata.name }}: {{ pod.status.phase }}
+          {% endfor %}
+
+    - name: Get LoadBalancer or NodePort service details
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        name: rancher
+        namespace: "{{ rancher_namespace }}"
+        kubeconfig: "/home/{{ ansible_user }}/.kube/config"
+      register: rancher_service_info
+
+    - name: Display Rancher access information
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Rancher Deployment Complete!
+          ========================================
+          Hostname: {{ rancher_hostname }}
+          Namespace: {{ rancher_namespace }}
+          Access URL: https://{{ rancher_hostname }}
+
+          Service Type: {{ rancher_service_info.resources[0].spec.type }}
+          {% if rancher_service_info.resources[0].spec.type == 'LoadBalancer' %}
+          LoadBalancer IP: {{ rancher_service_info.resources[0].status.loadBalancer.ingress[0].ip | default('Pending') }}
+          {% elif rancher_service_info.resources[0].spec.type == 'NodePort' %}
+          NodePort: {{ rancher_service_info.resources[0].spec.ports[0].nodePort }}
+          {% endif %}
+
+          Bootstrap Password: {{ rancher_helm_values.bootstrapPassword }}
+
+          Note: Configure DNS or /etc/hosts to point {{ rancher_hostname }} to the appropriate IP address.
+          ========================================
+
+    - name: Create Rancher configuration summary
+      ansible.builtin.copy:
+        content: |
+          # Rancher Deployment Summary
+          Deployment Date: {{ ansible_date_time.iso8601 }}
+          Rancher Version: {{ rancher_helm_values.get('tag', 'latest') }}
+          Hostname: {{ rancher_hostname }}
+          Namespace: {{ rancher_namespace }}
+          Bootstrap Password: {{ rancher_helm_values.bootstrapPassword }}
+          TLS Source: {{ rancher_tls_source }}
+
+          Access Instructions:
+          1. Configure DNS or add to /etc/hosts: {{ rancher_hostname }} -> <LoadBalancer-IP or Node-IP>
+          2. Navigate to: https://{{ rancher_hostname }}
+          3. Login with bootstrap password: {{ rancher_helm_values.bootstrapPassword }}
+          4. Follow the setup wizard to complete Rancher configuration
+
+          Troubleshooting:
+          - Check pods: kubectl get pods -n {{ rancher_namespace }}
+          - Check services: kubectl get svc -n {{ rancher_namespace }}
+          - Check ingress: kubectl get ingress -n {{ rancher_namespace }}
+          - View logs: kubectl logs -n {{ rancher_namespace }} -l app=rancher
+        dest: "/home/{{ ansible_user }}/rancher-deployment-summary.txt"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+
+    - name: Final deployment verification
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: rancher
+        namespace: "{{ rancher_namespace }}"
+        kubeconfig: "/home/{{ ansible_user }}/.kube/config"
+      register: rancher_deployment_status
+
+    - name: Verify deployment is ready
+      ansible.builtin.assert:
+        that:
+          - rancher_deployment_status.resources[0].status.readyReplicas | default(0) > 0
+        fail_msg: "Rancher deployment is not ready"
+        success_msg: "Rancher deployment is ready and functional"

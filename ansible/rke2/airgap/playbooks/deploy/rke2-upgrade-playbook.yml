@@ -7,7 +7,7 @@
     - ../group_vars/all.yml
   tasks:
     - name: Check current RKE2 installation
-      shell: |
+      ansible.builtin.shell: |
         if [ -f /usr/local/bin/rke2 ]; then
           echo "installed"
         else
@@ -17,22 +17,24 @@
       changed_when: false
 
     - name: Fail if RKE2 is not installed
-      fail:
+      ansible.builtin.fail:
         msg: "RKE2 is not installed on {{ inventory_hostname }}. Use the installation playbook first."
       when: rke2_installed.stdout == "not-installed"
 
     - name: Get current RKE2 version
-      shell: /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
+      ansible.builtin.shell: |
+        set -o pipefail
+        /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
       register: current_version
       changed_when: false
 
     - name: Check RKE2 service status
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
       register: service_status
 
     - name: Display pre-upgrade status
-      debug:
+      ansible.builtin.debug:
         msg: |
           Pre-upgrade Status for {{ inventory_hostname }}:
           - Current RKE2 Version: {{ current_version.stdout }}
@@ -41,12 +43,14 @@
           - Upgrade Required: {{ current_version.stdout != rke2_version }}
 
     - name: Check disk space
-      shell: df -h /var/lib/rancher | tail -1 | awk '{print $4}'
+      ansible.builtin.shell: |
+        set -o pipefail
+        df -h /var/lib/rancher | tail -1 | awk '{print $4}'
       register: disk_space
       changed_when: false
 
     - name: Warn about disk space
-      debug:
+      ansible.builtin.debug:
         msg: "WARNING: Low disk space available: {{ disk_space.stdout }}"
       when: disk_space.stdout | regex_replace('[^0-9]', '') | int < 5
 
@@ -58,16 +62,16 @@
     - ../group_vars/all.yml
   tasks:
     - name: Check if upgrade is needed
-      set_fact:
+      ansible.builtin.set_fact:
         upgrade_needed: "{{ hostvars[groups['airgap_nodes'][0]]['current_version']['stdout'] != rke2_version }}"
 
     - name: Download and prepare new RKE2 tarball bundle
-      include_role:
+      ansible.builtin.include_role:
         name: rke2_tarball
       when: upgrade_needed
 
     - name: Skip download if no upgrade needed
-      debug:
+      ansible.builtin.debug:
         msg: "All nodes are already at version {{ rke2_version }}. Skipping download."
       when: not upgrade_needed
 
@@ -80,33 +84,33 @@
     - ../group_vars/all.yml
   tasks:
     - name: Check if upgrade is needed for server
-      set_fact:
+      ansible.builtin.set_fact:
         server_upgrade_needed: "{{ current_version.stdout != rke2_version }}"
 
     - name: Upgrade RKE2 server
-      include_role:
+      ansible.builtin.include_role:
         name: rke2_upgrade
       when: server_upgrade_needed
 
     - name: Skip server upgrade
-      debug:
+      ansible.builtin.debug:
         msg: "Server is already at version {{ rke2_version }}. Skipping upgrade."
       when: not server_upgrade_needed
 
     - name: Verify server is operational after upgrade
       block:
         - name: Wait for RKE2 server to be ready
-          wait_for:
+          ansible.builtin.wait_for:
             path: /var/lib/rancher/rke2/server/node-token
             timeout: 300
 
         - name: Check server service status
-          systemd:
+          ansible.builtin.systemd:
             name: rke2-server
           register: server_status
 
         - name: Verify kubectl functionality
-          shell: |
+          ansible.builtin.shell: |
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
             /var/lib/rancher/rke2/bin/kubectl get nodes
           register: kubectl_test
@@ -115,7 +119,7 @@
           become: true
 
         - name: Display server upgrade verification
-          debug:
+          ansible.builtin.debug:
             msg: |
               Server Upgrade Verification:
               - Service Status: {{ server_status.status.ActiveState }}
@@ -133,32 +137,32 @@
     - ../group_vars/all.yml
   tasks:
     - name: Check if upgrade is needed for agent
-      set_fact:
+      ansible.builtin.set_fact:
         agent_upgrade_needed: "{{ current_version.stdout != rke2_version }}"
 
     - name: Upgrade RKE2 agent
-      include_role:
+      ansible.builtin.include_role:
         name: rke2_upgrade
       when: agent_upgrade_needed
 
     - name: Skip agent upgrade
-      debug:
+      ansible.builtin.debug:
         msg: "Agent {{ inventory_hostname }} is already at version {{ rke2_version }}. Skipping upgrade."
       when: not agent_upgrade_needed
 
     - name: Verify agent is operational after upgrade
       block:
         - name: Check agent service status
-          systemd:
+          ansible.builtin.systemd:
             name: rke2-agent
           register: agent_status
 
         - name: Wait for agent to join cluster
-          pause:
+          ansible.builtin.pause:
             seconds: 30
 
         - name: Verify agent joined cluster
-          shell: |
+          ansible.builtin.shell: |
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
             /var/lib/rancher/rke2/bin/kubectl get nodes {{ inventory_hostname }} -o wide
           register: node_status
@@ -168,7 +172,7 @@
           become: true
 
         - name: Display agent upgrade verification
-          debug:
+          ansible.builtin.debug:
             msg: |
               Agent Upgrade Verification for {{ inventory_hostname }}:
               - Service Status: {{ agent_status.status.ActiveState }}
@@ -188,7 +192,7 @@
     - name: Final cluster verification
       block:
         - name: Get all cluster nodes
-          shell: |
+          ansible.builtin.shell: |
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
             /var/lib/rancher/rke2/bin/kubectl get nodes -o wide
           register: final_cluster_status
@@ -196,7 +200,7 @@
           become: true
 
         - name: Get cluster version info
-          shell: |
+          ansible.builtin.shell: |
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
             /var/lib/rancher/rke2/bin/kubectl version --output=yaml
           register: cluster_version
@@ -205,7 +209,7 @@
           failed_when: false
 
         - name: Get system pods status
-          shell: |
+          ansible.builtin.shell: |
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
             /var/lib/rancher/rke2/bin/kubectl get pods -n kube-system
           register: system_pods
@@ -213,7 +217,7 @@
           become: true
 
         - name: Display final upgrade results
-          debug:
+          ansible.builtin.debug:
             msg: |
               RKE2 Cluster Upgrade Complete!
 
@@ -234,7 +238,8 @@
               - Total nodes in cluster: {{ final_cluster_status.stdout_lines | length - 1 }}
 
         - name: Verify all nodes are Ready
-          shell: |
+          ansible.builtin.shell: |
+            set -o pipefail
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
             /var/lib/rancher/rke2/bin/kubectl get nodes --no-headers | grep -v Ready | wc -l
           register: not_ready_count
@@ -261,35 +266,37 @@
     - name: Update kubectl to match cluster version
       block:
         - name: Get Kubernetes version from cluster
-          shell: |
+          ansible.builtin.shell: |
+            set -o pipefail
             export KUBECONFIG=/root/.kube/config
-            kubectl version --output=json | jq -r '.serverVersion.gitVersion'
+            /var/lib/rancher/rke2/bin/kubectl version --output=json | jq -r '.serverVersion.gitVersion'
           register: k8s_version
           failed_when: false
           changed_when: false
+          become: true
 
         - name: Extract Kubernetes version from RKE2 version
-          set_fact:
+          ansible.builtin.set_fact:
             expected_k8s_version: "{{ rke2_version | regex_replace('^v([0-9]+\\.[0-9]+\\.[0-9]+).*', 'v\\1') }}"
 
         - name: Download matching kubectl version
-          get_url:
+          ansible.builtin.get_url:
             url: "https://dl.k8s.io/release/{{ expected_k8s_version }}/bin/linux/amd64/kubectl"
             dest: /usr/local/bin/kubectl
             mode: '0755'
             owner: root
             group: root
-            backup: yes
+            backup: true
           register: kubectl_update
 
         - name: Verify kubectl update
-          command: kubectl version --client
+          ansible.builtin.command: kubectl version --client
           register: kubectl_version_check
           changed_when: false
           when: kubectl_update is changed
 
         - name: Display kubectl update status
-          debug:
+          ansible.builtin.debug:
             msg: |
               kubectl Update Status:
               - Expected Kubernetes Version: {{ expected_k8s_version }}
@@ -300,12 +307,13 @@
               {% endif %}
 
       rescue:
-        - name: kubectl update failed
-          debug:
+        - name: Kubectl update failed
+          ansible.builtin.debug:
             msg: "kubectl update failed. Manual update may be required."
 
     - name: Test kubectl connectivity after upgrade
-      shell: kubectl get nodes -o wide
+      ansible.builtin.command: kubectl get nodes -o wide
+      # Using command instead of shell because we need to set environment variables
       environment:
         KUBECONFIG: /root/.kube/config
       register: final_kubectl_test
@@ -313,7 +321,7 @@
       changed_when: false
 
     - name: Display final connectivity test
-      debug:
+      ansible.builtin.debug:
         msg: |
           Final kubectl Connectivity Test:
           {% if final_kubectl_test.rc == 0 %}

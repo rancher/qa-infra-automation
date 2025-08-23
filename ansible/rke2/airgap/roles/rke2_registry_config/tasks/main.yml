@@ -1,6 +1,7 @@
 ---
 # Configure private registry settings for RKE2
 - name: Configure private registry for RKE2
+  when: enable_private_registry | default(false) | bool
   block:
     - name: Create RKE2 configuration directory
       ansible.builtin.file:
@@ -17,7 +18,7 @@
         owner: root
         group: root
         mode: '0644'
-        backup: yes
+        backup: true
       notify:
         - restart rke2-server
         - restart rke2-agent
@@ -35,5 +36,3 @@
     - name: Display registry configuration status
       ansible.builtin.debug:
         msg: "Registry configuration file created: {{ registries_file.stat.exists }}"
-
-  when: enable_private_registry | default(false) | bool

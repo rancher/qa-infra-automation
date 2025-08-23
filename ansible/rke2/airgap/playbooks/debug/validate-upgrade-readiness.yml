@@ -6,7 +6,7 @@
     - ../group_vars/all.yml
   tasks:
     - name: Set validation timestamp
-      set_fact:
+      ansible.builtin.set_fact:
         validation_time: "{{ ansible_date_time.iso8601 }}"
 
 - name: Validate Bastion Host Readiness
@@ -17,7 +17,7 @@
     - ../group_vars/all.yml
   tasks:
     - name: Check internet connectivity
-      uri:
+      ansible.builtin.uri:
         url: https://github.com/rancher/rke2/releases
         method: GET
         timeout: 10
@@ -25,12 +25,14 @@
       failed_when: false
 
     - name: Check disk space on bastion
-      shell: df -h /opt | tail -1 | awk '{print $4}'
+      ansible.builtin.shell: |
+        set -o pipefail
+        df -h /opt | tail -1 | awk '{print $4}'
       register: bastion_disk_space
       changed_when: false
 
     - name: Validate SSH connectivity to airgap nodes
-      shell: |
+      ansible.builtin.shell: |
         ssh -i {{ ssh_private_key_file }} -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
         {{ ansible_user }}@{{ hostvars[item]['ansible_host'] }} "echo 'SSH OK'"
       register: ssh_test
@@ -39,7 +41,7 @@
       changed_when: false
 
     - name: Display bastion validation results
-      debug:
+      ansible.builtin.debug:
         msg: |
           Bastion Host Validation:
           [INFO] Internet Access: {{ 'OK' if internet_check.status == 200 else 'FAILED' }}
@@ -54,55 +56,64 @@
     - ../group_vars/all.yml
   tasks:
     - name: Check if RKE2 is installed
-      stat:
+      ansible.builtin.stat:
         path: /usr/local/bin/rke2
       register: rke2_binary
 
     - name: Get current RKE2 version
-      shell: /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
+      ansible.builtin.shell: |
+        set -o pipefail
+        /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
       register: current_rke2_version
       when: rke2_binary.stat.exists
       changed_when: false
 
     - name: Check RKE2 service status
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
       register: rke2_service_status
       when: rke2_binary.stat.exists
 
     - name: Check disk space
-      shell: df -h /var/lib/rancher | tail -1
+      ansible.builtin.shell: |
+        set -o pipefail
+        df -h /var/lib/rancher | tail -1
       register: node_disk_info
       changed_when: false
 
     - name: Extract disk usage percentage
-      set_fact:
+      ansible.builtin.set_fact:
         disk_usage_percent: "{{ node_disk_info.stdout.split()[4] | regex_replace('%', '') | int }}"
         disk_available: "{{ node_disk_info.stdout.split()[3] }}"
 
     - name: Check memory usage
-      shell: free -h | grep Mem | awk '{print $3 "/" $2 " (" int($3/$2*100) "%)"}'
+      ansible.builtin.shell: |
+        set -o pipefail
+        free -h | grep Mem | awk '{print $3 "/" $2 " (" int($3/$2*100) "%)"}'
       register: memory_usage
       changed_when: false
 
     - name: Check system load
-      shell: uptime | awk -F'load average:' '{print $2}'
+      ansible.builtin.shell: |
+        set -o pipefail
+        uptime | awk -F'load average:' '{print $2}'
       register: system_load
       changed_when: false
 
     - name: Check for running pods (server nodes only)
-      shell: |
+      ansible.builtin.shell: |
+        set -o pipefail
         export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
         /var/lib/rancher/rke2/bin/kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded | wc -l
       register: non_running_pods
-      when: 
+      when:
         - rke2_binary.stat.exists
         - inventory_hostname == groups['airgap_nodes'][0]
       changed_when: false
       failed_when: false
 
     - name: Display node validation results
-      debug:
+      ansible.builtin.debug:
         msg: |
           Node Validation for {{ inventory_hostname }}:
           [INFO] RKE2 Installed: {{ 'YES' if rke2_binary.stat.exists else 'NO' }}
@@ -126,29 +137,40 @@
     - ../group_vars/all.yml
   tasks:
     - name: Collect validation data
-      set_fact:
+      ansible.builtin.set_fact:
         validation_summary:
           timestamp: "{{ hostvars[groups['bastion'][0]]['validation_time'] }}"
           bastion:
             internet_access: "{{ hostvars[groups['bastion'][0]]['internet_check']['status'] == 200 }}"
             disk_space: "{{ hostvars[groups['bastion'][0]]['bastion_disk_space']['stdout'] }}"
-            ssh_connectivity: "{{ hostvars[groups['bastion'][0]]['ssh_test']['results'] | selectattr('rc', 'equalto', 0) | list | length }}"
-          nodes: "{{ groups['airgap_nodes'] | map('extract', hostvars) | list }}"
+            ssh_connectivity: >-
+              {{ hostvars[groups['bastion'][0]]['ssh_test']['results'] |
+              selectattr('rc', 'equalto', 0) | list | length }}
+          nodes: >-
+            {{ groups['airgap_nodes'] | map('extract', hostvars) | list }}
 
     - name: Count nodes with RKE2 installed
-      set_fact:
-        nodes_with_rke2: "{{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) | selectattr('rke2_binary', 'defined') | selectattr('rke2_binary.stat.exists') | list | length }}"
+      ansible.builtin.set_fact:
+        nodes_with_rke2: >-
+          {{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) |
+          selectattr('rke2_binary', 'defined') | selectattr('rke2_binary.stat.exists') | list | length }}
 
     - name: Count services running
-      set_fact:
-        services_running: "{{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) | selectattr('rke2_service_status', 'defined') | selectattr('rke2_service_status.status.ActiveState', 'equalto', 'active') | list | length }}"
+      ansible.builtin.set_fact:
+        services_running: >-
+          {{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) |
+          selectattr('rke2_service_status', 'defined') |
+          selectattr('rke2_service_status.status.ActiveState', 'equalto', 'active') | list | length }}
 
     - name: Count nodes with sufficient disk space
-      set_fact:
-        nodes_with_space: "{{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) | selectattr('disk_usage_percent', 'defined') | map(attribute='disk_usage_percent') | map('int') | select('lessthan', 80) | list | length }}"
+      ansible.builtin.set_fact:
+        nodes_with_space: >-
+          {{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) |
+          selectattr('disk_usage_percent', 'defined') | map(attribute='disk_usage_percent') |
+          map('int') | select('lessthan', 80) | list | length }}
 
     - name: Calculate upgrade readiness score
-      set_fact:
+      ansible.builtin.set_fact:
         readiness_checks:
           - name: "Bastion Internet Access"
             status: "{{ validation_summary.bastion.internet_access }}"
@@ -167,14 +189,16 @@
             weight: 20
 
     - name: Calculate total readiness score
-      set_fact:
-        total_score: "{{ readiness_checks | selectattr('status') | map(attribute='weight') | sum | int }}"
-        max_score: "{{ readiness_checks | map(attribute='weight') | sum | int }}"
+      ansible.builtin.set_fact:
+        total_score: >-
+          {{ readiness_checks | selectattr('status') | map(attribute='weight') | sum | int }}
+        max_score: >-
+          {{ readiness_checks | map(attribute='weight') | sum | int }}
 
     - name: Generate detailed readiness report
-      debug:
+      ansible.builtin.debug:
         msg: |
-          
+
           ╔══════════════════════════════════════════════════════════════════════════════════════╗
           ║                           RKE2 UPGRADE READINESS REPORT                             ║
           ╠══════════════════════════════════════════════════════════════════════════════════════╣
@@ -218,23 +242,23 @@
           ╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     - name: Save readiness report to file
-      copy:
+      ansible.builtin.copy:
         content: |
           RKE2 Upgrade Readiness Report
           Generated: {{ validation_summary.timestamp }}
           Target Version: {{ rke2_version | default('undefined') }}
           Readiness Score: {{ total_score }}/{{ max_score }} ({{ (total_score | int / max_score | int * 100) | round(1) }}%)
-          
+
           Readiness Checks:
           {% for check in readiness_checks %}
           - {{ check.name }}: {{ 'PASS' if check.status else 'FAIL' }} ({{ check.weight }}pts)
           {% endfor %}
-          
+
           Bastion Host:
           - Internet Access: {{ 'Available' if validation_summary.bastion.internet_access else 'Not Available' }}
           - Disk Space: {{ validation_summary.bastion.disk_space }}
           - SSH Connectivity: {{ validation_summary.bastion.ssh_connectivity }}/{{ groups['airgap_nodes'] | length }}
-          
+
           Cluster Nodes:
           {% for node in groups['airgap_nodes'] %}
           {{ node }}:
@@ -247,10 +271,13 @@
             - Memory Usage: {{ hostvars[node]['memory_usage']['stdout'] | default('unknown') }}
           {% endfor %}
         dest: "./rke2-upgrade-readiness-{{ ansible_date_time.epoch | default(ansible_date_time.iso8601 | default('unknown')) }}.txt"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
       delegate_to: localhost
 
     - name: Final recommendation
-      fail:
+      ansible.builtin.fail:
         msg: |
           [FAILED] UPGRADE NOT RECOMMENDED
           Readiness score: {{ total_score }}/{{ max_score }} ({{ (total_score | int / max_score | int * 100) | round(1) }}%)
@@ -258,7 +285,7 @@
       when: total_score | int < (max_score | int * 0.8)
 
     - name: Upgrade ready confirmation
-      debug:
+      ansible.builtin.debug:
         msg: |
           [OK] UPGRADE READY
           Readiness score: {{ total_score }}/{{ max_score }} ({{ (total_score | int / max_score | int * 100) | round(1) }}%)

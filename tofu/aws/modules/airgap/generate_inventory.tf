@@ -20,7 +20,7 @@ resource "local_file" "ansible_inventory" {
 # Optional: Run ansible-inventory command to validate the generated inventory
 resource "null_resource" "validate_inventory" {
   provisioner "local-exec" {
-    command = "cd ${path.module}/../../../ansible/rke2/airgap && ansible-inventory -i inventory/inventory.yml --list > /dev/null && echo 'Inventory validation successful'"
+    command = "cd ${path.module}/../../../../ansible/rke2/airgap && ansible-inventory -i inventory/inventory.yml --list > /dev/null && echo 'Inventory validation successful'"
     on_failure = continue
   }
   

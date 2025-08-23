@@ -6,28 +6,28 @@
   serial: 1
   tasks:
     - name: Get server token from first node
-      slurp:
+      ansible.builtin.slurp:
         src: /var/lib/rancher/rke2/server/token
       register: server_token_content
       when: inventory_hostname == groups['airgap_nodes'][0]
       delegate_to: "{{ groups['airgap_nodes'][0] }}"
 
     - name: Set server token fact for all nodes
-      set_fact:
+      ansible.builtin.set_fact:
         rke2_token: "{{ hostvars[groups['airgap_nodes'][0]]['server_token_content']['content'] | b64decode | trim }}"
       when: hostvars[groups['airgap_nodes'][0]]['server_token_content'] is defined
 
     - name: Stop any existing RKE2 services
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ item }}"
         state: stopped
-      ignore_errors: yes
+      failed_when: false
       loop:
         - rke2-server
         - rke2-agent
 
     - name: Generate agent configuration for additional nodes
-      template:
+      ansible.builtin.template:
         src: roles/rke2_install/templates/agent-config.yaml.j2
         dest: /etc/rancher/rke2/config.yaml
         owner: root
@@ -36,36 +36,37 @@
       when: inventory_hostname != groups['airgap_nodes'][0]
 
     - name: Display agent configuration
-      command: cat /etc/rancher/rke2/config.yaml
+      ansible.builtin.command: cat /etc/rancher/rke2/config.yaml
       register: agent_config
       when: inventory_hostname != groups['airgap_nodes'][0]
+      changed_when: false
 
     - name: Show agent configuration
-      debug:
+      ansible.builtin.debug:
         msg: |
           Agent Configuration for {{ inventory_hostname }}:
           {{ agent_config.stdout }}
       when: inventory_hostname != groups['airgap_nodes'][0]
 
     - name: Start RKE2 agent service on additional nodes
-      systemd:
+      ansible.builtin.systemd:
         name: rke2-agent
         state: started
-        enabled: yes
+        enabled: true
       when: inventory_hostname != groups['airgap_nodes'][0]
 
     - name: Wait for agent to join cluster
-      pause:
+      ansible.builtin.pause:
         seconds: 30
       when: inventory_hostname != groups['airgap_nodes'][0]
 
     - name: Check RKE2 service status
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
       register: rke2_status
 
     - name: Display service status
-      debug:
+      ansible.builtin.debug:
         msg: |
           {{ inventory_hostname }} RKE2 Service Status:
           Name: {{ rke2_status.name }}
