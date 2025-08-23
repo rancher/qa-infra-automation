@@ -313,7 +313,7 @@ private_registry_configs:
   - registry: "<PRIVATE_REGISTRY_URL>"
     auth:
       username: "<PRIVATE_REGISTRY_USERNAME>"
-      password: "<PRIVATE_REGISTERY_PASSWORD>"
+      password: "<PRIVATE_REGISTRY_PASSWORD>"
     tls:
       insecure_skip_verify: true
 ```
