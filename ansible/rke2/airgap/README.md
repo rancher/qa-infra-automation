@@ -613,6 +613,7 @@ Detailed documentation is available in the `docs/` directory:
 - **[`docs/configuration/GROUP_VARS_GUIDE.md`](docs/configuration/GROUP_VARS_GUIDE.md)**: Configuration variables reference
 - **[`docs/configuration/TARBALL_DEPLOYMENT_GUIDE.md`](docs/configuration/TARBALL_DEPLOYMENT_GUIDE.md)**: Detailed tarball deployment instructions
 - **[`docs/knowledge_base/SSH_TROUBLESHOOTING.md`](docs/knowledge_base/SSH_TROUBLESHOOTING.md)**: SSH connectivity troubleshooting guide
+- **[Ansible Lint](https://ansible.readthedocs.io/projects/lint/)**
 
 ## Notes
 
