@@ -1,6 +1,6 @@
 ---
 - name: Create RKE2 artifact directory on bastion
-  file:
+  ansible.builtin.file:
     path: /tmp/rke2-artifacts
     state: directory
     mode: '0755'
@@ -9,7 +9,7 @@
 - name: Download RKE2 files on bastion
   block:
     - name: Download install script
-      get_url:
+      ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/rancher/rke2/master/install.sh
         dest: /tmp/rke2-install.sh
         mode: '0755'
@@ -23,10 +23,10 @@
       become: true
 
     - name: Download and verify RKE2 files with checksums
-      include_tasks: verify_checksums.yml
+      ansible.builtin.include_tasks: verify_checksums.yml
 
     - name: Verify downloaded files
-      stat:
+      ansible.builtin.stat:
         path: "{{ item }}"
       register: file_check
       failed_when: not file_check.stat.exists
@@ -37,7 +37,7 @@
         - /tmp/rke2-artifacts/rke2-images.tar.gz
 
 - name: Create shared directory for RKE2 files
-  file:
+  ansible.builtin.file:
     path: /opt/rke2-files
     state: directory
     mode: '0755'
@@ -46,7 +46,7 @@
   become: true
 
 - name: Create staging directory structure
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: '0755'
@@ -58,7 +58,7 @@
   become: true
 
 - name: Copy files to staging directory
-  copy:
+  ansible.builtin.copy:
     src: "{{ item.src }}"
     dest: "{{ item.dest }}"
     mode: preserve
@@ -70,7 +70,7 @@
     - { src: "/tmp/rke2-artifacts/sha256sum-amd64.txt", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/sha256sum-amd64.txt" }
 
 - name: Create archive of RKE2 files
-  archive:
+  community.general.archive:
     path: "/tmp/rke2-bundle-staging/tmp"
     dest: /opt/rke2-files/rke2-bundle.tar.gz
     format: gz
@@ -81,33 +81,35 @@
   become: true
 
 - name: Display bundle contents
-  command: tar tvf /opt/rke2-files/rke2-bundle.tar.gz
+  ansible.builtin.command: tar tvf /opt/rke2-files/rke2-bundle.tar.gz
   register: bundle_contents
   changed_when: false
+  # Using command instead of unarchive because we only want to list contents, not extract
 
 - name: Show bundle structure
-  debug:
+  ansible.builtin.debug:
     msg: "Bundle contents:\n{{ bundle_contents.stdout_lines | join('\n') }}"
 
 - name: Clean up staging directory
-  file:
+  ansible.builtin.file:
     path: /tmp/rke2-bundle-staging
     state: absent
   become: true
 
 - name: Verify archive contents
-  command: tar tvf /opt/rke2-files/rke2-bundle.tar.gz
+  ansible.builtin.command: tar tvf /opt/rke2-files/rke2-bundle.tar.gz
   register: archive_contents
   changed_when: false
+  # Using command instead of unarchive because we only want to list contents, not extract
 
 - name: Verify bundle creation
-  stat:
+  ansible.builtin.stat:
     path: /opt/rke2-files/rke2-bundle.tar.gz
   register: bundle_check
   failed_when: not bundle_check.stat.exists
 
 - name: Report bundle status
-  debug:
+  ansible.builtin.debug:
     msg: |
       RKE2 Bundle Status:
       - Location: /opt/rke2-files/rke2-bundle.tar.gz

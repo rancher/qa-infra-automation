@@ -1,0 +1,6 @@
+---
+# Ansible-lint configuration
+skip_list:
+  - 'command-instead-of-module'  # Allow systemctl commands for status checks
+  - 'yaml[line-length]'  # Allow long lines in multiline strings
+

@@ -1,13 +1,13 @@
 ---
 - name: Create RKE2 config directory
-  file:
+  ansible.builtin.file:
     path: /etc/rancher/rke2
     state: directory
     mode: '0755'
   become: true
 
 - name: Configure RKE2 server
-  template:
+  ansible.builtin.template:
     src: config.yaml.j2
     dest: /etc/rancher/rke2/config.yaml
     mode: '0644'
@@ -15,7 +15,7 @@
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Create RKE2 artifact directory
-  file:
+  ansible.builtin.file:
     path: /tmp/rke2-artifacts
     state: directory
     mode: '0755'
@@ -24,18 +24,22 @@
 - name: Synchronize RKE2 bundle from bastion
   block:
     - name: Check bundle on bastion
-      stat:
-        path: /opt/rke2-files/rke2-bundle.tar.gz
       delegate_to: "{{ groups['bastion'][0] }}"
-      register: bundle_stat
-      until: bundle_stat.stat.exists
-      retries: 6
-      delay: 10
       vars:
         ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      block:
+        - name: Get bundle size
+          ansible.builtin.stat:
+            path: /opt/rke2-files/rke2-bundle.tar.gz
+          register: bastion_bundle
+
+        - name: Calculate bundle checksum
+          ansible.builtin.command: sha256sum /opt/rke2-files/rke2-bundle.tar.gz
+          register: bastion_checksum
+          changed_when: false
 
     - name: Ensure local temp directory exists with proper permissions
-      file:
+      ansible.builtin.file:
         path: /tmp
         state: directory
         mode: '1777'
@@ -44,7 +48,7 @@
       become: true
 
     - name: Ensure bundle destination has proper permissions
-      file:
+      ansible.builtin.file:
         path: /tmp/rke2-bundle.tar.gz
         state: touch
         mode: '0644'
@@ -52,23 +56,8 @@
         group: "{{ ansible_user }}"
       become: true
 
-    - name: Get bundle info from bastion
-      block:
-        - name: Get bundle size
-          stat:
-            path: /opt/rke2-files/rke2-bundle.tar.gz
-          register: bastion_bundle
-
-        - name: Calculate bundle checksum
-          command: sha256sum /opt/rke2-files/rke2-bundle.tar.gz
-          register: bastion_checksum
-          changed_when: false
-      delegate_to: "{{ groups['bastion'][0] }}"
-      vars:
-        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-
     - name: Copy bundle from bastion
-      command: >
+      ansible.builtin.command: >
         scp -i {{ ssh_private_key_file }}
         -o StrictHostKeyChecking=no
         -o UserKnownHostsFile=/dev/null
@@ -80,14 +69,18 @@
       retries: 3
       delay: 5
       become: false
+      changed_when: false
       vars:
         ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand='ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}'"
+        ansible_ssh_common_args: >-
+          -o StrictHostKeyChecking=no
+          -o UserKnownHostsFile=/dev/null
+          -o ProxyCommand='ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}'
 
     - name: Verify bundle copy
       block:
         - name: Check local bundle
-          stat:
+          ansible.builtin.stat:
             path: /tmp/rke2-bundle.tar.gz
           register: local_bundle
           failed_when: >
@@ -96,17 +89,17 @@
             local_bundle.stat.size != bastion_bundle.stat.size
 
         - name: Calculate local checksum
-          command: sha256sum /tmp/rke2-bundle.tar.gz
+          ansible.builtin.command: sha256sum /tmp/rke2-bundle.tar.gz
           register: local_checksum
           changed_when: false
 
         - name: Compare checksums
-          fail:
+          ansible.builtin.fail:
             msg: "Bundle checksums do not match. Transfer may be corrupted."
           when: bastion_checksum.stdout.split()[0] != local_checksum.stdout.split()[0]
 
         - name: Display bundle information
-          debug:
+          ansible.builtin.debug:
             msg: |
               Bundle Status:
               - Source size: {{ bastion_bundle.stat.size }}
@@ -119,7 +112,7 @@
 - name: Extract and organize RKE2 artifacts
   block:
     - name: Create artifacts directory
-      file:
+      ansible.builtin.file:
         path: /tmp/rke2-artifacts
         state: directory
         mode: '0755'
@@ -128,7 +121,7 @@
       become: true
 
     - name: Create temp extraction directory
-      file:
+      ansible.builtin.file:
         path: /tmp/rke2-extract
         state: directory
         mode: '0755'
@@ -137,32 +130,32 @@
       become: true
 
     - name: Extract RKE2 bundle to temp directory
-      unarchive:
+      ansible.builtin.unarchive:
         src: /tmp/rke2-bundle.tar.gz
         dest: /tmp/rke2-extract/
-        remote_src: yes
+        remote_src: true
         mode: '0755'
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-        list_files: yes
+        list_files: true
       register: extract_result
       become: true
 
     - name: Display extracted files
-      debug:
+      ansible.builtin.debug:
         msg: "Extracted files: {{ extract_result.files }}"
 
     - name: List temp directory contents
-      shell: "ls -la /tmp/rke2-extract/"
+      ansible.builtin.command: ls -la /tmp/rke2-extract/
       register: temp_dir_contents
       changed_when: false
 
     - name: Display temp directory contents
-      debug:
+      ansible.builtin.debug:
         msg: "Temp directory contents: {{ temp_dir_contents.stdout_lines }}"
 
     - name: Move files to correct locations
-      shell: |
+      ansible.builtin.shell: |
         set -x
         # Show current structure
         echo "Extracted directory structure:"
@@ -187,13 +180,14 @@
         ls -la /tmp/rke2-install.sh 2>/dev/null || echo "Install script not found"
       register: move_result
       become: true
+      changed_when: false
 
     - name: Display move result
-      debug:
+      ansible.builtin.debug:
         msg: "{{ move_result.stdout_lines | default([]) | join('\n') }}"
 
     - name: Set correct permissions
-      file:
+      ansible.builtin.file:
         path: /tmp/rke2-install.sh
         mode: '0755'
         owner: "{{ ansible_user }}"
@@ -201,19 +195,19 @@
       become: true
 
     - name: Clean up temp directory
-      file:
+      ansible.builtin.file:
         path: /tmp/rke2-extract
         state: absent
       become: true
 
     - name: Verify RKE2 tarball exists after extraction
-      stat:
+      ansible.builtin.stat:
         path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
       register: rke2_tarball_check
       failed_when: not rke2_tarball_check.stat.exists
 
     - name: Display RKE2 tarball status
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Tarball Status:
           - Version: {{ rke2_version }}
@@ -222,7 +216,7 @@
           - Size: {{ rke2_tarball_check.stat.size | default('N/A') }} bytes
 
     - name: Verify required files
-      stat:
+      ansible.builtin.stat:
         path: "{{ item }}"
       register: file_check
       failed_when: not file_check.stat.exists
@@ -233,7 +227,7 @@
         - /tmp/rke2-install.sh
 
     - name: Display artifacts status
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Artifacts Status:
           - Bundle extracted to: /tmp/rke2-artifacts/
@@ -243,7 +237,7 @@
           - Install script: {{ file_check.results[3].stat.exists }}
 
 - name: Create RKE2 images directory
-  file:
+  ansible.builtin.file:
     path: /var/lib/rancher/rke2/agent/images
     state: directory
     mode: '0755'
@@ -251,7 +245,7 @@
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Copy RKE2 images to proper location
-  copy:
+  ansible.builtin.copy:
     src: /tmp/rke2-artifacts/rke2-images.tar.gz
     dest: /var/lib/rancher/rke2/agent/images/
     remote_src: true
@@ -260,7 +254,7 @@
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Run RKE2 server install script
-  shell: |
+  ansible.builtin.shell: |
     export INSTALL_RKE2_TYPE=server
     export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
     sh /tmp/rke2-install.sh
@@ -271,56 +265,64 @@
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Start RKE2 server
+  when: inventory_hostname == groups['airgap_nodes'][0]
   block:
     - name: Start RKE2 server service
-      systemd:
+      ansible.builtin.systemd:
         name: rke2-server
         state: started
-        enabled: yes
+        enabled: true
       become: true
       register: rke2_start_result
 
     - name: Display RKE2 start success
-      debug:
+      ansible.builtin.debug:
         msg: "RKE2 server started successfully"
       when: rke2_start_result is success
 
   rescue:
     - name: Get RKE2 server service status
-      shell: systemctl status rke2-server.service
+      ansible.builtin.shell: systemctl status rke2-server.service
+      # Using shell because systemctl is a shell command
       register: rke2_status
       become: true
       failed_when: false
+      changed_when: false
 
     - name: Get RKE2 server journal logs
-      shell: journalctl -xeu rke2-server.service --no-pager -n 50
+      ansible.builtin.shell: journalctl -xeu rke2-server.service --no-pager -n 50
+      # Using shell because journalctl is a shell command
       register: rke2_logs
       become: true
       failed_when: false
+      changed_when: false
 
     - name: Display RKE2 service status and logs
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Server Service Status:
           {{ rke2_status.stdout_lines | join('\n') }}
-          
+
           RKE2 Server Journal Logs:
           {{ rke2_logs.stdout_lines | join('\n') }}
 
     - name: Check RKE2 configuration file
-      shell: cat /etc/rancher/rke2/config.yaml
+      ansible.builtin.shell: cat /etc/rancher/rke2/config.yaml
+      # Using shell because cat is a shell command
       register: rke2_config_content
       become: true
       failed_when: false
+      changed_when: false
+      # Using shell because cat is a shell command
 
     - name: Display RKE2 configuration
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Configuration (/etc/rancher/rke2/config.yaml):
           {{ rke2_config_content.stdout_lines | join('\n') }}
 
     - name: Fail with detailed error information
-      fail:
+      ansible.builtin.fail:
         msg: |
           RKE2 server failed to start. Check the service status and logs above for details.
           Common issues:
@@ -329,19 +331,19 @@
           - Network connectivity issues
           - Insufficient system resources
           - Container runtime issues
-  when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Wait for RKE2 server to be ready
-  wait_for:
+  ansible.builtin.wait_for:
     path: /var/lib/rancher/rke2/server/node-token
     timeout: 300
   become: true
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Wait for RKE2 server to be fully operational
+  when: inventory_hostname == groups['airgap_nodes'][0]
   block:
     - name: Monitor RKE2 server startup progress
-      shell: |
+      ansible.builtin.shell: |
         echo "=== RKE2 Service Status ==="
         systemctl is-active rke2-server.service || echo "Service not active"
         echo ""
@@ -362,17 +364,17 @@
       changed_when: false
 
     - name: Display RKE2 startup progress
-      debug:
+      ansible.builtin.debug:
         msg: "{{ rke2_progress.stdout_lines }}"
 
     - name: Wait for RKE2 server manifests directory (extended timeout)
-      wait_for:
+      ansible.builtin.wait_for:
         path: /var/lib/rancher/rke2/server/manifests
         timeout: 600
       become: true
 
     - name: Verify RKE2 server is fully operational
-      shell: |
+      ansible.builtin.shell: |
         echo "=== Final RKE2 Status ==="
         systemctl status rke2-server.service --no-pager -l
         echo ""
@@ -386,12 +388,12 @@
       changed_when: false
 
     - name: Display final RKE2 status
-      debug:
+      ansible.builtin.debug:
         msg: "{{ rke2_final_status.stdout_lines }}"
 
   rescue:
     - name: Get detailed RKE2 failure information
-      shell: |
+      ansible.builtin.shell: |
         echo "=== RKE2 Service Status ==="
         systemctl status rke2-server.service --no-pager -l
         echo ""
@@ -410,13 +412,14 @@
       register: rke2_failure_info
       become: true
       failed_when: false
+      changed_when: false
 
     - name: Display RKE2 failure information
-      debug:
+      ansible.builtin.debug:
         msg: "{{ rke2_failure_info.stdout_lines }}"
 
     - name: Fail with timeout information
-      fail:
+      ansible.builtin.fail:
         msg: |
           RKE2 server failed to become fully operational within 10 minutes.
           This could indicate:
@@ -425,36 +428,35 @@
           - Network connectivity issues
           - Container runtime problems
           - RKE2 configuration issues
-          
+
           Check the detailed logs above for specific error messages.
-  when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Wait for RKE2 server service
-  systemd:
+  ansible.builtin.systemd:
     name: rke2-server
     state: started
   become: true
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Pause for server initialization
-  pause:
+  ansible.builtin.pause:
     seconds: 30
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Get node token from server
-  slurp:
+  ansible.builtin.slurp:
     src: /var/lib/rancher/rke2/server/node-token
   become: true
   register: node_token_result
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Set node token fact on all hosts
-  set_fact:
+  ansible.builtin.set_fact:
     rke2_token: "{{ hostvars[groups['airgap_nodes'][0]]['node_token_result']['content'] | b64decode | trim }}"
   when: hostvars[groups['airgap_nodes'][0]]['node_token_result'] is defined
 
 - name: Configure RKE2 agent
-  template:
+  ansible.builtin.template:
     src: agent-config.yaml.j2
     dest: /etc/rancher/rke2/config.yaml
     mode: '0644'
@@ -462,7 +464,7 @@
   when: inventory_hostname != groups['airgap_nodes'][0]
 
 - name: Run RKE2 agent install script
-  shell: |
+  ansible.builtin.shell: |
     export INSTALL_RKE2_TYPE=agent
     export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
     sh /tmp/rke2-install.sh
@@ -473,28 +475,28 @@
   when: inventory_hostname != groups['airgap_nodes'][0]
 
 - name: Start RKE2 agent
-  systemd:
+  ansible.builtin.systemd:
     name: rke2-agent
     state: started
-    enabled: yes
+    enabled: true
   become: true
   when: inventory_hostname != groups['airgap_nodes'][0]
 
 - name: Wait for kubeconfig
-  wait_for:
+  ansible.builtin.wait_for:
     path: /etc/rancher/rke2/rke2.yaml
   become: true
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Get kubeconfig
-  slurp:
+  ansible.builtin.slurp:
     src: /etc/rancher/rke2/rke2.yaml
   become: true
   register: kubeconfig
   when: inventory_hostname == groups['airgap_nodes'][0]
 
 - name: Create local kubeconfig directory
-  file:
+  ansible.builtin.file:
     path: ~/.kube
     state: directory
     mode: '0755'
@@ -505,7 +507,7 @@
     ansible_connection: local
 
 - name: Save kubeconfig locally
-  copy:
+  ansible.builtin.copy:
     content: "{{ kubeconfig['content'] | b64decode }}"
     dest: ~/.kube/config
     mode: '0600'

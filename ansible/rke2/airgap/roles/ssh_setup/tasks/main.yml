@@ -1,6 +1,6 @@
 ---
 - name: Ensure .ssh directory exists
-  file:
+  ansible.builtin.file:
     path: "~{{ ansible_user }}/.ssh"
     state: directory
     mode: '0700'
@@ -9,7 +9,7 @@
   become: true
 
 - name: Copy SSH private key with correct filename
-  copy:
+  ansible.builtin.copy:
     src: "{{ ssh_private_key_file }}"
     dest: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
     mode: '0400'
@@ -18,9 +18,9 @@
   become: true
 
 - name: Copy SSH public key with correct filename
-  copy:
-    src: "{{ ssh_private_key_file }}.pub"
-    dest: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}.pub"
+  ansible.builtin.copy:
+    src: "{{ (ssh_private_key_file | splitext)[0] }}.pub"
+    dest: "~{{ ansible_user }}/.ssh/{{ (ssh_private_key_file | basename | splitext)[0] }}.pub"
     mode: '0644'
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
@@ -28,7 +28,7 @@
   when: ssh_private_key_file is defined
 
 - name: Create symlink for backward compatibility (id_rsa)
-  file:
+  ansible.builtin.file:
     src: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
     dest: "~{{ ansible_user }}/.ssh/id_rsa"
     state: link
@@ -37,8 +37,8 @@
   become: true
 
 - name: Create symlink for backward compatibility (id_rsa.pub)
-  file:
-    src: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}.pub"
+  ansible.builtin.file:
+    src: "~{{ ansible_user }}/.ssh/{{ (ssh_private_key_file | basename | splitext)[0] }}.pub"
     dest: "~{{ ansible_user }}/.ssh/id_rsa.pub"
     state: link
     owner: "{{ ansible_user }}"
@@ -47,25 +47,25 @@
   when: ssh_private_key_file is defined
 
 - name: Add SSH key to authorized_keys
-  authorized_key:
+  ansible.posix.authorized_key:
     user: "{{ ansible_user }}"
     state: present
-    key: "{{ lookup('file', ssh_private_key_file + '.pub') }}"
+    key: "{{ lookup('file', (ssh_private_key_file | splitext)[0] + '.pub') }}"
   become: true
   when: ssh_private_key_file is defined
 
 - name: Set proper permissions on .ssh directory
-  file:
+  ansible.builtin.file:
     path: "~{{ ansible_user }}/.ssh"
     state: directory
     mode: '0700'
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
-    recurse: yes
+    recurse: true
   become: true
 
 - name: Create known_hosts file
-  file:
+  ansible.builtin.file:
     path: "~{{ ansible_user }}/.ssh/known_hosts"
     state: touch
     mode: '0644'
@@ -74,7 +74,7 @@
   become: true
 
 - name: Fix SSH key permissions
-  file:
+  ansible.builtin.file:
     path: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
     mode: '0400'
     owner: "{{ ansible_user }}"
@@ -84,17 +84,17 @@
 - name: Verify SSH setup
   block:
     - name: Check SSH key presence
-      stat:
+      ansible.builtin.stat:
         path: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
       register: ssh_key_check
 
     - name: Verify SSH key permissions
-      shell: "stat -c %a ~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
+      ansible.builtin.command: "stat -c %a ~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
       register: perms_check
       changed_when: false
 
     - name: Fix permissions if needed
-      file:
+      ansible.builtin.file:
         path: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
         mode: '0400'
         owner: "{{ ansible_user }}"
@@ -103,7 +103,7 @@
       when: perms_check.stdout != "600"
 
     - name: Test local SSH connectivity
-      shell: >
+      ansible.builtin.shell: >
         ssh -o BatchMode=yes
         -o ConnectTimeout=5
         -o StrictHostKeyChecking=no
@@ -116,7 +116,7 @@
       changed_when: false
 
     - name: Test bastion connectivity
-      shell: >
+      ansible.builtin.shell: >
         ssh -o BatchMode=yes
         -o ConnectTimeout=5
         -o StrictHostKeyChecking=no
@@ -132,10 +132,16 @@
 
   always:
     - name: Report SSH setup status
-      debug:
+      ansible.builtin.debug:
         msg: |
           SSH Setup Status:
           - Key present: {{ ssh_key_check.stat.exists | default(false) }}
           - Key permissions: {{ perms_check.stdout | default('Not checked') }}
           - Local SSH test: {{ (local_test.stdout | default('Not run')) if (local_test is defined and local_test is success) else 'Failed' }}
-          - Bastion SSH test: {{ (bastion_test.stdout | default('Not run')) if (bastion_test is defined and bastion_test is success) else ('Skipped (bastion node)' if inventory_hostname in groups['bastion'] else 'Failed') }}
+          - Bastion SSH test: {{
+              (bastion_test.stdout | default('Not run'))
+              if (bastion_test is defined and bastion_test is success)
+              else ('Skipped (bastion node)'
+              if inventory_hostname in groups['bastion']
+              else 'Failed')
+            }}
