@@ -1,0 +1,3 @@
+plugin: cloud.terraform.terraform_state
+state_file: terraform.tfstate
+search_child_modules: true

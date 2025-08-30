@@ -9,6 +9,16 @@ tls-san:
   - ${KUBE_API_HOST}
 "
 
+if [ -n "${PUBLIC_IP}" ]; then
+    config="$config
+node-external-ip: ${PUBLIC_IP}"
+fi
+
+if [ -n "${SERVER_FLAGS}" ]; then
+    config="$config
+$(printf '%b' "${SERVER_FLAGS}")"
+fi
+
 # Parse NODE_ROLE into an array (comma-separated)
 IFS=',' read -r -a ROLES <<< "$NODE_ROLE"
 
@@ -69,8 +79,36 @@ cat > /etc/rancher/rke2/config.yaml <<- EOF
 ${config}
 EOF
 
-# Install RKE2 with the specified Kubernetes version
-curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION="${KUBERNETES_VERSION}" sh -
+# Input validation
+if [[ "${KUBERNETES_VERSION}" =~ [^a-zA-Z0-9.+_-] ]]; then
+    echo "Error: Invalid characters in KUBERNETES_VERSION"
+    exit 1
+fi
+
+if [[ -n "${INSTALL_METHOD}" ]] && [[ "${INSTALL_METHOD}" =~ [^a-zA-Z0-9._-] ]]; then
+    echo "Error: Invalid characters in INSTALL_METHOD"
+    exit 1
+fi
+
+if [[ -n "${CHANNEL}" ]] && [[ "${CHANNEL}" =~ [^a-zA-Z0-9._-] ]]; then
+    echo "Error: Invalid characters in CHANNEL"
+    exit 1
+fi
+
+export INSTALL_RKE2_VERSION="${KUBERNETES_VERSION}"
+
+if [ -n "${INSTALL_METHOD}" ]; then
+    export INSTALL_RKE2_METHOD="${INSTALL_METHOD}"
+fi
+
+if [ -n "${CHANNEL}" ]; then
+    export INSTALL_RKE2_CHANNEL="${CHANNEL}"
+fi
+
+if ! curl -sfL https://get.rke2.io | sh -; then
+    echo "Failed to install rke2-server"
+    exit 1
+fi
 
 systemctl enable rke2-server.service
 RET=1

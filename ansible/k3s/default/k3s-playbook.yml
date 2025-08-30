@@ -44,12 +44,10 @@
         KUBERNETES_VERSION: "{{ kubernetes_version }}"
         KUBE_API_HOST: "{{ kube_api_host }}"
         FQDN: "{{ fqdn }}"
-        CNI: "{{ cni }}"
         NODE_ROLE: "{{ ansible_role }}"
-        PUBLIC_IP: "{{ ansible_host }}"
-        CHANNEL: "{{ channel | default('') }}"
+        PUBLIC_IP: "{{ ansible_host }}" 
         SERVER_FLAGS: "{{ server_flags | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
+        CHANNEL: "{{ channel | default('') }}"
       register: script_result
 
     - name: Display script output (stdout)
@@ -66,7 +64,7 @@
       when: script_result.rc != 0
 
     - name: Get node-token from master
-      raw: cat /var/lib/rancher/rke2/server/node-token
+      raw: cat /var/lib/rancher/k3s/server/node-token
       register: node_token_output
 
     - name: Save node_token to local file
@@ -76,7 +74,7 @@
       shell: echo "{{ node_token_output.stdout }}" > "{{ node_token_file }}"
 
     - name: Read file contents into a variable
-      raw: cat /etc/rancher/rke2/rke2.yaml
+      raw: cat /etc/rancher/k3s/k3s.yaml
       register: file_contents
 
     - name: Save file contents locally
@@ -123,13 +121,11 @@
         KUBERNETES_VERSION: "{{ kubernetes_version }}"
         KUBE_API_HOST: "{{ kube_api_host }}"
         FQDN: "{{ fqdn }}"
-        CNI: "{{ cni }}"
         NODE_TOKEN: "{{ node_token }}"
         NODE_ROLE: "{{ ansible_role }}"
         PUBLIC_IP: "{{ ansible_host }}"
         SERVER_FLAGS: "{{ server_flags | default('') }}"
-        CHANNEL: "{{ channel | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
+        CHANNEL: "{{ channel | default('v1') }}"
       register: script_result
       when: 'inventory_hostname != "master" and ("cp" in ansible_role or "etcd" in ansible_role)'
 
@@ -139,12 +135,10 @@
         KUBERNETES_VERSION: "{{ kubernetes_version }}"
         KUBE_API_HOST: "{{ kube_api_host }}"
         FQDN: "{{ fqdn }}"
-        CNI: "{{ cni }}"
         NODE_TOKEN: "{{ node_token }}"
         PUBLIC_IP: "{{ ansible_host }}"
         WORKER_FLAGS: "{{ worker_flags | default('') }}"
-        CHANNEL: "{{ channel | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
+        CHANNEL: "{{ channel | default('v1') }}"
       register: script_result
       when: ansible_role == "worker"
 
@@ -154,17 +148,15 @@
   vars_files:
     - vars.yaml
   tasks:
-    - name: Wait until all RKE2 Helm-managed pods in kube-system are Running or Succeeded
+    - name: Wait until all K3s system pods are Running or Succeeded
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig_file }}"
         api_version: v1
         kind: Pod
         namespace: kube-system
-        label_selectors:
-          - app.kubernetes.io/managed-by=Helm
-      register: rke2_pods_check
+      register: k3s_pods_check
       until: >
-        rke2_pods_check.resources is defined and
-        (rke2_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
+        k3s_pods_check.resources is defined and
+        (k3s_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
       retries: 5
       delay: 60
