@@ -10,7 +10,7 @@
     terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
-    
+
     kube_api_host: "{{ kube_api_host_override | default(lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else '') }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
@@ -36,6 +36,7 @@
           - os_family
       when: ansible_os_family is not defined
 
+ 
     - name: Disable NetworkManager cloud setup services
       systemd:
         name: "{{ item }}"
@@ -81,18 +82,46 @@
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
+    - name: Create K3s server directories on master
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/lib/rancher/k3s/server
+        - /var/lib/rancher/k3s/server/manifests
+        - /var/lib/rancher/k3s/server/logs
+
+      when: '"cp" in ansible_role or "etcd" in ansible_role'
+    - name: Read hardening files content
+      slurp:
+        src: "./{{ item }}"
+      register: hardening_files
+      loop:
+        - policy.yaml
+        - audit.yaml
+        - cluster-level-pss.yaml
+        - ingresspolicy.yaml
+        - cis_master_config.yaml
+      delegate_to: localhost
+      run_once: true
+
     - name: Transfer and execute init-cluster.sh (initial etcd node)
       script: ./init-cluster.sh
       environment:
         KUBERNETES_VERSION: "{{ kubernetes_version }}"
         KUBE_API_HOST: "{{ kube_api_host }}"
         FQDN: "{{ fqdn }}"
-        CNI: "{{ cni }}"
         NODE_ROLE: "{{ ansible_role }}"
-        PUBLIC_IP: "{{ ansible_host }}"
-        CHANNEL: "{{ channel | default('') }}"
+        PUBLIC_IP: "{{ ansible_host }}" 
         SERVER_FLAGS: "{{ server_flags | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
+        CHANNEL: "{{ channel | default('') }}"
+        # Pass hardening file contents as environment variables
+        POLICY_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'policy.yaml') | first).content | b64decode }}"
+        AUDIT_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'audit.yaml') | first).content | b64decode }}"
+        CLUSTER_LEVEL_PSS_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'cluster-level-pss.yaml') | first).content | b64decode }}"
+        INGRESSPOLICY_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'ingresspolicy.yaml') | first).content | b64decode }}"
+        CIS_MASTER_CONFIG_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'cis_master_config.yaml') | first).content | b64decode }}"
       register: script_result
 
     - name: Display script output (stdout)
@@ -109,7 +138,7 @@
       when: script_result.rc != 0
 
     - name: Get node-token from master
-      raw: cat /var/lib/rancher/rke2/server/node-token
+      raw: cat /var/lib/rancher/k3s/server/node-token
       register: node_token_output
 
     - name: Save node_token to local file
@@ -119,7 +148,7 @@
       shell: echo "{{ node_token_output.stdout }}" > "{{ node_token_file }}"
 
     - name: Read file contents into a variable
-      raw: cat /etc/rancher/rke2/rke2.yaml
+      raw: cat /etc/rancher/k3s/k3s.yaml
       register: file_contents
 
     - name: Save file contents locally
@@ -160,34 +189,64 @@
       run_once: true
       delegate_to: localhost
 
+    - name: Create K3s server directories on server nodes
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/lib/rancher/k3s/server
+        - /var/lib/rancher/k3s/server/manifests
+        - /var/lib/rancher/k3s/server/logs
+      when: '"cp" in ansible_role or "etcd" in ansible_role'
+
+    - name: Read hardening files content for server nodes
+      slurp:
+        src: "./{{ item }}"
+      register: hardening_files_servers
+      loop:
+        - policy.yaml
+        - audit.yaml
+        - cluster-level-pss.yaml
+        - ingresspolicy.yaml
+        - cis_master_config.yaml
+      delegate_to: localhost
+      become: no
+      run_once: true
+      when: '"cp" in ansible_role or "etcd" in ansible_role'
+
     - name: Transfer and execute init-server.sh (Server)
       script: ./init-server.sh
       environment:
         KUBERNETES_VERSION: "{{ kubernetes_version }}"
         KUBE_API_HOST: "{{ kube_api_host }}"
         FQDN: "{{ fqdn }}"
-        CNI: "{{ cni }}"
         NODE_TOKEN: "{{ node_token }}"
         NODE_ROLE: "{{ ansible_role }}"
         PUBLIC_IP: "{{ ansible_host }}"
         SERVER_FLAGS: "{{ server_flags | default('') }}"
-        CHANNEL: "{{ channel | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
+        CHANNEL: "{{ channel | default('v1') }}"
+        # Pass hardening file contents as environment variables
+        POLICY_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'policy.yaml') | first).content | b64decode }}"
+        AUDIT_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'audit.yaml') | first).content | b64decode }}"
+        CLUSTER_LEVEL_PSS_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'cluster-level-pss.yaml') | first).content | b64decode }}"
+        INGRESSPOLICY_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'ingresspolicy.yaml') | first).content | b64decode }}"
+        CIS_MASTER_CONFIG_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'cis_master_config.yaml') | first).content | b64decode }}"
       register: script_result
-      when: 'inventory_hostname != "master" and ("cp" in ansible_role or "etcd" in ansible_role)'
-
+      when: 
+        - inventory_hostname != "master"
+        - '"cp" in ansible_role or "etcd" in ansible_role'
+        
     - name: Transfer and execute init-agent.sh (Agent)
       script: ./init-agent.sh
       environment:
         KUBERNETES_VERSION: "{{ kubernetes_version }}"
         KUBE_API_HOST: "{{ kube_api_host }}"
         FQDN: "{{ fqdn }}"
-        CNI: "{{ cni }}"
         NODE_TOKEN: "{{ node_token }}"
         PUBLIC_IP: "{{ ansible_host }}"
         WORKER_FLAGS: "{{ worker_flags | default('') }}"
-        CHANNEL: "{{ channel | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
+        CHANNEL: "{{ channel | default('v1') }}"
       register: script_result
       when: ansible_role == "worker"
 
@@ -197,17 +256,15 @@
   vars_files:
     - vars.yaml
   tasks:
-    - name: Wait until all RKE2 Helm-managed pods in kube-system are Running or Succeeded
+    - name: Wait until all K3s system pods are Running or Succeeded
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig_file }}"
         api_version: v1
         kind: Pod
         namespace: kube-system
-        label_selectors:
-          - app.kubernetes.io/managed-by=Helm
-      register: rke2_pods_check
+      register: k3s_pods_check
       until: >
-        rke2_pods_check.resources is defined and
-        (rke2_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
+        k3s_pods_check.resources is defined and
+        (k3s_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
       retries: 5
       delay: 60

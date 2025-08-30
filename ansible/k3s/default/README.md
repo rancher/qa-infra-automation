@@ -1,6 +1,6 @@
-# RKE2 Cluster Ansible Playbook
+# K3s Cluster Ansible Playbook
 
-This playbook deploys an RKE2 Kubernetes cluster and can be used either with or without Terraform/OpenTofu infrastructure provisioning.
+This playbook deploys a K3s Kubernetes cluster and can be used either with or without Terraform/OpenTofu infrastructure provisioning.
 
 ## Prerequisites
 
@@ -31,19 +31,19 @@ For this mode, you'll need:
 
 2. **Set Environment Variables:**
    ```bash
-   export ANSIBLE_CONFIG=/path/to/go/src/github.com/rancher/qa-infra-automation/ansible/rke2/default/ansible.cfg
+   export ANSIBLE_CONFIG=/path/to/go/src/github.com/rancher/qa-infra-automation/ansible/k3s/default/ansible.cfg
    export TF_WORKSPACE=your-workspace
    export TERRAFORM_NODE_SOURCE=tofu/aws/modules/cluster_nodes
    ```
 
 3. **Run the Playbook:**
    ```bash
-   ansible-playbook -i inventory.yml rke2-playbook.yml --extra-vars "@vars.yaml"
+   ansible-playbook -i inventory.yml k3s-playbook.yml --extra-vars "@vars.yaml"
    ```
 
 ### Option 2: Standalone (Kubernetes only)
 
-For this mode, you bring your own infrastructure and just install RKE2:
+For this mode, you bring your own infrastructure and just install K3s:
 
 1. **Configure Your Infrastructure:**
    Set environment variables for your nodes:
@@ -89,7 +89,7 @@ For this mode, you bring your own infrastructure and just install RKE2:
 
 4. **Run the Playbook:**
    ```bash
-   ansible-playbook -i inventory.yml rke2-playbook.yml --extra-vars "@vars.yaml"
+   ansible-playbook -i inventory.yml k3s-playbook.yml --extra-vars "@vars.yaml"
    ```
 
 ## Flexible Node Configuration
@@ -120,26 +120,10 @@ export SERVERS_SECTION="servers:
 export WORKERS_SECTION=""
 ```
 
-### Dedicated etcd Setup:
+### Mixed Setup (3 Servers + 6 Workers):
 ```bash
-export MASTER_IP=10.0.1.10
-export MASTER_ROLE=cp
-export SERVERS_SECTION="etcd_nodes:
-  hosts:
-    etcd1:
-      ansible_host: 10.0.1.11
-      ansible_role: etcd
-    etcd2:
-      ansible_host: 10.0.1.12
-      ansible_role: etcd
-    etcd3:
-      ansible_host: 10.0.1.13
-      ansible_role: etcd"
-export WORKERS_SECTION="workers:
-  hosts:
-    worker1:
-      ansible_host: 10.0.1.14
-      ansible_role: worker"
+# Set SERVERS_SECTION with 3 servers
+# Set WORKERS_SECTION with 6 workers
 ```
 
 ## Configuration
@@ -156,14 +140,13 @@ kube_api_host_override: "your-master-ip"
 fqdn_override: "your-cluster-fqdn.example.com"  # Optional
 
 # Standard configuration
-kubernetes_version: 'v1.28.15+rke2r1'
-cni: 'calico'
+kubernetes_version: 'v1.28.15+k3s1'
 kubeconfig_file: './kubeconfig.yaml'
 
 # Optional server/worker flags
 server_flags: |
   disable:
-    - rke2-ingress-nginx
+    - traefik
   cluster-cidr: "10.42.0.0/16"
   service-cidr: "10.43.0.0/16"
 
@@ -171,13 +154,3 @@ worker_flags: |
   node-label:
     - "environment=production"
 ```
-
-## Node Roles
-
-RKE2 supports flexible node role combinations:
-
-- `etcd,cp` - Combined etcd and control-plane node
-- `etcd` - Dedicated etcd node
-- `cp` - Control-plane only node
-- `worker` - Worker node only
-- `etcd,cp,worker` - All roles (single-node cluster)

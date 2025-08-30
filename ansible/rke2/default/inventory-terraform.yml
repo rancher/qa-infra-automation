@@ -1,0 +1,24 @@
+plugin: cloud.terraform.terraform_provider
+project_path: "$TERRAFORM_NODE_SOURCE"
+workspace: "$TF_WORKSPACE"
+binary_path: tofu
+keyed_groups:
+  - key: name
+    prefix: ""
+  - key: variables.ansible_role
+    prefix: ""
+  - key: variables.ansible_role
+    prefix: etcd
+    regex: '^etcd.*$'
+  - key: variables.ansible_role
+    prefix: cp
+    regex: '^cp.*$'
+  - key: variables.ansible_role
+    prefix: worker
+    regex: '^worker.*$'
+  - key: variables.is_server
+    prefix: server
+    regex: '^true$'
+all:
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
