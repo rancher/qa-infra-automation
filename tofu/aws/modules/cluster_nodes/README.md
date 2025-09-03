@@ -22,7 +22,13 @@ This module deploys a set of cluster nodes on AWS.
     terraform workspace select <workspace_name>
     ```
 
-3.  **Apply the Configuration:**
+3.  **Initialize the Terraform:**
+
+    ```bash
+    terraform init
+    ```
+
+4.  **Apply the Configuration:**
 
     ```bash
     terraform apply -var-file="terraform.tfvars"
@@ -34,7 +40,7 @@ This module deploys a set of cluster nodes on AWS.
 
     Create a `terraform.tfvars` file or use the `-var` flag to provide values for the variables defined in `variables.tf`.
 
-4.  **Destroy the Infrastructure:**
+5.  **Destroy the Infrastructure:**
 
     ```bash
     terraform destroy -var-file="terraform.tfvars"
@@ -59,19 +65,19 @@ Refer to `outputs.tf` for a list of exported values.
 ```terraform
 aws_access_key        = "key"
 aws_secret_key        = "secretkey"
+aws_region            = "us-west-1"
+aws_route53_zone      = "qa.rancher.space"
 aws_ami               = "ami-"
 instance_type         = "t3.xlarge"
-aws_security_group    = ["sg-"]
+aws_vpc               = "vpc-"
 aws_subnet            = "subnet-"
+aws_security_group    = ["sg-"]
 airgap_setup          = false
 proxy_setup           = false
 aws_volume_size       = 500
 aws_volume_type       = "gp3"
 aws_hostname_prefix   = "hostnameprefix"
-aws_region            = "us-west-1"
-aws_route53_zone      = "qa.rancher.space"
 aws_ssh_user          = "ec2-user"
-aws_vpc               = "vpc-"
 user_id               = "user_id"
 public_ssh_key        = "sshkey"
 nodes = [
