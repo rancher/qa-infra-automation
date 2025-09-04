@@ -62,7 +62,7 @@ resource "harvester_virtualmachine" "vm" {
   depends_on = [
   kubernetes_secret.cloud-config-secret
   ]
-  name                 = "${var.generate_name}-${each.value.name}"
+  name                 = "${var.generate_name}-${each.value.name}-${random_string.random_suffix.result}"
   namespace            = var.namespace
   restart_after_update = true
 
@@ -78,7 +78,7 @@ resource "harvester_virtualmachine" "vm" {
   secure_boot = false
 
   run_strategy = "RerunOnFailure"
-  hostname     = "${var.generate_name}-${each.value.name}"
+  hostname     = "${var.generate_name}-${each.value.name}-${random_string.random_suffix.result}"
   machine_type = var.machine_type
 
   ssh_keys = [

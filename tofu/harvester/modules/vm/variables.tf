@@ -35,7 +35,7 @@ variable "mem" {
 variable "disk_size" {
   description = "disk size"
   type = string 
-  default = "20Gi"
+  default = "30Gi"
 }
 
 variable "network_name" {
