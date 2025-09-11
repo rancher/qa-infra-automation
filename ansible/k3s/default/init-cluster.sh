@@ -80,7 +80,7 @@ cat > /etc/rancher/k3s/config.yaml <<- EOF
 ${config}
 EOF
 
-# Input validation
+# Input validation.
 if [[ "${KUBERNETES_VERSION}" =~ [^a-zA-Z0-9.+_-] ]]; then
     echo "Error: Invalid characters in KUBERNETES_VERSION"
     exit 1
