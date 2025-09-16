@@ -4,7 +4,7 @@ This playbook deploys an RKE2 Kubernetes cluster and can be used either with or 
 
 ## Prerequisites
 
-Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../README.md):
+Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../../README.md):
 
 * SSH access to the target nodes
 * A valid inventory file (see options below)

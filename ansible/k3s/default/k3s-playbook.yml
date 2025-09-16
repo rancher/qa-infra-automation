@@ -11,7 +11,7 @@
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
 
-    kube_api_host: "{{ kube_api_host_override | default(lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else '') }}"
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
 
@@ -77,8 +77,8 @@
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
 
-    kube_api_host: "{{ kube_api_host_override | default(lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else '') }}"
-    fqdn: "{{ fqdn_override | default(lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else '') }}"
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (fqdn | default('')) }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
@@ -169,8 +169,8 @@
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
 
-    kube_api_host: "{{ kube_api_host_override | default(lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else '') }}"
-    fqdn: "{{ fqdn_override | default(lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else '') }}"
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (fqdn | default('')) }}"
     server_host: "{{ server_host_override | default((groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] if use_terraform else groups['master'][0]) }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
