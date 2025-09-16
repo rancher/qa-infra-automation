@@ -9,45 +9,53 @@ This module deploys airgap rancher on AWS.
 
 ## Usage
 
-1.  **Create a Workspace:**
+1. **Configure S3 Upload (Optional but Recommended):**
+   Update `terraform.tfvars` with your S3 bucket, key, and region values.
 
-    ```bash
-    tofu workspace new <workspace_name>
-    ```
+2. **Create a Workspace:**
 
-2.  **Select the Workspace:**
+   ```bash
+   tofu workspace new <workspace_name>
+   ```
 
-    ```bash
-    tofu workspace select <workspace_name>
-    ```
+3. **Select the Workspace:**
 
-3.  **Apply the Configuration:**
+   ```bash
+   tofu workspace select <workspace_name>
+   ```
 
-    ```bash
-    tofu apply -var-file="terraform.tfvars"
-    ```
-    or
-    ```bash
-    tofu apply -var="<variable_name>=<variable_value>"
-    ```
+4. **Apply the Configuration:**
 
-    Create a `terraform.tfvars` file or use the `-var` flag to provide values for the variables defined in `variables.tf`.
+   ```bash
+   tofu apply -var-file="terraform.tfvars"
+   ```
+   or
+   ```bash
+   tofu apply -var="<variable_name>=<variable_value>"
+   ```
 
-4.  **Destroy the Infrastructure:**
+   Create a `terraform.tfvars` file or use the `-var` flag to provide values for the variables defined in `variables.tf`. After apply, the tfstate will be automatically uploaded to the specified S3 bucket.
 
-    ```bash
-    tofu destroy -var-file="terraform.tfvars"
-    ```
-    or
-    ```bash
-    tofu destroy -var="<variable_name>=<variable_value>"
-    ```
+5. **Destroy the Infrastructure:**
 
-    Use the same `terraform.tfvars` file or `-var` flags used during `apply`.
+   ```bash
+   tofu destroy -var-file="terraform.tfvars"
+   ```
+   or
+   ```bash
+   tofu destroy -var="<variable_name>=<variable_value>"
+   ```
+
+   Use the same `terraform.tfvars` file or `-var` flags used during `apply`.
 
 ## Variables
 
 Refer to `variables.tf` for a list of configurable variables.
+
+**New S3 Upload Variables:**
+- `s3_bucket` (string, required): Name of the S3 bucket to upload tfstate to.
+- `s3_key` (string, default: "airgap/terraform.tfstate"): Path/key for the tfstate file in S3.
+- `s3_region` (string, required): AWS region of the S3 bucket (e.g., "us-east-2").
 
 ## Outputs
 
