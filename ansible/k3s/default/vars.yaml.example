@@ -4,22 +4,18 @@
 # cp vars.yaml.example vars.yaml
 
 # K3s version and installation settings
-kubernetes_version: 'v1.28.15+k3s1'
+kubernetes_version: 'v1.32.1+k3s1'
 kubeconfig_file: './kubeconfig.yaml'
 
 # Optional server/worker flags (customize as needed)
 server_flags: |
-  disable:
-    - traefik
-  cluster-cidr: "10.42.0.0/16"
-  service-cidr: "10.43.0.0/16"
+  protect-kernel-defaults: true
 
 worker_flags: |
-  node-label:
-    - "environment=production"
+  protect-kernel-defaults: true
 
 # Optional channel for K3s installation
-channel: ""
+channel: "stable"
 
 # Node token file for cluster communication
 node_token_file: "/tmp/node_token.txt"

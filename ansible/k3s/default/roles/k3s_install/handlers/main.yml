@@ -1,16 +1,15 @@
 ---
-# K3s Installation Role - Handlers
-
 - name: restart k3s
-  systemd:
-    name: k3s
-    state: restarted
-    daemon_reload: yes
+  raw: |
+    systemctl daemon-reload
+    systemctl restart k3s
   listen: restart k3s
+  changed_when: true
 
 - name: restart k3s-agent
-  systemd:
-    name: k3s-agent
-    state: restarted
-    daemon_reload: yes
+  raw: |
+    systemctl daemon-reload
+    systemctl restart k3s-agent
   listen: restart k3s-agent
+  changed_when: true
+

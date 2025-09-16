@@ -1,3 +1,4 @@
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -56,22 +57,6 @@ spec:
             matchLabels:
               name: kube-public
 ---
-# Reference https://rancher.com/docs/k3s/latest/en/security/hardening_guide/#networkpolicies
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-all-svclbtraefik-ingress
-  namespace: kube-system
-spec:
-  podSelector:
-    matchLabels:
-      svccontroller.k3s.cattle.io/svcname: traefik
-  ingress:
-    - {}
-  policyTypes:
-    - Ingress
----
-# Reference https://rancher.com/docs/k3s/latest/en/security/hardening_guide/#networkpolicies
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -83,41 +68,5 @@ spec:
       k8s-app: metrics-server
   ingress:
     - {}
-  policyTypes:
-    - Ingress
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-all-traefik-v121-ingress
-  namespace: kube-system
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: traefik
-  ingress:
-    - {}
-  policyTypes:
-    - Ingress
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ingress-to-backends
-  namespace: default
-spec:
-  podSelector: {}
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              # rke2
-              #app.kubernetes.io/name: rke2-ingress-nginx
-              # k3s
-              app.kubernetes.io/name: traefik
   policyTypes:
     - Ingress

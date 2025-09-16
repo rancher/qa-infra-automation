@@ -1,0 +1,98 @@
+# K3s Configuration
+
+# Only servers/cluster-init should set write-kubeconfig-mode (agent doesn't accept it)
+{% if k3s_node_type in ['cluster-init', 'server'] %}
+write-kubeconfig-mode: "0644"
+{% endif %}
+
+# Node labels and taints based on role combinations (matching RKE2 logic)
+{% set has_etcd = 'etcd' in (ansible_role | default('')) %}
+{% set has_cp = 'cp' in (ansible_role | default('')) %}
+{% set has_worker = 'worker' in (ansible_role | default('')) %}
+
+{% if not has_etcd and has_cp and not has_worker %}
+# Control plane only node
+node-taint:
+  - node-role.kubernetes.io/control-plane:NoSchedule
+node-label:
+  - role-control-plane=true
+{% elif not has_etcd and has_cp and has_worker %}
+# Control plane + worker node
+node-label:
+  - role-control-plane=true
+  - role-worker=true
+{% elif has_etcd and has_cp and not has_worker %}
+# ETCD + control plane node
+node-taint:
+  - node-role.kubernetes.io/control-plane:NoSchedule
+  - node-role.kubernetes.io/etcd:NoExecute
+node-label:
+  - role-etcd=true
+  - role-control-plane=true
+{% elif has_etcd and has_worker and not has_cp %}
+# ETCD + worker node
+node-label:
+  - role-etcd=true
+  - role-worker=true
+{% elif has_etcd and not has_cp and not has_worker %}
+# ETCD only node
+node-taint:
+  - node-role.kubernetes.io/etcd:NoExecute
+node-label:
+  - role-etcd=true
+{% elif k3s_node_type == 'agent' %}
+# Worker-only node
+node-label:
+  - role-worker=true
+{% else %}
+# Default: all roles
+node-label:
+  - role-etcd=true
+  - role-control-plane=true
+  - role-worker=true
+{% endif %}
+
+# Node type specific configuration
+{% if k3s_node_type == 'cluster-init' %}
+cluster-init: true
+{% elif k3s_node_type == 'server' and (kube_api_host | default(k3s_api_host) | default('')) != '' %}
+server: "https://{{ kube_api_host | default(k3s_api_host) }}:6443"
+{% if k3s_token | default('') | trim %}
+token: "{{ k3s_token }}"
+{% endif %}
+{% elif k3s_node_type == 'agent' and (kube_api_host | default(k3s_api_host) | default('')) != '' %}
+server: "https://{{ kube_api_host | default(k3s_api_host) }}:6443"
+{% if k3s_token | default('') | trim %}
+token: "{{ k3s_token }}"
+{% endif %}
+{% endif %}
+
+# Advertise public/external IP to the cluster (used by kubelet/kube-proxy)
+{% if public_ip is defined and public_ip | trim != '' %}
+node-external-ip:
+  - "{{ public_ip }}"
+{% endif %}
+
+# TLS SAN entries for comprehensive certificate validity (servers only)
+{% if k3s_node_type in ['cluster-init', 'server'] %}
+tls-san:
+  - "{{ fqdn | default(k3s_fqdn) | default('localhost') }}"
+  - "{{ kube_api_host | default(k3s_api_host) | default('127.0.0.1') }}"
+  - "{{ public_ip | default('127.0.0.1') }}"
+  - "{{ ansible_host | default('127.0.0.1') }}"
+  - "{{ inventory_hostname }}"
+  - "localhost"
+  - "127.0.0.1"
+{% endif %}
+
+# Server flags (render only if provided)
+{% if k3s_server_flags is defined and k3s_server_flags | trim %}
+{{ k3s_server_flags }}
+{% endif %}
+
+# Worker flags (render only if provided)
+{% if k3s_worker_flags is defined and k3s_worker_flags | trim %}
+{{ k3s_worker_flags }}
+{% elif role_worker_flags is defined and role_worker_flags | trim %}
+{{ role_worker_flags }}
+{% endif %}

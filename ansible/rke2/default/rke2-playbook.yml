@@ -8,11 +8,11 @@
     # tf integration (optional).
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
-    
+    terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
+
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
-
     - name: Wait for SSH on node
       wait_for:
         host: "{{ hostvars[item]['ansible_host'] }}"
@@ -21,46 +21,113 @@
         state: started
       loop: "{{ groups['all'] }}"
 
+- hosts: all
+  strategy: linear
+  become: true
+  gather_facts: false
+  pre_tasks:
+    - name: Detect OS family
+      raw: |
+        . /etc/os-release
+        echo "${ID}|${ID_LIKE}|${VERSION_ID}"
+      register: osr
+      changed_when: false
+
+    - name: Set OS facts
+      set_fact:
+        _os_id:   "{{ (osr.stdout | default('||')).split('|')[0] | lower }}"
+        _os_like: "{{ (osr.stdout | default('||')).split('|')[1] | lower }}"
+
+    - name: Check python3 version
+      raw: |
+        if command -v /usr/bin/python3 >/dev/null 2>&1; then
+          v="$(/usr/bin/python3 -V 2>&1 | awk '{print $2}')"
+          maj="${v%%.*}"; rest="${v#*.}"; min="${rest%%.*}"
+          echo "${maj:-0}.${min:-0}"
+        else
+          echo "0.0"
+        fi
+      register: pyver
+      changed_when: false
+
+    - name: Debian/Ubuntu | ensure python3 (>=3.8 in repo)
+      raw: |
+        set -e
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -y
+        apt-get install -y python3
+      when: _os_id in ['debian','ubuntu'] and (pyver.stdout is version('3.8', '<'))
+
+    - name: RHEL-family | ensure python39 (or python3)
+      raw: |
+        set -e
+        if command -v dnf >/dev/null 2>&1; then
+          dnf -y module enable python39 || true
+          dnf -y install python39 || dnf -y install python3
+        else
+          yum -y install python39 || yum -y install python3
+        fi
+      when: (_os_id in ['rhel','centos','rocky','almalinux','ol'] or 'rhel' in _os_like) and (pyver.stdout is version('3.8', '<'))
+
+    - name: SUSE/SLES | ensure python311
+      raw: |
+        set -e
+        zypper -n refresh || true
+        zypper -n install -y python311 || true
+      when: (_os_id in ['sles','suse','opensuse-leap','opensuse'] or 'suse' in _os_like)
+
+    - name: Discover best Python interpreter path
+      raw: |
+        for p in /usr/bin/python3.12 /usr/bin/python3.11 /usr/bin/python311 /usr/bin/python3.10 /usr/bin/python3.9 /usr/bin/python3; do
+          if [ -x "$p" ]; then echo "$p"; exit 0; fi
+        done
+        echo /usr/bin/python3
+      register: pywhich
+      changed_when: false
+
+    - name: Bind Ansible to the discovered interpreter
+      set_fact:
+        ansible_discovered_interpreter_python: "{{ pywhich.stdout | trim }}"
+
+    - meta: reset_connection
+
+    - name: Gather facts with the new interpreter
+      setup:
+  tasks: []
+
 - hosts: "all"
   become: true
   gather_facts: false
-  tasks:
-    - name: Gather minimal OS facts
+  pre_tasks:
+    - name: Gather facts
       setup:
-        gather_subset:
-          - '!all'
-          - '!min'
-          - distribution
-          - os_family
-      when: ansible_os_family is not defined
-
+  tasks:
     - name: Disable NetworkManager cloud setup services
-      systemd:
-        name: "{{ item }}"
-        state: stopped
-        enabled: no
-      loop:
-        - nm-cloud-setup.service
-        - nm-cloud-setup.timer
-      failed_when: false
+      raw: |
+        systemctl stop nm-cloud-setup.service || true
+        systemctl disable nm-cloud-setup.service || true
+        systemctl stop nm-cloud-setup.timer || true
+        systemctl disable nm-cloud-setup.timer || true
+      changed_when: false
       when: 
-        - ansible_os_family == "RedHat"
+        - ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
         - ansible_distribution_major_version|int >= 8
-
+ 
     - name: Create NetworkManager config for CNI interfaces
-      copy:
-        content: |
-          [keyfile]
-          unmanaged-devices=interface-name:cali*;interface-name:tunl*;interface-name:vxlan.calico;interface-name:flannel*
-        dest: /etc/NetworkManager/conf.d/99-cni.conf
-        mode: '0644'
-      when: ansible_os_family == "RedHat"
+      raw: |
+        mkdir -p /etc/NetworkManager/conf.d
+        cat > /etc/NetworkManager/conf.d/99-cni.conf << 'EOF'
+        [keyfile]
+        unmanaged-devices=interface-name:cali*;interface-name:tunl*;interface-name:vxlan.calico;interface-name:flannel*
+        EOF
+        chmod 644 /etc/NetworkManager/conf.d/99-cni.conf
+      changed_when: false
+      when: ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
 
     - name: Restart NetworkManager
-      systemd:
-        name: NetworkManager
-        state: restarted
-      when: ansible_os_family == "RedHat"
+      raw: systemctl restart NetworkManager || true
+      changed_when: false
+      when: ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
 
 - hosts: "master"
   become: true
@@ -72,11 +139,14 @@
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
-
+     
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (fqdn | default('')) }}"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  pre_tasks:
+    - name: Gather facts
+      setup:
   tasks:
     - name: Transfer and execute init-cluster.sh (initial etcd node)
       script: ./init-cluster.sh
@@ -135,12 +205,15 @@
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
-
+    
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (fqdn | default('')) }}"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
     server_host: "{{ server_host_override | default((groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] if use_terraform else groups['master'][0]) }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  pre_tasks:
+    - name: Gather facts
+      setup:
   tasks:
     - name: Read node_token from local file
       delegate_to: localhost

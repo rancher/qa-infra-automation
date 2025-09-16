@@ -1,6 +1,4 @@
 ---
-# K3s Installation Role - Main Tasks
-
 - name: Validate input parameters
   assert:
     that:
@@ -8,149 +6,108 @@
       - k3s_channel is regex('^[a-zA-Z0-9._-]*$')
     fail_msg: "Invalid characters in version or channel parameters"
 
-- name: Check if security hardening is enabled
-  set_fact:
-    k3s_security_hardening: "{{ server_flags is defined and 'protect-kernel-defaults' in server_flags }}"
-
-- name: Apply security hardening configuration
-  block:
-    - name: Create K3s server manifests directory
-      file:
-        path: /var/lib/rancher/k3s/server/manifests
-        state: directory
-        mode: '0755'
-      when: k3s_node_type in ['cluster-init', 'server']
-
-    - name: Create policy.yaml manifest
-      copy:
-        content: "{{ policy_yaml_content }}"
-        dest: /var/lib/rancher/k3s/server/manifests/policy.yaml
-        mode: '0644'
-      when: 
-        - k3s_node_type in ['cluster-init', 'server']
-        - policy_yaml_content is defined
-
-    - name: Create audit.yaml configuration
-      copy:
-        content: "{{ audit_yaml_content }}"
-        dest: /var/lib/rancher/k3s/server/audit.yaml
-        mode: '0644'
-      when: 
-        - k3s_node_type in ['cluster-init', 'server']
-        - audit_yaml_content is defined
-
-    - name: Create cluster-level-pss.yaml configuration
-      copy:
-        content: "{{ cluster_level_pss_yaml_content }}"
-        dest: /var/lib/rancher/k3s/server/cluster-level-pss.yaml
-        mode: '0644'
-      when: 
-        - k3s_node_type in ['cluster-init', 'server']
-        - cluster_level_pss_yaml_content is defined
-
-    - name: Create ingresspolicy.yaml manifest
-      copy:
-        content: "{{ ingresspolicy_yaml_content }}"
-        dest: /var/lib/rancher/k3s/server/manifests/ingresspolicy.yaml
-        mode: '0644'
-      when: 
-        - k3s_node_type in ['cluster-init', 'server']
-        - ingresspolicy_yaml_content is defined
-
-    - name: Apply kernel security parameters
-      sysctl:
-        name: "{{ item.key }}"
-        value: "{{ item.value }}"
-        state: present
-        reload: yes
-        sysctl_file: /etc/sysctl.d/90-kubelet.conf
-      loop:
-        - { key: 'vm.panic_on_oom', value: '0' }
-        - { key: 'vm.overcommit_memory', value: '1' }
-        - { key: 'kernel.panic', value: '10' }
-        - { key: 'kernel.panic_on_oops', value: '1' }
-        - { key: 'kernel.keys.root_maxbytes', value: '25000000' }
-
-    - name: Restart systemd-sysctl service
-      systemd:
-        name: systemd-sysctl
-        state: restarted
-  when: k3s_security_hardening
-
-- name: Create K3s configuration directory
+- name: Create K3s directories
   file:
-    path: /etc/rancher/k3s
+    path: "{{ item }}"
     state: directory
     mode: '0755'
+  loop:
+    - /etc/rancher/k3s
+    - /var/lib/rancher/k3s/server/logs
 
-- name: Generate K3s server configuration
+- name: Generate K3s configuration from template
   template:
-    src: server-config.yaml.j2
+    src: k3s-config.yaml.j2
     dest: /etc/rancher/k3s/config.yaml
     mode: '0644'
-  when: k3s_node_type in ['cluster-init', 'server']
-  notify: restart k3s
-
-- name: Generate K3s agent configuration
-  template:
-    src: agent-config.yaml.j2
-    dest: /etc/rancher/k3s/config.yaml
-    mode: '0644'
-  when: k3s_node_type == 'agent'
-  notify: restart k3s-agent
-
-- name: Set K3s installation environment variables
-  set_fact:
-    k3s_install_env:
-      INSTALL_K3S_VERSION: "{{ kubernetes_version }}"
-      INSTALL_K3S_CHANNEL: "{{ k3s_channel if k3s_channel != '' else omit }}"
-      INSTALL_K3S_EXEC: "{{ 'agent' if k3s_node_type == 'agent' else omit }}"
+    backup: true
 
 - name: Download and install K3s
   shell: |
-    {% for key, value in k3s_install_env.items() if value is not none %}
-    export {{ key }}="{{ value }}"
-    {% endfor %}
+    # Skip installation if K3s is already installed
+    if [ -f /usr/local/bin/k3s ]; then
+      echo "K3s already installed, skipping"
+      exit 0
+    fi
+    
+    # Set installation variables
+    export INSTALL_K3S_VERSION="{{ kubernetes_version }}"
+    {% if k3s_channel is defined and k3s_channel != '' %}
+    export INSTALL_K3S_CHANNEL="{{ k3s_channel }}"
+    {% endif %}
+    {% if k3s_node_type == 'agent' %}
+    export INSTALL_K3S_EXEC="agent"
+    {% endif %}
+    export INSTALL_K3S_SKIP_START="true"
+    
+    # Download and install K3s
     curl -sfL https://get.k3s.io | sh -
-  args:
-    creates: /usr/local/bin/k3s
   register: k3s_install_result
-  failed_when: k3s_install_result.rc != 0
-
-- name: Determine K3s service name
-  set_fact:
-    k3s_service_name: "{{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}"
+  changed_when: "'K3s already installed' not in k3s_install_result.stdout"
 
 - name: Enable and start K3s service
-  systemd:
-    name: "{{ k3s_service_name }}"
-    state: "{{ k3s_service_state }}"
-    enabled: "{{ k3s_service_enabled }}"
-    daemon_reload: yes
+  block:
+    - name: Enable and start K3s service
+      systemd:
+        name: "{{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}"
+        state: "{{ k3s_service_state | default('started') }}"
+        enabled: "{{ k3s_service_enabled | default(true) }}"
+        daemon_reload: true
 
-- name: Wait for K3s service to be ready
-  wait_for:
-    port: "{{ '6443' if k3s_node_type in ['cluster-init', 'server'] else '10250' }}"
-    host: "{{ ansible_default_ipv4.address }}"
-    delay: 10
-    timeout: 300
-  when: k3s_service_state == 'started'
+    - name: Wait for K3s service to be ready
+      wait_for:
+        port: "{{ 6443 if k3s_node_type in ['cluster-init', 'server'] else 10250 }}"
+        host: "127.0.0.1"
+        timeout: 300
+      when: (k3s_service_state | default('started')) == 'started'
 
-- name: Update kubeconfig server address (cluster-init only)
-  replace:
+  rescue:
+    - name: Display K3s debugging information
+      debug:
+        msg: |
+          K3s Service Debugging Information:
+          Service: {{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}
+          Status: {{ ansible_facts.services[('k3s-agent' if k3s_node_type == 'agent' else 'k3s')].state | default('unknown') }}
+          
+    - name: Get service status
+      systemd:
+        name: "{{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}"
+      register: service_status
+      
+    - name: Get service logs
+      shell: journalctl -u {{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }} --no-pager -n 50
+      register: service_logs
+      
+    - name: Display service logs
+      debug:
+        var: service_logs.stdout_lines
+        
+    - name: Fail with detailed error information
+      fail:
+        msg: |
+          K3s service failed to start.
+          Service: {{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}
+          Status: {{ service_status.status.ActiveState | default('unknown') }}
+
+- name: Set kubeconfig server address (cluster-init only)
+  lineinfile:
     path: /etc/rancher/k3s/k3s.yaml
-    regexp: '127\.0\.0\.1'
-    replace: "{{ fqdn if fqdn != '' else kube_api_host }}"
-  when: 
+    regexp: '^\s*server:\s*.*$'
+    line: "    server: https://{{ k3s_fqdn | default(k3s_api_host, true) }}:6443"
+    backrefs: false
+  when:
     - k3s_node_type == 'cluster-init'
-    - fqdn is defined or kube_api_host is defined
 
-- name: Verify K3s installation
+- name: Check K3s installation
   command: /usr/local/bin/k3s --version
   register: k3s_version_output
   changed_when: false
   failed_when: k3s_version_output.rc != 0
 
-- name: Display K3s version
+- name: Show K3s installation success
   debug:
-    msg: "K3s installed successfully: {{ k3s_version_output.stdout }}"
+    msg: |
+      Version: {{ k3s_version_output.stdout.split('\n')[0] }}
+      Node Type: {{ k3s_node_type }}
+      Service: {{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}
+

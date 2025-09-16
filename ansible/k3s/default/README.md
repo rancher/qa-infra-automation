@@ -1,14 +1,6 @@
 # K3s Cluster Ansible Playbook
 
-This playbook deploys a K3s Kubernetes cluster using Ansible roles for improved maintainability and idempotency.
-
-## Features
-
-- **Ansible Roles**: Uses modular Ansible roles instead of bash scripts
-- **Terraform Integration**: Works with or without Terraform/OpenTofu
-- **Security Hardening**: Optional CIS hardening with kernel security parameters
-- **Flexible Node Roles**: Supports etcd, control-plane, and worker role combinations
-- **Idempotent**: Ansible tracks what's been done and won't redo completed tasks
+This playbook deploys a K3s Kubernetes cluster using Ansible roles for improved maintainability.
 
 ## Prerequisites
 
@@ -22,7 +14,7 @@ Before running the playbook, ensure you have the following in addition to the [g
 
 Choose one of the following inventory approaches:
 
-### Option 1: Terraform/OpenTofu (Dynamic)
+### Option 1: Terraform/OpenTofu
 
 For infrastructure managed by Terraform/OpenTofu:
 
@@ -32,12 +24,12 @@ export TF_WORKSPACE="your-workspace"
 export TERRAFORM_NODE_SOURCE="tofu/aws/modules/cluster_nodes"
 
 # Use the Terraform inventory
-ansible-playbook -i inventory-terraform.yml k3s-playbook.yml --extra-vars "@vars.yaml"
+ansible-playbook -i inventory-template.yml k3s-playbook.yml --extra-vars "@vars.yaml"
 ```
 
-### Option 2: Static Inventory
+### Option 2: Generic Inventory
 
-For manually managed infrastructure:
+For "manually" managed infrastructure:
 
 ```bash
 # Set required environment variables
@@ -51,9 +43,9 @@ export ANSIBLE_USER="ubuntu"
 export ANSIBLE_SSH_KEY="~/.ssh/id_rsa"
 
 # Generate inventory from template
-envsubst < inventory-static.yml > my-inventory.yml
+envsubst < inventory-template.yml > my-inventory.yml
 
-# Use the static inventory
+# Use the generic inventory
 ansible-playbook -i my-inventory.yml k3s-playbook.yml --extra-vars "@vars.yaml"
 ```
 
@@ -66,19 +58,11 @@ ansible-playbook -i my-inventory.yml k3s-playbook.yml --extra-vars "@vars.yaml"
 export ANSIBLE_CONFIG=/path/to/qa-infra-automation/ansible/k3s/default/ansible.cfg
 
 # Run with Terraform inventory
-ansible-playbook -i inventory-terraform.yml k3s-playbook.yml --extra-vars "@vars.yaml"
+ansible-playbook -i inventory-template.yml k3s-playbook.yml --extra-vars "@vars.yaml" -vvv
 
-# Or run with static inventory
-ansible-playbook -i my-inventory.yml k3s-playbook.yml --extra-vars "@vars.yaml"
+# Or run with generic inventory
+ansible-playbook -i my-inventory.yml k3s-playbook.yml --extra-vars "@vars.yaml"  -vvv
 ```
-
-### Verbose Output for Debugging
-
-```bash
-ansible-playbook -i inventory-terraform.yml k3s-playbook.yml --extra-vars "@vars.yaml" -vvv
-```
-
-## Configuration
 
 ### Configuration Setup
 
@@ -97,57 +81,4 @@ vim vars.yaml
 # K3s version and installation
 kubernetes_version: 'v1.28.15+k3s1'
 kubeconfig_file: './kubeconfig.yaml'
-
-# Optional server/worker flags
-server_flags: |
-  disable:
-    - traefik
-  cluster-cidr: "10.42.0.0/16"
-  service-cidr: "10.43.0.0/16"
-
-worker_flags: |
-  node-label:
-    - "environment=production"
-
-# Optional channel for K3s installation
-channel: ""
 ```
-
-**Note**: The `vars.yaml` file is ignored by git to prevent accidental commits of environment-specific configuration.
-
-### Node Roles
-
-The playbook supports flexible node role combinations:
-
-- **etcd**: Runs etcd database
-- **cp**: Runs control-plane components (API server, scheduler, controller-manager)  
-- **worker**: Runs workloads
-
-Common combinations:
-
-- `etcd,cp,worker`: All-in-one node (default)
-- `etcd,cp`: Control-plane + etcd (no workloads)
-- `cp`: Control-plane only (external etcd)
-- `worker`: Worker node only
-
-## Architecture
-
-### Ansible Role Structure
-
-```text
-roles/k3s_install/
-├── defaults/main.yml     # Default variables
-├── handlers/main.yml     # Service restart handlers
-├── tasks/main.yml        # Main installation tasks
-└── templates/
-    ├── server-config.yaml.j2  # K3s server configuration
-    └── agent-config.yaml.j2   # K3s agent configuration
-```
-
-### Benefits of Ansible Roles
-
-- **Idempotency**: Won't redo completed tasks
-- **Better error handling**: Ansible's built-in error handling
-- **Conditional execution**: Tasks run only when needed
-- **Maintainability**: Modular, reusable code
-- **Debugging**: Better visibility into what's happening

@@ -1,0 +1,96 @@
+---
+- name: Validate if K3s hardening is enabled
+  set_fact:
+    hardening_enabled: >-
+      {{ (role_server_flags is defined and 'protect-kernel-defaults' in role_server_flags) or
+         (worker_flags is defined and 'protect-kernel-defaults' in worker_flags) }}
+
+- name: Apply K3s security hardening
+  block:
+    - name: Apply kernel security parameters
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: true
+        sysctl_file: /etc/sysctl.d/90-kubelet.conf
+      loop:
+        - { key: 'vm.panic_on_oom', value: '0' }
+        - { key: 'vm.overcommit_memory', value: '1' }
+        - { key: 'kernel.panic', value: '10' }
+        - { key: 'kernel.panic_on_oops', value: '1' }
+        - { key: 'kernel.keys.root_maxbytes', value: '25000000' }
+
+    - name: Restart systemd-sysctl service
+      systemd:
+        name: systemd-sysctl
+        state: restarted
+
+    - name: Create K3s server manifests directory
+      file:
+        path: "{{ k3s_manifests_dir | default('/var/lib/rancher/k3s/server/manifests') }}"
+        state: directory
+        mode: '0755'
+      when: k3s_node_type in ['cluster-init', 'server']
+
+    - name: Create K3s server directory
+      file:
+        path: "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}"
+        state: directory
+        mode: '0755'
+      when: k3s_node_type in ['cluster-init', 'server']
+
+    - name: Create network policy manifest
+      template:
+        src: policy-base.j2
+        dest: "{{ k3s_manifests_dir | default('/var/lib/rancher/k3s/server/manifests') }}/policy.yaml"
+        mode: '0644'
+      when: k3s_node_type in ['cluster-init', 'server']
+
+    - name: Append Traefik policies to network policy manifest
+      blockinfile:
+        path: "{{ k3s_manifests_dir | default('/var/lib/rancher/k3s/server/manifests') }}/policy.yaml"
+        block: "{{ lookup('template', 'traefik-policies.j2') }}"
+        marker: "# {mark} TRAEFIK POLICIES"
+      when: 
+        - k3s_node_type in ['cluster-init', 'server']
+        - role_server_flags is not defined or 'disable-traefik' not in role_server_flags
+
+    - name: Create audit manifest
+      template:
+        src: audit-base.j2
+        dest: "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}/audit.yaml"
+        mode: '0644'
+      when: k3s_node_type in ['cluster-init', 'server']
+
+    - name: Create Pod Security Standards
+      template:
+        src: cluster-level-pss-base.j2
+        dest: "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}/cluster-level-pss.yaml"
+        mode: '0644'
+      when: k3s_node_type in ['cluster-init', 'server']
+
+    - name: Create ingress policy manifest
+      template:
+        src: ingresspolicy-base.j2
+        dest: "{{ k3s_manifests_dir | default('/var/lib/rancher/k3s/server/manifests') }}/ingresspolicy.yaml"
+        mode: '0644'
+      when: k3s_node_type in ['cluster-init', 'server']
+
+    - name: Create CIS master configuration
+      template:
+        src: cis-master-config-base.j2
+        dest: "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}/cis_master_config.yaml"
+        mode: '0644'
+      when: k3s_node_type in ['cluster-init', 'server']
+
+  when: hardening_enabled
+
+- name: Show hardening status
+  debug:
+    msg: |
+      K3s Security Hardening: {{ 'ENABLED' if hardening_enabled else 'DISABLED' }}
+      Node Type: {{ k3s_node_type }}
+      Protect Kernel Defaults: {{ 'YES' if hardening_enabled else 'NO' }}
+      {% if not hardening_enabled %}
+      {% endif %}
