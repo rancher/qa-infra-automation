@@ -104,36 +104,26 @@
       delegate_to: localhost
       run_once: true
 
-    - name: Transfer and execute init-cluster.sh (initial etcd node)
-      script: ./init-cluster.sh
-      environment:
-        KUBERNETES_VERSION: "{{ kubernetes_version }}"
-        KUBE_API_HOST: "{{ kube_api_host }}"
-        FQDN: "{{ fqdn }}"
-        NODE_ROLE: "{{ ansible_role }}"
-        PUBLIC_IP: "{{ ansible_host }}" 
-        SERVER_FLAGS: "{{ server_flags | default('') }}"
-        CHANNEL: "{{ channel | default('') }}"
-        # Pass hardening file contents as environment variables
-        POLICY_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'policy.yaml') | first).content | b64decode }}"
-        AUDIT_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'audit.yaml') | first).content | b64decode }}"
-        CLUSTER_LEVEL_PSS_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'cluster-level-pss.yaml') | first).content | b64decode }}"
-        INGRESSPOLICY_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'ingresspolicy.yaml') | first).content | b64decode }}"
-        CIS_MASTER_CONFIG_YAML_CONTENT: "{{ (hardening_files.results | selectattr('item', 'equalto', 'cis_master_config.yaml') | first).content | b64decode }}"
-      register: script_result
+    - name: Install K3s on initial cluster node
+      include_role:
+        name: k3s_install
+      vars:
+        k3s_node_type: cluster-init
+        kubernetes_version: "{{ kubernetes_version }}"
+        kube_api_host: "{{ kube_api_host }}"
+        fqdn: "{{ fqdn }}"
+        k3s_node_roles: "{{ ansible_role }}"
+        public_ip: "{{ ansible_host }}"
+        server_flags: "{{ server_flags | default('') }}"
+        k3s_channel: "{{ channel | default('') }}"
+        # Pass hardening file contents as variables
+        policy_yaml_content: "{{ (hardening_files.results | selectattr('item', 'equalto', 'policy.yaml') | first).content | b64decode }}"
+        audit_yaml_content: "{{ (hardening_files.results | selectattr('item', 'equalto', 'audit.yaml') | first).content | b64decode }}"
+        cluster_level_pss_yaml_content: "{{ (hardening_files.results | selectattr('item', 'equalto', 'cluster-level-pss.yaml') | first).content | b64decode }}"
+        ingresspolicy_yaml_content: "{{ (hardening_files.results | selectattr('item', 'equalto', 'ingresspolicy.yaml') | first).content | b64decode }}"
+        cis_master_config_yaml_content: "{{ (hardening_files.results | selectattr('item', 'equalto', 'cis_master_config.yaml') | first).content | b64decode }}"
+      when: inventory_hostname == "master"
 
-    - name: Display script output (stdout)
-      debug:
-        var: script_result.stdout_lines
-
-    - name: Check script return code
-      debug:
-        msg: "Script returned: {{ script_result.rc }}"
-
-    - name: Display script errors (stderr) if any
-      debug:
-        var: script_result.stderr_lines
-      when: script_result.rc != 0
 
     - name: Get node-token from master
       raw: cat /var/lib/rancher/k3s/server/node-token
@@ -212,39 +202,41 @@
       run_once: true
       when: '"cp" in ansible_role or "etcd" in ansible_role'
 
-    - name: Transfer and execute init-server.sh (Server)
-      script: ./init-server.sh
-      environment:
-        KUBERNETES_VERSION: "{{ kubernetes_version }}"
-        KUBE_API_HOST: "{{ kube_api_host }}"
-        FQDN: "{{ fqdn }}"
-        NODE_TOKEN: "{{ node_token }}"
-        NODE_ROLE: "{{ ansible_role }}"
-        PUBLIC_IP: "{{ ansible_host }}"
-        SERVER_FLAGS: "{{ server_flags | default('') }}"
-        CHANNEL: "{{ channel | default('v1') }}"
-        # Pass hardening file contents as environment variables
-        POLICY_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'policy.yaml') | first).content | b64decode }}"
-        AUDIT_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'audit.yaml') | first).content | b64decode }}"
-        CLUSTER_LEVEL_PSS_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'cluster-level-pss.yaml') | first).content | b64decode }}"
-        INGRESSPOLICY_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'ingresspolicy.yaml') | first).content | b64decode }}"
-        CIS_MASTER_CONFIG_YAML_CONTENT: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'cis_master_config.yaml') | first).content | b64decode }}"
-      register: script_result
+    - name: Install K3s on server nodes
+      include_role:
+        name: k3s_install
+      vars:
+        k3s_node_type: server
+        kubernetes_version: "{{ kubernetes_version }}"
+        kube_api_host: "{{ kube_api_host }}"
+        fqdn: "{{ fqdn }}"
+        k3s_token: "{{ node_token }}"
+        k3s_node_roles: "{{ ansible_role }}"
+        public_ip: "{{ ansible_host }}"
+        server_flags: "{{ server_flags | default('') }}"
+        k3s_channel: "{{ channel | default('v1') }}"
+        # Pass hardening file contents as variables
+        policy_yaml_content: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'policy.yaml') | first).content | b64decode }}"
+        audit_yaml_content: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'audit.yaml') | first).content | b64decode }}"
+        cluster_level_pss_yaml_content: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'cluster-level-pss.yaml') | first).content | b64decode }}"
+        ingresspolicy_yaml_content: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'ingresspolicy.yaml') | first).content | b64decode }}"
+        cis_master_config_yaml_content: "{{ (hardening_files_servers.results | selectattr('item', 'equalto', 'cis_master_config.yaml') | first).content | b64decode }}"
       when: 
         - inventory_hostname != "master"
         - '"cp" in ansible_role or "etcd" in ansible_role'
         
-    - name: Transfer and execute init-agent.sh (Agent)
-      script: ./init-agent.sh
-      environment:
-        KUBERNETES_VERSION: "{{ kubernetes_version }}"
-        KUBE_API_HOST: "{{ kube_api_host }}"
-        FQDN: "{{ fqdn }}"
-        NODE_TOKEN: "{{ node_token }}"
-        PUBLIC_IP: "{{ ansible_host }}"
-        WORKER_FLAGS: "{{ worker_flags | default('') }}"
-        CHANNEL: "{{ channel | default('v1') }}"
-      register: script_result
+    - name: Install K3s on agent nodes
+      include_role:
+        name: k3s_install
+      vars:
+        k3s_node_type: agent
+        kubernetes_version: "{{ kubernetes_version }}"
+        kube_api_host: "{{ kube_api_host }}"
+        fqdn: "{{ fqdn }}"
+        k3s_token: "{{ node_token }}"
+        public_ip: "{{ ansible_host }}"
+        worker_flags: "{{ worker_flags | default('') }}"
+        k3s_channel: "{{ channel | default('v1') }}"
       when: ansible_role == "worker"
 
 - hosts: localhost

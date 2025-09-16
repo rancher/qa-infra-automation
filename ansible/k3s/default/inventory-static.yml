@@ -1,0 +1,29 @@
+master:
+  hosts:
+    master:
+      ansible_host: ${MASTER_IP}
+      ansible_role: ${MASTER_ROLE}
+
+servers:
+  hosts:
+    server1:
+      ansible_host: ${SERVER1_IP}
+      ansible_role: ${SERVER1_ROLE}
+    server2:
+      ansible_host: ${SERVER2_IP}
+      ansible_role: ${SERVER2_ROLE}
+
+workers:
+  hosts:
+    worker1:
+      ansible_host: ${WORKER1_IP}
+      ansible_role: ${WORKER1_ROLE}
+    worker2:
+      ansible_host: ${WORKER2_IP}
+      ansible_role: ${WORKER2_ROLE}
+
+all:
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    ansible_user: ${ANSIBLE_USER}
+    ansible_ssh_private_key_file: ${ANSIBLE_SSH_KEY}
