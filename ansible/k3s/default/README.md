@@ -80,16 +80,23 @@ ansible-playbook -i inventory-terraform.yml k3s-playbook.yml --extra-vars "@vars
 
 ## Configuration
 
-### Sample `vars.yaml`
+### Configuration Setup
 
+Before running the playbook, create your `vars.yaml` file:
+
+```bash
+# Copy the example template
+cp vars.yaml.example vars.yaml
+
+# Edit with your specific values
+vim vars.yaml
+```
+
+**Sample `vars.yaml`:**
 ```yaml
 # K3s version and installation
 kubernetes_version: 'v1.28.15+k3s1'
 kubeconfig_file: './kubeconfig.yaml'
-
-# Required for standalone mode (when not using Terraform)
-kube_api_host: "${KUBE_API_HOST}"
-fqdn: "${FQDN:-}"
 
 # Optional server/worker flags
 server_flags: |
@@ -105,6 +112,8 @@ worker_flags: |
 # Optional channel for K3s installation
 channel: ""
 ```
+
+**Note**: The `vars.yaml` file is ignored by git to prevent accidental commits of environment-specific configuration.
 
 ### Node Roles
 

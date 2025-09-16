@@ -1,0 +1,25 @@
+---
+# K3s Deployment Variables Template
+# Copy this file to vars.yaml and customize for your environment:
+# cp vars.yaml.example vars.yaml
+
+# K3s version and installation settings
+kubernetes_version: 'v1.28.15+k3s1'
+kubeconfig_file: './kubeconfig.yaml'
+
+# Optional server/worker flags (customize as needed)
+server_flags: |
+  disable:
+    - traefik
+  cluster-cidr: "10.42.0.0/16"
+  service-cidr: "10.43.0.0/16"
+
+worker_flags: |
+  node-label:
+    - "environment=production"
+
+# Optional channel for K3s installation
+channel: ""
+
+# Node token file for cluster communication
+node_token_file: "/tmp/node_token.txt"
