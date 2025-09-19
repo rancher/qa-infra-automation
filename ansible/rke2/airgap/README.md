@@ -106,15 +106,7 @@ all:
           ansible_host: "<AIRGAP_NODE_PRIVATE_IP>"
 ```
 
-### 2. Generate Inventory (Alternative Method)
-
-If you need to manually generate the inventory from Terraform state:
-
-```bash
-ansible-playbook playbooks/setup/generate-inventory-from-terraform.yml
-```
-
-### 3. Setup SSH Keys
+### 2. Setup SSH Keys
 
 First, ensure SSH keys are properly distributed:
 
@@ -122,7 +114,7 @@ First, ensure SSH keys are properly distributed:
 ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-ssh-keys.yml
 ```
 
-### 4. Run Installation
+### 3. Run Installation
 
 Execute the tarball installation:
 
@@ -130,7 +122,7 @@ Execute the tarball installation:
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
 
-### 5. Setup kubectl Access (Optional)
+### 4. Setup kubectl Access (Optional)
 
 After RKE2 installation, you can set up kubectl access on the bastion node:
 
@@ -147,7 +139,7 @@ This will:
 
 **Note**: The tarball playbook (`playbooks/deploy/rke2-tarball-playbook.yml`) automatically includes kubectl setup, so this step is only needed if you want to set up kubectl access separately.
 
-### 6. Configure Private Registry (Optional)
+### 5. Configure Private Registry (Optional)
 
 If you need to configure RKE2 to use a private registry for pulling images after installation:
 
