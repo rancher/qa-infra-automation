@@ -101,6 +101,7 @@
       ansible.builtin.wait_for:
         path: /etc/rancher/rke2/rke2.yaml
         timeout: 300
+      when: inventory_hostname == groups['airgap_nodes'][0]
       become: true
 
     - name: Check RKE2 server status
@@ -271,17 +272,17 @@
           [OK] RKE2 cluster deployed on airgap nodes
           [OK] kubectl installed on bastion node
           [OK] KUBECONFIG copied and configured
-          
+
           To manage your cluster from the bastion node:
-          
+
           As root:
           kubectl get nodes
           kubectl get pods -A
-          
+
           As {{ ansible_user | default('your user') }}:
           kubectl get nodes
           kubectl get pods -A
-          
+
           The kubeconfig is located at:
           - /root/.kube/config
           {% if ansible_user is defined and ansible_user != 'root' %}
