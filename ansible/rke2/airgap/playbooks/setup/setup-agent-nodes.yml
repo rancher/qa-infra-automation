@@ -28,7 +28,7 @@
 
     - name: Generate agent configuration for additional nodes
       ansible.builtin.template:
-        src: ../../roles/rke2_install/templates/agent-config.yaml.j2
+        src: "{{ playbook_dir }}/../../roles/rke2_install/templates/agent-config.yaml.j2"
         dest: /etc/rancher/rke2/config.yaml
         owner: root
         group: root
