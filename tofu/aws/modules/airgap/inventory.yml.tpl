@@ -4,8 +4,9 @@ all:
     ssh_private_key_file: "${ssh_key}"
     bastion_user: "${aws_ssh_user}"
     bastion_host: "${bastion_host}"
+%{if registry_host != null}
     registry_host: "${registry_host}"
-
+%{endif}
   children:
     bastion:
       hosts:
@@ -14,6 +15,7 @@ all:
           ansible_user: "{{ bastion_user }}"
           ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
           ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+%{if registry_host != null}
 
     registry:
       hosts:
@@ -23,6 +25,7 @@ all:
           ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
           ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
+%{endif}
     airgap_nodes:
       vars:
         # SSH proxy configuration for all airgap nodes
