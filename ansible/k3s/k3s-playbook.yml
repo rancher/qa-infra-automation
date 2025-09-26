@@ -1,0 +1,383 @@
+---
+# K3s HA Cluster Playbook
+# This playbook installs and configures a highly available K3s cluster.
+# See README.md for usage and details.
+
+# ------------------------------------------------------------------------------
+# Install K3s master node (serial, fail early)
+# ------------------------------------------------------------------------------
+- name: Install K3s master node
+  hosts: master
+  serial: 1
+  become: yes
+  gather_facts: yes
+  vars:
+    k3s_server_flags: >-
+      server
+      {% if cni == 'flannel' and flannel_backend is defined %}
+      --flannel-backend={{ flannel_backend }}
+      {% endif %}
+    k3s_wait_timeout: 600
+    k3s_wait_delay: 5
+    k3s_api_health_retries: 30
+    k3s_api_health_delay: 10
+    k3s_api_health_timeout: 10
+    kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
+  tasks:
+    # Ensure VXLAN kernel module for Flannel networking
+    - name: Ensure vxlan kernel module is loaded (for Flannel vxlan backend)
+      ansible.builtin.shell: "modprobe vxlan"
+      changed_when: false
+      when: cni == 'flannel' and flannel_backend == 'vxlan'
+
+    # Create K3s configuration directory
+    - name: Create K3s configuration directory
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: '0755'
+
+    # Build K3s master server configuration
+    - name: Build K3s master server configuration
+      ansible.builtin.set_fact:
+        k3s_config:
+          write-kubeconfig-mode: "644"
+          token: "{{ k3s_token }}"
+          tls-san:
+            - "{{ fqdn }}"
+            - "{{ kube_api_host }}"
+          cluster-init: true
+
+    # Write K3s server config.yaml
+    - name: Write K3s server config.yaml
+      ansible.builtin.copy:
+        content: "{{ k3s_config | to_nice_yaml }}"
+        dest: /etc/rancher/k3s/config.yaml
+        mode: '0644'
+
+    # Install K3s master server and fail early if unsuccessful
+    - name: Install K3s master server
+      ansible.builtin.shell:
+        cmd: >-
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='{{ k3s_server_flags }}'
+          INSTALL_K3S_VERSION={{ k3s_version }} sh -
+        creates: /usr/local/bin/k3s
+      register: k3s_install
+      failed_when: k3s_install.rc != 0
+      ignore_errors: false
+
+    # Show last 20 lines of k3s systemd journal on failure
+    - name: Show last 20 lines of k3s systemd journal on failure
+      ansible.builtin.shell: |
+        journalctl -u k3s --no-pager -n 20
+      register: k3s_journal
+      when: k3s_install.rc != 0
+      ignore_errors: true
+
+    # Fail if K3s master install failed
+    - name: Fail if K3s master install failed
+      fail:
+        msg: "K3s master installation failed. See previous debug output."
+      when: k3s_install.rc != 0
+
+    # Enable and start K3s master server service
+    - name: Enable and start K3s master server service
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+        enabled: yes
+
+    # Wait for master node API port to be open
+    - name: Wait for master node API port to be open
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 6443
+        state: started
+        delay: "{{ k3s_wait_delay }}"
+        timeout: "{{ k3s_wait_timeout }}"
+
+    # Wait for kubeconfig to be created on master
+    - name: Wait for kubeconfig to be created on master
+      ansible.builtin.wait_for:
+        path: "{{ kubeconfig_path }}"
+        state: present
+        timeout: "{{ k3s_wait_timeout }}"
+        delay: "{{ k3s_wait_delay }}"
+
+    # Wait for Kubernetes API ready endpoint to be ready (accept 200 or 401)
+    - name: Wait for Kubernetes API ready endpoint to be ready
+      uri:
+        url: "https://{{ ansible_host }}:6443/readyz"
+        method: GET
+        validate_certs: false
+        status_code: [200, 401]
+        timeout: "{{ k3s_api_health_timeout }}"
+      register: api_ready
+      until: api_ready.status in [200, 401]
+      retries: "{{ k3s_api_health_retries }}"
+      delay: "{{ k3s_api_health_delay }}"
+
+    # Replace 127.0.0.1 with external master address in kubeconfig
+    - name: Replace 127.0.0.1 with external master address in kubeconfig
+      ansible.builtin.replace:
+        path: "{{ kubeconfig_path }}"
+        regexp: 'server: https://127.0.0.1:6443'
+        replace: 'server: https://{{ ansible_host }}:6443'
+
+# ------------------------------------------------------------------------------
+# Join secondary control plane nodes (parallel)
+# ------------------------------------------------------------------------------
+- name: Join secondary control plane nodes
+  hosts: cp-*
+  become: yes
+  gather_facts: yes
+  vars:
+    master_ip: "{{ hostvars['master']['ansible_host'] }}"
+    k3s_server_flags: >-
+      server
+      {% if cni == 'flannel' and flannel_backend is defined %}
+      --flannel-backend={{ flannel_backend }}
+      {% endif %}
+    k3s_wait_timeout: 600
+    k3s_wait_delay: 5
+    k3s_api_health_retries: 30
+    k3s_api_health_delay: 10
+    k3s_api_health_timeout: 10
+    kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
+  tasks:
+    # Wait for master node to be ready (port 6443 open)
+    - name: Wait for master node to be ready (port 6443 open)
+      wait_for:
+        host: "{{ master_ip }}"
+        port: 6443
+        state: started
+        delay: "{{ k3s_wait_delay }}"
+        timeout: "{{ k3s_wait_timeout }}"
+
+    # Wait for master node kubeconfig to exist
+    - name: Wait for master node kubeconfig to exist
+      ansible.builtin.wait_for:
+        path: "{{ kubeconfig_path }}"
+        state: present
+        timeout: "{{ k3s_wait_timeout }}"
+        delay: "{{ k3s_wait_delay }}"
+      delegate_to: "{{ master_ip }}"
+
+    # Wait for master node ready endpoint to be healthy before join
+    - name: Wait for master node ready endpoint to be healthy before join
+      uri:
+        url: "https://{{ master_ip }}:6443/readyz"
+        method: GET
+        validate_certs: false
+        status_code: [200, 401]
+        timeout: "{{ k3s_api_health_timeout }}"
+      register: api_ready_join
+      until: api_ready_join.status in [200, 401]
+      retries: "{{ k3s_api_health_retries }}"
+      delay: "{{ k3s_api_health_delay }}"
+
+    # Create K3s configuration directory
+    - name: Create K3s configuration directory
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: '0755'
+
+    # Build K3s secondary CP server configuration
+    - name: Build K3s secondary CP server configuration
+      ansible.builtin.set_fact:
+        k3s_config:
+          write-kubeconfig-mode: "644"
+          token: "{{ k3s_token }}"
+          tls-san:
+            - "{{ fqdn }}"
+            - "{{ kube_api_host }}"
+          server: "https://{{ master_ip }}:6443"
+
+    # Write K3s server config.yaml
+    - name: Write K3s server config.yaml
+      ansible.builtin.copy:
+        content: "{{ k3s_config | to_nice_yaml }}"
+        dest: /etc/rancher/k3s/config.yaml
+        mode: '0644'
+
+    # Install K3s secondary CP server
+    - name: Install K3s secondary CP server
+      ansible.builtin.shell:
+        cmd: >-
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='{{ k3s_server_flags }}'
+          INSTALL_K3S_VERSION={{ k3s_version }} sh -
+        creates: /usr/local/bin/k3s
+      register: k3s_install
+      failed_when: k3s_install.rc != 0
+      ignore_errors: yes
+
+    # Show last 20 lines of k3s systemd journal on failure
+    - name: Show last 20 lines of k3s systemd journal on failure
+      ansible.builtin.shell: |
+        journalctl -u k3s --no-pager -n 20
+      register: k3s_journal
+      when: k3s_install.rc != 0
+      ignore_errors: yes
+
+    # Fail if K3s secondary CP install failed
+    - name: Fail if K3s secondary CP install failed
+      fail:
+        msg: "K3s secondary CP installation failed. See previous debug output."
+      when: k3s_install.rc != 0
+
+    # Enable and start K3s secondary CP server service
+    - name: Enable and start K3s secondary CP server service
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+        enabled: yes
+
+# ------------------------------------------------------------------------------
+# Join worker nodes (parallel)
+# ------------------------------------------------------------------------------
+- name: Join worker nodes
+  hosts: worker-*
+  become: yes
+  gather_facts: yes
+  vars:
+    master_ip: "{{ hostvars['master']['ansible_host'] }}"
+    k3s_wait_timeout: 600
+    k3s_wait_delay: 5
+    k3s_api_health_retries: 30
+    k3s_api_health_delay: 10
+    k3s_api_health_timeout: 10
+    kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
+  tasks:
+    # Wait for master node to be ready (port 6443 open)
+    - name: Wait for master node to be ready (port 6443 open)
+      wait_for:
+        host: "{{ master_ip }}"
+        port: 6443
+        state: started
+        delay: "{{ k3s_wait_delay }}"
+        timeout: "{{ k3s_wait_timeout }}"
+
+    # Wait for master node kubeconfig to exist
+    - name: Wait for master node kubeconfig to exist
+      ansible.builtin.wait_for:
+        path: "{{ kubeconfig_path }}"
+        state: present
+        timeout: "{{ k3s_wait_timeout }}"
+        delay: "{{ k3s_wait_delay }}"
+      delegate_to: "{{ master_ip }}"
+
+    # Wait for master node ready endpoint to be healthy before join
+    - name: Wait for master node ready endpoint to be healthy before join
+      uri:
+        url: "https://{{ master_ip }}:6443/readyz"
+        method: GET
+        validate_certs: false
+        status_code: [200, 401]
+        timeout: "{{ k3s_api_health_timeout }}"
+      register: api_ready_join
+      until: api_ready_join.status in [200, 401]
+      retries: "{{ k3s_api_health_retries }}"
+      delay: "{{ k3s_api_health_delay }}"
+
+    # Install K3s agent
+    - name: Install K3s agent
+      ansible.builtin.shell:
+        cmd: >-
+          curl -sfL https://get.k3s.io | K3S_URL='https://{{ master_ip }}:6443'
+          K3S_TOKEN='{{ k3s_token }}' INSTALL_K3S_VERSION={{ k3s_version }} sh -
+        creates: /usr/local/bin/k3s
+      register: k3s_agent_install
+      failed_when: k3s_agent_install.rc != 0
+      ignore_errors: yes
+
+    # Fail if K3s agent install failed
+    - name: Fail if K3s agent install failed
+      fail:
+        msg: "K3s agent installation failed. See previous debug output."
+      when: k3s_agent_install.rc != 0
+
+    # Enable and start K3s agent service
+    - name: Enable and start K3s agent service
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: started
+        enabled: yes
+
+    # Wait for worker node to be ready (port 10250 open)
+    - name: Wait for worker node to be ready (port 10250 open)
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 10250
+        state: started
+        delay: "{{ k3s_wait_delay }}"
+        timeout: "{{ k3s_wait_timeout }}"
+
+# ------------------------------------------------------------------------------
+# Patch and fetch kubeconfig for remote access
+# ------------------------------------------------------------------------------
+- name: Fetch kubeconfig from master
+  hosts: master
+  become: yes
+  gather_facts: no
+  vars:
+    kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
+    master_ip: "{{ hostvars['master']['ansible_host'] }}"
+    k3s_wait_timeout: 600
+    k3s_wait_delay: 5
+    k3s_api_health_retries: 30
+    k3s_api_health_delay: 10
+    k3s_api_health_timeout: 10
+  tasks:
+    # Wait for master node to be ready (port 6443 open)
+    - name: Wait for master node to be ready (port 6443 open)
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 6443
+        state: started
+        delay: "{{ k3s_wait_delay }}"
+        timeout: "{{ k3s_wait_timeout }}"
+
+    # Wait for kubeconfig to be created
+    - name: Wait for kubeconfig to be created
+      ansible.builtin.wait_for:
+        path: "{{ kubeconfig_path }}"
+        state: present
+        timeout: "{{ k3s_wait_timeout }}"
+      run_once: true
+
+    # Wait for Kubernetes API ready endpoint to be ready
+    - name: Wait for Kubernetes API ready endpoint to be ready
+      uri:
+        url: "https://{{ ansible_host }}:6443/readyz"
+        method: GET
+        validate_certs: false
+        status_code: [200, 401]
+        timeout: "{{ k3s_api_health_timeout }}"
+      register: api_ready
+      until: api_ready.status in [200, 401]
+      retries: "{{ k3s_api_health_retries }}"
+      delay: "{{ k3s_api_health_delay }}"
+      run_once: true
+
+    # Replace 127.0.0.1 with external master address in kubeconfig before fetch
+    - name: Replace 127.0.0.1 with external master address in kubeconfig before fetch
+      ansible.builtin.replace:
+        path: "{{ kubeconfig_path }}"
+        regexp: 'server: https://127.0.0.1:6443'
+        replace: 'server: https://{{ master_ip }}:6443'
+      run_once: true
+
+    # Fetch the kubeconfig file to the local machine
+    - name: Fetch the kubeconfig file to the local machine
+      ansible.builtin.fetch:
+        src: "{{ kubeconfig_path }}"
+        dest: "./k3s-kubeconfig.yaml"
+        flat: yes
+      run_once: true
+
+    # Inform user where kubeconfig is saved
+    - name: Inform user where kubeconfig is saved
+      ansible.builtin.debug:
+        msg: "K3s kubeconfig has been saved locally to the current directory as k3s-kubeconfig.yaml"
+      run_once: true
