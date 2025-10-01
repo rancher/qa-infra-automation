@@ -1,0 +1,129 @@
+---
+- name: Create new cluster on Rancher
+  hosts: bastion
+  become: true
+  gather_facts: true
+  vars:
+    admin_password: "your_password"
+  tasks:
+    - name: Get the name of the RKE2 server node
+      ansible.builtin.set_fact:
+        server_node_name: "{{ groups['rancher'][0] }}"
+
+    - name: Get Rancher UserID and Token
+      ansible.builtin.uri:
+        url: "https://{{ server_node_name }}/v3-public/localproviders/local?action=login"
+        body:
+          username: admin
+          password: "{{ admin_password }}"
+        method: POST
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 201
+        body_format: json
+      register: token_response
+      retries: 5
+      delay: 10
+      until: token_response.status == 201
+
+    - name: Get cluster name from environment variable
+      ansible.builtin.set_fact:
+        cluster_name: "{{ lookup('env', 'DOWNSTREAM_CLUSTER_NAME') }}"
+
+    - name: Set a default name if environment variable is not found
+      ansible.builtin.set_fact:
+        cluster_name: "ansible-created-{{ lookup('password', '/dev/null length=8') }}"
+      when: cluster_name is not defined
+
+    - name: Extract Rancher UserID and Token
+      ansible.builtin.set_fact:
+        user_id: "{{ token_response.json.userId }}"
+        api_key: "{{ token_response.json.token }}"
+
+    - name: Create imported generic cluster
+      ansible.builtin.uri:
+        url: "https://{{ server_node_name }}/v3/clusters"
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ api_key }}"
+        body:
+          name:	"{{ cluster_name }}"
+          type:	"cluster"
+        method: POST
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 201
+        body_format: json
+      register: post_response
+      retries: 5
+      delay: 10
+      until: post_response.status == 201
+
+    - name: Create imported generic cluster
+      ansible.builtin.uri:
+        url: "https://{{ server_node_name }}/v3/clusters"
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ api_key }}"
+        body:
+          name:	"{{ cluster_name }}"
+          type:	"cluster"
+        method: POST
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 201
+        body_format: json
+      register: post_response
+      retries: 5
+      delay: 10
+      until: post_response.status == 201
+
+    - name: Get command to import existing cluster
+      ansible.builtin.uri:
+        url: "https://{{ server_node_name }}/v3/{{ post_response.json.id }}/clusterregistrationtokens"
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ api_key }}"
+        method: GET
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 201
+        body_format: json
+      register: command_response
+      retries: 5
+      delay: 10
+      until: command_response.status == 200
+
+    - name: Get command to import existing cluster
+      ansible.builtin.uri:
+        url: "https://{{ server_node_name }}/v3/{{ post_response.json.id }}?action=generateKubeconfig"
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ api_key }}"
+        method: POST
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 200
+        body_format: json
+      register: kubeconfig_response
+      retries: 5
+      delay: 10
+      until: kubeconfig_response.status == 200
+
+    - name: Write kubeconfig to file
+      ansible.builtin.copy:
+        content: "{{ kubeconfig_response.json.config }}"
+        dest: /tmp/downstream_kubeconfig.yml
+
+    - name: Apply manifest to add cluster to rancher
+      command: "KUBECONFIG=/tmp/downstream_kubeconfig.yml && {{ command_response.json.data[0].insecureNodeCommand }}"
+
+    # - name: Wait for Node Registration to Complete
+    #   command: 'journalctl -u rke2-server -f | grep -qF "Tunnel authorizer set Kubelet Port"'
+    #   when: inventory_hostname == server_node_name
+    #   retries: 10
+    #   delay: 20
