@@ -3,6 +3,8 @@
   hosts: airgap_nodes
   become: true
   gather_facts: true
+  vars:
+    target_group: "{{ target | default('rancher') }}"
 
   tasks:
     - name: Check which RKE2 service is installed
@@ -40,7 +42,7 @@
           Node: {{ inventory_hostname }}
           Server service state: {{ server_status.status.ActiveState | default('not checked') if service_check.results[0].stat.exists else 'service file not found' }}
           Agent service state: {{ agent_status.status.ActiveState | default('not checked') if service_check.results[1].stat.exists else 'service file not found' }}
-          Expected role: {{ 'server' if inventory_hostname == groups['airgap_nodes'][0] else 'agent' }}
+          Expected role: {{ 'server' if inventory_hostname == groups[target_group][0] else 'agent' }}
 
     - name: Get node roles from kubectl (on server only)
       ansible.builtin.shell: |
@@ -49,7 +51,7 @@
       register: node_roles
       failed_when: false
       changed_when: false
-      when: inventory_hostname == groups['airgap_nodes'][0]
+      when: inventory_hostname == groups[target_group][0]
 
     - name: Display cluster node information
       ansible.builtin.debug:
@@ -57,7 +59,7 @@
           Current cluster nodes:
           {{ node_roles.stdout }}
       when:
-        - inventory_hostname == groups['airgap_nodes'][0]
+        - inventory_hostname == groups[target_group][0]
         - node_roles.rc == 0
 
     - name: Summary
@@ -65,9 +67,9 @@
         msg: |
           =================================================================
           Node: {{ inventory_hostname }}
-          Position in airgap_nodes: {{ groups['airgap_nodes'].index(inventory_hostname) }}
-          First node in group: {{ groups['airgap_nodes'][0] }}
-          Should be: {{ 'SERVER' if inventory_hostname == groups['airgap_nodes'][0] else 'AGENT' }}
+          Position in airgap_nodes: {{ groups[target_group].index(inventory_hostname) }}
+          First node in group: {{ groups[target_group][0] }}
+          Should be: {{ 'SERVER' if inventory_hostname == groups[target_group][0] else 'AGENT' }}
           Actually running: {{
             'SERVER' if (service_check.results[0].stat.exists and server_status.status.ActiveState | default('') == 'active')
             else ('AGENT' if (service_check.results[1].stat.exists and agent_status.status.ActiveState | default('') == 'active')
