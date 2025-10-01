@@ -61,14 +61,14 @@
             name: rke2-server
             state: stopped
           become: true
-          when: inventory_hostname == groups['airgap_nodes'][0]
+          when: inventory_hostname == groups[target_group][0]
 
         - name: Stop RKE2 service (agent nodes)
           ansible.builtin.systemd:
             name: rke2-agent
             state: stopped
           become: true
-          when: inventory_hostname != groups['airgap_nodes'][0]
+          when: inventory_hostname != groups[target_group][0]
 
         - name: Wait for services to stop
           ansible.builtin.pause:
@@ -169,7 +169,7 @@
             export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
             sh /tmp/rke2-install-new.sh
           become: true
-          when: inventory_hostname == groups['airgap_nodes'][0]
+          when: inventory_hostname == groups[target_group][0]
           changed_when: false
 
         - name: Run RKE2 upgrade install script (agent)
@@ -178,7 +178,7 @@
             export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
             sh /tmp/rke2-install-new.sh
           become: true
-          when: inventory_hostname != groups['airgap_nodes'][0]
+          when: inventory_hostname != groups[target_group][0]
           changed_when: false
 
         - name: Start RKE2 server service
@@ -187,19 +187,19 @@
             state: started
             enabled: true
           become: true
-          when: inventory_hostname == groups['airgap_nodes'][0]
+          when: inventory_hostname == groups[target_group][0]
 
         - name: Wait for server to be ready before starting agents
           ansible.builtin.wait_for:
             path: /var/lib/rancher/rke2/server/node-token
             timeout: 300
           become: true
-          when: inventory_hostname == groups['airgap_nodes'][0]
+          when: inventory_hostname == groups[target_group][0]
 
         - name: Pause for server stabilization
           ansible.builtin.pause:
             seconds: 30
-          when: inventory_hostname == groups['airgap_nodes'][0]
+          when: inventory_hostname == groups[target_group][0]
 
         - name: Start RKE2 agent service
           ansible.builtin.systemd:
@@ -207,7 +207,7 @@
             state: started
             enabled: true
           become: true
-          when: inventory_hostname != groups['airgap_nodes'][0]
+          when: inventory_hostname != groups[target_group][0]
 
         - name: Verify upgrade success
           ansible.builtin.shell: |
@@ -282,7 +282,7 @@
 
         - name: Restart services after rollback
           ansible.builtin.systemd:
-            name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
+            name: "{{ 'rke2-server' if inventory_hostname == groups[target_group][0] else 'rke2-agent' }}"
             state: started
           become: true
           failed_when: false
