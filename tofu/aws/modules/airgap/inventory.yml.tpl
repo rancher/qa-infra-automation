@@ -33,9 +33,11 @@ all:
         ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
         ansible_ssh_common_args: "-o ProxyCommand='ssh -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}'"
         bastion_ip: "{{ bastion_host }}"
-
-      hosts:
-%{ for idx, ip in rancher_server_ips ~}
-        rke2-server-${idx}:
-          ansible_host: "${ip}"
+      children:
+        hosts:
+%{for i in range(length(group_names))~}
+          ${group_names[i]}:
+%{for j in range(length(group_addresses[i]))~}
+            ${group_names[i]}_node_${j}: "${group_addresses[i][j]}"
+%{ endfor ~}
 %{ endfor ~}

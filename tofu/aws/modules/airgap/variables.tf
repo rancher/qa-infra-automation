@@ -24,3 +24,10 @@ variable "provision_registry" {
   type        = bool
   default     = true
 }
+variable "node_groups" {
+  description = "Map of how many nodes per group. Keyed by name of group. Group names are used for inventory file. Group of nodes for rancher should be named 'rancher'"
+  type        = map(number)
+  default = {
+    "rancher" = 3
+  }
+}
