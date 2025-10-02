@@ -45,6 +45,7 @@
       ansible.builtin.package:
         name: python3-pip
         state: present
+        update_cache: yes
       when: pip_check.rc != 0
       ignore_errors: true
 
@@ -59,6 +60,7 @@
           - python3-kubernetes
           - python3-yaml
         state: present
+        update_cache: yes
       ignore_errors: true
 
     - name: Install Ansible Kubernetes collection if not present
