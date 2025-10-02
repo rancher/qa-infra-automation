@@ -33,6 +33,22 @@ resource "random_string" "random_suffix" {
   upper   = false
 }
 
+module "harvester_loadbalancer" {
+  source = "../loadbalancer"
+
+  create_new = var.create_loadbalancer
+  generate_name = var.generate_name
+  subnet_cidr = var.subnet_cidr
+  gateway_ip = var.gateway_ip 
+  backend_network_name = var.backend_network_name
+  range_ip_end = var.range_ip_end
+  range_ip_start = var.range_ip_start
+  namespace = var.namespace
+  ippool_name = var.ippool_name
+  lookup_label_key = "${var.generate_name}-${random_string.random_suffix.result}" 
+  
+}
+
 resource "harvester_ssh_key" "ssh-key" {
   name      = "${var.generate_name}-ssh-key-${random_string.random_suffix.result}"
   namespace = var.namespace
@@ -67,9 +83,14 @@ resource "harvester_virtualmachine" "vm" {
   restart_after_update = true
 
   description = "Automated Terraform VM"
-  tags = {
-  ssh-user = var.ssh_user
-  }
+
+  tags = merge(
+    {
+      "ssh-user" = var.ssh_user,
+      "${var.generate_name}-${random_string.random_suffix.result}" = "true"
+    },
+    var.labels
+  )
 
   cpu    = var.cpu
   memory = var.mem
