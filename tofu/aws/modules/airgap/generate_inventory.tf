@@ -1,9 +1,29 @@
 # Generate inventory.yml file after Tofu apply
+locals {
+  group_sizes = values(var.node_groups)
+
+  index_list = [
+    for i in range(length(local.group_sizes)) :
+      sum([for s in slice(local.group_sizes, 0, i+1) : s])
+  ]
+
+  group_addresses = [
+    for i in range(length(local.group_sizes)) :
+    slice(
+      [for s in module.airgap_nodes : s.private_ip],
+      i > 0? local.index_list[i - 1] : 0,
+      local.index_list[i]-1
+    )
+  ]
+}
+
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/inventory.yml.tpl", {
+    group_names = keys(var.node_groups)
+    group_addresses = local.group_addresses
     bastion_host = module.bastion.public_dns
     registry_host = length(module.registry) > 0 ? module.registry[0].public_dns : null
-    rancher_server_ips = [for s in module.rancher_servers : s.private_ip]
+    node_ips = [for s in module.airgap_nodes : s.private_ip]
     ssh_key = var.ssh_key
     aws_ssh_user = var.aws_ssh_user
   })
@@ -13,7 +33,7 @@ resource "local_file" "ansible_inventory" {
   depends_on = [
     module.bastion,
     module.registry,
-    module.rancher_servers
+    module.airgap_nodes
   ]
 }
 

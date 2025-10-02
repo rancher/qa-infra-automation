@@ -1,6 +1,6 @@
 ---
 - name: RKE2 Airgap Upgrade - Pre-upgrade Validation
-  hosts: airgap_nodes
+  hosts: "{{ target | default('airgap_nodes:rancher') }}"
   become: true
   gather_facts: true
   vars_files:
@@ -76,7 +76,7 @@
       when: not upgrade_needed
 
 - name: RKE2 Airgap Upgrade - Upgrade Server Node
-  hosts: airgap_nodes[0]  # First server node only
+  hosts: "{{ target | default('airgap_nodes:rancher') }}[0]"  # First server node only
   become: true
   gather_facts: true
   serial: 1
@@ -129,7 +129,7 @@
       when: server_upgrade_needed
 
 - name: RKE2 Airgap Upgrade - Upgrade Agent Nodes
-  hosts: airgap_nodes[1:]  # All nodes except the first (server)
+  hosts: "{{ target | default('airgap_nodes:rancher') }}[1:]"  # All nodes except the first (server)
   become: true
   gather_facts: true
   serial: 1  # Upgrade one agent at a time

@@ -54,6 +54,15 @@ module "registry" {
 
 locals {
   ports = ["80", "443", "6443", "9345"]
+
+  rancher_node_target_group_product = flatten([
+    for target_group in local.target_groups_map : [
+      for node in [for key, instance in module.airgap_nodes : instance if startswith(key, "${var.aws_hostname_prefix}-rancher-")] : {
+          target_group = target_group
+          node = node
+        }
+    ]
+  ])
 }
 
 # Load Balance
@@ -76,14 +85,14 @@ module "internal_load_balancer" {
   ports = local.ports
 }
 
-# Rancher servers
-module "rancher_servers" {
+# Airgapped nodes
+module "airgap_nodes" {
   source = "./../ec2_instance"
-  for_each = {
-    server1 = "rancher_server1"
-    server2 = "rancher_server2"
-    server3 = "rancher_server3"
-  }
+  for_each = toset(flatten([
+    for group_name, count in var.node_groups : [
+      for index in range(1, count + 1) : "${group_name}-${index}"
+    ]
+  ]))
 
   name = "${var.aws_hostname_prefix}-${each.value}"
   ami = var.aws_ami
@@ -121,25 +130,9 @@ module "internal_route53" {
 }
 
 resource "aws_lb_target_group_attachment" "attachment-server1" {
-  for_each = local.target_groups_map
-  target_group_arn = each.value.arn
-  target_id = module.rancher_servers["server1"].id
-  port = each.value.port
-  depends_on = [module.load_balancer, module.internal_load_balancer, module.rancher_servers]
-}
-
-resource "aws_lb_target_group_attachment" "attachment-server2" {
-  for_each = local.target_groups_map
-  target_group_arn = each.value.arn
-  target_id = module.rancher_servers["server2"].id
-  port = each.value.port
-  depends_on = [module.load_balancer, module.internal_load_balancer, module.rancher_servers]
-}
-
-resource "aws_lb_target_group_attachment" "attachment-server3" {
-  for_each = local.target_groups_map
-  target_group_arn = each.value.arn
-  target_id = module.rancher_servers["server3"].id
-  port = each.value.port
-  depends_on = [module.load_balancer, module.internal_load_balancer, module.rancher_servers]
+  for_each = { for entry in local.rancher_node_target_group_product: "${entry.node}.${entry.target_group}" => entry }
+  target_group_arn = each.value.target_group.arn
+  target_id = module.airgap_nodes[each.value.node].id
+  port = each.value.target_group.port
+  depends_on = [module.load_balancer, module.internal_load_balancer, module.airgap_nodes]
 }
