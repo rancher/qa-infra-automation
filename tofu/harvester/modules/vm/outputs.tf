@@ -3,10 +3,10 @@ output "ip" {
 }
 
 output "kube_api_host" {
-  value       = harvester_virtualmachine.vm[local.node_names[local.first_etcd_index].name].network_interface[0].ip_address
+  value = "${harvester_virtualmachine.vm[local.node_names[local.first_etcd_index].name].network_interface[0].ip_address}"
   description = "The public IP address of the first etcd node, or 'No etcd node found'."
 }
 
 output "fqdn" {
-  value = "${harvester_virtualmachine.vm[local.node_names[local.first_etcd_index].name].network_interface[0].ip_address}.sslip.io"
+  value = var.create_loadbalancer ? module.harvester_loadbalancer.name : "${harvester_virtualmachine.vm[local.node_names[local.first_etcd_index].name].network_interface[0].ip_address}.sslip.io"
 }
