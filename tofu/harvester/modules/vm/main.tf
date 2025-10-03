@@ -45,7 +45,7 @@ module "harvester_loadbalancer" {
   range_ip_start = var.range_ip_start
   namespace = var.namespace
   ippool_name = var.ippool_name
-  lookup_label_key = "${var.generate_name}-${random_string.random_suffix.result}" 
+  lookup_label_key = "tag.harvesterhci.io/${var.generate_name}-${random_string.random_suffix.result}" 
   
 }
 
@@ -126,8 +126,8 @@ resource "harvester_virtualmachine" "vm" {
   }
 
   cloudinit {
-  user_data_secret_name = "${var.generate_name}-secret-${random_string.random_suffix.result}"
-  network_data = ""
+    user_data_secret_name = "${var.generate_name}-secret-${random_string.random_suffix.result}"
+    network_data = ""
   }
 }
 

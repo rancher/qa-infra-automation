@@ -8,5 +8,5 @@ output "kube_api_host" {
 }
 
 output "fqdn" {
-  value = var.create_loadbalancer ? "${module.harvester_loadbalancer.name}.sslip.io" : "${harvester_virtualmachine.vm[local.node_names[local.first_etcd_index].name].network_interface[0].ip_address}.sslip.io"
+  value = var.create_loadbalancer ? module.harvester_loadbalancer.name : "${harvester_virtualmachine.vm[local.node_names[local.first_etcd_index].name].network_interface[0].ip_address}.sslip.io"
 }
