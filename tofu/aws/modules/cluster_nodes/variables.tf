@@ -16,7 +16,7 @@ variable "aws_volume_type" {}
 variable "aws_subnet" {}
 variable "instance_type" {}
 variable "nodes" {
-  description = "Configuration for RKE2 nodes."
+  description = "Configuration for product nodes."
   type = list(object({
     count = number
     role  = list(string) # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])

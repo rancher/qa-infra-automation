@@ -1,0 +1,47 @@
+---
+# Traefik-specific network policies (only applied if Traefik is not disabled)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-svclbtraefik-ingress
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      svccontroller.k3s.cattle.io/svcname: traefik
+  ingress:
+    - {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-traefik-v121-ingress
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  ingress:
+    - {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-to-backends
+  namespace: default
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+  policyTypes:
+    - Ingress
