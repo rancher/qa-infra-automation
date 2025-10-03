@@ -71,7 +71,7 @@ This system uses the **Tarball Method** for pure airgap deployments:
 
 ### 1. Configure Inventory
 
-*** Inventory is automatically generated after Tofu apply ***
+***Inventory is automatically generated after Tofu apply***
 
 Update `inventory/inventory.yml` with your environment details:
 
@@ -132,6 +132,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access
 ```
 
 This will:
+
 - Install kubectl on the bastion node
 - Copy the KUBECONFIG from the first airgap node
 - Configure kubectl for both root and the ansible user
@@ -149,6 +150,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-confi
 ```
 
 This will:
+
 - Create `/etc/rancher/rke2/registries.yaml` on all airgap nodes
 - Configure registry mirrors and authentication
 - Restart RKE2 services to apply the changes
@@ -167,6 +169,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/debug/validate-upgrade-rea
 ```
 
 This will check:
+
 - Current RKE2 versions on all nodes
 - Service status and cluster health
 - Disk space and system resources
@@ -191,6 +194,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbo
 ```
 
 The upgrade process will:
+
 - Download the new RKE2 version on the bastion host
 - Upgrade the server node first (with automatic rollback on failure)
 - Upgrade agent nodes one by one to maintain cluster availability
@@ -334,6 +338,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-confi
 ```
 
 This playbook will:
+
 - Create `/etc/rancher/rke2/registries.yaml` on all airgap nodes
 - Configure containerd to use the specified registry mirrors
 - Apply authentication and TLS settings
@@ -381,6 +386,7 @@ kubectl get pods -A
 ```
 
 Expected output for a successful single-node deployment:
+
 ```
 NAME              STATUS   ROLES                       AGE     VERSION          INTERNAL-IP    
 ip-172-31-4-247   Ready    control-plane,etcd,master   8m19s   v1.31.1+rke2r1   172.31.4.247   
@@ -418,9 +424,11 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-confi
    - **Error**: `download sha256 does not match` during RKE2 installation
    - **Cause**: Corrupted downloads, version mismatches, or cached files
    - **Solution**: Run the checksum fix playbook:
+
      ```bash
      ansible-playbook -i inventory/inventory.yml playbooks/debug/fix-checksum-issues.yml
      ```
+
    - **Prevention**: Ensure `rke2_version` in `inventory/group_vars/all.yml` matches an existing GitHub release
 
 2. **SSH Connectivity Issues**
@@ -437,6 +445,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-confi
    - **Error**: `failed to pull image` or `connection refused` errors for container images
    - **Cause**: Registry configuration not applied or incorrect registry settings
    - **Solution**: Verify registry configuration and connectivity:
+
      ```bash
      # Check registries.yaml exists and is correct
      cat /etc/rancher/rke2/registries.yaml
@@ -447,6 +456,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-confi
      # Re-apply registry configuration if needed
      ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-config-playbook.yml
      ```
+
    - **Check containerd logs**: `/var/lib/rancher/rke2/agent/containerd/containerd.log`
 
 5. **Configuration Issues**
@@ -466,6 +476,7 @@ ansible-playbook -vv -i inventory/inventory.yml playbooks/deploy/rke2-tarball-pl
 ### Multi-Node Clusters
 
 The system supports multi-node clusters:
+
 - First node in `airgap_nodes` becomes the server (control plane)
 - Additional nodes become agents
 - Token sharing is handled automatically

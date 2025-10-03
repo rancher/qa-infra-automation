@@ -56,16 +56,29 @@
         group: "{{ ansible_user }}"
       become: true
 
-    - name: Copy bundle from bastion using synchronize
-      ansible.posix.synchronize:
-        src: /opt/rke2-files/rke2-bundle.tar.gz
-        dest: /tmp/rke2-bundle.tar.gz
-        mode: pull
-      delegate_to: "{{ groups['bastion'][0] }}"
-      register: sync_result
-      until: sync_result is success
-      retries: 3
-      delay: 5
+    - name: Copy bundle from bastion via controller
+      block:
+        - name: Fetch bundle from bastion to controller
+          ansible.builtin.fetch:
+            src: /opt/rke2-files/rke2-bundle.tar.gz
+            dest: /tmp/ansible-rke2-bundle.tar.gz
+            flat: true
+          delegate_to: "{{ groups['bastion'][0] }}"
+          become: false
+          run_once: true
+
+        - name: Copy bundle from controller to airgap node
+          ansible.builtin.copy:
+            src: /tmp/ansible-rke2-bundle.tar.gz
+            dest: /tmp/rke2-bundle.tar.gz
+            mode: '0644'
+            owner: "{{ ansible_user }}"
+            group: "{{ ansible_user }}"
+          become: true
+          register: copy_result
+          until: copy_result is success
+          retries: 3
+          delay: 5
 
     - name: Verify bundle copy
       block:
