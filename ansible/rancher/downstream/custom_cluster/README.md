@@ -4,7 +4,7 @@ This playbook registers nodes to a rancher custom cluster.
 
 ## Prerequisites
 
-Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../README.md):
+Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../../../README.md):
 
 * `ansible-inventory-terraform` installed
 * SSH access to the target nodes

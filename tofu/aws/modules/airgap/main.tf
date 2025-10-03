@@ -38,6 +38,7 @@ module "bastion" {
 
 # Registry instance
 module "registry" {
+  count = var.provision_registry ? 1 : 0
   source = "./../ec2_instance"
   name = "${var.aws_hostname_prefix}-registry"
   ami = var.aws_ami
@@ -98,7 +99,7 @@ module "rancher_servers" {
 
 locals {
   target_groups = toset(concat(module.load_balancer.target_groups, module.internal_load_balancer.target_groups))
-  target_groups_map = { 
+  target_groups_map = {
     for tg in local.target_groups : tg.name => tg
   }
 }

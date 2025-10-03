@@ -5,18 +5,18 @@
   gather_facts: true
   tasks:
     - name: Stop RKE2 server service
-      systemd:
+      ansible.builtin.systemd:
         name: rke2-server
         state: stopped
-      ignore_errors: yes
+      failed_when: false
 
     - name: Remove old RKE2 configuration
-      file:
+      ansible.builtin.file:
         path: /etc/rancher/rke2/config.yaml
         state: absent
 
     - name: Regenerate RKE2 server configuration
-      template:
+      ansible.builtin.template:
         src: roles/rke2_install/templates/config.yaml.j2
         dest: /etc/rancher/rke2/config.yaml
         owner: root
@@ -25,7 +25,7 @@
       when: inventory_hostname == groups['airgap_nodes'][0]
 
     - name: Regenerate RKE2 agent configuration for additional nodes
-      template:
+      ansible.builtin.template:
         src: roles/rke2_install/templates/agent-config.yaml.j2
         dest: /etc/rancher/rke2/config.yaml
         owner: root
@@ -34,41 +34,42 @@
       when: inventory_hostname != groups['airgap_nodes'][0]
 
     - name: Display new RKE2 configuration
-      command: cat /etc/rancher/rke2/config.yaml
+      ansible.builtin.command: cat /etc/rancher/rke2/config.yaml
       register: new_config
+      changed_when: false
 
     - name: Show new configuration
-      debug:
+      ansible.builtin.debug:
         msg: |
           New RKE2 Configuration:
           {{ new_config.stdout }}
 
     - name: Start RKE2 server service
-      systemd:
+      ansible.builtin.systemd:
         name: rke2-server
         state: started
-        enabled: yes
+        enabled: true
       when: inventory_hostname == groups['airgap_nodes'][0]
 
     - name: Wait for RKE2 server to be ready
-      wait_for:
+      ansible.builtin.wait_for:
         path: /var/lib/rancher/rke2/server/token
         timeout: 300
       when: inventory_hostname == groups['airgap_nodes'][0]
 
     - name: Get server token for agent nodes
-      slurp:
+      ansible.builtin.slurp:
         src: /var/lib/rancher/rke2/server/token
       register: server_token
       when: inventory_hostname == groups['airgap_nodes'][0]
 
     - name: Set server token fact
-      set_fact:
+      ansible.builtin.set_fact:
         rke2_token: "{{ hostvars[groups['airgap_nodes'][0]]['server_token']['content'] | b64decode | trim }}"
       when: inventory_hostname != groups['airgap_nodes'][0]
 
     - name: Update agent configuration with server token
-      template:
+      ansible.builtin.template:
         src: roles/rke2_install/templates/agent-config.yaml.j2
         dest: /etc/rancher/rke2/config.yaml
         owner: root
@@ -77,19 +78,19 @@
       when: inventory_hostname != groups['airgap_nodes'][0]
 
     - name: Start RKE2 agent service on additional nodes
-      systemd:
+      ansible.builtin.systemd:
         name: rke2-agent
         state: started
-        enabled: yes
+        enabled: true
       when: inventory_hostname != groups['airgap_nodes'][0]
 
     - name: Check RKE2 service status
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
       register: rke2_status
 
     - name: Display RKE2 service status
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Service Status:
           Name: {{ rke2_status.name }}

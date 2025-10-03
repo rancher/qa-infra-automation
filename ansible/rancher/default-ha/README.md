@@ -4,7 +4,7 @@ This README provides instructions on how to run the Ansible playbook for deployi
 
 ## Prerequisites
 
-Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../README.md):
+Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../../README.md):
 *   **Kubernetes Cluster:** A running Kubernetes cluster (e.g., RKE2, K3s, or a managed Kubernetes service).  The playbook assumes you have a `kubeconfig` file that allows access to this cluster.
 *   **Environment Variables:**  You'll need to set the following environment variables:
     *   `RANCHER_PLAYBOOK_PATH`:  The full path to your `rancher-playbook.yml` file.
@@ -45,4 +45,4 @@ ansible-playbook "ansible/rancher/rancher-playbook.yml" -vvvv -e "@$VARS_FILE"
 
 ## Outputs
 
-The API key will be output in the debug logs of this playbook. 
+The API key will be output in the debug logs of this playbook.

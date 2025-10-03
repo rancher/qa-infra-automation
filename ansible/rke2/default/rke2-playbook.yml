@@ -243,7 +243,7 @@
         CHANNEL: "{{ channel | default('') }}"
         INSTALL_METHOD: "{{ install_method | default('') }}"
       register: script_result
-      when: 'inventory_hostname != "master" and ("cp" in ansible_role or "etcd" in ansible_role)'
+      when: '"master" in inventory_hostname and ("cp" in ansible_role or "etcd" in ansible_role)'
 
     - name: Transfer and execute init-agent.sh (Agent)
       script: ./init-agent.sh
@@ -280,3 +280,18 @@
         (rke2_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
       retries: 5
       delay: 60
+      
+    - name: Wait for ingress-nginx admission webhook to be ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: v1
+        kind: Endpoints
+        namespace: kube-system
+        name: rke2-ingress-nginx-controller-admission
+      register: ingress_endpoints
+      until: >
+        ingress_endpoints.resources | length > 0 and
+        (ingress_endpoints.resources[0].subsets | default([])) | length > 0 and
+        (ingress_endpoints.resources[0].subsets[0].addresses | default([])) | length > 0
+      retries: 30
+      delay: 20

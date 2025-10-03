@@ -1,0 +1,23 @@
+master:
+  hosts:
+    master:
+      ansible_host: 3.17.189.33
+      ansible_role: etcd,cp,worker
+
+servers:
+  hosts:
+    server1:
+      ansible_host: 3.23.131.121
+      ansible_role: etcd,cp,worker
+
+workers:
+  hosts:
+    worker1:
+      ansible_host: 3.131.119.235
+      ansible_role: worker
+
+all:
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    ansible_user: ec2-user
+    ansible_ssh_private_key_file: /Users/moral/jenkins-keys/jenkins-rke-validation.pem

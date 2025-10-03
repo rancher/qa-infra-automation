@@ -28,6 +28,20 @@
         msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
       when: not kubeconfig_file_stat.stat.exists
 
+    - name: Try to connect to Kubernetes cluster by listing namespaces
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: v1
+        kind: Namespace
+      register: ns_info
+      until: ns_info.resources is defined
+      retries: 5
+      delay: 15
+
+    - name: Show connection result
+      debug:
+        msg: "Connected! Found {{ ns_info.resources | length }} namespaces."
+
     - name: Install cert-manager CRDs
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
@@ -57,6 +71,15 @@
       delay: 30
       when: cert_manager_version != ""
 
+    - name: Get all nodes
+      k8s_info:
+        api_version: v1
+        kubeconfig: "{{ kubeconfig_file }}"
+        kind: Node
+        label_selectors:
+          - "node-role.kubernetes.io/etcd=true"
+      register: node_info
+
     - name: Add Rancher Helm repository
       kubernetes.core.helm_repository:
         kubeconfig: "{{ kubeconfig_file }}"
@@ -73,13 +96,14 @@
         create_namespace: true
         chart_version: "{{ rancher_version }}"
         wait: true
-        wait_timeout: "600s"
+        wait_timeout: "800s"
         values:
           hostname: "{{ fqdn }}"
           bootstrapPassword: "{{ bootstrap_password }}"
           rancherImageTag: "{{ rancher_image_tag | default(omit) }}"
+          replicas: "{{ node_info.resources | length }}"
       when: rancher_version != ""
-      retries: 5
+      retries: 6
       delay: 60
 
     - name: Wait for Rancher to be ready
@@ -91,7 +115,7 @@
         name: rancher
       register: rancher_deployment
       until: rancher_deployment.resources[0].status.readyReplicas is defined and rancher_deployment.resources[0].status.readyReplicas == rancher_deployment.resources[0].status.replicas
-      retries: 10
+      retries: 15
       delay: 30
       when: rancher_version != ""
 
@@ -113,7 +137,7 @@
         validate_certs: false
       register: webpage_result
       retries: 30
-      delay: 5
+      delay: 10
       until: webpage_result.status == 200
 
     - name: Display Rancher URL

@@ -19,3 +19,8 @@ variable "aws_vpc" {}
 variable "aws_volume_size" {}
 variable "aws_subnet" {}
 variable "instance_type" {}
+variable "provision_registry" {
+  description = "Set to false to not provision a registry instance."
+  type        = bool
+  default     = true
+}

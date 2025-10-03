@@ -1,7 +1,7 @@
 ---
 # Verify RKE2 tarball checksums to prevent installation failures
 - name: Clean up any existing corrupted files
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: absent
   loop:
@@ -12,7 +12,7 @@
   when: force_clean_download | default(false)
 
 - name: Download fresh checksum file
-  get_url:
+  ansible.builtin.get_url:
     url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/sha256sum-amd64.txt"
     dest: /tmp/rke2-artifacts/sha256sum-amd64.txt
     mode: '0644'
@@ -25,40 +25,46 @@
   become: true
 
 - name: Display checksum file contents
-  shell: cat /tmp/rke2-artifacts/sha256sum-amd64.txt
+  ansible.builtin.command: cat /tmp/rke2-artifacts/sha256sum-amd64.txt
   register: checksum_contents
   changed_when: false
   become: true
 
 - name: Show expected checksums
-  debug:
+  ansible.builtin.debug:
     msg: |
       RKE2 {{ rke2_version }} Expected Checksums:
       {{ checksum_contents.stdout_lines | join('\n') }}
 
 - name: Extract expected tarball checksum
-  shell: |
+  ansible.builtin.shell: |
+    set -o pipefail
     grep "rke2.linux-amd64.tar.gz" /tmp/rke2-artifacts/sha256sum-amd64.txt | awk '{print $1}'
   register: expected_tarball_checksum
   changed_when: false
   become: true
+  args:
+    executable: /bin/bash
 
 - name: Extract expected images checksum
-  shell: |
+  ansible.builtin.shell: |
+    set -o pipefail
     grep "rke2-images.linux-amd64.tar.gz" /tmp/rke2-artifacts/sha256sum-amd64.txt | awk '{print $1}'
   register: expected_images_checksum
   changed_when: false
   become: true
+  args:
+    executable: /bin/bash
 
 - name: Display expected checksums
-  debug:
+  ansible.builtin.debug:
     msg: |
       Expected Checksums for {{ rke2_version }}:
       - RKE2 Tarball: {{ expected_tarball_checksum.stdout }}
       - RKE2 Images: {{ expected_images_checksum.stdout }}
 
 - name: Download RKE2 tarball with checksum verification
-  get_url:
+  ansible.builtin.get_url:
     url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2.linux-amd64.tar.gz"
     dest: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
     mode: '0644'
@@ -72,7 +78,7 @@
   become: true
 
 - name: Download RKE2 images with checksum verification
-  get_url:
+  ansible.builtin.get_url:
     url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2-images.linux-amd64.tar.gz"
     dest: /tmp/rke2-artifacts/rke2-images.tar.gz
     mode: '0644'
@@ -86,7 +92,8 @@
   become: true
 
 - name: Verify downloaded files manually
-  shell: |
+  ansible.builtin.shell: |
+    set -o pipefail
     echo "=== Verifying RKE2 Tarball ==="
     if [ -f /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz ]; then
       actual_checksum=$(sha256sum /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz | awk '{print $1}')
@@ -121,13 +128,15 @@
       echo "[FAILED] RKE2 images not found"
       exit 1
     fi
-    
+
     echo ""
     echo "=== All checksums verified successfully ==="
   register: checksum_verification
   changed_when: false
   become: true
+  args:
+    executable: /bin/bash
 
 - name: Display checksum verification results
-  debug:
+  ansible.builtin.debug:
     msg: "{{ checksum_verification.stdout_lines }}"
