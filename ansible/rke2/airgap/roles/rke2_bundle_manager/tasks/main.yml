@@ -1,0 +1,18 @@
+---
+# Main tasks for rke2_bundle_manager role
+# This role manages downloading RKE2 artifacts and creating distribution bundles
+
+- name: Display RKE2 bundle manager information
+  ansible.builtin.debug:
+    msg: |
+      RKE2 Bundle Manager:
+      - Version: {{ rke2_version }}
+      - Architecture: {{ rke2_arch }}
+      - Bundle directory: {{ rke2_bundle_dir }}
+      - Bundle filename: {{ rke2_bundle_filename }}
+
+- name: Download RKE2 artifacts
+  ansible.builtin.include_tasks: download_artifacts.yml
+
+- name: Create RKE2 bundle
+  ansible.builtin.include_tasks: create_bundle.yml

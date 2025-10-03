@@ -52,143 +52,9 @@
           delegate_to: "{{ groups['bastion'][0] }}"
           run_once: true
           block:
-            - name: Create RKE2 artifact directory on bastion
-              ansible.builtin.file:
-                path: /tmp/rke2-artifacts
-                state: directory
-                mode: '0755'
-
-            - name: Download install script
-              ansible.builtin.get_url:
-                url: https://raw.githubusercontent.com/rancher/rke2/master/install.sh
-                dest: /tmp/rke2-install.sh
-                mode: '0755'
-                timeout: 60
-              register: download_result
-              until: download_result is success
-              retries: 3
-              delay: 5
-
-            - name: Download RKE2 tarball
-              ansible.builtin.get_url:
-                url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2.linux-amd64.tar.gz"
-                dest: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-                mode: '0644'
-                timeout: 60
-              register: tarball_download
-              until: tarball_download is success
-              retries: 3
-              delay: 5
-
-            - name: Download checksum file
-              ansible.builtin.get_url:
-                url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/sha256sum-amd64.txt"
-                dest: /tmp/rke2-artifacts/sha256sum-amd64.txt
-                mode: '0644'
-                timeout: 60
-              register: checksum_download
-              until: checksum_download is success
-              retries: 3
-              delay: 5
-
-            - name: Verify downloaded tarball checksum
-              ansible.builtin.shell: |
-                cd /tmp/rke2-artifacts
-                sha256sum -c <(grep "rke2.linux-amd64.tar.gz" sha256sum-amd64.txt)
-              register: checksum_verify
-              changed_when: false
-              failed_when: false
-
-            - name: Display checksum verification result
-              ansible.builtin.debug:
-                msg: |
-                  Checksum verification: {{ 'PASSED' if checksum_verify.rc == 0 else 'FAILED' }}
-                  {% if checksum_verify.rc != 0 %}
-                  Warning: Checksum verification failed, but continuing with upgrade.
-                  This may indicate a version mismatch or corrupted download.
-                  {% endif %}
-
-            - name: Regenerate checksum file if verification failed
-              ansible.builtin.shell: |
-                cd /tmp/rke2-artifacts
-                sha256sum rke2.linux-amd64.tar.gz > sha256sum-amd64.txt
-                echo "Generated new checksum file with actual tarball hash"
-              when: checksum_verify.rc != 0
-              register: checksum_regen
-              changed_when: false
-
-            - name: Download RKE2 images
-              ansible.builtin.get_url:
-                url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2-images.linux-amd64.tar.gz"
-                dest: /tmp/rke2-artifacts/rke2-images.tar.gz
-                mode: '0644'
-                timeout: 60
-              register: download_result
-              until: download_result is success
-              retries: 3
-              delay: 5
-
-            - name: Extract RKE2 binary from tarball
-              ansible.builtin.unarchive:
-                src: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-                dest: /tmp/rke2-artifacts/
-                remote_src: true
-                creates: /tmp/rke2-artifacts/bin/rke2
-              register: extract_result
-
-            - name: Copy RKE2 binary to expected location
-              ansible.builtin.copy:
-                src: /tmp/rke2-artifacts/bin/rke2
-                dest: /tmp/rke2-artifacts/rke2
-                mode: '0755'
-                remote_src: true
-
-            - name: Create shared directory for RKE2 files
-              ansible.builtin.file:
-                path: /opt/rke2-files
-                state: directory
-                mode: '0755'
-                owner: "{{ ansible_user }}"
-                group: "{{ ansible_user }}"
-
-            - name: Create staging directory structure
-              ansible.builtin.file:
-                path: "{{ item }}"
-                state: directory
-                mode: '0755'
-                owner: "{{ ansible_user }}"
-                group: "{{ ansible_user }}"
-              loop:
-                - /tmp/rke2-bundle-staging/tmp
-                - /tmp/rke2-bundle-staging/tmp/rke2-artifacts
-
-            - name: Copy files to staging directory
-              ansible.builtin.copy:
-                src: "{{ item.src }}"
-                dest: "{{ item.dest }}"
-                mode: preserve
-                remote_src: true
-              loop:
-                - { src: "/tmp/rke2-install.sh", dest: "/tmp/rke2-bundle-staging/tmp/rke2-install.sh" }
-                - { src: "/tmp/rke2-artifacts/rke2", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2" }
-                - { src: "/tmp/rke2-artifacts/rke2.linux-amd64.tar.gz", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2.linux-amd64.tar.gz" }
-                - { src: "/tmp/rke2-artifacts/rke2-images.tar.gz", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/rke2-images.tar.gz" }
-                - { src: "/tmp/rke2-artifacts/sha256sum-amd64.txt", dest: "/tmp/rke2-bundle-staging/tmp/rke2-artifacts/sha256sum-amd64.txt" }
-
-            - name: Create archive of RKE2 files
-              community.general.archive:
-                path: "/tmp/rke2-bundle-staging/tmp"
-                dest: /opt/rke2-files/rke2-bundle.tar.gz
-                format: gz
-                owner: "{{ ansible_user }}"
-                group: "{{ ansible_user }}"
-                mode: '0644'
-                remove: true
-
-            - name: Clean up staging directory
-              ansible.builtin.file:
-                path: /tmp/rke2-bundle-staging
-                state: absent
+            - name: Use rke2_bundle_manager to create upgrade bundle
+              ansible.builtin.include_role:
+                name: rke2_bundle_manager
 
         - name: Stop RKE2 service (server nodes)
           ansible.builtin.systemd:
@@ -228,20 +94,16 @@
               vars:
                 ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-            - name: Copy new bundle from bastion
-              ansible.builtin.command: >
-                scp -i {{ ssh_private_key_file }}
-                -o StrictHostKeyChecking=no
-                -o UserKnownHostsFile=/dev/null
-                -o ProxyCommand="ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}"
-                {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}:/opt/rke2-files/rke2-bundle.tar.gz
-                /tmp/rke2-bundle-new.tar.gz
-              register: scp_result
-              until: scp_result is success
+            - name: Copy new bundle from bastion using synchronize
+              ansible.posix.synchronize:
+                src: /opt/rke2-files/rke2-bundle.tar.gz
+                dest: /tmp/rke2-bundle-new.tar.gz
+                mode: pull
+              delegate_to: "{{ groups['bastion'][0] }}"
+              register: sync_result
+              until: sync_result is success
               retries: 3
               delay: 5
-              become: false
-              changed_when: false
 
         - name: Extract new RKE2 bundle
           ansible.builtin.unarchive:
@@ -253,33 +115,40 @@
             group: "{{ ansible_user }}"
           become: true
 
+        - name: Check if new artifacts already organized
+          ansible.builtin.stat:
+            path: /tmp/rke2-install-new.sh
+          register: new_install_script_check
+          become: true
+
         - name: Move new artifacts to correct locations
           ansible.builtin.shell: |
+            set -e
             # Move files to correct locations
             if [ -f /tmp/tmp/rke2-install.sh ]; then
               mv /tmp/tmp/rke2-install.sh /tmp/rke2-install-new.sh
+              chmod +x /tmp/rke2-install-new.sh
             fi
 
             if [ -d /tmp/tmp/rke2-artifacts ]; then
               rm -rf /tmp/rke2-artifacts-old
               mv /tmp/rke2-artifacts /tmp/rke2-artifacts-old 2>/dev/null || true
               mv /tmp/tmp/rke2-artifacts /tmp/rke2-artifacts
+              chmod +x /tmp/rke2-artifacts/rke2 2>/dev/null || true
             fi
-
-            # Set permissions
-            chmod +x /tmp/rke2-install-new.sh
-            chmod +x /tmp/rke2-artifacts/rke2
           become: true
-          changed_when: false
+          changed_when: true
+          when: not new_install_script_check.stat.exists
 
         - name: Backup current RKE2 binaries
-          ansible.builtin.shell: |
-            if [ -f /usr/local/bin/rke2 ]; then
-              cp /usr/local/bin/rke2 /opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup
-            fi
+          ansible.builtin.copy:
+            src: /usr/local/bin/rke2
+            dest: /opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup
+            remote_src: true
+            mode: '0755'
           become: true
-          changed_when: false
           failed_when: false
+          when: ansible_facts.stat is undefined or ansible_facts.stat.exists
 
         - name: Run RKE2 upgrade install script (server)
           ansible.builtin.shell: |

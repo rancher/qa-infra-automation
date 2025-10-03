@@ -5,6 +5,28 @@
   gather_facts: true
   vars_files:
     - ../group_vars/all.yml
+
+  pre_tasks:
+    - name: Validate required variables for upgrade
+      ansible.builtin.assert:
+        that:
+          - rke2_version is defined
+          - rke2_version is match('^v[0-9]+\.[0-9]+\.[0-9]+')
+          - groups['bastion'] is defined
+          - groups['bastion'] | length > 0
+          - groups['airgap_nodes'] is defined
+          - groups['airgap_nodes'] | length > 0
+          - ssh_private_key_file is defined
+          - ansible_user is defined
+        fail_msg: |
+          Required variable validation failed. Please check:
+          - rke2_version is defined and matches format 'vX.Y.Z' (found: {{ rke2_version | default('undefined') }})
+          - bastion group has at least one host (found: {{ groups['bastion'] | default([]) | length }})
+          - airgap_nodes group has at least one host (found: {{ groups['airgap_nodes'] | default([]) | length }})
+          - ssh_private_key_file is defined (found: {{ ssh_private_key_file | default('undefined') }})
+          - ansible_user is defined (found: {{ ansible_user | default('undefined') }})
+        success_msg: "All required variables are valid for upgrade"
+
   tasks:
     - name: Check current RKE2 installation
       ansible.builtin.shell: |

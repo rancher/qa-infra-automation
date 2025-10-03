@@ -56,26 +56,16 @@
         group: "{{ ansible_user }}"
       become: true
 
-    - name: Copy bundle from bastion
-      ansible.builtin.command: >
-        scp -i {{ ssh_private_key_file }}
-        -o StrictHostKeyChecking=no
-        -o UserKnownHostsFile=/dev/null
-        -o ProxyCommand="ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}"
-        {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}:/opt/rke2-files/rke2-bundle.tar.gz
-        /tmp/rke2-bundle.tar.gz
-      register: scp_result
-      until: scp_result is success
+    - name: Copy bundle from bastion using synchronize
+      ansible.posix.synchronize:
+        src: /opt/rke2-files/rke2-bundle.tar.gz
+        dest: /tmp/rke2-bundle.tar.gz
+        mode: pull
+      delegate_to: "{{ groups['bastion'][0] }}"
+      register: sync_result
+      until: sync_result is success
       retries: 3
       delay: 5
-      become: false
-      changed_when: false
-      vars:
-        ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-        ansible_ssh_common_args: >-
-          -o StrictHostKeyChecking=no
-          -o UserKnownHostsFile=/dev/null
-          -o ProxyCommand='ssh -i {{ ssh_private_key_file }} -W %h:%p {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}'
 
     - name: Verify bundle copy
       block:
@@ -154,13 +144,15 @@
       ansible.builtin.debug:
         msg: "Temp directory contents: {{ temp_dir_contents.stdout_lines }}"
 
+    - name: Check if artifacts already organized
+      ansible.builtin.stat:
+        path: /tmp/rke2-install.sh
+      register: install_script_check
+      become: true
+
     - name: Move files to correct locations
       ansible.builtin.shell: |
-        set -x
-        # Show current structure
-        echo "Extracted directory structure:"
-        find /tmp/rke2-extract -type f -ls
-
+        set -e
         # Create required directories
         mkdir -p /tmp/rke2-artifacts
 
@@ -171,16 +163,12 @@
         fi
 
         if [ -d /tmp/rke2-extract/tmp/rke2-artifacts ]; then
-          mv /tmp/rke2-extract/tmp/rke2-artifacts/* /tmp/rke2-artifacts/
+          mv /tmp/rke2-extract/tmp/rke2-artifacts/* /tmp/rke2-artifacts/ 2>/dev/null || true
         fi
-
-        # Show final structure
-        echo "Final directory structure:"
-        ls -la /tmp/rke2-artifacts/
-        ls -la /tmp/rke2-install.sh 2>/dev/null || echo "Install script not found"
       register: move_result
       become: true
-      changed_when: false
+      changed_when: move_result.rc == 0
+      when: not install_script_check.stat.exists
 
     - name: Display move result
       ansible.builtin.debug:
