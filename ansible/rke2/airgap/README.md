@@ -43,16 +43,19 @@ airgap/
 │   ├── deploy/
 │   │   ├── rke2-tarball-playbook.yml
 │   │   ├── rke2-upgrade-playbook.yml
-│   │   └── rke2-registry-config-playbook.yml
+│   │   ├── rke2-registry-config-playbook.yml
+│   │   └── rancher-helm-deploy-playbook.yml
 │   └── setup/
 │       ├── setup-agent-nodes.yml
 │       ├── setup-kubectl-access.yml
 │       └── setup-ssh-keys.yml
 ├── roles/
+│   ├── rke2_bundle_manager/         # Reusable bundle download/creation
 │   ├── rke2_install/
 │   ├── rke2_tarball/
 │   ├── rke2_upgrade/
 │   ├── rke2_registry_config/
+│   ├── rancher_helm_deploy/
 │   └── ssh_setup/
 ├── ansible.cfg
 └── README.md
@@ -157,6 +160,118 @@ This will:
 - Verify the configuration is properly applied
 
 **Note**: This step should only be performed after RKE2 is successfully installed and running.
+
+### 6. Deploy Rancher (Optional)
+
+After RKE2 cluster is installed and kubectl is configured on the bastion, you can deploy Rancher for cluster management:
+
+#### Prerequisites
+
+- RKE2 cluster installed and running
+- kubectl configured on bastion node (completed in step 3)
+- DNS or `/etc/hosts` configured to resolve Rancher hostname
+
+#### Configuration
+
+Edit `inventory/group_vars/all.yml` to configure Rancher deployment settings:
+
+```yaml
+# Deploy Rancher
+deploy_rancher: true
+install_helm: true
+
+rancher_hostname: "rancher.example.com"
+rancher_bootstrap_password: "your-secure-password"
+rancher_image_tag: v2.12.2
+rancher_use_bundled_system_charts: true
+```
+
+**Important Variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `deploy_rancher` | Enable Rancher deployment | `true` |
+| `install_helm` | Install Helm on bastion if not present | `true` |
+| `rancher_hostname` | FQDN for accessing Rancher | Required |
+| `rancher_bootstrap_password` | Initial admin password | Required |
+| `rancher_image_tag` | Rancher version to deploy | `v2.12.2` |
+| `rancher_use_bundled_system_charts` | Use bundled charts for airgap | `true` |
+
+#### Run the Deployment
+
+Execute the Rancher deployment playbook:
+
+```bash
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rancher-helm-deploy-playbook.yml
+```
+
+The deployment process will:
+- Verify kubectl connectivity to RKE2 cluster
+- Install Helm 3 on bastion if needed
+- Install required Python dependencies (kubernetes, yaml)
+- Create cattle-system namespace
+- Deploy cert-manager (required for Rancher)
+- Deploy Rancher using Helm chart
+- Wait for Rancher pods to be ready
+- Create a deployment summary file on bastion
+
+#### Post-Deployment
+
+After successful deployment:
+
+1. **Configure DNS or hosts file:**
+   ```bash
+   # On your local machine, add to /etc/hosts:
+   <LOAD_BALANCER_IP>  rancher.example.com
+   ```
+
+2. **Access Rancher UI:**
+   - Navigate to: `https://<rancher_hostname>`
+   - Login with the bootstrap password from `group_vars/all.yml`
+   - Complete the Rancher setup wizard
+
+3. **Verify deployment:**
+   ```bash
+   # On bastion node
+   kubectl get pods -n cattle-system
+   kubectl get svc -n cattle-system rancher
+
+   # Check deployment summary
+   cat ~/rancher-deployment-summary.txt
+   ```
+
+#### Troubleshooting Rancher Deployment
+
+**Pods not starting:**
+```bash
+# Check pod status
+kubectl get pods -n cattle-system
+
+# View pod logs
+kubectl logs -n cattle-system -l app=rancher
+
+# Check cert-manager
+kubectl get pods -n cert-manager
+```
+
+**Cannot access Rancher UI:**
+```bash
+# Check service
+kubectl get svc -n cattle-system rancher
+
+# For NodePort deployments, get the port
+kubectl get svc -n cattle-system rancher -o jsonpath='{.spec.ports[0].nodePort}'
+
+# Check ingress (if using)
+kubectl get ingress -n cattle-system
+```
+
+**DNS issues:**
+- Verify DNS resolves to correct IP: `nslookup <rancher_hostname>`
+- Check `/etc/hosts` entry points to LoadBalancer or Node IP
+- Ensure firewall allows HTTPS (443) traffic
+
+For airgap-specific Rancher issues, see the Rancher airgap documentation in `docs/`.
 
 ## Upgrading RKE2
 
@@ -416,6 +531,9 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access
 
 # Configure private registries (after RKE2 installation)
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-config-playbook.yml
+
+# Deploy Rancher to RKE2 cluster (after RKE2 installation and kubectl setup)
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rancher-helm-deploy-playbook.yml
 ```
 
 ### Common Issues
