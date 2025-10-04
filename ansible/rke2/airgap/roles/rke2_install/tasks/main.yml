@@ -12,7 +12,7 @@
     dest: /etc/rancher/rke2/config.yaml
     mode: '0644'
   become: true
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Create RKE2 artifact directory
   ansible.builtin.file:
@@ -243,7 +243,7 @@
     state: directory
     mode: '0755'
   become: true
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Copy RKE2 images to proper location
   ansible.builtin.copy:
@@ -252,7 +252,7 @@
     remote_src: true
     mode: '0644'
   become: true
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Run RKE2 server install script
   ansible.builtin.shell: |
@@ -263,10 +263,10 @@
     creates: /usr/local/lib/systemd/system/rke2-server.service
     executable: /bin/bash
   become: true
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Start RKE2 server
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
   block:
     - name: Start RKE2 server service
       ansible.builtin.systemd:
@@ -338,10 +338,10 @@
     path: /var/lib/rancher/rke2/server/node-token
     timeout: 300
   become: true
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Wait for RKE2 server to be fully operational
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
   block:
     - name: Monitor RKE2 server startup progress
       ansible.builtin.shell: |
@@ -437,24 +437,24 @@
     name: rke2-server
     state: started
   become: true
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Pause for server initialization
   ansible.builtin.pause:
     seconds: 30
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Get node token from server
   ansible.builtin.slurp:
     src: /var/lib/rancher/rke2/server/node-token
   become: true
   register: node_token_result
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Set node token fact on all hosts
   ansible.builtin.set_fact:
-    rke2_token: "{{ hostvars[groups['airgap_nodes'][0]]['node_token_result']['content'] | b64decode | trim }}"
-  when: hostvars[groups['airgap_nodes'][0]]['node_token_result'] is defined
+    rke2_token: "{{ hostvars[groups['rke2_servers'][0]]['node_token_result']['content'] | b64decode | trim }}"
+  when: hostvars[groups['rke2_servers'][0]]['node_token_result'] is defined
 
 - name: Configure RKE2 agent
   ansible.builtin.template:
@@ -462,7 +462,7 @@
     dest: /etc/rancher/rke2/config.yaml
     mode: '0644'
   become: true
-  when: inventory_hostname != groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_agents']
 
 - name: Run RKE2 agent install script
   ansible.builtin.shell: |
@@ -473,7 +473,7 @@
     creates: /usr/local/lib/systemd/system/rke2-agent.service
     executable: /bin/bash
   become: true
-  when: inventory_hostname != groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_agents']
 
 - name: Start RKE2 agent
   ansible.builtin.systemd:
@@ -481,20 +481,20 @@
     state: started
     enabled: true
   become: true
-  when: inventory_hostname != groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_agents']
 
 - name: Wait for kubeconfig
   ansible.builtin.wait_for:
     path: /etc/rancher/rke2/rke2.yaml
   become: true
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Get kubeconfig
   ansible.builtin.slurp:
     src: /etc/rancher/rke2/rke2.yaml
   become: true
   register: kubeconfig
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
 
 - name: Create local kubeconfig directory
   ansible.builtin.file:
@@ -503,7 +503,7 @@
     mode: '0755'
   delegate_to: localhost
   become: false
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
   vars:
     ansible_connection: local
 
@@ -514,6 +514,6 @@
     mode: '0600'
   delegate_to: localhost
   become: false
-  when: inventory_hostname == groups['airgap_nodes'][0]
+  when: inventory_hostname in groups['rke2_servers']
   vars:
     ansible_connection: local

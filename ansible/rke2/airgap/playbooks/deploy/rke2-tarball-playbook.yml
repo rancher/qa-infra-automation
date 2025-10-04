@@ -129,7 +129,7 @@
       ansible.builtin.wait_for:
         path: /etc/rancher/rke2/rke2.yaml
         timeout: 300
-      when: inventory_hostname == groups['airgap_nodes'][0]
+      when: inventory_hostname in groups['rke2_servers']
       become: true
 
     - name: Check RKE2 server status
@@ -138,12 +138,14 @@
         state: started
       become: true
       register: rke2_status
+      when: inventory_hostname in groups['rke2_servers']
 
     - name: Display RKE2 status
       ansible.builtin.debug:
         msg: |
           RKE2 Server Status: {{ rke2_status.status.ActiveState }}
           RKE2 is {{ 'running' if rke2_status.status.ActiveState == 'active' else 'not running' }}
+      when: inventory_hostname in groups['rke2_servers']
 
     - name: Get cluster nodes (if kubectl is available)
       ansible.builtin.shell: |
@@ -228,12 +230,12 @@
         group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
 
-    - name: Fetch KUBECONFIG from first airgap node
+    - name: Fetch KUBECONFIG from first RKE2 server
       ansible.builtin.fetch:
         src: /etc/rancher/rke2/rke2.yaml
         dest: /tmp/rke2-{{ inventory_hostname }}.yaml
         flat: true
-      delegate_to: "{{ groups['airgap_nodes'][0] }}"
+      delegate_to: "{{ groups['rke2_servers'][0] }}"
       become: true
 
     - name: Read kubeconfig content
@@ -245,7 +247,7 @@
 
     - name: Update server URL in kubeconfig content
       ansible.builtin.set_fact:
-        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups['airgap_nodes'][0]]['ansible_host'] + ':6443') }}"
+        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups['rke2_servers'][0]]['ansible_host'] + ':6443') }}"
 
     - name: Write kubeconfig to bastion root
       ansible.builtin.copy:

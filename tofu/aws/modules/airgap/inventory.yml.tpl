@@ -34,8 +34,21 @@ all:
         ansible_ssh_common_args: "-o ProxyCommand='ssh -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}'"
         bastion_ip: "{{ bastion_host }}"
 
-      hosts:
+      children:
+        rke2_servers:
+          hosts:
 %{ for idx, ip in rancher_server_ips ~}
-        rke2-server-${idx}:
-          ansible_host: "${ip}"
+%{ if idx == 0 ~}
+            rke2-server-${idx}:
+              ansible_host: "${ip}"
+%{ endif ~}
+%{ endfor ~}
+
+        rke2_agents:
+          hosts:
+%{ for idx, ip in rancher_server_ips ~}
+%{ if idx > 0 ~}
+            rke2-agent-${idx - 1}:
+              ansible_host: "${ip}"
+%{ endif ~}
 %{ endfor ~}
