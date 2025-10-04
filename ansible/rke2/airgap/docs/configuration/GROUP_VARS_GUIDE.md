@@ -39,6 +39,7 @@ rke2_version: "v1.24.1+rke2r1"
 ### 2. Customize Bastion Settings (Optional)
 
 Edit `inventory/group_vars/all.yml` if you need to change:
+
 - Registry port (default: 5000)
 - Storage directories
 - SSL certificate details
@@ -47,6 +48,7 @@ Edit `inventory/group_vars/all.yml` if you need to change:
 ### 3. Customize Airgap Node Settings (Optional)
 
 Edit `inventory/group_vars/all.yml` if you need to change:
+
 - RKE2 directories
 - Container runtime settings
 - Node labels/taints
@@ -135,12 +137,14 @@ cleanup_temp_files: false  # Keep files for debugging
 ### Using Ansible Vault
 
 1. **Encrypt sensitive variables**:
+
    ```bash
    # Create encrypted vars file
    ansible-vault create inventory/group_vars/vault.yml
    ```
 
 2. **Add sensitive variables to vault.yml**:
+
    ```yaml
    vault_external_registry_username: "real-username"
    vault_external_registry_password: "real-password"
@@ -149,6 +153,7 @@ cleanup_temp_files: false  # Keep files for debugging
    ```
 
 3. **Reference vault variables in all.yml**:
+
    ```yaml
    external_registry_username: "{{ vault_external_registry_username }}"
    external_registry_password: "{{ vault_external_registry_password }}"
@@ -157,6 +162,7 @@ cleanup_temp_files: false  # Keep files for debugging
    ```
 
 4. **Run with vault password**:
+
    ```bash
    ansible-playbook -i inventory.yml rke2-registry-distribution-playbook.yml --ask-vault-pass
    ```
@@ -180,6 +186,7 @@ inventory/
 ```
 
 Run with environment-specific vars:
+
 ```bash
 # Production
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-distribution-playbook.yml \
@@ -193,6 +200,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-distr
 ## Variable Precedence
 
 Ansible variable precedence (highest to lowest):
+
 1. Command line `-e` variables
 2. Task variables
 3. Block variables

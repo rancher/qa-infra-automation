@@ -1,0 +1,38 @@
+---
+# Default variables for rke2_bundle_manager role
+
+# RKE2 version to download
+rke2_version: "v1.33.4+rke2r1"
+
+# Temporary directory for downloads and staging
+rke2_temp_dir: /tmp/rke2-artifacts
+rke2_staging_dir: /tmp/rke2-bundle-staging
+rke2_bundle_dir: /opt/rke2-files
+
+# RKE2 download URLs
+rke2_install_script_url: "https://raw.githubusercontent.com/rancher/rke2/master/install.sh"
+rke2_github_release_url: "https://github.com/rancher/rke2/releases/download"
+
+# Architecture
+rke2_arch: amd64
+
+# Download timeout in seconds
+rke2_download_timeout: 60
+
+# Number of download retries
+rke2_download_retries: 3
+
+# Delay between retries in seconds
+rke2_download_delay: 5
+
+# Bundle file name
+rke2_bundle_filename: rke2-bundle.tar.gz
+
+# Whether to verify checksums
+rke2_verify_checksums: true
+
+# Whether to regenerate checksums on failure
+rke2_regenerate_checksums_on_failure: true
+
+# Cleanup temporary files after bundle creation
+rke2_cleanup_temp_files: true

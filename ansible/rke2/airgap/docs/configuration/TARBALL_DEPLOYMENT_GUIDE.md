@@ -5,6 +5,7 @@ This guide explains how to perform a complete RKE2 airgap deployment using offic
 ## Overview
 
 The tarball approach is the **most reliable method** for RKE2 airgap deployments because:
+
 - **Official RKE2 releases** - Uses verified, official Rancher releases
 - **Complete bundles** - Includes all necessary binaries and container images
 - **No registry dependencies** - Doesn't require external registry access
@@ -15,16 +16,20 @@ The tarball approach is the **most reliable method** for RKE2 airgap deployments
 You already have excellent roles that handle the entire tarball deployment process:
 
 ### 1. **`rke2_tarball` Role**
+
 **Purpose**: Downloads and prepares RKE2 release artifacts on the bastion host
 **What it does**:
+
 - Downloads RKE2 install script from GitHub
 - Downloads RKE2 binary, images, and checksums for specified version
 - Creates a compressed bundle with all artifacts
 - Verifies file integrity and permissions
 
-### 2. **`rke2_install` Role** 
+### 2. **`rke2_install` Role**
+
 **Purpose**: Installs RKE2 on airgap nodes using the prepared bundle
 **What it does**:
+
 - Copies bundle from bastion to airgap nodes via SCP
 - Extracts and organizes RKE2 artifacts
 - Runs RKE2 install script with offline artifacts
@@ -58,14 +63,16 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbo
 
 ### 2. **What Happens**
 
-**Phase 1: Artifact Preparation (Bastion Host)**
+### Phase 1: Artifact Preparation (Bastion Host)
+
 ```
 [bastion] → Downloads RKE2 v1.31.1+rke2r1 artifacts
 [bastion] → Creates /opt/rke2-files/rke2-bundle.tar.gz
 [bastion] → Verifies bundle integrity
 ```
 
-**Phase 2: RKE2 Installation (Airgap Nodes)**
+### Phase 2: RKE2 Installation (Airgap Nodes)
+
 ```
 [airgap-nodes] → Copies bundle from bastion via SCP
 [airgap-nodes] → Extracts RKE2 artifacts locally
@@ -74,7 +81,8 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbo
 [airgap-nodes] → Starts services and joins cluster
 ```
 
-**Phase 3: Verification**
+### Phase 3: Verification
+
 ```
 [server-node] → Checks cluster status
 [server-node] → Retrieves kubeconfig
@@ -124,7 +132,7 @@ cluster_ready_timeout: 600
 Your `rke2_tarball` role downloads these artifacts:
 
 1. **Install Script**: `https://raw.githubusercontent.com/rancher/rke2/master/install.sh`
-2. **RKE2 Binary**: `rke2.linux-amd64` 
+2. **RKE2 Binary**: `rke2.linux-amd64`
 3. **Container Images**: `rke2-images.linux-amd64.tar.gz`
 4. **Checksums**: `sha256sum-amd64.txt`
 
@@ -179,6 +187,7 @@ kubectl get pods --all-namespaces
 ### **Common Issues**
 
 1. **Download Failures on Bastion**
+
    ```bash
    # Check internet connectivity
    curl -I https://github.com/rancher/rke2/releases/
@@ -188,6 +197,7 @@ kubectl get pods --all-namespaces
    ```
 
 2. **Bundle Transfer Failures**
+
    ```bash
    # Test SSH connectivity from bastion
    ssh -i ~/.ssh/your-key user@airgap-node 'echo "SSH OK"'
@@ -197,6 +207,7 @@ kubectl get pods --all-namespaces
    ```
 
 3. **Installation Failures**
+
    ```bash
    # Check extracted artifacts
    ls -la /tmp/rke2-artifacts/
@@ -209,6 +220,7 @@ kubectl get pods --all-namespaces
    ```
 
 4. **Service Start Failures**
+
    ```bash
    # Check service logs
    sudo journalctl -u rke2-server -f
@@ -240,6 +252,7 @@ sudo ctr --address /run/k3s/containerd/containerd.sock images list
 ### **Different RKE2 Version**
 
 1. Update `inventory/group_vars/all.yml`:
+
 ```yaml
 rke2_version: "v1.32.0+rke2r1"
 ```
