@@ -5,6 +5,7 @@ This guide provides step-by-step instructions for upgrading RKE2 clusters in air
 ## Overview
 
 The RKE2 upgrade process for airgap environments involves:
+
 1. **Pre-upgrade validation** - Check current cluster state and requirements
 2. **Download new version** - Fetch RKE2 tarball bundle on bastion host
 3. **Server upgrade** - Upgrade the first server node (control plane)
@@ -14,6 +15,7 @@ The RKE2 upgrade process for airgap environments involves:
 ## Prerequisites
 
 ### System Requirements
+
 - Existing RKE2 cluster deployed using the airgap installation method
 - Bastion host with internet access
 - All cluster nodes accessible from bastion via SSH
@@ -21,6 +23,7 @@ The RKE2 upgrade process for airgap environments involves:
 - Root or sudo access on all nodes
 
 ### Version Compatibility
+
 - **Supported upgrade paths**: Minor version upgrades (e.g., v1.31.1 → v1.31.11)
 - **Major version upgrades**: Test thoroughly in non-production environments first
 - **Downgrade**: Not supported - always backup before upgrading
@@ -88,6 +91,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbo
 ### Step 3: Monitor the Upgrade Process
 
 The playbook will:
+
 1. **Validate** current installation and check upgrade requirements
 2. **Download** new RKE2 version on bastion host
 3. **Upgrade server** node first (with automatic rollback on failure)
@@ -97,17 +101,20 @@ The playbook will:
 ## Upgrade Stages Explained
 
 ### Stage 1: Pre-upgrade Validation
+
 - Checks if RKE2 is installed on all nodes
 - Verifies current versions and service status
 - Validates disk space availability
 - Displays upgrade requirements
 
 ### Stage 2: Download New Version
+
 - Downloads RKE2 tarball bundle on bastion host
 - Creates new bundle with updated version
 - Skips download if all nodes are already at target version
 
 ### Stage 3: Server Node Upgrade
+
 - Stops RKE2 server service
 - Backs up current configuration and binaries
 - Installs new RKE2 version
@@ -115,6 +122,7 @@ The playbook will:
 - Verifies server functionality before proceeding
 
 ### Stage 4: Agent Node Upgrade (Serial)
+
 - Upgrades one agent node at a time
 - Stops agent service
 - Installs new RKE2 version
@@ -122,6 +130,7 @@ The playbook will:
 - Verifies node rejoins cluster before next agent
 
 ### Stage 5: Post-upgrade Verification
+
 - Checks all nodes are in Ready state
 - Verifies cluster functionality
 - Updates kubectl on bastion host
@@ -132,6 +141,7 @@ The playbook will:
 ### Common Issues
 
 #### 1. Service Fails to Start After Upgrade
+
 ```bash
 # Check service status
 sudo systemctl status rke2-server  # or rke2-agent
@@ -147,6 +157,7 @@ sudo systemctl restart rke2-server
 ```
 
 #### 2. Node Doesn't Rejoin Cluster
+
 ```bash
 # On the problematic node, check agent logs
 sudo journalctl -u rke2-agent -f
@@ -159,6 +170,7 @@ sudo cat /var/lib/rancher/rke2/server/node-token
 ```
 
 #### 3. Upgrade Fails - Rollback Required
+
 The playbook includes automatic rollback, but manual rollback may be needed:
 
 ```bash
@@ -178,23 +190,28 @@ sudo systemctl start rke2-server  # or rke2-agent
 ### Recovery Procedures
 
 #### Complete Cluster Recovery
+
 If the upgrade fails catastrophically:
 
 1. **Stop all RKE2 services** on all nodes
 2. **Restore etcd backup** on server node:
+
    ```bash
    sudo /var/lib/rancher/rke2/bin/etcdctl snapshot restore /opt/etcd-backup-*.db \
      --data-dir /var/lib/rancher/rke2/server/db/etcd
    ```
+
 3. **Restore configurations** from backups
 4. **Restart services** starting with server node
 
 #### Partial Recovery
+
 If only some nodes fail:
 
 1. **Identify failed nodes** using `kubectl get nodes`
 2. **Manually fix** failed nodes using troubleshooting steps
 3. **Re-run upgrade** playbook with `--limit` flag:
+
    ```bash
    ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-upgrade-playbook.yml --limit failed_node
    ```
@@ -202,6 +219,7 @@ If only some nodes fail:
 ## Validation Commands
 
 ### Check Cluster Status
+
 ```bash
 # From bastion host
 kubectl get nodes -o wide
@@ -213,6 +231,7 @@ ansible airgap_nodes -i inventory/inventory.yml -m shell -a "/usr/local/bin/rke2
 ```
 
 ### Verify Upgrade Success
+
 ```bash
 # Check all nodes are at target version
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.kubeletVersion}{"\n"}{end}'
@@ -227,6 +246,7 @@ kubectl get componentstatuses
 ## Best Practices
 
 ### Before Upgrade
+
 - [ ] **Test in non-production** environment first
 - [ ] **Create full backups** of etcd and configurations
 - [ ] **Verify sufficient disk space** on all nodes
@@ -234,12 +254,14 @@ kubectl get componentstatuses
 - [ ] **Plan maintenance window** during low-traffic periods
 
 ### During Upgrade
+
 - [ ] **Monitor logs** continuously during upgrade
 - [ ] **Verify each stage** completes successfully before proceeding
 - [ ] **Keep backup restoration commands** ready
 - [ ] **Have rollback plan** prepared
 
 ### After Upgrade
+
 - [ ] **Verify all applications** are functioning correctly
 - [ ] **Update monitoring** and alerting configurations
 - [ ] **Document upgrade** results and any issues encountered
@@ -248,6 +270,7 @@ kubectl get componentstatuses
 ## Automation and Scheduling
 
 ### Automated Upgrades
+
 For production environments, consider:
 
 ```bash
@@ -263,6 +286,7 @@ EOF
 ```
 
 ### CI/CD Integration
+
 Integrate with your CI/CD pipeline:
 
 ```yaml
@@ -279,7 +303,7 @@ rke2-upgrade:
 
 ## Support and Resources
 
-- **RKE2 Documentation**: https://docs.rke2.io/
-- **Release Notes**: https://github.com/rancher/rke2/releases
-- **Community Support**: https://rancher.com/support/
+- **RKE2 Documentation**: <https://docs.rke2.io/>
+- **Release Notes**: <https://github.com/rancher/rke2/releases>
+- **Community Support**: <https://rancher.com/support/>
 - **Troubleshooting**: Check logs in `/var/log/` and `journalctl`
