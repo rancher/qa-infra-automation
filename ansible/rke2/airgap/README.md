@@ -165,7 +165,7 @@ This will:
 
 After RKE2 cluster is installed and kubectl is configured on the bastion, you can deploy Rancher for cluster management:
 
-#### Prerequisites
+#### Rancher Deployment Prerequisites
 
 - RKE2 cluster installed and running
 - kubectl configured on bastion node (completed in step 3)
@@ -206,6 +206,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rancher-helm-deploy
 ```
 
 The deployment process will:
+
 - Verify kubectl connectivity to RKE2 cluster
 - Install Helm 3 on bastion if needed
 - Install required Python dependencies (kubernetes, yaml)
@@ -220,6 +221,7 @@ The deployment process will:
 After successful deployment:
 
 1. **Configure DNS or hosts file:**
+
    ```bash
    # On your local machine, add to /etc/hosts:
    <LOAD_BALANCER_IP>  rancher.example.com
@@ -231,6 +233,7 @@ After successful deployment:
    - Complete the Rancher setup wizard
 
 3. **Verify deployment:**
+
    ```bash
    # On bastion node
    kubectl get pods -n cattle-system
@@ -243,6 +246,7 @@ After successful deployment:
 #### Troubleshooting Rancher Deployment
 
 **Pods not starting:**
+
 ```bash
 # Check pod status
 kubectl get pods -n cattle-system
@@ -255,6 +259,7 @@ kubectl get pods -n cert-manager
 ```
 
 **Cannot access Rancher UI:**
+
 ```bash
 # Check service
 kubectl get svc -n cattle-system rancher
@@ -267,6 +272,7 @@ kubectl get ingress -n cattle-system
 ```
 
 **DNS issues:**
+
 - Verify DNS resolves to correct IP: `nslookup <rancher_hostname>`
 - Check `/etc/hosts` entry points to LoadBalancer or Node IP
 - Ensure firewall allows HTTPS (443) traffic
@@ -326,7 +332,7 @@ The upgrade process will:
 
 For detailed upgrade procedures, troubleshooting, and best practices, see [`docs/configuration/RKE2_UPGRADE_GUIDE.md`](docs/configuration/RKE2_UPGRADE_GUIDE.md).
 
-## Configuration
+## Global Configuration
 
 ### Global Variables (`inventory/group_vars/all.yml`)
 

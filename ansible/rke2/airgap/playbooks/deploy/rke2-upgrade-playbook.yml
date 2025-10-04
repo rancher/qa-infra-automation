@@ -120,6 +120,7 @@
       when: not server_upgrade_needed
 
     - name: Verify server is operational after upgrade
+      when: server_upgrade_needed
       block:
         - name: Wait for RKE2 server to be ready
           ansible.builtin.wait_for:
@@ -148,8 +149,6 @@
               - kubectl Test: {{ 'PASSED' if kubectl_test.rc == 0 else 'FAILED' }}
               - Cluster Nodes: {{ kubectl_test.stdout_lines | length - 1 }} nodes visible
 
-      when: server_upgrade_needed
-
 - name: RKE2 Airgap Upgrade - Upgrade Agent Nodes
   hosts: airgap_nodes[1:]  # All nodes except the first (server)
   become: true
@@ -173,6 +172,7 @@
       when: not agent_upgrade_needed
 
     - name: Verify agent is operational after upgrade
+      when: agent_upgrade_needed
       block:
         - name: Check agent service status
           ansible.builtin.systemd:
@@ -202,8 +202,6 @@
               {% if node_status.rc == 0 %}
               - Node Details: {{ node_status.stdout }}
               {% endif %}
-
-      when: agent_upgrade_needed
 
 - name: RKE2 Airgap Upgrade - Post-upgrade Verification
   hosts: airgap_nodes[0]  # Run verification from server node
@@ -269,12 +267,12 @@
           become: true
 
         - name: Warn about not ready nodes
-          debug:
+          ansible.builtin.debug:
             msg: "[WARNING] {{ not_ready_count.stdout }} nodes are not in Ready state. Check cluster status."
           when: not_ready_count.stdout | int > 0
 
         - name: Success message
-          debug:
+          ansible.builtin.debug:
             msg: "[OK] All {{ final_cluster_status.stdout_lines | length - 1 }} nodes are Ready!"
           when: not_ready_count.stdout | int == 0
 
@@ -310,12 +308,7 @@
             group: root
             backup: true
           register: kubectl_update
-
-        - name: Verify kubectl update
-          ansible.builtin.command: kubectl version --client
-          register: kubectl_version_check
-          changed_when: false
-          when: kubectl_update is changed
+          notify: Verify kubectl update
 
         - name: Display kubectl update status
           ansible.builtin.debug:
