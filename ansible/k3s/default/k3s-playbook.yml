@@ -51,15 +51,13 @@
       setup:
 
   tasks:
-    - name: Create K3s server directories on master
+    - name: Create K3s server manifests directory on master
       file:
         path: "{{ item }}"
         state: directory
         mode: '0755'
       loop:
-        - /var/lib/rancher/k3s/server
         - /var/lib/rancher/k3s/server/manifests
-        - /var/lib/rancher/k3s/server/logs
       when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
 
     - name: Install K3s on initial cluster node
@@ -147,15 +145,13 @@
       run_once: true
       delegate_to: localhost
 
-    - name: Create K3s server directories on server nodes
+    - name: Create K3s server manifests directory on server nodes
       file:
         path: "{{ item }}"
         state: directory
         mode: '0755'
       loop:
-        - /var/lib/rancher/k3s/server
         - /var/lib/rancher/k3s/server/manifests
-        - /var/lib/rancher/k3s/server/logs
       when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
 
     - name: Install K3s on server nodes

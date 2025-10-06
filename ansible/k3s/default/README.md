@@ -34,11 +34,11 @@ For "manually" managed infrastructure:
 ```bash
 # Set required environment variables
 export MASTER_IP="192.168.1.10"
-export MASTER_ROLE="etcd,cp"
-export SERVER1_IP="192.168.1.11"  # Optional
-export SERVER1_ROLE="etcd,cp"     # Optional
-export WORKER1_IP="192.168.1.20"  # Optional
-export WORKER1_ROLE="worker"       # Optional
+export MASTER_ROLE="etcd,cp,worker"
+export SERVER1_IP="192.168.1.11"            # Optional
+export SERVER1_ROLE="etcd,cp,worker"        # Optional
+export WORKER1_IP="192.168.1.20"            # Optional
+export WORKER1_ROLE="worker"                # Optional
 export ANSIBLE_USER="ubuntu"
 export ANSIBLE_SSH_KEY="~/.ssh/id_rsa"
 
@@ -79,6 +79,6 @@ vim vars.yaml
 **Sample `vars.yaml`:**
 ```yaml
 # K3s version and installation
-kubernetes_version: 'v1.28.15+k3s1'
+kubernetes_version: 'v1.33.1+k3s1'
 kubeconfig_file: './kubeconfig.yaml'
 ```
