@@ -22,6 +22,7 @@ all:
 1. **Single Point of Configuration**: Change bastion details in one place
 2. **Consistency**: All SSH proxy commands use the same bastion configuration
 3. **Reusability**: Easy to adapt for different environments
+
 ### **IMPORTANT: SSH Key Path Configuration**
 
 **WARNING: Use absolute paths for SSH keys** to avoid tilde (`~`) expansion issues:
@@ -36,7 +37,7 @@ ssh_private_key_file: "~/.ssh/id_rsa"
 
 The tilde (`~`) can be expanded differently depending on the execution context, leading to SSH key not found errors.
 
-4. **Maintainability**: No hardcoded values scattered throughout the inventory
+1. **Maintainability**: No hardcoded values scattered throughout the inventory
 
 ## SSH Key Setup
 
@@ -58,6 +59,7 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-ssh-keys.yml
 ```
 
 This playbook will:
+
 - Copy your SSH private key to the bastion host with the correct filename
 - Set up proper permissions (600 for private key, 644 for public key)
 - Create backward compatibility symlinks
@@ -81,21 +83,25 @@ After running the setup, each host will have:
 If you encounter SSH connectivity issues:
 
 1. **Verify key permissions**:
+
    ```bash
    ansible all -i inventory/inventory.yml -m shell -a "ls -la ~/.ssh/"
    ```
 
 2. **Test bastion connectivity**:
+
    ```bash
    ansible bastion -i inventory/inventory.yml -m ping
    ```
 
 3. **Test airgap node connectivity**:
+
    ```bash
    ansible airgap_nodes -i inventory/inventory.yml -m ping
    ```
 
 4. **Manual SSH test**:
+
    ```bash
    # Test direct bastion connection
    ssh -i /home/dnewman/.ssh/id_rsa ubuntu@<BASTION_PUBLIC_DNS_NAME>
@@ -103,7 +109,6 @@ If you encounter SSH connectivity issues:
    # Test proxy connection to airgap node
    ssh -i /home/dnewman/.ssh/id_rsa -o ProxyCommand='ssh -W %h:%p -i /home/dnewman/.ssh/id_rsa ubuntu@<BASTION_PUBLIC_DNS_NAME>' ubuntu@172.31.4.247
    ```
-
 
 ## Configuration Variables
 
@@ -161,16 +166,19 @@ all:
 ## SSH Proxy Command Explanation
 
 The parameterized SSH proxy command:
+
 ```bash
 -o ProxyCommand='ssh -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}'
 ```
 
 Expands to:
+
 ```bash
 -o ProxyCommand='ssh -W %h:%p -i ~/.ssh/id_rsa ubuntu@<BASTION_PUBLIC_DNS_NAME>'
 ```
 
 Where:
+
 - `%h:%p` = target host and port (airgap node)
 - `-i {{ ssh_private_key_file }}` = SSH private key path
 - `{{ bastion_user }}@{{ bastion_host }}` = bastion connection details
@@ -180,6 +188,7 @@ Where:
 You can override variables for specific environments using inventory/group_vars or host_vars:
 
 ### inventory/group_vars/all.yml
+
 ```yaml
 # Production environment
 ssh_private_key_file: "/etc/ansible/keys/prod-key"
@@ -188,6 +197,7 @@ bastion_host: "prod-bastion.company.com"
 ```
 
 ### inventory/group_vars/staging.yml
+
 ```yaml
 # Staging environment
 bastion_host: "staging-bastion.company.com"

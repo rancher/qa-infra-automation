@@ -9,6 +9,19 @@
     enable_rke2_tarball_distribution: true
 
   pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - rke2_version is defined
+          - rke2_version is match('^v[0-9]+\.[0-9]+\.[0-9]+')
+          - enable_rke2_tarball_distribution is defined
+          - enable_rke2_tarball_distribution | bool
+        fail_msg: |
+          Required variable validation failed. Please check:
+          - rke2_version is defined and matches format 'vX.Y.Z' (found: {{ rke2_version | default('undefined') }})
+          - enable_rke2_tarball_distribution is set to true (found: {{ enable_rke2_tarball_distribution | default('undefined') }})
+        success_msg: "All required variables are valid"
+
     - name: Display RKE2 tarball distribution status
       ansible.builtin.debug:
         msg: |
@@ -16,11 +29,6 @@
           - Enabled: {{ enable_rke2_tarball_distribution }}
           - Version: {{ rke2_version }}
           - Target Directory: /opt/rke2-files
-
-    - name: Fail if tarball distribution is disabled
-      ansible.builtin.fail:
-        msg: "RKE2 tarball distribution is disabled. Set enable_rke2_tarball_distribution: true to enable."
-      when: not enable_rke2_tarball_distribution | bool
 
   roles:
     - role: rke2_tarball
@@ -77,6 +85,29 @@
     enable_rke2_installation: true
 
   pre_tasks:
+    - name: Validate required variables for installation
+      ansible.builtin.assert:
+        that:
+          - rke2_version is defined
+          - rke2_version is match('^v[0-9]+\.[0-9]+\.[0-9]+')
+          - enable_rke2_installation is defined
+          - enable_rke2_installation | bool
+          - groups['bastion'] is defined
+          - groups['bastion'] | length > 0
+          - groups['airgap_nodes'] is defined
+          - groups['airgap_nodes'] | length > 0
+          - ssh_private_key_file is defined
+          - ansible_user is defined
+        fail_msg: |
+          Required variable validation failed. Please check:
+          - rke2_version is defined and matches format 'vX.Y.Z' (found: {{ rke2_version | default('undefined') }})
+          - enable_rke2_installation is set to true (found: {{ enable_rke2_installation | default('undefined') }})
+          - bastion group has at least one host (found: {{ groups['bastion'] | default([]) | length }})
+          - airgap_nodes group has at least one host (found: {{ groups['airgap_nodes'] | default([]) | length }})
+          - ssh_private_key_file is defined (found: {{ ssh_private_key_file | default('undefined') }})
+          - ansible_user is defined (found: {{ ansible_user | default('undefined') }})
+        success_msg: "All required variables are valid"
+
     - name: Display RKE2 installation status
       ansible.builtin.debug:
         msg: |
@@ -84,11 +115,8 @@
           - Enabled: {{ enable_rke2_installation }}
           - Version: {{ rke2_version }}
           - Installation Method: Tarball
-
-    - name: Fail if RKE2 installation is disabled
-      ansible.builtin.fail:
-        msg: "RKE2 installation is disabled. Set enable_rke2_installation: true to enable."
-      when: not enable_rke2_installation | bool
+          - Bastion Host: {{ groups['bastion'][0] }}
+          - Airgap Nodes: {{ groups['airgap_nodes'] | length }}
 
   roles:
     - role: rke2_install
@@ -101,7 +129,7 @@
       ansible.builtin.wait_for:
         path: /etc/rancher/rke2/rke2.yaml
         timeout: 300
-      when: inventory_hostname == groups['airgap_nodes'][0]
+      when: inventory_hostname in groups['rke2_servers']
       become: true
 
     - name: Check RKE2 server status
@@ -110,12 +138,14 @@
         state: started
       become: true
       register: rke2_status
+      when: inventory_hostname in groups['rke2_servers']
 
     - name: Display RKE2 status
       ansible.builtin.debug:
         msg: |
           RKE2 Server Status: {{ rke2_status.status.ActiveState }}
           RKE2 is {{ 'running' if rke2_status.status.ActiveState == 'active' else 'not running' }}
+      when: inventory_hostname in groups['rke2_servers']
 
     - name: Get cluster nodes (if kubectl is available)
       ansible.builtin.shell: |
@@ -200,12 +230,12 @@
         group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
 
-    - name: Fetch KUBECONFIG from first airgap node
+    - name: Fetch KUBECONFIG from first RKE2 server
       ansible.builtin.fetch:
         src: /etc/rancher/rke2/rke2.yaml
         dest: /tmp/rke2-{{ inventory_hostname }}.yaml
         flat: true
-      delegate_to: "{{ groups['airgap_nodes'][0] }}"
+      delegate_to: "{{ groups['rke2_servers'][0] }}"
       become: true
 
     - name: Read kubeconfig content
@@ -217,7 +247,7 @@
 
     - name: Update server URL in kubeconfig content
       ansible.builtin.set_fact:
-        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups['airgap_nodes'][0]]['ansible_host'] + ':6443') }}"
+        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups['rke2_servers'][0]]['ansible_host'] + ':6443') }}"
 
     - name: Write kubeconfig to bastion root
       ansible.builtin.copy:

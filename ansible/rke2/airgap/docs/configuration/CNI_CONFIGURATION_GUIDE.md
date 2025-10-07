@@ -9,6 +9,7 @@ RKE2 supports multiple CNI plugins, each with different capabilities and use cas
 ## Available CNI Options
 
 ### 1. Canal (Default)
+
 **Best for**: Most deployments, balanced features and performance
 
 Canal combines Flannel for networking and Calico for network policies, providing a good balance of features and simplicity.
@@ -26,6 +27,7 @@ cni_config:
 ```
 
 **Features:**
+
 - [OK] Network policies (via Calico)
 - [OK] Simple configuration
 - [OK] Good performance
@@ -33,6 +35,7 @@ cni_config:
 - [LIMITATION] Limited advanced features
 
 ### 2. Calico
+
 **Best for**: Advanced networking, strict network policies, BGP routing
 
 Pure Calico CNI provides advanced networking features and excellent network policy support.
@@ -52,6 +55,7 @@ cni_config:
 ```
 
 **Features:**
+
 - [OK] Advanced network policies
 - [OK] BGP routing support
 - [OK] IP-in-IP encapsulation
@@ -60,6 +64,7 @@ cni_config:
 - [LIMITATION] More complex configuration
 
 ### 3. Cilium
+
 **Best for**: Advanced security, observability, service mesh features
 
 Cilium provides eBPF-based networking with advanced security and observability features.
@@ -81,6 +86,7 @@ cni_config:
 ```
 
 **Features:**
+
 - [OK] eBPF-based networking
 - [OK] Advanced security policies
 - [OK] Network observability (Hubble)
@@ -90,6 +96,7 @@ cni_config:
 - [LIMITATION] More resource intensive
 
 ### 4. Multus
+
 **Best for**: Multiple network interfaces, SR-IOV, complex networking
 
 Multus enables multiple network interfaces per pod, useful for complex networking scenarios.
@@ -107,6 +114,7 @@ cni_config:
 ```
 
 **Features:**
+
 - [OK] Multiple network interfaces per pod
 - [OK] SR-IOV support
 - [OK] Complex networking scenarios
@@ -115,6 +123,7 @@ cni_config:
 - [LIMITATION] Requires additional configuration
 
 ### 5. None (Bring Your Own CNI)
+
 **Best for**: Custom CNI solutions, specific requirements
 
 Disables RKE2's built-in CNI installation, allowing you to install your own.
@@ -125,6 +134,7 @@ cni: "none"
 ```
 
 **Use cases:**
+
 - Custom CNI implementations
 - Third-party CNI solutions
 - Specific enterprise requirements
@@ -132,6 +142,7 @@ cni: "none"
 ## Configuration Examples
 
 ### Example 1: High-Performance Calico Setup
+
 ```yaml
 # inventory/group_vars/all.yml
 cni: "calico"
@@ -149,6 +160,7 @@ cni_config:
 ```
 
 ### Example 2: Cilium with Observability
+
 ```yaml
 # inventory/group_vars/all.yml
 cni: "cilium"
@@ -166,6 +178,7 @@ cni_config:
 ```
 
 ### Example 3: Multus with Canal Backend
+
 ```yaml
 # inventory/group_vars/all.yml
 cni: "multus"
@@ -183,6 +196,7 @@ cni_config:
 ## Network Policy Examples
 
 ### Basic Network Policy (Works with Canal, Calico, Cilium)
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -196,6 +210,7 @@ spec:
 ```
 
 ### Calico-Specific Global Network Policy
+
 ```yaml
 apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
@@ -213,6 +228,7 @@ spec:
 ### Common Issues
 
 #### 1. CNI Plugin Not Starting
+
 ```bash
 # Check RKE2 logs
 sudo journalctl -u rke2-server -f
@@ -223,6 +239,7 @@ sudo cat /etc/cni/net.d/*
 ```
 
 #### 2. Network Connectivity Issues
+
 ```bash
 # Test pod-to-pod connectivity
 kubectl run test-pod --image=busybox --rm -it -- sh
@@ -232,6 +249,7 @@ kubectl get pods -n kube-system | grep -E "(canal|calico|cilium)"
 ```
 
 #### 3. Network Policies Not Working
+
 ```bash
 # Verify network policy controller is running
 kubectl get pods -n kube-system | grep -E "(calico|cilium)-node"
@@ -244,6 +262,7 @@ kubectl describe networkpolicy <policy-name> -n <namespace>
 ### Validation Commands
 
 #### Canal/Calico Validation
+
 ```bash
 # Check Calico node status
 kubectl exec -n kube-system calico-node-xxx -- calicoctl node status
@@ -253,6 +272,7 @@ kubectl exec -n kube-system calico-node-xxx -- calicoctl get networkpolicies
 ```
 
 #### Cilium Validation
+
 ```bash
 # Check Cilium status
 kubectl exec -n kube-system cilium-xxx -- cilium status
@@ -262,6 +282,7 @@ kubectl exec -n kube-system cilium-xxx -- cilium connectivity test
 ```
 
 #### Multus Validation
+
 ```bash
 # Check Multus configuration
 kubectl get network-attachment-definitions -A
@@ -305,6 +326,7 @@ kubectl describe pod <pod-name> | grep -A 10 "Annotations"
 7. **Recreate network policies**
 
 ### Migration Example
+
 ```bash
 # 1. Backup current configuration
 kubectl get networkpolicies -A -o yaml > network-policies-backup.yaml
@@ -338,6 +360,7 @@ kubectl apply -f network-policies-backup.yaml
 ### Monitoring and Observability
 
 #### Canal/Calico Monitoring
+
 ```bash
 # Monitor Calico metrics
 kubectl port-forward -n kube-system calico-node-xxx 9091:9091
@@ -345,6 +368,7 @@ curl http://localhost:9091/metrics
 ```
 
 #### Cilium Monitoring
+
 ```bash
 # Access Hubble UI (if enabled)
 kubectl port-forward -n kube-system svc/hubble-ui 12000:80
@@ -356,10 +380,10 @@ curl http://localhost:9090/metrics
 
 ## Support and Resources
 
-- **RKE2 CNI Documentation**: https://docs.rke2.io/networking
-- **Calico Documentation**: https://docs.projectcalico.org/
-- **Cilium Documentation**: https://docs.cilium.io/
-- **Multus Documentation**: https://github.com/k8snetworkplumbingwg/multus-cni
-- **Kubernetes Network Policies**: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+- **RKE2 CNI Documentation**: <https://docs.rke2.io/networking>
+- **Calico Documentation**: <https://docs.projectcalico.org/>
+- **Cilium Documentation**: <https://docs.cilium.io/>
+- **Multus Documentation**: <https://github.com/k8snetworkplumbingwg/multus-cni>
+- **Kubernetes Network Policies**: <https://kubernetes.io/docs/concepts/services-networking/network-policies/>
 
 Always check the official RKE2 documentation for the latest compatibility information.
