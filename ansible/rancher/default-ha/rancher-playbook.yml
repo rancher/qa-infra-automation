@@ -59,6 +59,7 @@
         msg: "Connected! Found {{ ns_info.resources | length }} namespaces."
 
     - name: Install cert-manager CRDs
+      no_log: true
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
         src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
