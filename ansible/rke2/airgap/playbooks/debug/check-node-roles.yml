@@ -25,19 +25,21 @@
         name: rke2-server
       register: server_status
       failed_when: false
+      when: service_check.results[0].stat.exists
 
     - name: Check RKE2 agent service status
       ansible.builtin.systemd:
         name: rke2-agent
       register: agent_status
       failed_when: false
+      when: service_check.results[1].stat.exists
 
     - name: Display service status
       ansible.builtin.debug:
         msg: |
           Node: {{ inventory_hostname }}
-          Server service state: {{ server_status.status.ActiveState | default('not found') }}
-          Agent service state: {{ agent_status.status.ActiveState | default('not found') }}
+          Server service state: {{ server_status.status.ActiveState | default('not checked') if service_check.results[0].stat.exists else 'service file not found' }}
+          Agent service state: {{ agent_status.status.ActiveState | default('not checked') if service_check.results[1].stat.exists else 'service file not found' }}
           Expected role: {{ 'server' if inventory_hostname == groups['airgap_nodes'][0] else 'agent' }}
 
     - name: Get node roles from kubectl (on server only)
@@ -66,5 +68,9 @@
           Position in airgap_nodes: {{ groups['airgap_nodes'].index(inventory_hostname) }}
           First node in group: {{ groups['airgap_nodes'][0] }}
           Should be: {{ 'SERVER' if inventory_hostname == groups['airgap_nodes'][0] else 'AGENT' }}
-          Actually running: {{ 'SERVER' if server_status.status.ActiveState | default('') == 'active' else ('AGENT' if agent_status.status.ActiveState | default('') == 'active' else 'NEITHER') }}
+          Actually running: {{
+            'SERVER' if (service_check.results[0].stat.exists and server_status.status.ActiveState | default('') == 'active')
+            else ('AGENT' if (service_check.results[1].stat.exists and agent_status.status.ActiveState | default('') == 'active')
+            else 'NEITHER')
+          }}
           =================================================================
