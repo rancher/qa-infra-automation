@@ -5,21 +5,39 @@
   vars_files:
     - vars.yaml
   vars:
-    # tf integration (optional).
+    # terraform integration (optional).
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
 
+    # Use the constructed path in the lookups.
+    fqdn_default: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
     - name: Wait for SSH on node
       wait_for:
-        host: "{{ hostvars[item]['ansible_host'] }}"
+        host: "{{ kube_api_host }}"
         port: 22
         timeout: 300
         state: started
       loop: "{{ groups['all'] }}"
+
+    - name: Get LoadBalancer IP (only for Harvester clusters)
+      command: >
+        kubectl get loadbalancer {{ fqdn_default }} -o jsonpath='{.status.address}'
+      register: lb_ip_result
+      environment:
+        KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ terraform_state_path }}/../local.yaml"
+      when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
+
+    - name: Normalize fqdn
+      set_fact:
+        fqdn_final: >-
+          {{
+            (lb_ip_result is defined and lb_ip_result.stdout | length > 0)
+              | ternary(lb_ip_result.stdout ~ '.sslip.io', fqdn_default)
+          }}
 
 - hosts: all
   strategy: linear
@@ -109,10 +127,10 @@
         systemctl stop nm-cloud-setup.timer || true
         systemctl disable nm-cloud-setup.timer || true
       changed_when: false
-      when: 
+      when:
         - ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
         - ansible_distribution_major_version|int >= 8
- 
+
     - name: Create NetworkManager config for CNI interfaces
       raw: |
         mkdir -p /etc/NetworkManager/conf.d
@@ -135,13 +153,13 @@
   vars_files:
     - vars.yaml
   vars:
-    # tf integration (optional).
+    # terraform integration (optional).
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
-     
+
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else hostvars['localhost']['fqdn_final'] }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
@@ -205,9 +223,9 @@
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
-    
+
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else hostvars['localhost']['fqdn_final'] }}"
     server_host: "{{ server_host_override | default((groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] if use_terraform else groups['master'][0]) }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -243,7 +261,15 @@
         CHANNEL: "{{ channel | default('') }}"
         INSTALL_METHOD: "{{ install_method | default('') }}"
       register: script_result
-      when: '"master" in inventory_hostname and ("cp" in ansible_role or "etcd" in ansible_role)'
+      when: >
+        "master" not in inventory_hostname and
+        (
+          ansible_role is defined and
+          (
+            "cp" in ansible_role.split(',') or
+            "etcd" in ansible_role.split(',')
+          )
+        )
 
     - name: Transfer and execute init-agent.sh (Agent)
       script: ./init-agent.sh

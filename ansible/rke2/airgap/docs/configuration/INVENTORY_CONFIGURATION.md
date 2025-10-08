@@ -37,7 +37,7 @@ ssh_private_key_file: "~/.ssh/id_rsa"
 
 The tilde (`~`) can be expanded differently depending on the execution context, leading to SSH key not found errors.
 
-4. **Maintainability**: No hardcoded values scattered throughout the inventory
+1. **Maintainability**: No hardcoded values scattered throughout the inventory
 
 ## SSH Key Setup
 

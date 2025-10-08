@@ -1,6 +1,6 @@
-# Harvester 
+# Harvester VM
 
-This module deploys airgap rancher on AWS.
+This module deploys resources required to get a VM via harvester, with the option to provision a loadbalancer in order to setup an HA cluster
 
 ## Prerequisites
 
