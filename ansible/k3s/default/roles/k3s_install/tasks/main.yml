@@ -3,8 +3,8 @@
   assert:
     that:
       - kubernetes_version is regex('^[a-zA-Z0-9.+_-]+$')
-      - k3s_channel is regex('^[a-zA-Z0-9._-]*$')
-    fail_msg: "Invalid characters in version or channel parameters"
+      - k3s_channel is match("^(stable|testing|latest|v\\d+(\\.\\d+){0,2})$")  
+    fail_msg: "Invalid k3s_channel '{{ k3s_channel }}'. Must be stable, testing, latest, or v1[.x][.y]"
 
 - name: Create K3s directories
   file:
@@ -30,8 +30,16 @@
       exit 0
     fi
     
-    # Set installation variables
-    export INSTALL_K3S_VERSION="{{ kubernetes_version }}"
+    # Set installation variables - detect if version is a commit hash or version tag
+    VERSION="{{ kubernetes_version }}"
+    if [[ "$VERSION" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "Installing K3s from commit: $VERSION"
+      export INSTALL_K3S_COMMIT="$VERSION"
+    else
+      echo "Installing K3s version: $VERSION"
+      export INSTALL_K3S_VERSION="$VERSION"
+    fi
+    
     {% if k3s_channel is defined and k3s_channel != '' %}
     export INSTALL_K3S_CHANNEL="{{ k3s_channel }}"
     {% endif %}
@@ -69,11 +77,19 @@
           Service: {{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}
           Status: {{ ansible_facts.services[('k3s-agent' if k3s_node_type == 'agent' else 'k3s')].state | default('unknown') }}
           
-    - name: Get service status
+    - name: Verify K3s service health
       systemd:
-        name: "{{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}"
+        name: "{{ 'k3s' if k3s_node_type != 'agent' else 'k3s-agent' }}"
       register: service_status
       
+    - name: Wait for node readiness
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        api_version: v1
+        kind: Node
+        name: "{{ inventory_hostname }}"
+      until: node_status.resources[0].status.conditions[0].type == "Ready"
+
     - name: Get service logs
       shell: journalctl -u {{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }} --no-pager -n 50
       register: service_logs

@@ -118,7 +118,14 @@ if [[ -n "${CHANNEL}" ]] && [[ "${CHANNEL}" =~ [^a-zA-Z0-9._-] ]]; then
     exit 1
 fi
 
-export INSTALL_RKE2_VERSION="${KUBERNETES_VERSION}"
+# Detect if KUBERNETES_VERSION is a commit hash (40 hex chars) or a version tag
+if [[ "${KUBERNETES_VERSION}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Installing RKE2 from commit: ${KUBERNETES_VERSION}"
+    export INSTALL_RKE2_COMMIT="${KUBERNETES_VERSION}"
+else
+    echo "Installing RKE2 version: ${KUBERNETES_VERSION}"
+    export INSTALL_RKE2_VERSION="${KUBERNETES_VERSION}"
+fi
 
 if [ -n "${INSTALL_METHOD}" ]; then
     export INSTALL_RKE2_METHOD="${INSTALL_METHOD}"

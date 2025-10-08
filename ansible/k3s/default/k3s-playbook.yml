@@ -11,6 +11,15 @@
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - kubernetes_version is defined
+          - kubernetes_version | length > 0
+          - kube_api_host is defined
+          - kube_api_host | length > 0
+        fail_msg: "Required variables not defined. Please ensure kubernetes_version and kube_api_host are set in vars.yaml or environment variables"
+
     - name: Wait for SSH on node(s)
       wait_for:
         host: "{{ hostvars[item]['ansible_host'] }}"

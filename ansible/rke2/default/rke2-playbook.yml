@@ -11,10 +11,21 @@
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
 
     # Use the constructed path in the lookups.
-    fqdn_default: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
-    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
+    fqdn_default: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(lookup('env', 'KUBE_API_HOST'), true)) }}"
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - kubernetes_version is defined
+          - kubernetes_version | length > 0
+          - kube_api_host is defined
+          - kube_api_host | length > 0
+          - cni is defined
+          - cni | length > 0
+        fail_msg: "Required variables not defined. Please ensure kubernetes_version, kube_api_host, and cni are set in vars.yaml or environment variables"
+
     - name: Wait for SSH on node
       wait_for:
         host: "{{ kube_api_host }}"
@@ -35,8 +46,8 @@
       set_fact:
         fqdn_final: >-
           {{
-            (lb_ip_result is defined and lb_ip_result.stdout | length > 0)
-              | ternary(lb_ip_result.stdout ~ '.sslip.io', fqdn_default)
+            ((lb_ip_result | default({})).get('stdout', '') | length > 0)
+              | ternary((lb_ip_result | default({})).get('stdout', '') ~ '.sslip.io', fqdn_default)
           }}
 
 - hosts: all
@@ -158,7 +169,7 @@
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
 
-    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else hostvars['localhost']['fqdn_final'] }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -194,7 +205,7 @@
       when: script_result.rc != 0
 
     - name: Get node-token from master
-      raw: cat /var/lib/rancher/rke2/server/node-token
+      raw: cat /var/lib/rancher/rke2/server/node-token 2>/dev/null
       register: node_token_output
 
     - name: Save node_token to local file
@@ -204,7 +215,7 @@
       shell: echo "{{ node_token_output.stdout }}" > "{{ node_token_file }}"
 
     - name: Read file contents into a variable
-      raw: cat /etc/rancher/rke2/rke2.yaml
+      raw: cat /etc/rancher/rke2/rke2.yaml 2>/dev/null
       register: file_contents
 
     - name: Save file contents locally
@@ -224,7 +235,7 @@
     use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
 
-    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else kube_api_host }}"
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
     fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else hostvars['localhost']['fqdn_final'] }}"
     server_host: "{{ server_host_override | default((groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] if use_terraform else groups['master'][0]) }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
