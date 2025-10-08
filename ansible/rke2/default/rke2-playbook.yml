@@ -10,6 +10,7 @@
     terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     # Use the constructed path in the lookups
+    fqdn_default: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
@@ -20,6 +21,24 @@
         port: 22
         timeout: 120
         state: started
+
+    - name: Get LoadBalancer IP (only for Harvester clusters)
+      command: >
+        kubectl get loadbalancer {{ fqdn_default }} -o jsonpath='{.status.address}'
+      register: lb_ip_result
+      environment:
+        KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ terraform_state_path }}/../local.yaml"
+      when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
+
+    - name: Normalize fqdn
+      set_fact:
+        fqdn_final: >-
+          {{
+            (lb_ip_result is defined and lb_ip_result.stdout | length > 0)
+              | ternary(lb_ip_result.stdout ~ '.sslip.io', fqdn_default)
+          }}
+
+
 - hosts: "master"
   become: true
   gather_facts: false
@@ -34,7 +53,7 @@
 
     # Use the constructed path in the lookups
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+    fqdn: "{{ hostvars['localhost']['fqdn_final'] }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
@@ -94,11 +113,12 @@
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     # Use the constructed path in the lookups
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+    fqdn: "{{ hostvars['localhost']['fqdn_final'] }}"
     server_host: "{{ (groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
+
     - name: Read node_token from local file
       delegate_to: localhost
       run_once: true
@@ -123,7 +143,15 @@
         NODE_TOKEN: "{{ node_token }}"
         NODE_ROLE: "{{ ansible_role }}"
       register: script_result
-      when: '"master" in inventory_hostname and ("cp" in ansible_role or "etcd" in ansible_role)'
+      when: >
+        "master" not in inventory_hostname and
+        (
+          ansible_role is defined and
+          (
+            "cp" in ansible_role.split(',') or
+            "etcd" in ansible_role.split(',')
+          )
+        )
 
     - name: Transfer and execute init-agent.sh (Agent)
       script: ./init-agent.sh

@@ -77,3 +77,49 @@ variable "generate_name" {
   default = "tf"
   nullable = false
 }
+
+variable "labels" {
+  type        = map(string)
+  description = "labels for each VM"
+  default     = {}
+}
+
+// for LB
+variable "create_loadbalancer" {
+  type = bool
+  description = "set to true if using an HA setup"
+  default = false
+}
+
+variable "subnet_cidr" {
+  description = "the desired CIDR/subnet i.e. 10.10.0.0/26"
+  type = string
+  default = null
+}
+
+variable "backend_network_name" {
+  description = "name of VM Network to use that's already up in your harvester ENV. Should exclude namespace"
+  type = string
+  default = null
+}
+
+variable "gateway_ip" {
+  description = "gateway IP address"
+  default = null
+}
+
+variable "range_ip_start" {
+  description = "starting IP (included) of the pool range"
+  default = null
+}
+
+variable "range_ip_end" {
+  description = "end IP (included) of the pool range"
+  default = null
+}
+
+variable "ippool_name" {
+  description = "if an existing IP Pool should be used, specify its name here to avoid creating a new resource"
+  default = null
+  nullable = true
+}
