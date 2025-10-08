@@ -1,0 +1,12 @@
+
+# rke2 version and installation settings
+kubernetes_version: 'f0f0ffd24dc607ea4577f836ea36301aa091c749'
+
+# kubeconfig file
+kubeconfig_file: './kubeconfig.yaml'
+
+# cni configuration
+cni: "calico"
+
+# node token file for cluster communication
+node_token_file: "/tmp/node_token.txt"

@@ -1,0 +1,241 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [vars.yaml]
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
+    use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
+    terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
+    
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - kubernetes_version is defined
+          - kubernetes_version | length > 0
+          - kube_api_host is defined
+          - kube_api_host | length > 0
+        fail_msg: "Required variables not defined. Please ensure kubernetes_version and kube_api_host are set in vars.yaml or environment variables"
+
+    - name: Wait for SSH on node(s)
+      wait_for:
+        host: "{{ hostvars[item]['ansible_host'] }}"
+        port: 22
+        timeout: 300
+        state: started
+      loop: "{{ groups['all'] }}"
+      when: hostvars[item]['ansible_host'] is defined and hostvars[item]['ansible_host'] != ''
+
+- hosts: all
+  strategy: linear
+  become: true
+  gather_facts: false
+  pre_tasks:
+    - include_role:
+        name: setup
+    - name: Gather facts
+      setup:
+  tasks: []
+
+- hosts: master
+  become: true
+  gather_facts: false
+  vars_files: [vars.yaml]
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
+    use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
+    terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
+    
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
+    node_token_file: "/tmp/node_token.txt"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  pre_tasks:
+    - include_role:
+        name: setup
+    - name: Gather facts
+      setup:
+
+  tasks:
+    - name: Create K3s server manifests directory on master
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/lib/rancher/k3s/server/manifests
+      when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+
+    - name: Install K3s on initial cluster node
+      include_role:
+        name: k3s_install
+      vars:
+        k3s_node_type: cluster-init
+        kubernetes_version: "{{ kubernetes_version }}"
+        k3s_api_host: "{{ kube_api_host }}"
+        k3s_fqdn: "{{ fqdn }}"
+        k3s_node_roles: "{{ ansible_role }}"
+        public_ip: "{{ ansible_host }}"
+        role_server_flags: "{{ server_flags | default('') }}"
+        k3s_channel: "{{ channel | default('') }}"
+      when: inventory_hostname == 'master'
+
+    - name: Apply K3s hardening on initial cluster node if enabled
+      include_role:
+        name: k3s_hardening
+      vars:
+        k3s_node_type: cluster-init
+        role_server_flags: "{{ server_flags | default('') }}"
+        kubernetes_version: "{{ kubernetes_version }}"
+      when: inventory_hostname == 'master'
+
+    - name: Get node-token from master
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: node_token_output
+
+    - name: Save node_token to local file
+      copy:
+        content: "{{ node_token_output.content | b64decode }}"
+        dest: "{{ node_token_file }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Read kubeconfig file contents
+      slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      register: kubeconfig_contents
+
+    - name: Save kubeconfig locally
+      copy:
+        content: "{{ kubeconfig_contents.content | b64decode }}"
+        dest: "{{ kubeconfig_file }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+- hosts: all
+  become: true
+  gather_facts: false
+  strategy: free
+  vars_files: [vars.yaml]
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
+    use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
+    terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
+    
+    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
+    server_host: "{{ server_host_override | default((groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] if use_terraform else groups['master'][0]) }}"
+    node_token_file: "/tmp/node_token.txt"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  pre_tasks:
+    - include_role:
+        name: setup
+    - name: Gather facts
+      setup:
+
+  tasks:
+    - name: Read node_token from local file
+      slurp:
+        src: "{{ node_token_file }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      register: node_token_file_content
+
+    - name: Set node_token fact from file content
+      set_fact:
+        node_token: "{{ node_token_file_content.content | b64decode | trim }}"
+      run_once: true
+      delegate_to: localhost
+
+    - name: Create K3s server manifests directory on server nodes
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/lib/rancher/k3s/server/manifests
+      when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+
+    - name: Install K3s on server nodes
+      include_role:
+        name: k3s_install
+      vars:
+        k3s_node_type: server
+        kubernetes_version: "{{ kubernetes_version }}"
+        k3s_api_host: "{{ kube_api_host }}"
+        k3s_fqdn: "{{ fqdn }}"
+        k3s_token: "{{ node_token }}"
+        k3s_node_roles: "{{ ansible_role }}"
+        public_ip: "{{ ansible_host }}"
+        role_server_flags: "{{ server_flags | default('') }}"
+        k3s_channel: "{{ channel | default('') }}"
+      when:
+        - inventory_hostname != 'master'
+        - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+
+    - name: Apply K3s hardening on server nodes if enabled
+      include_role:
+        name: k3s_hardening
+      vars:
+        k3s_node_type: server
+        role_server_flags: "{{ server_flags | default('') }}"
+        kubernetes_version: "{{ kubernetes_version }}"
+      when:
+        - inventory_hostname != 'master'
+        - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+
+    - name: Apply K3s hardening on agent nodes if enabled
+      include_role:
+        name: k3s_hardening
+      vars:
+        k3s_node_type: agent
+        role_server_flags: "{{ server_flags | default('') }}"
+        role_worker_flags: "{{ worker_flags | default('') }}"
+      when: ansible_role is defined and ansible_role == 'worker'
+
+    - name: Validate required variables for agent installation
+      assert:
+        that:
+          - kube_api_host | default('') | length > 0
+          - node_token    | default('') | length > 0
+        fail_msg: "Required variables missing: kube_api_host='{{ kube_api_host | default('UNDEFINED') }}', node_token='{{ node_token | default('UNDEFINED') }}'"
+      when: ansible_role is defined and ansible_role == 'worker'
+
+    - name: Install K3s on agent nodes
+      include_role:
+        name: k3s_install
+      vars:
+        k3s_node_type: agent
+        kubernetes_version: "{{ kubernetes_version }}"
+        k3s_api_host: "{{ kube_api_host }}"
+        k3s_fqdn: "{{ fqdn }}"
+        k3s_token: "{{ node_token }}"
+        public_ip: "{{ ansible_host }}"
+        k3s_worker_flags: "{{ worker_flags | default('') }}"
+        k3s_channel: "{{ channel | default('') }}"
+      when: ansible_role is defined and ansible_role == 'worker'
+
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [vars.yaml]
+  tasks:
+    - name: Wait until all K3s system pods are Running or Succeeded
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+      register: k3s_pods_check
+      until: >
+        k3s_pods_check.resources is defined and
+        (k3s_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
+      retries: 5
+      delay: 60

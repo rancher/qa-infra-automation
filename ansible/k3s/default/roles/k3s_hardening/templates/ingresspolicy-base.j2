@@ -1,0 +1,15 @@
+---
+# Traefik Ingress Policy for K3s K3S_VERSION_PLACEHOLDER
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-traefik-v121-ingress
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  ingress:
+    - {}
+  policyTypes:
+    - Ingress

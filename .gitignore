@@ -12,7 +12,6 @@ vars.yaml
 *.env
 kubeconfig.yaml
 local.yaml
-
 .vscode/
 .idea/
 .kube/

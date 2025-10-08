@@ -1,0 +1,21 @@
+---
+# K3s Deployment Variables Template
+# Copy this file to vars.yaml and customize for your environment:
+# cp vars.yaml.example vars.yaml
+
+# K3s version and installation settings
+kubernetes_version: 'v1.32.1+k3s1'
+kubeconfig_file: './kubeconfig.yaml'
+
+# Optional server/worker flags (customize as needed)
+server_flags: |
+  protect-kernel-defaults: true
+
+worker_flags: |
+  protect-kernel-defaults: true
+
+# Optional channel for K3s installation
+channel: "stable"
+
+# Node token file for cluster communication
+node_token_file: "/tmp/node_token.txt"
