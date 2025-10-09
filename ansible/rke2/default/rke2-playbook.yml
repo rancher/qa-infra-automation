@@ -39,7 +39,7 @@
         kubectl get loadbalancer {{ fqdn_default }} -o jsonpath='{.status.address}'
       register: lb_ip_result
       environment:
-        KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ terraform_state_path }}/../local.yaml"
+        KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ terraform_state_file }}/../local.yaml"
       when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
 
     - name: Normalize fqdn
