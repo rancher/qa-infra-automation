@@ -1,0 +1,110 @@
+---
+- hosts: localhost
+  # Defaulted variables
+  vars:
+    sbCli_image_tag: "{{ steadybit_cli_version | default(4) }}"
+    exp_file: "{{ experiment_file | default('experiments/experiment.yml') }}"
+    retry_count: "{{ (experiment_timeout | default(300)/30) | round(0, 'ceil') | int }}"
+
+  # Step-by-step tasks to run
+  tasks:
+
+  # Get experiment file so that it can be parsed for data in other tasks
+  - name: Read experiment YAML file
+    set_fact:
+      experiment_yaml: "{{ lookup('file', '{{playbook_dir}}/{{exp_file}}') | from_yaml }}"
+  
+  # When relevant, ensure that the clusterName matches across the steadybit values.yml and the experiment.yml
+  - name: Check if the experiment has the k8s.clusterName variable
+    command: "grep -q 'k8s.clusterName' '{{playbook_dir}}/{{exp_file}}'"
+    register: grep_result
+    failed_when: grep_result.rc != 0 and grep_result.rc != 1
+
+  - name: Validate clusterName matches
+    block:
+    - name: Read values YAML file
+      set_fact:
+        values_yaml: "{{ lookup('file', '{{playbook_dir}}/values.yml') | from_yaml }}"
+
+    - name: Assert that clusterName is the same in both files
+      assert:
+        that:
+        - values_yaml['global']['clusterName'] == experiment_yaml['experimentVariables']['k8s.clusterName']
+        fail_msg: "Value for 'global.clusterName' in values.yml ({{values_yaml['global']['clusterName']}}) does not match value in {{exp_file}} ({{experiment_yaml['experimentVariables']['k8s.clusterName']}})"
+    when: grep_result.rc == 0
+
+  # Install the Steadybit agent into the cluster via helm 
+  - name: Add steadybit helm repository if not already added
+    kubernetes.core.helm_repository:
+      name: steadybit
+      repo_url: https://steadybit.github.io/helm-charts
+      state: present
+
+  - name: Update Helm repositories
+    command: helm repo update
+
+  - name: Install or upgrade steadybit-agent helm chart in the cluster
+    kubernetes.core.helm:
+      name: steadybit-agent
+      chart_ref: steadybit/steadybit-agent
+      namespace: steadybit-agent
+      create_namespace: yes
+      values_files: '{{playbook_dir}}/values.yml'
+      state: present
+
+  - name: Wait for all steadybit pods to be created
+    command: "kubectl get po --namespace=steadybit-agent --output=jsonpath='{.items[*].metadata.name}'"
+    register: pods_created
+    until: item in pods_created.stdout
+    retries: 6
+    delay: 10
+    with_items:
+    - steadybit-agent-0
+    - steadybit-agent-extension-http
+    - steadybit-agent-extension-kubernetes
+
+  - name: Wait for steadybit pods to become ready
+    command: "kubectl wait pods --all --namespace=steadybit-agent --for=condition=Ready --timeout=300s"
+    register: pods_ready
+
+  # Add and run the chaos experiment using the Steadybit CLI
+  - name: Create or update chaos experiment in Steadybit
+    community.docker.docker_container:
+      name: steadybit_cli_apply
+      image: 'steadybit/cli:{{sbCli_image_tag}}'
+      command: "experiment apply -k {{experiment_yaml['key']}} -f /tmp/{{exp_file}}"
+      volumes:
+      - '{{playbook_dir}}/{{exp_file}}:/tmp/{{exp_file}}'
+      env:
+        STEADYBIT_TOKEN: '{{steadybit_token}}'
+
+  - name: Run chaos experiment in Steadybit
+    community.docker.docker_container:
+      name: steadybit_cli_run
+      image: 'steadybit/cli:{{sbCli_image_tag}}'
+      command: "experiment run -k {{experiment_yaml['key']}}"
+      env:
+        STEADYBIT_TOKEN: '{{steadybit_token}}'
+      state: started
+      recreate: true
+
+  - name: Ensure chaos experiment has completed
+    command: docker logs steadybit_cli_run
+    register: container_logs
+    until: "'Current run state: completed' in container_logs.stdout or 'Current run state: failed' in container_logs.stdout"
+    retries: "{{ retry_count }}"
+    delay: 30
+
+  # In case of failure, provide an easy link to access the run for more details.
+  - name: Retrieve chaos experiment failures
+    block:
+
+    - name: Retrieve experiment run URL
+      shell: "docker logs steadybit_cli_run | head -n 2 | tail -n 1 | awk '{print $4'}"
+      register: chaos_experiment_ui
+
+    - name: Fail and print URL to chaos experiment if there were failures
+      fail:
+        msg: "Chaos experiment had failures. See {{chaos_experiment_ui.stdout}} for details."
+
+    when: "'Current run state: failed' in container_logs.stdout"
