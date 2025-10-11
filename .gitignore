@@ -13,12 +13,12 @@ vars.yaml
 kubeconfig.yaml
 local.yaml
 values.yml
-experiment.yml
 
 .vscode/
 .idea/
 .kube/
 *.pem
+ansible/chaos/experiments/*.yml
 ansible/rke2/airgap/inventory/inventory.yml
 ansible/rke2/airgap/inventory/group_vars/all.yml
 ansible/rke2/airgap/playbooks/debug/*.txt

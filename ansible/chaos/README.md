@@ -16,8 +16,9 @@ Before running the playbook, ensure you have the following in addition to the [g
 
     ```yaml
     steadybit_token: your_token
-    experiment_key: steadybit_experiment_to_update # example: ADM-1
     steadybit_cli_version: 4.2.11 # Optional. Can set the steadybit cli version explicitly, otherwise it will just use version "4"
+    experiment_file: experiments/experiment.yml # Optional. Can specify the relative path to the experiment file. By default it will use "experiments/experiment.yml"
+    experiment_timeout: 500 # Optional. Timeout (in seconds) to wait for the experiment execution to complete. By default this is "300"
     ```
 
 2.  **Set required values for Steadybit helm installation**
@@ -47,7 +48,7 @@ Before running the playbook, ensure you have the following in addition to the [g
 
 3.  **Provide Steadybit experiment file**
 
-    Directly in this directory, create an `experiment.yml` file for updating the Steadybit chaos experiment. This can be retrieved by running a command similar to this, but using your experiment key: `steadybit experiment get -k ADM-1 -f experiment.yml`. Make any necessary edits to the `experimentVariables` in the output as required for your experiment.
+    Directly in this directory, create an `experiments/experiment.yml` file for updating the Steadybit chaos experiment. This can be retrieved by running a command similar to this, but using your experiment key: `steadybit experiment get -k ADM-1 -f experiments/experiment.yml`. Make any necessary edits to the `experimentVariables` in the output as required for your experiment.
 
 
 ## Running the Playbook

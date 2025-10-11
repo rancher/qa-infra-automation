@@ -3,13 +3,20 @@
   # Defaulted variables
   vars:
     sbCli_image_tag: "{{ steadybit_cli_version | default(4) }}"
+    exp_file: "{{ experiment_file | default('experiments/experiment.yml') }}"
+    retry_count: "{{ (experiment_timeout | default(300)/30) | round(0, 'ceil') | int }}"
 
   # Step-by-step tasks to run
   tasks:
 
-  # Ensure that the clusterName in relevant files is the same in the case that the experiment uses it.
+  # Get experiment file so that it can be parsed for data in other tasks
+  - name: Read experiment YAML file
+    set_fact:
+      experiment_yaml: "{{ lookup('file', '{{playbook_dir}}/{{exp_file}}') | from_yaml }}"
+  
+  # When relevant, ensure that the clusterName matches across the steadybit values.yml and the experiment.yml
   - name: Check if the experiment has the k8s.clusterName variable
-    command: "grep -q 'k8s.clusterName' '{{playbook_dir}}/experiment.yml'"
+    command: "grep -q 'k8s.clusterName' '{{playbook_dir}}/{{exp_file}}'"
     register: grep_result
     failed_when: grep_result.rc != 0 and grep_result.rc != 1
 
@@ -17,17 +24,13 @@
     block:
     - name: Read values YAML file
       set_fact:
-        valuesYaml: "{{ lookup('file', '{{playbook_dir}}/values.yml') | from_yaml }}"
-
-    - name: Read experiment YAML file
-      set_fact:
-        experimentYaml: "{{ lookup('file', '{{playbook_dir}}/experiment.yml') | from_yaml }}"
+        values_yaml: "{{ lookup('file', '{{playbook_dir}}/values.yml') | from_yaml }}"
 
     - name: Assert that clusterName is the same in both files
       assert:
         that:
-        - valuesYaml['global']['clusterName'] == experimentYaml['experimentVariables']['k8s.clusterName']
-        fail_msg: "Value for 'global.clusterName' in values.yml ({{valuesYaml['global']['clusterName']}}) does not match value in experiment.yml ({{experimentYaml['experimentVariables']['k8s.clusterName']}})"
+        - values_yaml['global']['clusterName'] == experiment_yaml['experimentVariables']['k8s.clusterName']
+        fail_msg: "Value for 'global.clusterName' in values.yml ({{values_yaml['global']['clusterName']}}) does not match value in {{exp_file}} ({{experiment_yaml['experimentVariables']['k8s.clusterName']}})"
     when: grep_result.rc == 0
 
   # Install the Steadybit agent into the cluster via helm 
@@ -69,9 +72,9 @@
     community.docker.docker_container:
       name: steadybit_cli_apply
       image: 'steadybit/cli:{{sbCli_image_tag}}'
-      command: experiment apply -k {{experiment_key}} -f /tmp/experiment.yml
+      command: "experiment apply -k {{experiment_yaml['key']}} -f /tmp/{{exp_file}}"
       volumes:
-      - '{{playbook_dir}}/experiment.yml:/tmp/experiment.yml'
+      - '{{playbook_dir}}/{{exp_file}}:/tmp/{{exp_file}}'
       env:
         STEADYBIT_TOKEN: '{{steadybit_token}}'
 
@@ -79,7 +82,7 @@
     community.docker.docker_container:
       name: steadybit_cli_run
       image: 'steadybit/cli:{{sbCli_image_tag}}'
-      command: experiment run -k {{experiment_key}}
+      command: "experiment run -k {{experiment_yaml['key']}}"
       env:
         STEADYBIT_TOKEN: '{{steadybit_token}}'
       state: started
@@ -89,7 +92,7 @@
     command: docker logs steadybit_cli_run
     register: container_logs
     until: "'Current run state: completed' in container_logs.stdout or 'Current run state: failed' in container_logs.stdout"
-    retries: 10
+    retries: "{{ retry_count }}"
     delay: 30
 
   # In case of failure, provide an easy link to access the run for more details.
