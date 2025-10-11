@@ -12,6 +12,9 @@ vars.yaml
 *.env
 kubeconfig.yaml
 local.yaml
+values.yml
+experiment.yml
+
 .vscode/
 .idea/
 .kube/
