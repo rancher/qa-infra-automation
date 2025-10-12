@@ -6,13 +6,12 @@
     exp_file: "{{ experiment_file | default('experiments/experiment.yml') }}"
     retry_count: "{{ (experiment_timeout | default(300)/30) | round(0, 'ceil') | int }}"
 
-  # Step-by-step tasks to run
   tasks:
 
   # Get experiment file so that it can be parsed for data in other tasks
   - name: Read experiment YAML file
     set_fact:
-      experiment_yaml: "{{ lookup('file', '{{playbook_dir}}/{{exp_file}}') | from_yaml }}"
+      experiment_yaml: "{{ lookup('file', '' ~ playbook_dir ~ '/' ~ exp_file ~ '') | from_yaml }}"
   
   # When relevant, ensure that the clusterName matches across the steadybit values.yml and the experiment.yml
   - name: Check if the experiment has the k8s.clusterName variable
@@ -24,7 +23,7 @@
     block:
     - name: Read values YAML file
       set_fact:
-        values_yaml: "{{ lookup('file', '{{playbook_dir}}/values.yml') | from_yaml }}"
+        values_yaml: "{{ lookup('file', '' ~ playbook_dir ~ '/values.yml') | from_yaml }}"
 
     - name: Assert that clusterName is the same in both files
       assert:
@@ -68,43 +67,19 @@
     register: pods_ready
 
   # Add and run the chaos experiment using the Steadybit CLI
+  - name: Create a Steadybit CLI Profile to access the environment
+    command: "steadybit config profile add -n steadybit -b https://platform.steadybit.com -t {{steadybit_token}}"
+
   - name: Create or update chaos experiment in Steadybit
-    community.docker.docker_container:
-      name: steadybit_cli_apply
-      image: 'steadybit/cli:{{sbCli_image_tag}}'
-      command: "experiment apply -k {{experiment_yaml['key']}} -f /tmp/{{exp_file}}"
-      volumes:
-      - '{{playbook_dir}}/{{exp_file}}:/tmp/{{exp_file}}'
-      env:
-        STEADYBIT_TOKEN: '{{steadybit_token}}'
+    command: "steadybit experiment apply -k {{experiment_yaml['key']}} -f {{playbook_dir}}/{{exp_file}}"
 
-  - name: Run chaos experiment in Steadybit
-    community.docker.docker_container:
-      name: steadybit_cli_run
-      image: 'steadybit/cli:{{sbCli_image_tag}}'
-      command: "experiment run -k {{experiment_yaml['key']}}"
-      env:
-        STEADYBIT_TOKEN: '{{steadybit_token}}'
-      state: started
-      recreate: true
-
-  - name: Ensure chaos experiment has completed
-    command: docker logs steadybit_cli_run
-    register: container_logs
-    until: "'Current run state: completed' in container_logs.stdout or 'Current run state: failed' in container_logs.stdout"
-    retries: "{{ retry_count }}"
-    delay: 30
-
-  # In case of failure, provide an easy link to access the run for more details.
-  - name: Retrieve chaos experiment failures
+  - name: Run experiment and provide URL to it in case of errors
     block:
-
-    - name: Retrieve experiment run URL
-      shell: "docker logs steadybit_cli_run | head -n 2 | tail -n 1 | awk '{print $4'}"
-      register: chaos_experiment_ui
-
-    - name: Fail and print URL to chaos experiment if there were failures
-      fail:
-        msg: "Chaos experiment had failures. See {{chaos_experiment_ui.stdout}} for details."
-
-    when: "'Current run state: failed' in container_logs.stdout"
+    - name: Run chaos experiment in Steadybit
+      command: "steadybit experiment run -k {{experiment_yaml['key']}}"
+      register: experiment_run_logs
+    always: 
+    # In case of failure, the reasons must be viewed directly in Steadybit UI. Provide an easy link to access the run whether it failed or not.
+    - name: Print URL to chaos experiment
+      debug:
+        msg: "See {{experiment_run_logs.stdout_lines[1].split()[3]}} for run details."

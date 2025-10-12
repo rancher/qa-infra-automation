@@ -5,6 +5,7 @@ This README provides instructions on how to run the Ansible playbook for running
 ## Prerequisites
 
 Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../README.md):
+*   **Required CLI tools installed locally:** [helm](https://helm.sh/docs/intro/install/) and [steadybit](https://github.com/steadybit/cli?tab=readme-ov-file#installation) CLIs are required to be present and executable on your local machine. Follow the links for instructions to install them.
 *   **Kubernetes Cluster:** A running Kubernetes cluster.  The playbook assumes you have a `kubeconfig` file that allows access to this cluster, and that it is either at the default path (`~/.kube/config`) or you have an environment variable pointing to it (`export KUBECONFIG=/path/to/kubeconfig.yaml`)
 
 
