@@ -12,12 +12,12 @@ module "elemental_nodes" {
   for_each = local.elemental_nodes
 
   name = "${var.aws_hostname_prefix}-${each.value}"
-  ami = "ami-0b15f4daf392ed874"
+  ami = var.ami
   instance_type = var.instance_type
   subnet_id = var.aws_subnet
   ssh_key_name = var.ssh_key_name
   security_group_ids = var.aws_security_group
-  volume_size = 80
+  volume_size = 100
   user_id = var.user_id
   ssh_key = var.ssh_key
   associate_public_ip = true
@@ -39,7 +39,12 @@ resource "null_resource" "elemental_node_provisioning" {
     private_key = file(var.ssh_key)
   }
 
+  provisioner "file" {
+    source      = var.elemental_iso
+    destination = "/tmp/elemental.iso"
+  }
+
   provisioner "remote-exec" {
     script = "./init-node.sh"
-  }
+  }    
 }

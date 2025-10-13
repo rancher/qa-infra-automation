@@ -1,11 +1,8 @@
 #!/bin/bash
 
 echo "Installing virt-manager"
-
 sudo apt-get update --yes
-sudo apt-get install virt-manager --yes
-
-echo "Upload iso"
+sudo apt-get install --yes virt-manager
 
 echo "Creating ENV variables"
 export VM_NAME="vm-elemental-node"
