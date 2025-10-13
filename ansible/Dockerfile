@@ -1,9 +1,9 @@
 # Use a minimal base image with Python, as Ansible requires it
 FROM python:3.14-slim
 
-# Update package lists and install curl
+# Update package lists and install curl and ssh
 RUN apt-get update && \
-    apt-get install -y curl
+    apt-get install -y curl openssh-server
 
 # Install NodeJS and NPM, then remove package lists
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
@@ -25,8 +25,10 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 # Set working directory inside the container
 WORKDIR /ansible
 
-# Install Ansible
+# Install Ansible and any dependencies that may exist in our playbooks
 RUN pip install ansible kubernetes
+
+RUN ansible-galaxy collection install cloud.terraform
 
 # Set an entrypoint to make the container act as an executable for ansible-playbook
 ENTRYPOINT ["ansible-playbook"]
