@@ -1,0 +1,9 @@
+variable "boot_image" {}
+variable "machine_type" {}
+variable "gcp_hostname_prefix" {}
+variable "network" {}
+variable "zone" {}
+variable "project_id" {}
+variable "region" {}
+variable "service_account_key_path" {}
+variable "download_url" {}
