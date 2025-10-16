@@ -9,6 +9,8 @@
         else
           echo "not-installed"
         fi
+      args:
+        executable: /bin/bash
       register: current_rke2_version
       changed_when: false
       become: true
@@ -217,6 +219,8 @@
             else
               echo "upgrade-failed"
             fi
+          args:
+            executable: /bin/bash
           register: upgraded_version
           changed_when: false
           become: true
