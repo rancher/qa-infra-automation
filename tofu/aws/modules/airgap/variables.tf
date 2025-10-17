@@ -24,3 +24,19 @@ variable "provision_registry" {
   type        = bool
   default     = true
 }
+variable "node_groups" {
+  description = "Map of how many nodes per group. Keyed by name of group. Group names are used for inventory file. Group of nodes for rancher should be named 'rancher'"
+  type        = map(number)
+  default = {
+    "rancher" = 3
+  }
+  validation {
+    condition     = !anytrue([for name in keys(var.node_groups) : startswith(name, "rancher-")])
+    error_message = "node_groups must not contain keys starting with 'rancher-'"
+  }
+
+  validation {
+    condition     = !anytrue([for size in values(var.node_groups) : size <= 0])
+    error_message = "A group must have at least one node"
+  }
+}

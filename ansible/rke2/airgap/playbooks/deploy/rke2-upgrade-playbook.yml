@@ -1,10 +1,12 @@
 ---
 - name: RKE2 Airgap Upgrade - Pre-upgrade Validation
-  hosts: airgap_nodes
+  hosts: "{{ target_group }}"
   become: true
   gather_facts: true
   vars_files:
     - ../group_vars/all.yml
+  vars:
+    target_group: "{{ target | default('rancher') }}"
 
   pre_tasks:
     - name: Validate required variables for upgrade
@@ -14,15 +16,15 @@
           - rke2_version is match('^v[0-9]+\.[0-9]+\.[0-9]+')
           - groups['bastion'] is defined
           - groups['bastion'] | length > 0
-          - groups['airgap_nodes'] is defined
-          - groups['airgap_nodes'] | length > 0
+          - groups[target_group] is defined
+          - groups[target_group] | length > 0
           - ssh_private_key_file is defined
           - ansible_user is defined
         fail_msg: |
           Required variable validation failed. Please check:
           - rke2_version is defined and matches format 'vX.Y.Z' (found: {{ rke2_version | default('undefined') }})
           - bastion group has at least one host (found: {{ groups['bastion'] | default([]) | length }})
-          - airgap_nodes group has at least one host (found: {{ groups['airgap_nodes'] | default([]) | length }})
+          - {{ target_group }} group has at least one host (found: {{ groups[target_group] | default([]) | length }})
           - ssh_private_key_file is defined (found: {{ ssh_private_key_file | default('undefined') }})
           - ansible_user is defined (found: {{ ansible_user | default('undefined') }})
         success_msg: "All required variables are valid for upgrade"
@@ -47,12 +49,14 @@
       ansible.builtin.shell: |
         set -o pipefail
         /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
+      args:
+        executable: /bin/bash
       register: current_version
       changed_when: false
 
     - name: Check RKE2 service status
       ansible.builtin.systemd:
-        name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
+        name: "{{ 'rke2-server' if inventory_hostname == groups[target_group][0] else 'rke2-agent' }}"
       register: service_status
 
     - name: Display pre-upgrade status
@@ -68,6 +72,8 @@
       ansible.builtin.shell: |
         set -o pipefail
         df -h /var/lib/rancher | tail -1 | awk '{print $4}'
+      args:
+        executable: /bin/bash
       register: disk_space
       changed_when: false
 
@@ -80,12 +86,14 @@
   hosts: bastion
   become: true
   gather_facts: true
+  vars:
+    target_group: "{{ target | default('rancher') }}"
   vars_files:
     - ../group_vars/all.yml
   tasks:
     - name: Check if upgrade is needed
       ansible.builtin.set_fact:
-        upgrade_needed: "{{ hostvars[groups['airgap_nodes'][0]]['current_version']['stdout'] != rke2_version }}"
+        upgrade_needed: "{{ hostvars[groups[target_group][0]]['current_version']['stdout'] != rke2_version }}"
 
     - name: Download and prepare new RKE2 tarball bundle
       ansible.builtin.include_role:
@@ -98,12 +106,14 @@
       when: not upgrade_needed
 
 - name: RKE2 Airgap Upgrade - Upgrade Server Node
-  hosts: airgap_nodes[0]  # First server node only
+  hosts: "{{ target_group }}[0]"  # First server node only
   become: true
   gather_facts: true
   serial: 1
   vars_files:
     - ../group_vars/all.yml
+  vars:
+    target_group: "{{ target | default('rancher') }}"
   tasks:
     - name: Check if upgrade is needed for server
       ansible.builtin.set_fact:
@@ -150,10 +160,12 @@
               - Cluster Nodes: {{ kubectl_test.stdout_lines | length - 1 }} nodes visible
 
 - name: RKE2 Airgap Upgrade - Upgrade Agent Nodes
-  hosts: airgap_nodes[1:]  # All nodes except the first (server)
+  hosts: "target_group[1:]"  # All nodes except the first (server)
   become: true
   gather_facts: true
   serial: 1  # Upgrade one agent at a time
+  vars:
+    target_group: "{{ target | default('rancher') }}"
   vars_files:
     - ../group_vars/all.yml
   tasks:
@@ -188,7 +200,7 @@
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
             /var/lib/rancher/rke2/bin/kubectl get nodes {{ inventory_hostname }} -o wide
           register: node_status
-          delegate_to: "{{ groups['airgap_nodes'][0] }}"
+          delegate_to: "{{ groups[target_group][0] }}"
           failed_when: false
           changed_when: false
           become: true
@@ -204,8 +216,10 @@
               {% endif %}
 
 - name: RKE2 Airgap Upgrade - Post-upgrade Verification
-  hosts: airgap_nodes[0]  # Run verification from server node
+  hosts: target_group[0]  # Run verification from server node
   gather_facts: false
+  vars:
+    target_group: "{{ target | default('rancher') }}"
   vars_files:
     - ../group_vars/all.yml
   tasks:
@@ -253,8 +267,8 @@
               {{ system_pods.stdout }}
 
               [INFO] Upgrade Summary:
-              - Server nodes upgraded: {{ groups['airgap_nodes'] | length >= 1 }}
-              - Agent nodes upgraded: {{ (groups['airgap_nodes'] | length - 1) if groups['airgap_nodes'] | length > 1 else 0 }}
+              - Server nodes upgraded: {{ groups[target_group] | length >= 1 }}
+              - Agent nodes upgraded: {{ (groups[target_group] | length - 1) if groups[target_group] | length > 1 else 0 }}
               - Total nodes in cluster: {{ final_cluster_status.stdout_lines | length - 1 }}
 
         - name: Verify all nodes are Ready
@@ -262,6 +276,8 @@
             set -o pipefail
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
             /var/lib/rancher/rke2/bin/kubectl get nodes --no-headers | grep -v Ready | wc -l
+          args:
+            executable: /bin/bash
           register: not_ready_count
           changed_when: false
           become: true
@@ -290,6 +306,8 @@
             set -o pipefail
             export KUBECONFIG=/root/.kube/config
             /var/lib/rancher/rke2/bin/kubectl version --output=json | jq -r '.serverVersion.gitVersion'
+          args:
+            executable: /bin/bash
           register: k8s_version
           failed_when: false
           changed_when: false
