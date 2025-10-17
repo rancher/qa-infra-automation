@@ -85,7 +85,7 @@ all:
     ssh_private_key_file: "~/.ssh/id_rsa"
     bastion_user: "ubuntu"
     bastion_host: "<BASTION_PUBLIC_DNS>"
-    
+
   children:
     bastion:
       hosts:
@@ -93,13 +93,13 @@ all:
           ansible_host: "{{ bastion_host }}"
           ansible_user: "{{ bastion_user }}"
           ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-          
+
     airgap_nodes:
       vars:
         ansible_user: "ubuntu"
         ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
         ansible_ssh_common_args: "-o ProxyCommand='ssh -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-        
+
       hosts:
         rke2-server-0:
           ansible_host: "<AIRGAP_NODE_PRIVATE_IP>"
@@ -124,6 +124,8 @@ Execute the tarball installation:
 ```bash
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
 ```
+
+Mind that most playbooks have the group named `rancher` as the default target, but this can be changed by adding `--extra-vars:target=intended-target` to the `ansible-playbook` command or define the `target` varible in `inventory/group_vars/all.yml`.
 
 ### 4. Setup kubectl Access (Optional)
 
@@ -278,6 +280,20 @@ kubectl get ingress -n cattle-system
 - Ensure firewall allows HTTPS (443) traffic
 
 For airgap-specific Rancher issues, see the Rancher airgap documentation in `docs/`.
+
+## Import cluster to Rancher as Custom Cluster
+
+This also contains tools for adding an airgapped cluster to an airgapped Rancher deployment as an imported custom cluster.
+
+For this, you can use the `add_downstream_cluster.yml` playbook as such:
+
+```bash
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/add_downstream_cluster.yml -e "target=your_downstream_group"
+```
+
+This is one of the few playbooks that require a target to be set, either through `--extra-vars` or `group_vars/all.yml`, since it wouldn't make sense to use the `rancher` group as a downstream. This command will fail if no target is provided.
+
+To learn more on how to provision a Rancher and a downstream airgapped clusters, check the [guide for provisioning and configuring a downstream cluster](../../../docs/IMPORT_CLUSTER_IN_AIRGAP.md)
 
 ## Upgrading RKE2
 
@@ -509,8 +525,8 @@ kubectl get pods -A
 Expected output for a successful single-node deployment:
 
 ```
-NAME              STATUS   ROLES                       AGE     VERSION          INTERNAL-IP    
-ip-172-31-4-247   Ready    control-plane,etcd,master   8m19s   v1.31.1+rke2r1   172.31.4.247   
+NAME              STATUS   ROLES                       AGE     VERSION          INTERNAL-IP
+ip-172-31-4-247   Ready    control-plane,etcd,master   8m19s   v1.31.1+rke2r1   172.31.4.247
 ```
 
 ## Troubleshooting
@@ -573,10 +589,10 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rancher-helm-deploy
      ```bash
      # Check registries.yaml exists and is correct
      cat /etc/rancher/rke2/registries.yaml
-     
+
      # Test registry connectivity from airgap nodes
      curl -k https://your-private-registry.com/v2/
-     
+
      # Re-apply registry configuration if needed
      ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-registry-config-playbook.yml
      ```
