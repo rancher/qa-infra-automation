@@ -18,22 +18,6 @@
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default(rancher_chart_repo_url_default) }}"
 
   tasks:
-    - name: Get LoadBalancer IP (only for Harvester clusters)
-      command: >
-        kubectl get loadbalancer {{ fqdn }} -o jsonpath='{.status.address}'
-      register: lb_ip_result
-      environment:
-        KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ terraform_state_path }}/../local.yaml"
-      when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
-
-    - name: Normalize fqdn
-      set_fact:
-        fqdn: >-
-          {{
-            (lb_ip_result is defined and lb_ip_result.stdout | length > 0)
-              | ternary(lb_ip_result.stdout ~ '.sslip.io', fqdn)
-          }}
-
     - name: Check if kubeconfig file exists
       stat:
         path: "{{ kubeconfig_file }}"
@@ -59,7 +43,6 @@
         msg: "Connected! Found {{ ns_info.resources | length }} namespaces."
 
     - name: Install cert-manager CRDs
-      no_log: true
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
         src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
