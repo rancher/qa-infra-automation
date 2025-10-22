@@ -14,6 +14,9 @@
   set_fact:
     _py_missing: "{{ 'MISSING' in pyprobe.stdout }}"
     _py_info: "{{ (pyprobe.stdout is search('^{')) | ternary(pyprobe.stdout | from_json, {}) }}"
+
+- name: Parse py_info fact
+  set_fact:
     _py_major: "{{ _py_info.major | default(0) | int }}"
     _py_minor: "{{ _py_info.minor | default(0) | int }}"
 
@@ -30,13 +33,17 @@
     _os_like: "{{ (osr.stdout | default('||')).split('|')[1] | lower }}"
     _os_ver:  "{{ (osr.stdout | default('||')).split('|')[2] }}"
 
-- name: Debian/Ubuntu | ensure python3 (>=3.8 in repo)
-  raw: |
-    set -e
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y python3
-  when: _os_id in ['debian','ubuntu'] and (_py_missing or (_py_major < 3) or (_py_major == 3 and _py_minor < 8))
+- name: Debian/Ubuntu | Ensure Python3 (>=3.8) is installed
+  raw: >
+    bash -c "set -e;
+    export DEBIAN_FRONTEND=noninteractive;
+    apt-get update;
+    apt-get install -y python3"
+  when: >
+    _os_id in ['debian','ubuntu'] and
+    (_py_missing or
+    (_py_major | int < 3) or
+    (_py_major | int == 3 and _py_minor | int < 8))
 
 - name: RHEL-family | ensure python39 (or python3)
   raw: |
