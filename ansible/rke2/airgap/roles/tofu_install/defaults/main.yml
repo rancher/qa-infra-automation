@@ -1,0 +1,6 @@
+---
+tofu_version: "1.7.2"
+install_dir: "/usr/local/bin"
+tofu_arch: "{{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
+download_url: "https://github.com/opentofu/opentofu/releases/download/v{{ tofu_version }}/tofu_{{ tofu_version }}_{{ ansible_system | lower }}_{{ tofu_arch }}.zip"
+temp_download_path: "/tmp/tofu_{{ tofu_version }}.zip"
