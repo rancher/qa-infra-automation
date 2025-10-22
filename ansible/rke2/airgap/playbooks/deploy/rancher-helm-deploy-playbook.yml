@@ -107,6 +107,48 @@
           - {{ pod.metadata.name }}: {{ pod.status.phase }}
           {% endfor %}
 
+    - name: Add internal hostname to ingress
+      block:
+      - name: Set fact for new Ingress Rule
+        ansible.builtin.set_fact:
+          ingress_rules:
+            - host: "{{ rancher_internal_hostname | default(internal_lb_hostname) }}"
+              http:
+                paths:
+                  - backend:
+                      service:
+                        name: "rancher"
+                        port:
+                          number: 80
+                    path: /
+                    pathType: ImplementationSpecific
+            - host: "{{ rancher_hostname | default(external_lb_hostname) }}"
+              http:
+                paths:
+                  - backend:
+                      service:
+                        name: "rancher"
+                        port:
+                          number: 80
+                    path: /
+                    pathType: ImplementationSpecific
+
+      - name: Patch the Ingress to add the new hostname rule and TLS host
+        kubernetes.core.k8s:
+          state: patched
+          api_version: networking.k8s.io/v1
+          kind: Ingress
+          name: "rancher"
+          namespace: "cattle-system"
+          definition:
+            spec:
+              rules: "{{ ingress_rules }}"
+              tls:
+                - hosts:
+                    - "{{ rancher_internal_hostname | default(internal_lb_hostname) }}"
+                    - "{{ rancher_hostname | default(external_lb_hostname) }}"
+      when: (rancher_internal_hostname is defined or internal_lb_hostname is defined) and (rancher_hostname is defined or external_lb_hostname is defined)
+
     - name: Get LoadBalancer or NodePort service details
       kubernetes.core.k8s_info:
         api_version: v1
