@@ -46,11 +46,26 @@
     
     - name: Wait for Elemental ISO be prepared
       command: kubectl wait --timeout=600s --for=condition=ready pod -n fleet-default fire-img --kubeconfig "{{ kubeconfig_file }}"
+      retries: 5
+      delay: 10
 
     - name: Get Download Url
       command: kubectl get seedimage -n fleet-default fire-img -o jsonpath="{.status.downloadURL}" --kubeconfig "{{ kubeconfig_file }}"
       register: download_url
     
-    - name: Show output
+    - name: Show Download Url
       debug:
         var: download_url.stdout
+
+    - name: Copying file to Elemental node
+      ansible.builtin.shell: |
+        scp -o StrictHostKeyChecking=no -i {{ ssh_private_key_file }} ./init-node.sh {{ ssh_user }}@{{ elemental_node_public_ip }}:/tmp/
+      failed_when: false
+    
+    - name: Creating Elemental VM
+      ansible.builtin.shell: |
+        ssh -i {{ ssh_private_key_file }} {{ ssh_user }}@{{ elemental_node_public_ip }} "export DOWNLOAD_URL={{ download_url.stdout }} && sh /tmp/init-node.sh"
+      failed_when: false
+    
+    - name: Wait for Elemental cluster be ready
+      command: kubectl wait --timeout=1800s --for=condition=ready MachineDeployment -n fleet-default {{ elemental-pool-name }} --kubeconfig "{{ kubeconfig_file }}"

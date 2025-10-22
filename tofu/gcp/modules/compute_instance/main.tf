@@ -11,7 +11,7 @@ resource "google_compute_instance" "this" {
     mode = "READ_WRITE"
   }
 
-  can_ip_forward      = false
+  can_ip_forward      = true
   deletion_protection = false
   enable_display      = false
 
@@ -23,13 +23,11 @@ resource "google_compute_instance" "this" {
   name         = var.instance_name
 
   network_interface {
-    access_config {
-      network_tier = "PREMIUM"
-    }
+    access_config {}
 
     queue_count = 0
     stack_type  = "IPV4_ONLY"
-    subnetwork  = var.network 
+    subnetwork  = var.network
   }
 
   scheduling {
@@ -47,7 +45,9 @@ resource "google_compute_instance" "this" {
 
   zone = var.zone
 
-  tags = ["http-server", "https-server"]
+  tags = ["http-server", "https-server", "rke2-nodes"]
 
-  metadata_startup_script = var.startup_script
+  metadata = {
+    ssh-keys = "${var.ssh_user}:${var.ssh_public_key}"
+  }
 }

@@ -1,9 +1,10 @@
 variable "boot_image" {}
 variable "machine_type" {}
 variable "gcp_hostname_prefix" {}
-variable "network" {}
 variable "zone" {}
 variable "project_id" {}
 variable "region" {}
+variable "network" {}
 variable "service_account_key_path" {}
-variable "download_url" {}
+variable "ssh_user" {}
+variable "ssh_public_key" {}

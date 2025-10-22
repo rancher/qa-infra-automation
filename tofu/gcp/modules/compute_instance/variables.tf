@@ -1,6 +1,7 @@
 variable "boot_image" {}
 variable "machine_type" {}
 variable "instance_name" {}
-variable "network" {}
 variable "zone" {}
-variable "startup_script" {}
+variable "network" {}
+variable "ssh_user" {}
+variable "ssh_public_key" {}
