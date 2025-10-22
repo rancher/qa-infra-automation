@@ -4,7 +4,6 @@
   when: deploy_rancher | default(false) | bool
   tags:
     - rancher
-    - helm
   block:
     - name: Check if kubectl is configured on bastion
       ansible.builtin.stat:
@@ -16,47 +15,49 @@
         msg: "kubectl is not configured on bastion. Run setup-kubectl-access.yml first."
       when: not kubeconfig_file.stat.exists
 
-    - name: Install Helm if not present
-      ansible.builtin.get_url:
-        url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
-        dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
-        mode: '0644'
-      when: install_helm | bool
-
-    - name: Extract Helm binary
-      ansible.builtin.unarchive:
-        src: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
-        dest: /tmp
-        remote_src: true
-        creates: /tmp/linux-amd64/helm
-      when: install_helm | bool
-
-    - name: Install Helm binary
-      ansible.builtin.copy:
-        src: /tmp/linux-amd64/helm
-        dest: /usr/local/bin/helm
-        mode: '0755'
-        remote_src: true
-      when: install_helm | bool
-
-    - name: Verify Helm installation
+    - name: Check Helm installation
       ansible.builtin.command: helm version --short
-      register: helm_version_output
-      changed_when: false
-      environment:
-        KUBECONFIG: "{{ kubeconfig_path }}"
+      register: helm_output_version
+      ignore_errors: true
 
     - name: Display Helm version
       ansible.builtin.debug:
-        msg: "Helm version: {{ helm_version_output.stdout }}"
+        msg: "Helm version: {{ helm_output_version.stdout }}"
 
-    - name: Create Rancher namespace
-      kubernetes.core.k8s:
-        name: "{{ rancher_namespace }}"
-        api_version: v1
-        kind: Namespace
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
+    - name: Install Helm if not present
+      when: helm_output_version.rc != 0
+      block:
+        - name: Get install script
+          ansible.builtin.get_url:
+            url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+            dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+            mode: '0644'
+          retries: 3
+          delay: 30
+
+        - name: Extract Helm binary
+          ansible.builtin.unarchive:
+            src: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+            dest: /tmp
+            remote_src: true
+            creates: /tmp/linux-amd64/helm
+
+        - name: Install Helm binary
+          become: true
+          ansible.builtin.copy:
+            src: /tmp/linux-amd64/helm
+            dest: /usr/local/bin/helm
+            mode: '0755'
+            remote_src: true
+
+        - name: Verify Helm installation
+          ansible.builtin.command: helm version --short
+          register: helm_version_output
+          changed_when: false
+
+        - name: Display Helm version
+          ansible.builtin.debug:
+            msg: "Helm version: {{ helm_version_output.stdout }}"
 
     - name: Add Rancher Helm repository
       kubernetes.core.helm_repository:
@@ -99,25 +100,24 @@
         wait_timeout: 300
       when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
 
-    - name: Create temporary values file for Helm
-      ansible.builtin.copy:
-        content: "{{ rancher_helm_values | to_nice_yaml }}"
-        dest: "/tmp/rancher-values-{{ ansible_date_time.iso8601 }}.yaml"
-        mode: '0644'
-      when: rancher_helm_values is defined
-
-    - name: Deploy Rancher using Helm upgrade --install
-      ansible.builtin.command:
-        cmd: "helm upgrade --install rancher {{ rancher_helm_chart_repo_name }}/rancher{% if rancher_chart_version is defined and rancher_chart_version %} --version {{ rancher_chart_version }}{% endif %} --namespace {{ rancher_namespace }} --values /tmp/rancher-values-{{ ansible_date_time.iso8601 }}.yaml --wait --timeout 600s"
-        creates: "/tmp/rancher-helm-deployed-{{ ansible_date_time.iso8601 }}"
-      environment:
-        KUBECONFIG: "{{ kubeconfig_path }}"
-
-    - name: Cleanup temporary values file
-      ansible.builtin.file:
-        path: "/tmp/rancher-values-{{ ansible_date_time.iso8601 }}.yaml"
-        state: absent
-      when: rancher_helm_values is defined
+    - name: Install or Upgrade Rancher using Helm
+      kubernetes.core.helm:
+        name: rancher
+        chart_ref: "{{ rancher_helm_chart_repo_name }}/rancher"
+        chart_version: "{{ rancher_chart_version | default('') }}"
+        release_namespace: "{{ rancher_namespace }}"
+        create_namespace: true
+        wait: true
+        wait_timeout: 600s
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        values:
+          hostname: "{{ rancher_private_hostname }}"
+          bootstrapPassword: "{{ rancher_bootstrap_password }}"
+          useBundledSystemChart: "{{ rancher_use_bundled_system_charts }}"
+          ingress:
+            tls:
+              source: "{{ rancher_tls_source }}"
 
     - name: Wait for Rancher deployment to be ready
       kubernetes.core.k8s_info:
@@ -138,12 +138,11 @@
         name: rancher
         namespace: "{{ rancher_namespace }}"
         kubeconfig: "{{ kubeconfig_path }}"
-      register: rancher_service
 
     - name: Display Rancher deployment status
       ansible.builtin.debug:
         msg: |
           Rancher has been successfully deployed!
           Namespace: {{ rancher_namespace }}
-          Hostname: {{ rancher_hostname }}
-          Access URL: https://{{ rancher_hostname }}
+          Hostname: {{ rancher_private_hostname }}
+          Access URL: https://{{ rancher_private_hostname }}
