@@ -166,8 +166,8 @@
         name: rke2-ingress-nginx-controller-admission
       register: ingress_endpoints
       until: >
-        ingress_endpoints.resources | length > 0 and
-        (ingress_endpoints.resources[0].subsets | default([])) | length > 0 and
-        (ingress_endpoints.resources[0].subsets[0].addresses | default([])) | length > 0
+        (ingress_endpoints.get('resources', []) | length > 0) and
+        ((ingress_endpoints.get('resources', [])[0].subsets | default([])) | length > 0) and
+        ((ingress_endpoints.get('resources', [])[0].subsets[0].addresses | default([])) | length > 0)
       retries: 30
       delay: 20
