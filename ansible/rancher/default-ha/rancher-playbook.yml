@@ -127,7 +127,7 @@
           replicas: "{{ node_info.resources | length }}"
       when: rancher_version != ""
       retries: 6
-      delay: 60
+      delay: 120
 
     - name: Wait for Rancher to be ready
       kubernetes.core.k8s_info:
