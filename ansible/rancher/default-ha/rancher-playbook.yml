@@ -47,6 +47,8 @@
         kubeconfig: "{{ kubeconfig_file }}"
         src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
         state: present
+      retries: 5
+      delay: 30
       when: cert_manager_version != ""
 
     - name: Install cert-manager
@@ -56,6 +58,8 @@
         state: present
         wait: true
         wait_timeout: 300
+      retries: 5
+      delay: 30
       when: cert_manager_version != ""
 
     - name: Wait for cert-manager to be ready
