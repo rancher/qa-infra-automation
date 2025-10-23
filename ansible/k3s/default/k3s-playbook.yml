@@ -52,7 +52,7 @@
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
     
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}.sslip.io"
+    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
     node_token_file: "/tmp/node_token.txt"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
