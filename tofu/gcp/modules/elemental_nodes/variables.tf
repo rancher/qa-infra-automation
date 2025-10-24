@@ -6,5 +6,3 @@ variable "project_id" {}
 variable "region" {}
 variable "network" {}
 variable "service_account_key_path" {}
-variable "ssh_user" {}
-variable "ssh_public_key" {}

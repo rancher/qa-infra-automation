@@ -14,6 +14,4 @@ module "elemental_nodes" {
   machine_type = var.machine_type
   zone = var.zone
   network = var.network
-  ssh_user = var.ssh_user
-  ssh_public_key = file(var.ssh_public_key)
 }
