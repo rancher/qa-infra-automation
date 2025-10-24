@@ -87,7 +87,10 @@ resource "harvester_virtualmachine" "vm" {
   tags = merge(
     {
       "ssh-user" = var.ssh_user,
-      "${var.generate_name}-${random_string.random_suffix.result}" = "true"
+      "${
+        can(regex("master", each.value.name)) || can(regex("cp", each.value.name)) ? "${var.generate_name}-${random_string.random_suffix.result}" :
+        "${var.generate_name}-noncp-${random_string.random_suffix.result}"
+        }" = true
     },
     var.labels
   )
