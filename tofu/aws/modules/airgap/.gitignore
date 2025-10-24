@@ -1,0 +1,2 @@
+# Ignore generated backend file containing state config
+backend.tf
