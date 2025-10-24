@@ -72,7 +72,17 @@ case "$backend" in
     ;;
 esac
 
-echo "Generated ${OUTFILE} (add to .gitignore). Running terraform init -reconfigure ..."
-terraform init -reconfigure
+# Determine which CLI to use: tofu or terraform
+if command -v tofu >/dev/null 2>&1; then
+  TF_CLI="tofu"
+elif command -v terraform >/dev/null 2>&1; then
+  TF_CLI="terraform"
+else
+  echo "Error: Neither 'tofu' nor 'terraform' is installed or in PATH."
+  exit 1
+fi
+
+echo "Generated ${OUTFILE} (add to .gitignore). Running ${TF_CLI} init -reconfigure ..."
+${TF_CLI} init -reconfigure
 
 echo "Done."

@@ -14,7 +14,13 @@ This repo supports switching Terraform state backend between S3 and local.
 ### Workflow
 - Generate backend.tf (not committed) and run terraform init:
   - For S3:
-      ./scripts/init-backend.sh s3 --bucket my-terraform-state-bucket --key envs/prod/terraform.tfstate --region us-east-1 --dynamodb-table tf-locks --encrypt true
+    ```bash
+    ./scripts/init-backend.sh s3 --bucket my-terraform-state-bucket --key envs/prod/terraform.tfstate --region us-east-1 --dynamodb-table tf-locks --encrypt true
+    ```
+  - For local:
+    ```bash
+    ./scripts/init-backend.sh local --path terraform.tfstate
+    ```
   - For local:
       ./scripts/init-backend.sh local --path terraform.tfstate
 
@@ -29,10 +35,12 @@ This repo supports switching Terraform state backend between S3 and local.
   - Run init script for local `./scripts/init-backend.sh local`
   - `tofu state push statefile.tfstate`
 
-### Important notes
-- backend.tf is generated and intentionally gitignored so each developer or CI can configure their backend.
-- Switching backends (local -> s3, s3 -> local) will perform a state migration when you run tofu init with the new backend config. Always back up state files first.
-  - Example: to migrate local -> s3, run the s3 init command and Tofu will prompt to copy the state.
+  - You can also manually export/import state:
+    ```
+    tofu state pull > statefile.tfstate
+    tofu init -backend-config="..."   # new backend
+    tofu state push statefile.tfstate
+    ```
   - You can also manually export/import state:
       tofu state pull > statefile.tfstate
       tofu init -backend-config="..."   # new backend
