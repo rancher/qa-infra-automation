@@ -1,8 +1,3 @@
-resource "tls_private_key" "ssh" {
-  algorithm = "RSA"
-  rsa_bits  = 2048
-}
-    
 resource "google_compute_instance" "this" {
   boot_disk {
     auto_delete = true
@@ -49,6 +44,6 @@ resource "google_compute_instance" "this" {
   tags = ["http-server", "https-server", "rke2-nodes"]
 
   metadata = {
-    ssh-keys = "ubuntu:${tls_private_key.ssh.public_key_openssh}"
+    ssh-keys = "${var.ssh_user}:${var.ssh_public_key}"
   }
 }
