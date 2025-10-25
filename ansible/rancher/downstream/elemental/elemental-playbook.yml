@@ -68,4 +68,4 @@
       failed_when: false
     
     - name: Wait for Elemental cluster be ready
-      command: kubectl wait --timeout=1800s --for=condition=ready MachineDeployment -n fleet-default {{ elemental-pool-name }} --kubeconfig "{{ kubeconfig_file }}"
+      command: kubectl wait --timeout=1800s --for=condition=ready MachineDeployment -n fleet-default {{ elemental_pool_name }} --kubeconfig "{{ kubeconfig_file }}"
