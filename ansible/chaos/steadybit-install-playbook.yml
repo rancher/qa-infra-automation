@@ -1,0 +1,85 @@
+---
+- hosts: localhost
+  # Defaulted variables
+  vars:
+    sbCli_image_tag: "{{ steadybit_cli_version | default(4) }}"
+    exp_file: "{{ experiment_file | default('experiments/experiment.yml') }}"
+    retry_count: "{{ (experiment_timeout | default(300)/30) | round(0, 'ceil') | int }}"
+
+  tasks:
+
+  # Get experiment file so that it can be parsed for data in other tasks
+  - name: Read experiment YAML file
+    set_fact:
+      experiment_yaml: "{{ lookup('file', '' ~ playbook_dir ~ '/' ~ exp_file ~ '') | from_yaml }}"
+  
+  # When relevant, ensure that the clusterName matches across the steadybit values.yml and the experiment.yml
+  - name: Check if the experiment has the k8s.clusterName variable
+    command: "grep -q 'k8s.clusterName' '{{playbook_dir}}/{{exp_file}}'"
+    register: grep_result
+    failed_when: grep_result.rc != 0 and grep_result.rc != 1
+
+  - name: Validate clusterName matches
+    block:
+    - name: Read values YAML file
+      set_fact:
+        values_yaml: "{{ lookup('file', '' ~ playbook_dir ~ '/values.yml') | from_yaml }}"
+
+    - name: Assert that clusterName is the same in both files
+      assert:
+        that:
+        - values_yaml['global']['clusterName'] == experiment_yaml['experimentVariables']['k8s.clusterName']
+        fail_msg: "Value for 'global.clusterName' in values.yml ({{values_yaml['global']['clusterName']}}) does not match value in {{exp_file}} ({{experiment_yaml['experimentVariables']['k8s.clusterName']}})"
+    when: grep_result.rc == 0
+
+  # Install the Steadybit agent into the cluster via helm 
+  - name: Add steadybit helm repository if not already added
+    kubernetes.core.helm_repository:
+      name: steadybit
+      repo_url: https://steadybit.github.io/helm-charts
+      state: present
+
+  - name: Update Helm repositories
+    command: helm repo update
+
+  - name: Install or upgrade steadybit-agent helm chart in the cluster
+    kubernetes.core.helm:
+      name: steadybit-agent
+      chart_ref: steadybit/steadybit-agent
+      namespace: steadybit-agent
+      create_namespace: yes
+      values_files: '{{playbook_dir}}/values.yml'
+      state: present
+
+  - name: Wait for all steadybit pods to be created
+    command: "kubectl get po --namespace=steadybit-agent --output=jsonpath='{.items[*].metadata.name}'"
+    register: pods_created
+    until: item in pods_created.stdout
+    retries: 6
+    delay: 10
+    with_items:
+    - steadybit-agent-0
+    - steadybit-agent-extension-http
+    - steadybit-agent-extension-kubernetes
+
+  - name: Wait for steadybit pods to become ready
+    command: "kubectl wait pods --all --namespace=steadybit-agent --for=condition=Ready --timeout=300s"
+    register: pods_ready
+
+  # Add and run the chaos experiment using the Steadybit CLI
+  - name: Create a Steadybit CLI Profile to access the environment
+    command: "steadybit config profile add -n steadybit -b https://platform.steadybit.com -t {{steadybit_token}}"
+
+  - name: Create or update chaos experiment in Steadybit
+    command: "steadybit experiment apply -k {{experiment_yaml['key']}} -f {{playbook_dir}}/{{exp_file}}"
+
+  - name: Run experiment and provide URL to it in case of errors
+    block:
+    - name: Run chaos experiment in Steadybit
+      command: "steadybit experiment run -k {{experiment_yaml['key']}}"
+      register: experiment_run_logs
+    always: 
+    # In case of failure, the reasons must be viewed directly in Steadybit UI. Provide an easy link to access the run whether it failed or not.
+    - name: Print URL to chaos experiment
+      debug:
+        msg: "See {{experiment_run_logs.stdout_lines[1].split()[3]}} for run details."

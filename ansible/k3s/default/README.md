@@ -77,8 +77,13 @@ vim vars.yaml
 ```
 
 **Sample `vars.yaml`:**
+
 ```yaml
 # K3s version and installation
 kubernetes_version: 'v1.33.1+k3s1'
 kubeconfig_file: './kubeconfig.yaml'
 ```
+
+### Registry Support
+
+If you would like to use a mirror or registry, upload a file to `roles/k3s_install/tasks/` named `k3s_registy.yaml`

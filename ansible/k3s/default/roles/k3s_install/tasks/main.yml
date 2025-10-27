@@ -22,6 +22,25 @@
     mode: '0644'
     backup: true
 
+- name: Check if k3s_registry.yaml exists in role files
+  ansible.builtin.stat:
+    path: "{{ role_path }}/tasks/k3s_registry.yaml"
+  register: registry_file
+
+- name: Ensure destination directory for registry exists
+  ansible.builtin.file:
+    path: /etc/rancher/k3s/
+    state: directory
+    mode: '0755'
+  when: registry_file.stat.exists
+
+- name: Copy k3s_registry.yaml to the registry filepath
+  ansible.builtin.copy:
+    src: k3s_registry.yaml
+    mode: '0644'
+    dest: /etc/rancher/k3s/registries.yaml
+
+
 - name: Download and install K3s
   shell: |
     # Skip installation if K3s is already installed
@@ -52,6 +71,8 @@
     curl -sfL https://get.k3s.io | sh -
   register: k3s_install_result
   changed_when: "'K3s already installed' not in k3s_install_result.stdout"
+  args:
+    executable: bash
 
 - name: Enable and start K3s service
   block:

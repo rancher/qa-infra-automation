@@ -1,1 +1,3 @@
 /tofu/aws/modules/cluster_nodes @rancher/qa-pit-crew
+/ansible/k3s @rancher/distros-qa
+/ansible/rke2 @rancher/distros-qa

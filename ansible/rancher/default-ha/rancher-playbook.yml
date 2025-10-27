@@ -142,6 +142,19 @@
       delay: 30
       when: rancher_version != ""
 
+    - name: Wait for Fleet to be ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: apps/v1
+        kind: Deployment
+        namespace: cattle-fleet-local-system
+        name: fleet-agent
+      register: fleet_deployment
+      until: fleet_deployment.resources[0].status.readyReplicas is defined and fleet_deployment.resources[0].status.readyReplicas == fleet_deployment.resources[0].status.replicas
+      retries: 15
+      delay: 30
+      when: rancher_version != ""
+      
     - name: Get Rancher Ingress Host
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig_file }}"

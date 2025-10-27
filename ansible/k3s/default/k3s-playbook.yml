@@ -30,6 +30,8 @@
       when: hostvars[item]['ansible_host'] is defined and hostvars[item]['ansible_host'] != ''
 
 - hosts: all
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   strategy: linear
   become: true
   gather_facts: false
@@ -80,7 +82,7 @@
         k3s_node_roles: "{{ ansible_role }}"
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
-        k3s_channel: "{{ channel | default('') }}"
+        k3s_channel: "{{ channel | default('latest') }}"
       when: inventory_hostname == 'master'
 
     - name: Apply K3s hardening on initial cluster node if enabled
@@ -175,7 +177,7 @@
         k3s_node_roles: "{{ ansible_role }}"
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
-        k3s_channel: "{{ channel | default('') }}"
+        k3s_channel: "{{ channel | default('latest') }}"
       when:
         - inventory_hostname != 'master'
         - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
@@ -219,7 +221,7 @@
         k3s_token: "{{ node_token }}"
         public_ip: "{{ ansible_host }}"
         k3s_worker_flags: "{{ worker_flags | default('') }}"
-        k3s_channel: "{{ channel | default('') }}"
+        k3s_channel: "{{ channel | default('latest') }}"
       when: ansible_role is defined and ansible_role == 'worker'
 
 - hosts: localhost
