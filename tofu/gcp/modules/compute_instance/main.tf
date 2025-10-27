@@ -4,7 +4,7 @@ resource "google_compute_instance" "this" {
 
     initialize_params {
       image = var.boot_image
-      size  = 100
+      size  = var.size
       type  = "pd-standard"
     }
 
@@ -41,7 +41,7 @@ resource "google_compute_instance" "this" {
 
   zone = var.zone
 
-  tags = ["http-server", "https-server", "rke2-nodes"]
+  tags = var.tags
 
   metadata = {
     ssh-keys = "${var.ssh_user}:${var.ssh_public_key}"

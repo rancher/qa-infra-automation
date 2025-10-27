@@ -11,6 +11,8 @@ module "elemental_nodes" {
   machine_type = var.machine_type
   zone = var.zone
   network = var.network
+  tags = var.tags
+  size = var.size
   ssh_user = "ubuntu"
   ssh_public_key = tls_private_key.ssh.public_key_openssh
 }
