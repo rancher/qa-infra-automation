@@ -2,7 +2,8 @@
 - hosts: localhost
   connection: local
   gather_facts: false
-
+  vars_files:
+    - vars.yaml
   tasks:
     - name: Check if kubeconfig file exists
       stat:
