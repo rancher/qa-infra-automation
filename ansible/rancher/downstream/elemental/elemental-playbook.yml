@@ -58,15 +58,52 @@
       debug:
         var: download_url.stdout
 
-    - name: Copying file to Elemental node
+- hosts: elemental_node
+  connection: ssh
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  vars:
+    vm_name: "vm-elemental-node"
+    vm_iso: "/tmp/elemental.iso"
+    vm_net: "default"
+    vm_os: "slem5.3"
+    vm_img: "/tmp/vm-elemental-node.qcow2"
+    vm_cores: 8
+    vm_disksize: 60
+    vm_ramsize: 8000
+
+  tasks:
+    - name: Prepare Elemental node
       ansible.builtin.shell: |
-        scp -o StrictHostKeyChecking=no -i {{ ssh_private_key_file }} ./init-node.sh {{ ssh_user }}@{{ elemental_node_public_ip }}:/tmp/
+        wget --no-check-certificate -O /tmp/elemental.iso {{ hostvars['localhost'].download_url.stdout }}
+        sudo apt-get update -y
+        sudo apt-get install -y virt-manager
       failed_when: false
     
     - name: Creating Elemental VM
-      ansible.builtin.shell: |
-        ssh -i {{ ssh_private_key_file }} {{ ssh_user }}@{{ elemental_node_public_ip }} "export DOWNLOAD_URL={{ download_url.stdout }} && sh /tmp/init-node.sh"
+      ansible.builtin.shell: | 
+        sudo virt-install \
+          --name {{ vm_name }} \
+          --memory {{ vm_ramsize }} \
+          --vcpus {{ vm_cores }} \
+          --os-variant={{ vm_os }} \
+          --cdrom {{ vm_iso }} \
+          --network network={{ vm_net }},model=virtio \
+          --disk path={{ vm_img }},size={{ vm_disksize }},bus=virtio,format=qcow2 \
+          --boot uefi \
+          --cpu host-model \
+          --autostart \
+          --noautoconsole \
+          --wait=-1 \
+          --check disk_size=off
       failed_when: false
-    
-    - name: Wait for Elemental cluster be ready
+  
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  tasks:
+    - name: Wait for Elemental cluster to be ready
       command: kubectl wait --timeout=1800s --for=condition=ready MachineDeployment -n fleet-default {{ elemental_pool_name }} --kubeconfig "{{ kubeconfig_file }}"
