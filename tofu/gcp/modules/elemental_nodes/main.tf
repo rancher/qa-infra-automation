@@ -13,7 +13,7 @@ module "elemental_nodes" {
   network = var.network
   tags = var.tags
   size = var.size
-  ssh_user = "ubuntu"
+  ssh_user = var.ssh_user
   ssh_public_key = tls_private_key.ssh.public_key_openssh
 }
 
