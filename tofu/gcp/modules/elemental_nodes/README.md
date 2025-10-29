@@ -60,6 +60,7 @@ The private SSH key is automatically generated and saved to private_key.pem.
 
 ## Sample terraform.tfvars
 
+```
 boot_image               = "projects/ubuntu-os-cloud/global/images/ubuntu-minimal-2510-questing-amd64-v20251007"
 machine_type             = "n2d-standard-8"
 gcp_hostname_prefix      = "<hostmane prefix>"
@@ -70,3 +71,4 @@ region                   = "us-central1"
 service_account_key_path = "/service_account_credential.json"
 size                     = 100
 tags                     = ["http-server", "https-server", "rke2-nodes"]
+```
