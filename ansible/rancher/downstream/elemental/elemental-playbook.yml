@@ -48,7 +48,6 @@
     - name: Wait for Elemental ISO be prepared
       command: kubectl wait --timeout=600s --for=condition=ready pod -n fleet-default fire-img --kubeconfig "{{ kubeconfig_file }}"
       retries: 5
-      delay: 10
 
     - name: Get Download Url
       command: kubectl get seedimage -n fleet-default fire-img -o jsonpath="{.status.downloadURL}" --kubeconfig "{{ kubeconfig_file }}"
