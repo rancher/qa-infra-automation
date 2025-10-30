@@ -30,8 +30,10 @@
       set_fact:
         fqdn: >-
           {{
-            (lb_ip_result is defined and lb_ip_result.stdout | length > 0)
-              | ternary(lb_ip_result.stdout ~ '.sslip.io', fqdn)
+            (
+              (lb_ip_result | default({})).get('stdout', '') | length > 0
+            )
+            | ternary((lb_ip_result | default({})).get('stdout', '') ~ '.sslip.io', fqdn)
           }}
 
     - name: Check if kubeconfig file exists
@@ -64,6 +66,8 @@
         kubeconfig: "{{ kubeconfig_file }}"
         src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
         state: present
+      retries: 5
+      delay: 30
       when: cert_manager_version != ""
 
     - name: Install cert-manager
@@ -73,6 +77,8 @@
         state: present
         wait: true
         wait_timeout: 300
+      retries: 5
+      delay: 30
       when: cert_manager_version != ""
 
     - name: Wait for cert-manager to be ready
@@ -121,7 +127,7 @@
           replicas: "{{ node_info.resources | length }}"
       when: rancher_version != ""
       retries: 6
-      delay: 60
+      delay: 120
 
     - name: Wait for Rancher to be ready
       kubernetes.core.k8s_info:

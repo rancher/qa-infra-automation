@@ -42,12 +42,16 @@
         KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ lookup('env', 'TERRAFORM_NODE_SOURCE') }}/../local.yaml"
       when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
 
+    - name: Get normalized IP (if any)
+      set_fact:
+        lb_ip_normalized: "{{ (lb_ip_result.get('stdout', '') | default('')) if (lb_ip_result is defined and lb_ip_result is mapping) else '' }}"
+
     - name: Normalize fqdn
       set_fact:
         fqdn_final: >-
           {{
-            (lb_ip_result is defined and lb_ip_result.stdout | length > 0)
-              | ternary(lb_ip_result.stdout ~ '.sslip.io', fqdn_default)
+            (lb_ip_normalized | length > 0)
+              | ternary(lb_ip_normalized ~ '.sslip.io', fqdn_default)
           }}
 
 - hosts: all
@@ -64,11 +68,13 @@
         echo "${ID}|${ID_LIKE}|${VERSION_ID}"
       register: osr
       changed_when: false
+      tags: gather_facts
 
     - name: Set OS facts
       set_fact:
         _os_id:   "{{ (osr.stdout | default('||')).split('|')[0] | lower }}"
         _os_like: "{{ (osr.stdout | default('||')).split('|')[1] | lower }}"
+      tags: gather_facts
 
     - name: Check python3 version
       raw: |
@@ -81,6 +87,7 @@
         fi
       register: pyver
       changed_when: false
+      tags: gather_facts
 
     - name: Debian/Ubuntu | ensure python3 (>=3.8 in repo)
       raw: |
@@ -89,6 +96,7 @@
         apt-get update -y
         apt-get install -y python3
       when: _os_id in ['debian','ubuntu'] and (pyver.stdout is version('3.8', '<'))
+      tags: gather_facts
 
     - name: RHEL-family | ensure python39 (or python3)
       raw: |
@@ -100,6 +108,7 @@
           yum -y install python39 || yum -y install python3
         fi
       when: (_os_id in ['rhel','centos','rocky','almalinux','ol'] or 'rhel' in _os_like) and (pyver.stdout is version('3.8', '<'))
+      tags: gather_facts
 
     - name: SUSE/SLES | ensure python311
       raw: |
@@ -107,6 +116,7 @@
         zypper -n refresh || true
         zypper -n install -y python311 || true
       when: (_os_id in ['sles','suse','opensuse-leap','opensuse'] or 'suse' in _os_like)
+      tags: gather_facts
 
     - name: Discover best Python interpreter path
       raw: |
@@ -116,15 +126,19 @@
         echo /usr/bin/python3
       register: pywhich
       changed_when: false
+      tags: gather_facts
 
     - name: Bind Ansible to the discovered interpreter
       set_fact:
         ansible_discovered_interpreter_python: "{{ pywhich.stdout | trim }}"
+      tags: gather_facts
 
     - meta: reset_connection
+      tags: gather_facts
 
     - name: Gather facts with the new interpreter
       setup:
+      tags: gather_facts
   tasks: []
 
 - hosts: "all"
@@ -133,6 +147,7 @@
   pre_tasks:
     - name: Gather facts
       setup:
+      tags: gather_facts
   tasks:
     - name: Disable NetworkManager cloud setup services
       raw: |
@@ -144,6 +159,7 @@
       when:
         - ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
         - ansible_distribution_major_version|int >= 8
+      tags: gather_facts
 
     - name: Create NetworkManager config for CNI interfaces
       raw: |
@@ -155,11 +171,13 @@
         chmod 644 /etc/NetworkManager/conf.d/99-cni.conf
       changed_when: false
       when: ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
+      tags: gather_facts
 
     - name: Restart NetworkManager
       raw: systemctl restart NetworkManager || true
       changed_when: false
       when: ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
+      tags: gather_facts
 
 - hosts: "master"
   become: true
@@ -179,6 +197,7 @@
   pre_tasks:
     - name: Gather facts
       setup:
+      tags: gather_facts
   tasks:
     - name: Transfer and execute init-cluster.sh (initial etcd node)
       script: ./init-cluster.sh
@@ -246,6 +265,7 @@
   pre_tasks:
     - name: Gather facts
       setup:
+      tags: gather_facts
   tasks:
     - name: Read node_token from local file
       delegate_to: localhost
