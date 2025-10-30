@@ -24,4 +24,4 @@ ansible/rke2/airgap/inventory/group_vars/all.yml
 ansible/rke2/airgap/playbooks/debug/*.txt
 ansible/rke2/airgap/playbooks/*.txt
 terraform-inventory.yml
-.ansible/.lock
+.lock

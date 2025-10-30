@@ -13,7 +13,6 @@ kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
 
 # Rancher configuration
 rancher_namespace: "cattle-system"
-rancher_hostname: "rancher.local"
 rancher_helm_chart_repo_url: "https://releases.rancher.com/server-charts/latest"
 rancher_helm_chart_repo_name: "rancher-latest"
 rancher_bootstrap_password: "admin"
@@ -25,7 +24,7 @@ rancher_tls_source: "rancher"
 
 # Rancher Helm chart values
 rancher_helm_values:
-  hostname: "{{ rancher_hostname }}"
+  hostname: "{{ rancher_hostname | default(external_lb_hostname) }}"
   bootstrapPassword: "{{ rancher_bootstrap_password }}"
   rancherImageTag: "{{ rancher_image_tag }}"
   useBundledSystemChart: "{{ rancher_use_bundled_system_charts }}"
