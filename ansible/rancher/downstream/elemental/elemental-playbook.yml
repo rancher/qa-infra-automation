@@ -24,6 +24,7 @@
         create_namespace: true
         wait: true
         wait_timeout: "60s"
+        chart_version: "1.7.3"
       retries: 3
       delay: 60
 
@@ -36,6 +37,7 @@
         create_namespace: true
         wait: true
         wait_timeout: "60s"
+        chart_version: "1.7.3"
       retries: 3
       delay: 60
 
@@ -46,8 +48,16 @@
         kubeconfig: "{{ kubeconfig_file }}"
     
     - name: Wait for Elemental ISO be prepared
-      command: kubectl wait --timeout=600s --for=condition=ready pod -n fleet-default fire-img --kubeconfig "{{ kubeconfig_file }}"
-      retries: 5
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        name: fire-img
+        namespace: fleet-default
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_timeout: 180
+        wait_condition:
+          type: Ready
 
     - name: Get Download Url
       command: kubectl get seedimage -n fleet-default fire-img -o jsonpath="{.status.downloadURL}" --kubeconfig "{{ kubeconfig_file }}"
@@ -59,6 +69,7 @@
 
 - hosts: elemental_node
   connection: ssh
+  become: yes
   gather_facts: false
   vars_files:
     - vars.yaml
@@ -73,13 +84,18 @@
     vm_ramsize: 8000
 
   tasks:
-    - name: Prepare Elemental node
-      ansible.builtin.shell: |
-        wget --no-check-certificate -O /tmp/elemental.iso {{ hostvars['localhost'].download_url.stdout }}
-        sudo apt-get update -y
-        sudo apt-get install -y virt-manager
-      failed_when: false
-    
+    - name: Download Elemental ISO
+      ansible.builtin.get_url:
+        url: "{{ hostvars['localhost'].download_url.stdout }}"
+        dest: /tmp/elemental.iso
+        validate_certs: false
+
+    - name: Install virt-manager
+      ansible.builtin.apt:
+        name: virt-manager
+        state: present
+        update_cache: yes
+
     - name: Creating Elemental VM
       ansible.builtin.shell: | 
         sudo virt-install \
@@ -104,5 +120,14 @@
   vars_files:
     - vars.yaml
   tasks:
-    - name: Wait for Elemental cluster to be ready
-      command: kubectl wait --timeout=1800s --for=condition=ready MachineDeployment -n fleet-default {{ elemental_pool_name }} --kubeconfig "{{ kubeconfig_file }}"
+    - name: Wait for Elemental cluster be ready
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: MachineDeployment
+        name: "{{ elemental_pool_name }}"
+        namespace: fleet-default
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_timeout: 1800
+        wait_condition:
+          type: Ready

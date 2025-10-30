@@ -169,7 +169,7 @@ Before running the playbook, ensure you have the following in addition to the [g
 
     *   `elementalconfig_file`: Path to the Elemental YAML configuration file (e.g., "./elementalconfig.yaml").
     *   `elemental_node_public_ip`: Public IP address of the Elemental node. (e.g., "136.112.191.63").
-    *   `elemental-pool-name`: Elemental cluster pool name. (e.g., "elemental-cluster-fire-pool").
+    *   `elemental_pool_name`: Elemental cluster pool name. (e.g., "elemental-cluster-fire-pool").
     *   `kubeconfig_file`: Path to the kubeconfig file providing access to the target Kubernetes cluster. Ensure this file is accessible from where Ansible is running
     *   `ssh_user`: SSH username for connecting to the Elemental node. (e.g., "ubuntu").
     *   `ssh_private_key_file`: Path to the SSH private key corresponding to the instance’s public key (e.g., "./private_key.pem").

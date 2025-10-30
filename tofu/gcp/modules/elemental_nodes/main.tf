@@ -17,7 +17,8 @@ module "elemental_nodes" {
   ssh_public_key = tls_private_key.ssh.public_key_openssh
 }
 
-resource "local_file" "private_key" {
+resource "local_sensitive_file" "private_key" {
     content  = tls_private_key.ssh.private_key_openssh
     filename = "private_key.pem"
+    file_permission = "0600"
 }

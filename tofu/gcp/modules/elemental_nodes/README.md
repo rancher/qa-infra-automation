@@ -63,7 +63,7 @@ The private SSH key is automatically generated and saved to private_key.pem.
 ```
 boot_image               = "projects/ubuntu-os-cloud/global/images/ubuntu-minimal-2510-questing-amd64-v20251007"
 machine_type             = "n2d-standard-8"
-gcp_hostname_prefix      = "<hostmane prefix>"
+gcp_hostname_prefix      = "<hostname prefix>"
 network                  = "default"
 zone                     = "us-central1-f"
 project_id               = "ei-container-platform-qa"
