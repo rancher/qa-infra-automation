@@ -111,6 +111,7 @@
               - Local checksum: {{ local_checksum.stdout.split()[0] }}
               - Source path: {{ bastion_bundle.stat.path }}
               - Local path: {{ local_bundle.stat.path }}
+          run_once: true
 
 - name: Extract and organize RKE2 artifacts
   block:
@@ -147,6 +148,7 @@
     - name: Display extracted files
       ansible.builtin.debug:
         msg: "Extracted files: {{ extract_result.files }}"
+      run_once: true
 
     - name: List temp directory contents
       ansible.builtin.command: ls -la /tmp/rke2-extract/
@@ -156,6 +158,7 @@
     - name: Display temp directory contents
       ansible.builtin.debug:
         msg: "Temp directory contents: {{ temp_dir_contents.stdout_lines }}"
+      run_once: true
 
     - name: Check if artifacts already organized
       ansible.builtin.stat:
@@ -186,6 +189,7 @@
     - name: Display move result
       ansible.builtin.debug:
         msg: "{{ move_result.stdout_lines | default([]) | join('\n') }}"
+      run_once: true
 
     - name: Set correct permissions
       ansible.builtin.file:
@@ -215,6 +219,7 @@
           - Path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
           - Exists: {{ rke2_tarball_check.stat.exists }}
           - Size: {{ rke2_tarball_check.stat.size | default('N/A') }} bytes
+      run_once: true
 
     - name: Verify required files
       ansible.builtin.stat:
@@ -236,6 +241,7 @@
           - Images bundle: {{ file_check.results[1].stat.exists }}
           - Checksums file: {{ file_check.results[2].stat.exists }}
           - Install script: {{ file_check.results[3].stat.exists }}
+      run_once: true
 
 - name: Create RKE2 images directory
   ansible.builtin.file:
@@ -280,6 +286,7 @@
       ansible.builtin.debug:
         msg: "RKE2 server started successfully"
       when: rke2_start_result is success
+      run_once: true
 
   rescue:
     - name: Get RKE2 server service status
@@ -306,6 +313,7 @@
 
           RKE2 Server Journal Logs:
           {{ rke2_logs.stdout_lines | join('\n') }}
+      run_once: true
 
     - name: Check RKE2 configuration file
       ansible.builtin.shell: cat /etc/rancher/rke2/config.yaml
@@ -321,6 +329,7 @@
         msg: |
           RKE2 Configuration (/etc/rancher/rke2/config.yaml):
           {{ rke2_config_content.stdout_lines | join('\n') }}
+      run_once: true
 
     - name: Fail with detailed error information
       ansible.builtin.fail:
@@ -367,6 +376,7 @@
     - name: Display RKE2 startup progress
       ansible.builtin.debug:
         msg: "{{ rke2_progress.stdout_lines }}"
+      run_once: true
 
     - name: Wait for RKE2 server manifests directory (extended timeout)
       ansible.builtin.wait_for:
@@ -391,6 +401,7 @@
     - name: Display final RKE2 status
       ansible.builtin.debug:
         msg: "{{ rke2_final_status.stdout_lines }}"
+      run_once: true
 
   rescue:
     - name: Get detailed RKE2 failure information
@@ -418,6 +429,7 @@
     - name: Display RKE2 failure information
       ansible.builtin.debug:
         msg: "{{ rke2_failure_info.stdout_lines }}"
+      run_once: true
 
     - name: Fail with timeout information
       ansible.builtin.fail:
