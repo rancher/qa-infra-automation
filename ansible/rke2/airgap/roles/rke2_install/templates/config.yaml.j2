@@ -16,6 +16,8 @@ disable:
 
 # TLS configuration
 tls-san:
+  - {{ external_lb_hostname }}
+  - {{ internal_lb_hostname }}
   - {{ ansible_host }}
 
 # Registry configuration
