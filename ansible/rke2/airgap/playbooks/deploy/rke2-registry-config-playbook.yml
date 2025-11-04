@@ -1,6 +1,6 @@
 ---
 - name: Configure Private Registry for RKE2 Airgap Nodes
-  hosts: airgap_nodes
+  hosts: "{{ target | default('rancher') }}"
   become: true
   gather_facts: true
 

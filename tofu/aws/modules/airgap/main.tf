@@ -58,6 +58,7 @@ locals {
 
 # Load Balance
 module "load_balancer" {
+  count = can(var.node_groups["rancher"]) ? 1 : 0
   source = "./../load_balancer"
   name = var.aws_hostname_prefix
   internal = false
@@ -68,6 +69,7 @@ module "load_balancer" {
 
 # Internal Load Balance
 module "internal_load_balancer" {
+  count = can(var.node_groups["rancher"]) ? 1 : 0
   source = "./../load_balancer"
   name = "${var.aws_hostname_prefix}-internal"
   internal = true
@@ -76,14 +78,14 @@ module "internal_load_balancer" {
   ports = local.ports
 }
 
-# Rancher servers
-module "rancher_servers" {
+# Airgapped nodes
+module "airgap_nodes" {
   source = "./../ec2_instance"
-  for_each = {
-    server1 = "rancher_server1"
-    server2 = "rancher_server2"
-    server3 = "rancher_server3"
-  }
+  for_each = toset(flatten([
+    for group_name, count in var.node_groups : [
+      for index in range(1, count + 1) : "${group_name}-${index}"
+    ]
+  ]))
 
   name = "${var.aws_hostname_prefix}-${each.value}"
   ami = var.aws_ami
@@ -98,7 +100,7 @@ module "rancher_servers" {
 }
 
 locals {
-  target_groups = toset(concat(module.load_balancer.target_groups, module.internal_load_balancer.target_groups))
+  target_groups = toset(concat(module.load_balancer[0].target_groups, module.internal_load_balancer[0].target_groups))
   target_groups_map = {
     for tg in local.target_groups : tg.name => tg
   }
@@ -106,40 +108,39 @@ locals {
 
 # Route53 record
 module "route53" {
+  count = can(var.node_groups["rancher"]) ? 1 : 0
   source = "./../route53"
   zone_name = var.aws_route53_zone
   record_name = var.aws_hostname_prefix
-  dns_name = module.load_balancer.dns_name
+  dns_name = module.load_balancer[0].dns_name
 }
 
 # Internal Route53 record
 module "internal_route53" {
+  count = can(var.node_groups["rancher"]) ? 1 : 0
   source = "./../route53"
   zone_name = var.aws_route53_zone
   record_name = "${var.aws_hostname_prefix}-internal"
-  dns_name = module.internal_load_balancer.dns_name
+  dns_name = module.internal_load_balancer[0].dns_name
 }
 
-resource "aws_lb_target_group_attachment" "attachment-server1" {
-  for_each = local.target_groups_map
-  target_group_arn = each.value.arn
-  target_id = module.rancher_servers["server1"].id
-  port = each.value.port
-  depends_on = [module.load_balancer, module.internal_load_balancer, module.rancher_servers]
+locals {
+  rancher_node_target_group_product = flatten([
+    for target_group in concat(module.load_balancer[0].target_groups, module.internal_load_balancer[0].target_groups) : [
+      for id, instance in module.airgap_nodes : {
+          arn = target_group.arn
+          port = target_group.port
+          node = instance.id
+        } if startswith(id, "rancher-")
+    ]
+  ])
 }
 
-resource "aws_lb_target_group_attachment" "attachment-server2" {
-  for_each = local.target_groups_map
+resource "aws_lb_target_group_attachment" "attachment-server" {
+  # Using a "known after apply" value as a key can break tofu.
+  for_each = zipmap(range(length(local.rancher_node_target_group_product)), local.rancher_node_target_group_product)
   target_group_arn = each.value.arn
-  target_id = module.rancher_servers["server2"].id
   port = each.value.port
-  depends_on = [module.load_balancer, module.internal_load_balancer, module.rancher_servers]
-}
-
-resource "aws_lb_target_group_attachment" "attachment-server3" {
-  for_each = local.target_groups_map
-  target_group_arn = each.value.arn
-  target_id = module.rancher_servers["server3"].id
-  port = each.value.port
-  depends_on = [module.load_balancer, module.internal_load_balancer, module.rancher_servers]
+  target_id = each.value.node
+  depends_on = [module.load_balancer, module.internal_load_balancer, module.airgap_nodes]
 }

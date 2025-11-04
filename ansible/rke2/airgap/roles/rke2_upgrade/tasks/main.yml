@@ -9,6 +9,8 @@
         else
           echo "not-installed"
         fi
+      args:
+        executable: /bin/bash
       register: current_rke2_version
       changed_when: false
       become: true
@@ -25,275 +27,276 @@
         msg: "RKE2 is already at version {{ rke2_version }}. Skipping upgrade."
       when: current_rke2_version.stdout == rke2_version
 
+    - name: Create backup directory
+      ansible.builtin.file:
+        path: /opt/rke2-backup-{{ ansible_date_time.epoch }}
+        state: directory
+        mode: '0755'
+      become: true
+
+    - name: Backup current RKE2 configuration
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/"
+        remote_src: true
+        backup: true
+        mode: preserve
+      loop:
+        - /etc/rancher/rke2/config.yaml
+        - /var/lib/rancher/rke2/server/node-token
+      become: true
+      failed_when: false
+
+    - name: Download new RKE2 tarball bundle on bastion
+      delegate_to: "{{ groups['bastion'][0] }}"
+      run_once: true
+      block:
+        - name: Use rke2_bundle_manager to create upgrade bundle
+          ansible.builtin.include_role:
+            name: rke2_bundle_manager
+
     - name: Perform RKE2 upgrade
       when: current_rke2_version.stdout != rke2_version
       block:
-        - name: Create backup directory
-          ansible.builtin.file:
-            path: /opt/rke2-backup-{{ ansible_date_time.epoch }}
-            state: directory
-            mode: '0755'
-          become: true
+      - name: Stop RKE2 service (server nodes)
+        ansible.builtin.systemd:
+          name: rke2-server
+          state: stopped
+        become: true
+        when: inventory_hostname == groups[target_group][0]
 
-        - name: Backup current RKE2 configuration
-          ansible.builtin.copy:
-            src: "{{ item }}"
-            dest: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/"
-            remote_src: true
-            backup: true
-            mode: preserve
-          loop:
-            - /etc/rancher/rke2/config.yaml
-            - /var/lib/rancher/rke2/server/node-token
-          become: true
-          failed_when: false
+      - name: Stop RKE2 service (agent nodes)
+        ansible.builtin.systemd:
+          name: rke2-agent
+          state: stopped
+        become: true
+        when: inventory_hostname != groups[target_group][0]
 
-        - name: Download new RKE2 tarball bundle on bastion
-          delegate_to: "{{ groups['bastion'][0] }}"
-          run_once: true
-          block:
-            - name: Use rke2_bundle_manager to create upgrade bundle
-              ansible.builtin.include_role:
-                name: rke2_bundle_manager
+      - name: Wait for services to stop
+        ansible.builtin.pause:
+          seconds: 10
 
-        - name: Stop RKE2 service (server nodes)
-          ansible.builtin.systemd:
-            name: rke2-server
-            state: stopped
-          become: true
-          when: inventory_hostname == groups['airgap_nodes'][0]
+      - name: Create RKE2 artifact directory
+        ansible.builtin.file:
+          path: /tmp/rke2-artifacts
+          state: directory
+          mode: '0755'
+        become: true
 
-        - name: Stop RKE2 service (agent nodes)
-          ansible.builtin.systemd:
-            name: rke2-agent
-            state: stopped
-          become: true
-          when: inventory_hostname != groups['airgap_nodes'][0]
+      - name: Synchronize new RKE2 bundle from bastion
+        block:
+          - name: Check bundle on bastion
+            ansible.builtin.stat:
+              path: /opt/rke2-files/rke2-bundle.tar.gz
+            delegate_to: "{{ groups['bastion'][0] }}"
+            register: bundle_stat
+            until: bundle_stat.stat.exists
+            retries: 6
+            delay: 10
+            vars:
+              ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-        - name: Wait for services to stop
-          ansible.builtin.pause:
-            seconds: 10
+          - name: Copy new bundle from bastion via controller
+            block:
+              - name: Fetch upgrade bundle from bastion to controller
+                ansible.builtin.fetch:
+                  src: /opt/rke2-files/rke2-bundle.tar.gz
+                  dest: /tmp/ansible-rke2-upgrade-bundle.tar.gz
+                  flat: true
+                delegate_to: "{{ groups['bastion'][0] }}"
+                become: false
+                run_once: true
 
-        - name: Create RKE2 artifact directory
-          ansible.builtin.file:
-            path: /tmp/rke2-artifacts
-            state: directory
-            mode: '0755'
-          become: true
+              - name: Copy upgrade bundle from controller to airgap node
+                ansible.builtin.copy:
+                  src: /tmp/ansible-rke2-upgrade-bundle.tar.gz
+                  dest: /tmp/rke2-bundle-new.tar.gz
+                  mode: '0644'
+                  owner: "{{ ansible_user }}"
+                  group: "{{ ansible_user }}"
+                become: true
+                register: copy_result
+                until: copy_result is success
+                retries: 3
+                delay: 5
 
-        - name: Synchronize new RKE2 bundle from bastion
-          block:
-            - name: Check bundle on bastion
-              ansible.builtin.stat:
-                path: /opt/rke2-files/rke2-bundle.tar.gz
-              delegate_to: "{{ groups['bastion'][0] }}"
-              register: bundle_stat
-              until: bundle_stat.stat.exists
-              retries: 6
-              delay: 10
-              vars:
-                ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      - name: Extract new RKE2 bundle
+        ansible.builtin.unarchive:
+          src: /tmp/rke2-bundle-new.tar.gz
+          dest: /tmp/
+          remote_src: true
+          mode: '0755'
+          owner: "{{ ansible_user }}"
+          group: "{{ ansible_user }}"
+        become: true
 
-            - name: Copy new bundle from bastion via controller
-              block:
-                - name: Fetch upgrade bundle from bastion to controller
-                  ansible.builtin.fetch:
-                    src: /opt/rke2-files/rke2-bundle.tar.gz
-                    dest: /tmp/ansible-rke2-upgrade-bundle.tar.gz
-                    flat: true
-                  delegate_to: "{{ groups['bastion'][0] }}"
-                  become: false
-                  run_once: true
+      - name: Check if new artifacts already organized
+        ansible.builtin.stat:
+          path: /tmp/rke2-install-new.sh
+        register: new_install_script_check
+        become: true
 
-                - name: Copy upgrade bundle from controller to airgap node
-                  ansible.builtin.copy:
-                    src: /tmp/ansible-rke2-upgrade-bundle.tar.gz
-                    dest: /tmp/rke2-bundle-new.tar.gz
-                    mode: '0644'
-                    owner: "{{ ansible_user }}"
-                    group: "{{ ansible_user }}"
-                  become: true
-                  register: copy_result
-                  until: copy_result is success
-                  retries: 3
-                  delay: 5
+      - name: Move new artifacts to correct locations
+        ansible.builtin.shell: |
+          set -e
+          # Move files to correct locations
+          if [ -f /tmp/tmp/rke2-install.sh ]; then
+            mv /tmp/tmp/rke2-install.sh /tmp/rke2-install-new.sh
+            chmod +x /tmp/rke2-install-new.sh
+          fi
 
-        - name: Extract new RKE2 bundle
-          ansible.builtin.unarchive:
-            src: /tmp/rke2-bundle-new.tar.gz
-            dest: /tmp/
-            remote_src: true
-            mode: '0755'
-            owner: "{{ ansible_user }}"
-            group: "{{ ansible_user }}"
-          become: true
+          if [ -d /tmp/tmp/rke2-artifacts ]; then
+            rm -rf /tmp/rke2-artifacts-old
+            mv /tmp/rke2-artifacts /tmp/rke2-artifacts-old 2>/dev/null || true
+            mv /tmp/tmp/rke2-artifacts /tmp/rke2-artifacts
+            chmod +x /tmp/rke2-artifacts/rke2 2>/dev/null || true
+          fi
+        become: true
+        changed_when: true
+        when: not new_install_script_check.stat.exists
 
-        - name: Check if new artifacts already organized
-          ansible.builtin.stat:
-            path: /tmp/rke2-install-new.sh
-          register: new_install_script_check
-          become: true
+      - name: Backup current RKE2 binaries
+        ansible.builtin.copy:
+          src: /usr/local/bin/rke2
+          dest: /opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup
+          remote_src: true
+          mode: '0755'
+        become: true
+        failed_when: false
+        when: ansible_facts.stat is undefined or ansible_facts.stat.exists
 
-        - name: Move new artifacts to correct locations
-          ansible.builtin.shell: |
-            set -e
-            # Move files to correct locations
-            if [ -f /tmp/tmp/rke2-install.sh ]; then
-              mv /tmp/tmp/rke2-install.sh /tmp/rke2-install-new.sh
-              chmod +x /tmp/rke2-install-new.sh
-            fi
+      - name: Run RKE2 upgrade install script (server)
+        ansible.builtin.shell: |
+          export INSTALL_RKE2_TYPE=server
+          export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
+          sh /tmp/rke2-install-new.sh
+        become: true
+        when: inventory_hostname == groups[target_group][0]
+        changed_when: false
 
-            if [ -d /tmp/tmp/rke2-artifacts ]; then
-              rm -rf /tmp/rke2-artifacts-old
-              mv /tmp/rke2-artifacts /tmp/rke2-artifacts-old 2>/dev/null || true
-              mv /tmp/tmp/rke2-artifacts /tmp/rke2-artifacts
-              chmod +x /tmp/rke2-artifacts/rke2 2>/dev/null || true
-            fi
-          become: true
-          changed_when: true
-          when: not new_install_script_check.stat.exists
+      - name: Run RKE2 upgrade install script (agent)
+        ansible.builtin.shell: |
+          export INSTALL_RKE2_TYPE=agent
+          export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
+          sh /tmp/rke2-install-new.sh
+        become: true
+        when: inventory_hostname != groups[target_group][0]
+        changed_when: false
 
-        - name: Backup current RKE2 binaries
-          ansible.builtin.copy:
-            src: /usr/local/bin/rke2
-            dest: /opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup
-            remote_src: true
-            mode: '0755'
-          become: true
-          failed_when: false
-          when: ansible_facts.stat is undefined or ansible_facts.stat.exists
+      - name: Start RKE2 server service
+        ansible.builtin.systemd:
+          name: rke2-server
+          state: started
+          enabled: true
+        become: true
+        when: inventory_hostname == groups[target_group][0]
 
-        - name: Run RKE2 upgrade install script (server)
-          ansible.builtin.shell: |
-            export INSTALL_RKE2_TYPE=server
-            export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
-            sh /tmp/rke2-install-new.sh
-          become: true
-          when: inventory_hostname == groups['airgap_nodes'][0]
-          changed_when: false
+      - name: Wait for server to be ready before starting agents
+        ansible.builtin.wait_for:
+          path: /var/lib/rancher/rke2/server/node-token
+          timeout: 300
+        become: true
+        when: inventory_hostname == groups[target_group][0]
 
-        - name: Run RKE2 upgrade install script (agent)
-          ansible.builtin.shell: |
-            export INSTALL_RKE2_TYPE=agent
-            export INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts
-            sh /tmp/rke2-install-new.sh
-          become: true
-          when: inventory_hostname != groups['airgap_nodes'][0]
-          changed_when: false
+      - name: Pause for server stabilization
+        ansible.builtin.pause:
+          seconds: 30
+        when: inventory_hostname == groups[target_group][0]
 
-        - name: Start RKE2 server service
-          ansible.builtin.systemd:
-            name: rke2-server
-            state: started
-            enabled: true
-          become: true
-          when: inventory_hostname == groups['airgap_nodes'][0]
+      - name: Start RKE2 agent service
+        ansible.builtin.systemd:
+          name: rke2-agent
+          state: started
+          enabled: true
+        become: true
+        when: inventory_hostname != groups[target_group][0]
 
-        - name: Wait for server to be ready before starting agents
-          ansible.builtin.wait_for:
-            path: /var/lib/rancher/rke2/server/node-token
-            timeout: 300
-          become: true
-          when: inventory_hostname == groups['airgap_nodes'][0]
+      - name: Verify upgrade success
+        ansible.builtin.shell: |
+          set -o pipefail
+          if [ -f /usr/local/bin/rke2 ]; then
+            /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
+          else
+            echo "upgrade-failed"
+          fi
+        args:
+          executable: /bin/bash
+        register: upgraded_version
+        changed_when: false
+        become: true
 
-        - name: Pause for server stabilization
-          ansible.builtin.pause:
-            seconds: 30
-          when: inventory_hostname == groups['airgap_nodes'][0]
+      - name: Display upgrade results
+        ansible.builtin.debug:
+          msg: |
+            RKE2 Upgrade Results:
+            - Previous version: {{ current_rke2_version.stdout }}
+            - Target version: {{ rke2_version }}
+            - Current version: {{ upgraded_version.stdout }}
+            - Upgrade successful: {{ upgraded_version.stdout == rke2_version }}
 
-        - name: Start RKE2 agent service
-          ansible.builtin.systemd:
-            name: rke2-agent
-            state: started
-            enabled: true
-          become: true
-          when: inventory_hostname != groups['airgap_nodes'][0]
+      - name: Fail if upgrade was not successful
+        ansible.builtin.fail:
+          msg: |
+            RKE2 upgrade failed!
+            Expected version: {{ rke2_version }}
+            Actual version: {{ upgraded_version.stdout }}
+        when: upgraded_version.stdout != rke2_version
 
-        - name: Verify upgrade success
-          ansible.builtin.shell: |
-            set -o pipefail
-            if [ -f /usr/local/bin/rke2 ]; then
-              /usr/local/bin/rke2 --version | head -1 | awk '{print $3}'
-            else
-              echo "upgrade-failed"
-            fi
-          register: upgraded_version
-          changed_when: false
-          become: true
-
-        - name: Display upgrade results
-          ansible.builtin.debug:
-            msg: |
-              RKE2 Upgrade Results:
-              - Previous version: {{ current_rke2_version.stdout }}
-              - Target version: {{ rke2_version }}
-              - Current version: {{ upgraded_version.stdout }}
-              - Upgrade successful: {{ upgraded_version.stdout == rke2_version }}
-
-        - name: Fail if upgrade was not successful
-          ansible.builtin.fail:
-            msg: |
-              RKE2 upgrade failed!
-              Expected version: {{ rke2_version }}
-              Actual version: {{ upgraded_version.stdout }}
-          when: upgraded_version.stdout != rke2_version
-
-        - name: Clean up upgrade artifacts
-          ansible.builtin.file:
-            path: "{{ item }}"
-            state: absent
-          loop:
-            - /tmp/rke2-bundle-new.tar.gz
-            - /tmp/rke2-install-new.sh
-            - /tmp/rke2-artifacts-old
-            - /tmp/tmp
-          become: true
-
+      - name: Clean up upgrade artifacts
+        ansible.builtin.file:
+          path: "{{ item }}"
+          state: absent
+        loop:
+          - /tmp/rke2-bundle-new.tar.gz
+          - /tmp/rke2-install-new.sh
+          - /tmp/rke2-artifacts-old
+          - /tmp/tmp
+        become: true
       rescue:
-    - name: Upgrade failure - attempt rollback
-      block:
-        - name: Stop services
-          ansible.builtin.systemd:
-            name: "{{ item }}"
-            state: stopped
-          loop:
-            - rke2-server
-            - rke2-agent
-          become: true
-          failed_when: false
+        - name: Upgrade failure - attempt rollback
+          block:
+            - name: Stop services
+              ansible.builtin.systemd:
+                name: "{{ item }}"
+                state: stopped
+              loop:
+                - rke2-server
+                - rke2-agent
+              become: true
+              failed_when: false
 
-        - name: Restore backup binary if available
-          ansible.builtin.copy:
-            src: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup"
-            dest: /usr/local/bin/rke2
-            remote_src: true
-            mode: '0755'
-          become: true
-          failed_when: false
+            - name: Restore backup binary if available
+              ansible.builtin.copy:
+                src: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup"
+                dest: /usr/local/bin/rke2
+                remote_src: true
+                mode: '0755'
+              become: true
+              failed_when: false
 
-        - name: Restore configuration
-          ansible.builtin.copy:
-            src: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/config.yaml"
-            dest: /etc/rancher/rke2/config.yaml
-            remote_src: true
-            mode: '0644'
-          become: true
-          failed_when: false
+            - name: Restore configuration
+              ansible.builtin.copy:
+                src: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/config.yaml"
+                dest: /etc/rancher/rke2/config.yaml
+                remote_src: true
+                mode: '0644'
+              become: true
+              failed_when: false
 
-        - name: Restart services after rollback
-          ansible.builtin.systemd:
-            name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
-            state: started
-          become: true
-          failed_when: false
+            - name: Restart services after rollback
+              ansible.builtin.systemd:
+                name: "{{ 'rke2-server' if inventory_hostname == groups[target_group][0] else 'rke2-agent' }}"
+                state: started
+              become: true
+              failed_when: false
 
-        - name: Display rollback information
-          ansible.builtin.debug:
-            msg: |
-              RKE2 upgrade failed and rollback attempted.
-              Check the backup directory: /opt/rke2-backup-{{ ansible_date_time.epoch }}
-              Manual intervention may be required.
+            - name: Display rollback information
+              ansible.builtin.debug:
+                msg: |
+                  RKE2 upgrade failed and rollback attempted.
+                  Check the backup directory: /opt/rke2-backup-{{ ansible_date_time.epoch }}
+                  Manual intervention may be required.
 
-    - name: Re-raise the original error
-      ansible.builtin.fail:
-        msg: "RKE2 upgrade failed. Rollback attempted. Check logs and backup directory."
+        - name: Re-raise the original error
+          ansible.builtin.fail:
+            msg: "RKE2 upgrade failed. Rollback attempted. Check logs and backup directory."

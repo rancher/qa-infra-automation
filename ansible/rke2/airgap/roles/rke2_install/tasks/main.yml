@@ -12,7 +12,7 @@
     dest: /etc/rancher/rke2/config.yaml
     mode: '0644'
   become: true
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Create RKE2 artifact directory
   ansible.builtin.file:
@@ -111,6 +111,7 @@
               - Local checksum: {{ local_checksum.stdout.split()[0] }}
               - Source path: {{ bastion_bundle.stat.path }}
               - Local path: {{ local_bundle.stat.path }}
+          run_once: true
 
 - name: Extract and organize RKE2 artifacts
   block:
@@ -147,6 +148,7 @@
     - name: Display extracted files
       ansible.builtin.debug:
         msg: "Extracted files: {{ extract_result.files }}"
+      run_once: true
 
     - name: List temp directory contents
       ansible.builtin.command: ls -la /tmp/rke2-extract/
@@ -156,6 +158,7 @@
     - name: Display temp directory contents
       ansible.builtin.debug:
         msg: "Temp directory contents: {{ temp_dir_contents.stdout_lines }}"
+      run_once: true
 
     - name: Check if artifacts already organized
       ansible.builtin.stat:
@@ -186,6 +189,7 @@
     - name: Display move result
       ansible.builtin.debug:
         msg: "{{ move_result.stdout_lines | default([]) | join('\n') }}"
+      run_once: true
 
     - name: Set correct permissions
       ansible.builtin.file:
@@ -215,6 +219,7 @@
           - Path: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
           - Exists: {{ rke2_tarball_check.stat.exists }}
           - Size: {{ rke2_tarball_check.stat.size | default('N/A') }} bytes
+      run_once: true
 
     - name: Verify required files
       ansible.builtin.stat:
@@ -236,6 +241,7 @@
           - Images bundle: {{ file_check.results[1].stat.exists }}
           - Checksums file: {{ file_check.results[2].stat.exists }}
           - Install script: {{ file_check.results[3].stat.exists }}
+      run_once: true
 
 - name: Create RKE2 images directory
   ansible.builtin.file:
@@ -243,7 +249,7 @@
     state: directory
     mode: '0755'
   become: true
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Copy RKE2 images to proper location
   ansible.builtin.copy:
@@ -252,7 +258,7 @@
     remote_src: true
     mode: '0644'
   become: true
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Run RKE2 server install script
   ansible.builtin.shell: |
@@ -263,10 +269,10 @@
     creates: /usr/local/lib/systemd/system/rke2-server.service
     executable: /bin/bash
   become: true
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Start RKE2 server
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
   block:
     - name: Start RKE2 server service
       ansible.builtin.systemd:
@@ -280,6 +286,7 @@
       ansible.builtin.debug:
         msg: "RKE2 server started successfully"
       when: rke2_start_result is success
+      run_once: true
 
   rescue:
     - name: Get RKE2 server service status
@@ -306,6 +313,7 @@
 
           RKE2 Server Journal Logs:
           {{ rke2_logs.stdout_lines | join('\n') }}
+      run_once: true
 
     - name: Check RKE2 configuration file
       ansible.builtin.shell: cat /etc/rancher/rke2/config.yaml
@@ -321,6 +329,7 @@
         msg: |
           RKE2 Configuration (/etc/rancher/rke2/config.yaml):
           {{ rke2_config_content.stdout_lines | join('\n') }}
+      run_once: true
 
     - name: Fail with detailed error information
       ansible.builtin.fail:
@@ -338,10 +347,10 @@
     path: /var/lib/rancher/rke2/server/node-token
     timeout: 300
   become: true
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Wait for RKE2 server to be fully operational
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
   block:
     - name: Monitor RKE2 server startup progress
       ansible.builtin.shell: |
@@ -367,6 +376,7 @@
     - name: Display RKE2 startup progress
       ansible.builtin.debug:
         msg: "{{ rke2_progress.stdout_lines }}"
+      run_once: true
 
     - name: Wait for RKE2 server manifests directory (extended timeout)
       ansible.builtin.wait_for:
@@ -391,6 +401,7 @@
     - name: Display final RKE2 status
       ansible.builtin.debug:
         msg: "{{ rke2_final_status.stdout_lines }}"
+      run_once: true
 
   rescue:
     - name: Get detailed RKE2 failure information
@@ -418,6 +429,7 @@
     - name: Display RKE2 failure information
       ansible.builtin.debug:
         msg: "{{ rke2_failure_info.stdout_lines }}"
+      run_once: true
 
     - name: Fail with timeout information
       ansible.builtin.fail:
@@ -437,24 +449,24 @@
     name: rke2-server
     state: started
   become: true
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Pause for server initialization
   ansible.builtin.pause:
     seconds: 30
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Get node token from server
   ansible.builtin.slurp:
     src: /var/lib/rancher/rke2/server/node-token
   become: true
   register: node_token_result
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Set node token fact on all hosts
   ansible.builtin.set_fact:
-    rke2_token: "{{ hostvars[groups['rke2_servers'][0]]['node_token_result']['content'] | b64decode | trim }}"
-  when: hostvars[groups['rke2_servers'][0]]['node_token_result'] is defined
+    rke2_token: "{{ hostvars[groups[target_group][0]]['node_token_result']['content'] | b64decode | trim }}"
+  when: hostvars[groups[target_group][0]]['node_token_result'] is defined
 
 - name: Configure RKE2 agent
   ansible.builtin.template:
@@ -462,7 +474,7 @@
     dest: /etc/rancher/rke2/config.yaml
     mode: '0644'
   become: true
-  when: inventory_hostname in groups['rke2_agents']
+  when: inventory_hostname != groups[target_group][0]
 
 - name: Run RKE2 agent install script
   ansible.builtin.shell: |
@@ -473,7 +485,7 @@
     creates: /usr/local/lib/systemd/system/rke2-agent.service
     executable: /bin/bash
   become: true
-  when: inventory_hostname in groups['rke2_agents']
+  when: inventory_hostname != groups[target_group][0]
 
 - name: Start RKE2 agent
   ansible.builtin.systemd:
@@ -481,20 +493,20 @@
     state: started
     enabled: true
   become: true
-  when: inventory_hostname in groups['rke2_agents']
+  when: inventory_hostname != groups[target_group][0]
 
 - name: Wait for kubeconfig
   ansible.builtin.wait_for:
     path: /etc/rancher/rke2/rke2.yaml
   become: true
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Get kubeconfig
   ansible.builtin.slurp:
     src: /etc/rancher/rke2/rke2.yaml
   become: true
   register: kubeconfig
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
 
 - name: Create local kubeconfig directory
   ansible.builtin.file:
@@ -503,7 +515,7 @@
     mode: '0755'
   delegate_to: localhost
   become: false
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
   vars:
     ansible_connection: local
 
@@ -514,6 +526,6 @@
     mode: '0600'
   delegate_to: localhost
   become: false
-  when: inventory_hostname in groups['rke2_servers']
+  when: inventory_hostname == groups[target_group][0]
   vars:
     ansible_connection: local

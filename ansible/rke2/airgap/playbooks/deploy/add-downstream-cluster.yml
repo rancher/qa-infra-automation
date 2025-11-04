@@ -1,0 +1,188 @@
+---
+- name: Add target cluster to Rancher
+  hosts: localhost
+  gather_facts: true
+  vars:
+    admin_password: "{{ rancher_bootstrap_password | default('admin') }}"
+    repo_root: "{{ playbook_dir | regex_replace('(.*)/ansible/.*', '\\1') }}"
+    fqdn: "{{ rancher_hostname | default(external_lb_hostname) }}"
+  pre_tasks:
+    - name: Validate rancher group exists
+      ansible.builtin.assert:
+        that:
+        - groups['rancher'] is defined
+        - groups['rancher'] | length > 0
+        fail_msg: "The 'rancher' group must exist and contain at least one host"
+
+    - name: Validate target is set
+      ansible.builtin.assert:
+        that:
+        - groups[target] is defined
+        - groups[target] | length > 0
+        fail_msg: "The 'target' variable must be defined either on all.yml or via --extra-vars and point to an inventory group with at least one node"
+
+    - name: Attempt to run 'tofu -v' to check installation
+      ansible.builtin.command: tofu -v
+      register: tofu_check
+      ignore_errors: yes
+
+  roles:
+    - role: tofu_install
+      when: tofu_check.rc != 0
+
+  tasks:
+    - name: Get Rancher UserID and Token
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3-public/localProviders/local?action=login"
+        body:
+          username: admin
+          password: "{{ admin_password }}"
+        method: POST
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 201
+        body_format: json
+      register: token_response
+      retries: 5
+      delay: 10
+      until: token_response.status == 201
+
+    - name: Get cluster name from environment variable
+      ansible.builtin.set_fact:
+        cluster_name: "{{ lookup('env', 'DOWNSTREAM_CLUSTER_NAME') | default('', true) }}"
+
+    - name: Generate cluster name if DOWNSTREAM_CLUSTER_NAME is empty
+      ansible.builtin.set_fact:
+        cluster_name: "ansible-created-{{ lookup('password', '/dev/null length=8 chars=ascii_lowercase,digits') }}"
+      when: cluster_name == ''
+
+    - name: Create generic imported cluster with OpenTofu
+      ansible.builtin.shell: |
+        tofu init
+        tofu apply -auto-approve -var 'fqdn=https://{{ fqdn }}' -var 'api_key={{ token_response.json.token }}' -var 'cluster_name={{ cluster_name }}'
+      args:
+        chdir: "{{ repo_root }}/tofu/rancher/import"
+      register: import_command
+
+    - name: Get OpenTofu outputs as JSON
+      ansible.builtin.command:
+        cmd: tofu output -json
+        chdir: "{{ repo_root }}/tofu/rancher/import"
+      register: tofu_outputs_json
+
+    - name: Set useful facts
+      ansible.builtin.set_fact:
+        api_key: "{{ token_response.json.token }}"
+        cluster_id: "{{ (tofu_outputs_json.stdout | from_json).cluster_id.value }}"
+        cluster_registration_token: "{{ (tofu_outputs_json.stdout | from_json).cluster_registration_token.value }}"
+
+- hosts: bastion
+  gather_facts: true
+  become: true
+  vars:
+    downstream: "{{ target | default('', true) }}"
+    fqdn: "{{ rancher_hostname | default(internal_lb_hostname) }}"
+  tasks:
+    - name: Read KUBECONFIG content
+      block:
+        - name: Try reading rke2.yaml
+          ansible.builtin.slurp:
+            src: "/etc/rancher/rke2/rke2.yaml"
+          register: kubeconfig_content
+          delegate_to: "{{ groups[downstream][0] }}"
+          become: true
+      rescue:
+        - name: RKE2 KUBECONFIG not found, trying K3s path
+          ansible.builtin.debug:
+            msg: "Failed to fetch rke2.yaml. Attempting to fetch k3s.yaml"
+
+        - name: Try reading k3s.yaml
+          ansible.builtin.slurp:
+            src: "/etc/rancher/k3s/k3s.yaml"
+          register: kubeconfig_content
+          delegate_to: "{{ groups[downstream][0] }}"
+          become: true
+
+    - name: Write kubeconfig to bastion root
+      ansible.builtin.copy:
+        content: "{{ kubeconfig_content.content | b64decode }}"
+        dest: "/tmp/kubeconfig-{{ downstream }}.yaml"
+        mode: '0600'
+        owner: "{{ ansible_user }}"
+
+    - name: Update API server address in KUBECONFIG
+      ansible.builtin.replace:
+        path: "/tmp/kubeconfig-{{ downstream }}.yaml"
+        regexp: 'https://127\.0\.0\.1:6443'
+        replace: 'https://{{ hostvars[groups[downstream][0]]["ansible_host"] }}:6443'
+
+    - name: Check if python3-pip is already installed
+      ansible.builtin.command: python3 -m pip --version
+      register: pip_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install pip3 if not present
+      ansible.builtin.package:
+        name: python3-pip
+        state: present
+        update_cache: yes
+      when: pip_check.rc != 0
+      ignore_errors: true
+
+    - name: Display pip installation status
+      ansible.builtin.debug:
+        msg: "Python3-pip installation: {{ 'Already installed' if pip_check.rc == 0 else 'Installation attempted (may have failed in airgap environment)' }}"
+
+    - name: Install kubernetes Python packages
+      ansible.builtin.package:
+        name:
+          - python3-kubernetes
+        state: present
+        update_cache: yes
+
+    - name: Download manifest to register into Rancher
+      ansible.builtin.get_url:
+        url: "https://{{ fqdn }}/v3/import/{{ hostvars['localhost']['cluster_registration_token'] }}_{{ hostvars['localhost']['cluster_id'] }}.yaml"
+        dest: "/tmp/cluster_registration_manifest_{{ ansible_date_time.iso8601 }}.yaml"
+        mode: '0755'
+        timeout: 60
+        force: true
+        validate_certs: no
+
+    - name: Apply manifest to add cluster to Rancher
+      kubernetes.core.k8s:
+        state: present
+        src: "/tmp/cluster_registration_manifest_{{ ansible_date_time.iso8601 }}.yaml"
+        kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
+        verify_ssl: false
+      environment:
+        RANCHER_INSECURE: true
+
+    - name: Wait for agent deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Deployment
+        name: cattle-cluster-agent
+        namespace: cattle-system
+        wait: true
+        wait_timeout: 300
+        kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
+        wait_condition:
+          type: Available
+          status: "True"
+
+    - name: Check if imported cluster is ready
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3/clusters/{{ hostvars['localhost']['cluster_id'] }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ hostvars['localhost']['api_key'] }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 200
+        body_format: json
+      register: cluster_check
+      retries: 5
+      delay: 30
+      until: cluster_check.status == 200 and cluster_check.json.state == "active"

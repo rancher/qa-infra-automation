@@ -1,13 +1,13 @@
 ---
 - name: Deploy Rancher to RKE2 Cluster using Helm
   hosts: bastion
-  become: true
   gather_facts: true
 
   vars:
     # Enable Rancher deployment
     deploy_rancher: true
-    install_helm: true
+    rancher_private_hostname: "{{ rancher_hostname | default(internal_lb_hostname) }}" # Keeping rancher_hostname to not break previous runs.
+    rancher_public_hostname: "{{ public_hostname | default(external_lb_hostname) | default('') }}"
 
   pre_tasks:
     - name: Check if kubectl is available
@@ -47,6 +47,7 @@
         state: present
         update_cache: yes
       when: pip_check.rc != 0
+      become: true
       ignore_errors: true
 
     - name: Display pip installation status
@@ -61,6 +62,7 @@
           - python3-yaml
         state: present
         update_cache: yes
+      become: true
       ignore_errors: true
 
     - name: Install Ansible Kubernetes collection if not present
@@ -73,7 +75,6 @@
     - role: rancher_helm_deploy
       tags:
         - rancher
-        - helm
 
   post_tasks:
     - name: Wait for Rancher pods to be ready
@@ -107,6 +108,50 @@
           - {{ pod.metadata.name }}: {{ pod.status.phase }}
           {% endfor %}
 
+    - name: Add internal hostname to ingress
+      block:
+      - name: Set fact for new Ingress Rule
+        ansible.builtin.set_fact:
+          ingress_rules:
+            - host: "{{ rancher_private_hostname }}"
+              http:
+                paths:
+                  - backend:
+                      service:
+                        name: "rancher"
+                        port:
+                          number: 80
+                    path: /
+                    pathType: ImplementationSpecific
+            - host: "{{ rancher_public_hostname }}"
+              http:
+                paths:
+                  - backend:
+                      service:
+                        name: "rancher"
+                        port:
+                          number: 80
+                    path: /
+                    pathType: ImplementationSpecific
+
+      - name: Patch the Ingress to add the new hostname rule and TLS host
+        kubernetes.core.k8s:
+          state: patched
+          api_version: networking.k8s.io/v1
+          kind: Ingress
+          name: "rancher"
+          namespace: "cattle-system"
+          definition:
+            spec:
+              rules: "{{ ingress_rules }}"
+              tls:
+                - hosts:
+                    - "{{ rancher_private_hostname }}"
+                    - "{{ rancher_public_hostname }}"
+                  secretName: tls-rancher-ingress
+
+      when: (rancher_private_hostname is defined or internal_lb_hostname is defined) and (rancher_public_hostname is defined or external_lb_hostname is defined)
+
     - name: Get LoadBalancer or NodePort service details
       kubernetes.core.k8s_info:
         api_version: v1
@@ -122,9 +167,10 @@
           ========================================
           Rancher Deployment Complete!
           ========================================
-          Hostname: {{ rancher_hostname }}
+          Hostname: {{ rancher_private_hostname }}
+          Public Hostname: {{ rancher_public_hostname }}
           Namespace: {{ rancher_namespace }}
-          Access URL: https://{{ rancher_hostname }}
+          Access URL: https://{{ rancher_public_hostname }}
 
           Service Type: {{ rancher_service_info.resources[0].spec.type }}
           {% if rancher_service_info.resources[0].spec.type == 'LoadBalancer' %}
@@ -133,9 +179,9 @@
           NodePort: {{ rancher_service_info.resources[0].spec.ports[0].nodePort }}
           {% endif %}
 
-          Bootstrap Password: {{ rancher_helm_values.bootstrapPassword }}
+          Bootstrap Password: {{ rancher_bootstrap_password }}
 
-          Note: Configure DNS or /etc/hosts to point {{ rancher_hostname }} to the appropriate IP address.
+          Note: Configure DNS or /etc/hosts to point {{ rancher_public_hostname }} to the appropriate IP address.
           ========================================
 
     - name: Create Rancher configuration summary
@@ -143,16 +189,17 @@
         content: |
           # Rancher Deployment Summary
           Deployment Date: {{ ansible_date_time.iso8601 }}
-          Rancher Version: {{ rancher_helm_values.get('tag', 'latest') }}
-          Hostname: {{ rancher_hostname }}
+          Rancher Version: {{ rancher_chart_version | default('latest') }}
+          Hostname: {{ rancher_private_hostname }}
+          Public Hostname: {{ rancher_public_hostname }}
           Namespace: {{ rancher_namespace }}
-          Bootstrap Password: {{ rancher_helm_values.bootstrapPassword }}
+          Bootstrap Password: {{ rancher_bootstrap_password }}
           TLS Source: {{ rancher_tls_source }}
 
           Access Instructions:
-          1. Configure DNS or add to /etc/hosts: {{ rancher_hostname }} -> <LoadBalancer-IP or Node-IP>
-          2. Navigate to: https://{{ rancher_hostname }}
-          3. Login with bootstrap password: {{ rancher_helm_values.bootstrapPassword }}
+          1. Configure DNS or add to /etc/hosts: {{ rancher_public_hostname }} -> <LoadBalancer-IP or Node-IP>
+          2. Navigate to: https://{{ rancher_public_hostname }}
+          3. Login with bootstrap password: {{ rancher_bootstrap_password }}
           4. Follow the setup wizard to complete Rancher configuration
 
           Troubleshooting:

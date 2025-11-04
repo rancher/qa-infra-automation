@@ -15,6 +15,8 @@
   gather_facts: true
   vars_files:
     - ../group_vars/all.yml
+  vars:
+    target_group: "{{ target | default('rancher') }}"
   tasks:
     - name: Check internet connectivity
       ansible.builtin.uri:
@@ -37,7 +39,7 @@
         {{ ansible_user }}@{{ hostvars[item]['ansible_host'] }} "echo 'SSH OK'"
       register: ssh_test
       failed_when: false
-      loop: "{{ groups['airgap_nodes'] }}"
+      loop: "{{ groups[target_group] }}"
       changed_when: false
 
     - name: Display bastion validation results
@@ -46,7 +48,7 @@
           Bastion Host Validation:
           [INFO] Internet Access: {{ 'OK' if internet_check.status == 200 else 'FAILED' }}
           [INFO] Disk Space: {{ bastion_disk_space.stdout }}
-          [INFO] SSH Connectivity: {{ ssh_test.results | selectattr('rc', 'equalto', 0) | list | length }}/{{ groups['airgap_nodes'] | length }} nodes reachable
+          [INFO] SSH Connectivity: {{ ssh_test.results | selectattr('rc', 'equalto', 0) | list | length }}/{{ groups[target_group] | length }} nodes reachable
 
 - name: Validate Airgap Nodes Readiness
   hosts: airgap_nodes
@@ -70,7 +72,7 @@
 
     - name: Check RKE2 service status
       ansible.builtin.systemd:
-        name: "{{ 'rke2-server' if inventory_hostname == groups['airgap_nodes'][0] else 'rke2-agent' }}"
+        name: "{{ 'rke2-server' if inventory_hostname == groups[target_group][0] else 'rke2-agent' }}"
       register: rke2_service_status
       when: rke2_binary.stat.exists
 
@@ -108,7 +110,7 @@
       register: non_running_pods
       when:
         - rke2_binary.stat.exists
-        - inventory_hostname == groups['airgap_nodes'][0]
+        - inventory_hostname == groups[target_group][0]
       changed_when: false
       failed_when: false
 
@@ -147,25 +149,25 @@
               {{ hostvars[groups['bastion'][0]]['ssh_test']['results'] |
               selectattr('rc', 'equalto', 0) | list | length }}
           nodes: >-
-            {{ groups['airgap_nodes'] | map('extract', hostvars) | list }}
+            {{ groups[target_group] | map('extract', hostvars) | list }}
 
     - name: Count nodes with RKE2 installed
       ansible.builtin.set_fact:
         nodes_with_rke2: >-
-          {{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) |
+          {{ groups[target_group] | select('in', hostvars) | map('extract', hostvars) |
           selectattr('rke2_binary', 'defined') | selectattr('rke2_binary.stat.exists') | list | length }}
 
     - name: Count services running
       ansible.builtin.set_fact:
         services_running: >-
-          {{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) |
+          {{ groups[target_group] | select('in', hostvars) | map('extract', hostvars) |
           selectattr('rke2_service_status', 'defined') |
           selectattr('rke2_service_status.status.ActiveState', 'equalto', 'active') | list | length }}
 
     - name: Count nodes with sufficient disk space
       ansible.builtin.set_fact:
         nodes_with_space: >-
-          {{ groups['airgap_nodes'] | select('in', hostvars) | map('extract', hostvars) |
+          {{ groups[target_group] | select('in', hostvars) | map('extract', hostvars) |
           selectattr('disk_usage_percent', 'defined') | map(attribute='disk_usage_percent') |
           map('int') | select('lessthan', 80) | list | length }}
 
@@ -176,16 +178,16 @@
             status: "{{ validation_summary.bastion.internet_access }}"
             weight: 20
           - name: "SSH Connectivity"
-            status: "{{ validation_summary.bastion.ssh_connectivity == groups['airgap_nodes'] | length }}"
+            status: "{{ validation_summary.bastion.ssh_connectivity == groups[target_group] | length }}"
             weight: 15
           - name: "All Nodes Have RKE2"
-            status: "{{ nodes_with_rke2 | default(0) == groups['airgap_nodes'] | length }}"
+            status: "{{ nodes_with_rke2 | default(0) == groups[target_group] | length }}"
             weight: 25
           - name: "All Services Running"
-            status: "{{ services_running | default(0) == groups['airgap_nodes'] | length }}"
+            status: "{{ services_running | default(0) == groups[target_group] | length }}"
             weight: 20
           - name: "Sufficient Disk Space"
-            status: "{{ nodes_with_space | default(0) == groups['airgap_nodes'] | length }}"
+            status: "{{ nodes_with_space | default(0) == groups[target_group] | length }}"
             weight: 20
 
     - name: Calculate total readiness score
@@ -214,10 +216,10 @@
           ║ BASTION HOST STATUS:                                                                 ║
           ║ • Internet Access: {{ '✅ Available' if validation_summary.bastion.internet_access else '❌ Not Available' }}                                    ║
           ║ • Disk Space: {{ validation_summary.bastion.disk_space }}                                                    ║
-          ║ • SSH Connectivity: {{ validation_summary.bastion.ssh_connectivity }}/{{ groups['airgap_nodes'] | length }} nodes reachable                           ║
+          ║ • SSH Connectivity: {{ validation_summary.bastion.ssh_connectivity }}/{{ groups[target_group] | length }} nodes reachable                           ║
           ╠══════════════════════════════════════════════════════════════════════════════════════╣
           ║ CLUSTER NODES STATUS:                                                                ║
-          {% for node in groups['airgap_nodes'] %}
+          {% for node in groups[target_group] %}
           ║ {{ node }}:                                                                          ║
           ║   • RKE2 Installed: {{ '✅' if (hostvars[node]['rke2_binary'] is defined and hostvars[node]['rke2_binary']['stat']['exists']) else '❌' }}                                                ║
           {% if hostvars[node]['rke2_binary'] is defined and hostvars[node]['rke2_binary']['stat']['exists'] %}
@@ -257,10 +259,10 @@
           Bastion Host:
           - Internet Access: {{ 'Available' if validation_summary.bastion.internet_access else 'Not Available' }}
           - Disk Space: {{ validation_summary.bastion.disk_space }}
-          - SSH Connectivity: {{ validation_summary.bastion.ssh_connectivity }}/{{ groups['airgap_nodes'] | length }}
+          - SSH Connectivity: {{ validation_summary.bastion.ssh_connectivity }}/{{ groups[target_group] | length }}
 
           Cluster Nodes:
-          {% for node in groups['airgap_nodes'] %}
+          {% for node in groups[target_group] %}
           {{ node }}:
             - RKE2 Installed: {{ 'Yes' if (hostvars[node]['rke2_binary'] is defined and hostvars[node]['rke2_binary']['stat']['exists']) else 'No' }}
           {% if hostvars[node]['rke2_binary'] is defined and hostvars[node]['rke2_binary']['stat']['exists'] %}

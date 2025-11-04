@@ -3,7 +3,8 @@
   hosts: bastion
   become: true
   gather_facts: true
-
+  vars:
+    target_group: "{{ target | default('rancher') }}"
   tasks:
     - name: Extract Kubernetes version from RKE2 version
       ansible.builtin.set_fact:
@@ -55,7 +56,7 @@
         src: /etc/rancher/rke2/rke2.yaml
         dest: /tmp/rke2-{{ inventory_hostname }}.yaml
         flat: true
-      delegate_to: "{{ groups['airgap_nodes'][0] }}"
+      delegate_to: "{{ groups[target_group][0] }}"
       become: true
 
     - name: Read kubeconfig content
@@ -70,7 +71,7 @@
         updated_kubeconfig: >-
           {{ (kubeconfig_content.content | b64decode) |
           regex_replace('https://127\.0\.0\.1:6443',
-          'https://' + hostvars[groups['airgap_nodes'][0]]['ansible_host'] + ':6443') }}
+          'https://' + hostvars[groups[target_group][0]]['ansible_host'] + ':6443') }}
 
     - name: Write kubeconfig to bastion root
       ansible.builtin.copy:
@@ -129,7 +130,7 @@
 
           [OK] kubectl installed on bastion node
           [OK] KUBECONFIG copied and configured
-          
+
           To manage your cluster from the bastion node:
 
           As root:
