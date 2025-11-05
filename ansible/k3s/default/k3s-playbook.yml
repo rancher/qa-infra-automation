@@ -66,10 +66,19 @@
       file:
         path: "{{ item }}"
         state: directory
-        mode: '0755'
+        mode: '0700'
       loop:
         - /var/lib/rancher/k3s/server/manifests
       when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+
+    - name: Apply K3s hardening on initial cluster node if enabled
+      include_role:
+        name: k3s_hardening
+      vars:
+        k3s_node_type: cluster-init
+        role_server_flags: "{{ server_flags | default('') }}"
+        kubernetes_version: "{{ kubernetes_version }}"
+      when: inventory_hostname == 'master'
 
     - name: Install K3s on initial cluster node
       include_role:
@@ -83,15 +92,6 @@
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
-      when: inventory_hostname == 'master'
-
-    - name: Apply K3s hardening on initial cluster node if enabled
-      include_role:
-        name: k3s_hardening
-      vars:
-        k3s_node_type: cluster-init
-        role_server_flags: "{{ server_flags | default('') }}"
-        kubernetes_version: "{{ kubernetes_version }}"
       when: inventory_hostname == 'master'
 
     - name: Get node-token from master
@@ -116,6 +116,15 @@
       copy:
         content: "{{ kubeconfig_contents.content | b64decode }}"
         dest: "{{ kubeconfig_file }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Update kubeconfig server address
+      lineinfile:
+        path: "{{ kubeconfig_file }}"
+        regexp: '^\s+server:\s+https://127\.0\.0\.1:6443'
+        line: "    server: https://{{ kube_api_host | default(hostvars[groups['master'][0]]['ansible_host']) }}:6443"
       delegate_to: localhost
       run_once: true
       become: false
@@ -160,10 +169,21 @@
       file:
         path: "{{ item }}"
         state: directory
-        mode: '0755'
+        mode: '0700'
       loop:
         - /var/lib/rancher/k3s/server/manifests
       when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+
+    - name: Apply K3s hardening on server nodes if enabled (before installation)
+      include_role:
+        name: k3s_hardening
+      vars:
+        k3s_node_type: server
+        role_server_flags: "{{ server_flags | default('') }}"
+        kubernetes_version: "{{ kubernetes_version }}"
+      when:
+        - inventory_hostname != 'master'
+        - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
 
     - name: Install K3s on server nodes
       include_role:
@@ -178,17 +198,6 @@
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
-      when:
-        - inventory_hostname != 'master'
-        - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
-
-    - name: Apply K3s hardening on server nodes if enabled
-      include_role:
-        name: k3s_hardening
-      vars:
-        k3s_node_type: server
-        role_server_flags: "{{ server_flags | default('') }}"
-        kubernetes_version: "{{ kubernetes_version }}"
       when:
         - inventory_hostname != 'master'
         - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
