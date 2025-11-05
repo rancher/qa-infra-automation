@@ -85,14 +85,49 @@ tls-san:
   - "127.0.0.1"
 {% endif %}
 
-# Server flags (render only if provided)
-{% if k3s_server_flags is defined and k3s_server_flags | trim %}
-{{ k3s_server_flags }}
+# Server flags (render only if provided and node is server/cluster-init)
+{% if k3s_node_type in ['cluster-init', 'server'] %}
+{% if server_flags is defined and server_flags | trim %}
+{{ server_flags }}
+{% elif role_server_flags is defined and role_server_flags | trim %}
+{{ role_server_flags }}
+{% endif %}
 {% endif %}
 
-# Worker flags (render only if provided)
-{% if k3s_worker_flags is defined and k3s_worker_flags | trim %}
-{{ k3s_worker_flags }}
+# Worker flags (render only if provided and node is agent)
+{% if k3s_node_type == 'agent' %}
+{% if worker_flags is defined and worker_flags | trim %}
+{{ worker_flags }}
 {% elif role_worker_flags is defined and role_worker_flags | trim %}
 {{ role_worker_flags }}
+{% endif %}
+{% endif %}
+
+# CIS hardening configuration
+{% set is_hardening_enabled = (server_flags is defined and 'protect-kernel-defaults' in server_flags) or (role_server_flags is defined and 'protect-kernel-defaults' in role_server_flags) %}
+{% if is_hardening_enabled and k3s_node_type in ['cluster-init', 'server'] %}
+secrets-encryption: true
+kube-apiserver-arg:
+  - "enable-admission-plugins=NodeRestriction,EventRateLimit,PodSecurity"
+  - "admission-control-config-file=/var/lib/rancher/k3s/server/admission-config.yaml"
+  - "audit-log-path=/var/lib/rancher/k3s/server/logs/audit.log"
+  - "audit-policy-file=/var/lib/rancher/k3s/server/audit.yaml"
+  - "audit-log-maxage=30"
+  - "audit-log-maxbackup=10"
+  - "audit-log-maxsize=100"
+  - "service-account-extend-token-expiration=false"
+
+kube-controller-manager-arg:
+  - "terminated-pod-gc-threshold=100"
+
+kubelet-arg:
+  - "streaming-connection-idle-timeout=5m"
+  - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+
+{% elif k3s_node_type == 'agent' %}
+# Agent kubelet configuration
+kubelet-arg:
+  - "streaming-connection-idle-timeout=5m"
+  - "make-iptables-util-chains=true"
+  - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
 {% endif %}
