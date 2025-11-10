@@ -18,23 +18,23 @@
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default(rancher_chart_repo_url_default) }}"
 
   tasks:
-    - name: Get LoadBalancer IP (only for Harvester clusters)
-      command: >
-        kubectl get loadbalancer {{ fqdn }} -o jsonpath='{.status.address}'
-      register: lb_ip_result
-      environment:
-        KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ terraform_state_path }}/../local.yaml"
-      when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
+    # - name: Get LoadBalancer IP (only for Harvester clusters)
+    #   command: >
+    #     kubectl get loadbalancer {{ fqdn }} -o jsonpath='{.status.address}'
+    #   register: lb_ip_result
+    #   environment:
+    #     KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ terraform_state_path }}/../local.yaml"
+    #   when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
 
-    - name: Normalize fqdn
-      set_fact:
-        fqdn: >-
-          {{
-            (
-              (lb_ip_result | default({})).get('stdout', '') | length > 0
-            )
-            | ternary((lb_ip_result | default({})).get('stdout', '') ~ '.sslip.io', fqdn)
-          }}
+    # - name: Normalize fqdn
+    #   set_fact:
+    #     fqdn: >-
+    #       {{
+    #         (
+    #           (lb_ip_result | default({})).get('stdout', '') | length > 0
+    #         )
+    #         | ternary((lb_ip_result | default({})).get('stdout', '') ~ '.sslip.io', fqdn)
+    #       }}
 
     - name: Check if kubeconfig file exists
       stat:
@@ -117,13 +117,13 @@
         chart_ref: "{{ rancher_chart_repo_final }}/rancher"
         release_namespace: cattle-system
         create_namespace: true
-        chart_version: "{{ rancher_version }}"
+        chart_version: "{{ rancher_image_tag | default(rancher_version) }}"
         wait: true
         wait_timeout: "800s"
         values:
           hostname: "{{ fqdn }}"
           bootstrapPassword: "{{ bootstrap_password }}"
-          rancherImageTag: "{{ rancher_image_tag | default(omit) }}"
+          rancherImageTag: "{{ rancher_version | default(omit) }}"
           replicas: "{{ node_info.resources | length }}"
       when: rancher_version != ""
       retries: 6
@@ -197,6 +197,10 @@
       delay: 10
       until: rancherjson.status == 201
       when: rancher_version != ""
+
+    - name: Debug Rancher login response
+      debug:
+        var: rancherjson
 
     - name: Extract Rancher UserID and Token
       set_fact:
