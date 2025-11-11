@@ -179,7 +179,7 @@ Before running the playbook, ensure you have the following in addition to the [g
 Execute the playbook using the following command:
 
 ```bash
-ansible-playbook ansible/rancher/downstream/elemental/elemental-playbook.yml -vvvv -e "@$VARS_FILE"
+ansible-playbook ansible/rancher/downstream/elemental/ec2/elemental-playbook.yml -vvvv -e "@$VARS_FILE"
 ```
 
 ## Outputs

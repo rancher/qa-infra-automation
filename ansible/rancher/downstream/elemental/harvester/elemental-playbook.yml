@@ -1,0 +1,40 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  tasks:
+    - include_tasks: ../tasks/install-elemental-tasks.yml
+
+- hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+
+  tasks:
+    - name: Download Elemental ISO
+      ansible.builtin.get_url:
+        url: "{{ hostvars['localhost'].download_url.stdout }}"
+        dest: /tmp/elemental.iso
+        validate_certs: false
+
+    - name: Upload file to S3
+      amazon.aws.s3_object:
+        bucket: "{{ s3_bucket }}"
+        object: "{{ s3_key }}"
+        src: "{{ local_file_path }}"
+        mode: put
+        access_key: "{{ aws_access_key }}"
+        secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        overwrite: true
+      register: upload_result
+
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  tasks:
+    - include_tasks: ../tasks/wait-elemental-tasks.yml

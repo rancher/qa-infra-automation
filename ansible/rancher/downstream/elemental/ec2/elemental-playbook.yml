@@ -1,0 +1,63 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  tasks:
+    - include_tasks: ../tasks/install-elemental-tasks.yml
+
+- hosts: elemental_node
+  connection: ssh
+  become: yes
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  vars:
+    vm_name: "vm-elemental-node"
+    vm_iso: "/tmp/elemental.iso"
+    vm_net: "default"
+    vm_os: "slem5.3"
+    vm_img: "/tmp/vm-elemental-node.qcow2"
+    vm_cores: 8
+    vm_disksize: 60
+    vm_ramsize: 8000
+
+  tasks:
+    - name: Download Elemental ISO
+      ansible.builtin.get_url:
+        url: "{{ hostvars['localhost'].download_url.stdout }}"
+        dest: /tmp/elemental.iso
+        validate_certs: false
+
+    - name: Install virt-manager
+      ansible.builtin.apt:
+        name: virt-manager
+        state: present
+        update_cache: yes
+
+    - name: Creating Elemental VM
+      ansible.builtin.shell: | 
+        sudo virt-install \
+          --name {{ vm_name }} \
+          --memory {{ vm_ramsize }} \
+          --vcpus {{ vm_cores }} \
+          --os-variant={{ vm_os }} \
+          --cdrom {{ vm_iso }} \
+          --network network={{ vm_net }},model=virtio \
+          --disk path={{ vm_img }},size={{ vm_disksize }},bus=virtio,format=qcow2 \
+          --boot uefi \
+          --cpu host-model \
+          --autostart \
+          --noautoconsole \
+          --wait=-1 \
+          --check disk_size=off
+      failed_when: false
+  
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  tasks:
+    - include_tasks: ../tasks/wait-elemental-tasks.yml
