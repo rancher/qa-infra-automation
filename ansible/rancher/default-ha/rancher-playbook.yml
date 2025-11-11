@@ -18,24 +18,6 @@
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default(rancher_chart_repo_url_default) }}"
 
   tasks:
-    # - name: Get LoadBalancer IP (only for Harvester clusters)
-    #   command: >
-    #     kubectl get loadbalancer {{ fqdn }} -o jsonpath='{.status.address}'
-    #   register: lb_ip_result
-    #   environment:
-    #     KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ terraform_state_path }}/../local.yaml"
-    #   when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
-
-    # - name: Normalize fqdn
-    #   set_fact:
-    #     fqdn: >-
-    #       {{
-    #         (
-    #           (lb_ip_result | default({})).get('stdout', '') | length > 0
-    #         )
-    #         | ternary((lb_ip_result | default({})).get('stdout', '') ~ '.sslip.io', fqdn)
-    #       }}
-
     - name: Check if kubeconfig file exists
       stat:
         path: "{{ kubeconfig_file }}"
@@ -181,7 +163,7 @@
         msg: "Rancher URL: https://{{ rancher_ingress.resources[0].spec.rules[0].host }}"
       when: rancher_version != "" and rancher_ingress.resources|length > 0 and rancher_ingress.resources[0].spec.rules|length > 0 and rancher_ingress.resources[0].spec.rules[0].host is defined
 
-    - name: Get Rancher UserID and Token
+    - name: Get Rancher Token
       ansible.builtin.uri:
         url: "https://{{ fqdn }}/v3-public/localproviders/local?action=login"
         body:
@@ -197,15 +179,37 @@
       delay: 10
       until: rancherjson.status == 201
       when: rancher_version != ""
+  
+    - name: Extract Rancher Token
+      set_fact:
+        API_KEY: "{{ rancherjson.json.token }}"
+      when: rancher_version != ""
+
+    - name: Get Rancher UserID
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3/users?me=true"
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ API_KEY }}"
+        method: GET
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 200
+        body_format: json
+      register: rancherjsonuser
+      retries: 5
+      delay: 10
+      until: rancherjsonuser.status == 200
+      when: rancher_version != ""
 
     - name: Debug Rancher login response
       debug:
         var: rancherjson
 
-    - name: Extract Rancher UserID and Token
+    - name: Extract Rancher User
       set_fact:
-        rancher_user_id: "{{ rancherjson.json.userId }}"
-        API_KEY: "{{ rancherjson.json.token }}"
+        rancher_user_id: "{{ rancherjsonuser.json.data[0].id }}"
       when: rancher_version != ""
 
     - name: Set Rancher Password

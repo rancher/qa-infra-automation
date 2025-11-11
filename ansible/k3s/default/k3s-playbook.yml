@@ -124,7 +124,7 @@
       lineinfile:
         path: "{{ kubeconfig_file }}"
         regexp: '^\s+server:\s+https://127\.0\.0\.1:6443'
-        line: "    server: https://{{ kube_api_host | default(hostvars[groups['master'][0]]['ansible_host']) }}:6443"
+        line: "    server: https://{{ fqdn | default(kube_api_host) }}:6443"
       delegate_to: localhost
       run_once: true
       become: false

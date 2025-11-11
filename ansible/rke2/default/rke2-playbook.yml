@@ -34,26 +34,6 @@
         state: started
       loop: "{{ groups['all'] }}"
 
-    # - name: Get LoadBalancer IP (only for Harvester clusters)
-    #   command: >
-    #     kubectl get loadbalancer {{ fqdn_default }} -o jsonpath='{.status.address}'
-    #   register: lb_ip_result
-    #   environment:
-    #     KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ lookup('env', 'TERRAFORM_NODE_SOURCE') }}/../local.yaml"
-    #   when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
-
-    # - name: Get normalized IP (if any)
-    #   set_fact:
-    #     lb_ip_normalized: "{{ (lb_ip_result.get('stdout', '') | default('')) if (lb_ip_result is defined and lb_ip_result is mapping) else '' }}"
-
-    # - name: Normalize fqdn
-    #   set_fact:
-    #     fqdn_final: >-
-    #       {{
-    #         (lb_ip_normalized | length > 0)
-    #           | ternary(lb_ip_normalized ~ '.sslip.io', fqdn_default)
-    #       }}
-
 - hosts: all
   strategy: linear
   become: true
