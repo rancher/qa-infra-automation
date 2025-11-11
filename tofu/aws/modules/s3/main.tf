@@ -3,16 +3,24 @@ resource "aws_s3_bucket" "this" {
   force_destroy = true
 }
 
-resource "aws_s3_bucket_policy" "allow_access_policy" {
+resource "aws_s3_bucket_policy" "this" {
+  count = var.block_public_access ? 0 : 1
   bucket = aws_s3_bucket.this.id
-  policy = data.aws_iam_policy_document.allow_access_policy_document.json
+  policy = data.aws_iam_policy_document.this.json
 
   depends_on = [
     aws_s3_bucket_public_access_block.this
   ]
 }
 
-data "aws_iam_policy_document" "allow_access_policy_document" {
+resource "aws_s3_bucket_object" "this" {
+  count = var.file_name != "" && var.file_path != "" ? 1 : 0
+  bucket = aws_s3_bucket.this.id
+  key    = var.file_name
+  source = var.file_path
+}
+
+data "aws_iam_policy_document" "this" {
   statement {
     sid = "PublicReadObjects"
 
