@@ -13,13 +13,6 @@ resource "aws_s3_bucket_policy" "this" {
   ]
 }
 
-resource "aws_s3_bucket_object" "this" {
-  count = var.file_name != "" && var.file_path != "" ? 1 : 0
-  bucket = aws_s3_bucket.this.id
-  key    = var.file_name
-  source = var.file_path
-}
-
 data "aws_iam_policy_document" "this" {
   statement {
     sid = "PublicReadObjects"
