@@ -11,7 +11,7 @@
     terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
 
     # Use the constructed path in the lookups.
-    fqdn_default: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(lookup('env', 'KUBE_API_HOST'), true)) }}"
+    fqdn_final: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(lookup('env', 'KUBE_API_HOST'), true)) }}"
     kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
@@ -33,26 +33,6 @@
         timeout: 300
         state: started
       loop: "{{ groups['all'] }}"
-
-    - name: Get LoadBalancer IP (only for Harvester clusters)
-      command: >
-        kubectl get loadbalancer {{ fqdn_default }} -o jsonpath='{.status.address}'
-      register: lb_ip_result
-      environment:
-        KUBECONFIG: "{{ lookup('env', 'PWD') }}/{{ lookup('env', 'TERRAFORM_NODE_SOURCE') }}/../local.yaml"
-      when: "'harvester' in lookup('env', 'TERRAFORM_NODE_SOURCE')"
-
-    - name: Get normalized IP (if any)
-      set_fact:
-        lb_ip_normalized: "{{ (lb_ip_result.get('stdout', '') | default('')) if (lb_ip_result is defined and lb_ip_result is mapping) else '' }}"
-
-    - name: Normalize fqdn
-      set_fact:
-        fqdn_final: >-
-          {{
-            (lb_ip_normalized | length > 0)
-              | ternary(lb_ip_normalized ~ '.sslip.io', fqdn_default)
-          }}
 
 - hosts: all
   strategy: linear
