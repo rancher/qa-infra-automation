@@ -36,6 +36,7 @@ resource "harvester_virtualmachine" "elemental-vm" {
     size       = "60Gi"
     bus        = "virtio"
     boot_order = 1
+    auto_delete = true
   }
 
   network_interface {
