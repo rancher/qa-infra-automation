@@ -30,11 +30,3 @@
         region: "{{ aws_region }}"
         overwrite: true
       register: upload_result
-
-- hosts: localhost
-  connection: local
-  gather_facts: false
-  vars_files:
-    - vars.yaml
-  tasks:
-    - include_tasks: ../tasks/wait-elemental-tasks.yml

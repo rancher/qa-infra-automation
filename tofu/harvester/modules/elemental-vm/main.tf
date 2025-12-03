@@ -4,7 +4,7 @@ resource "harvester_image" "elemental" {
 
   display_name = "elemental.iso"
   source_type  = "download"
-  url          = var.url
+  url          = var.image_url
 }
 
 resource "harvester_virtualmachine" "elemental-vm" {
