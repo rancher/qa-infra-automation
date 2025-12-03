@@ -1,4 +1,3 @@
-variable "user_id" {} // how the user is identified (usually github username)
 variable "public_ssh_key" {} // The corrals public key.  This should be installed on every node.
 variable "aws_access_key" {}
 variable "aws_secret_key" {}
