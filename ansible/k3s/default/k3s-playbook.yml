@@ -77,7 +77,6 @@
       vars:
         k3s_node_type: cluster-init
         role_server_flags: "{{ server_flags | default('') }}"
-        kubernetes_version: "{{ kubernetes_version }}"
       when: inventory_hostname == 'master'
 
     - name: Install K3s on initial cluster node
@@ -85,7 +84,6 @@
         name: k3s_install
       vars:
         k3s_node_type: cluster-init
-        kubernetes_version: "{{ kubernetes_version }}"
         k3s_api_host: "{{ kube_api_host }}"
         k3s_fqdn: "{{ fqdn }}"
         k3s_node_roles: "{{ ansible_role }}"
@@ -190,7 +188,6 @@
         name: k3s_install
       vars:
         k3s_node_type: server
-        kubernetes_version: "{{ kubernetes_version }}"
         k3s_api_host: "{{ kube_api_host }}"
         k3s_fqdn: "{{ fqdn }}"
         k3s_token: "{{ node_token }}"
@@ -224,7 +221,6 @@
         name: k3s_install
       vars:
         k3s_node_type: agent
-        kubernetes_version: "{{ kubernetes_version }}"
         k3s_api_host: "{{ kube_api_host }}"
         k3s_fqdn: "{{ fqdn }}"
         k3s_token: "{{ node_token }}"
