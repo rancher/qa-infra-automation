@@ -29,4 +29,9 @@
         secret_key: "{{ aws_secret_key }}"
         region: "{{ aws_region }}"
         overwrite: true
+        retries: 3
       register: upload_result
+    
+    - name: Wait for S3 file
+      ansible.builtin.pause:
+        minutes: 2
