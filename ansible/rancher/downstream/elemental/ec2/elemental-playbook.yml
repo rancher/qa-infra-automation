@@ -1,11 +1,5 @@
 ---
-- hosts: localhost
-  connection: local
-  gather_facts: false
-  vars_files:
-    - vars.yaml
-  tasks:
-    - include_tasks: ../tasks/install-elemental-tasks.yml
+- import_playbook: ../tasks/install-elemental-tasks.yml
 
 - hosts: elemental_node
   connection: ssh
@@ -54,10 +48,4 @@
           --check disk_size=off
       failed_when: false
   
-- hosts: localhost
-  connection: local
-  gather_facts: false
-  vars_files:
-    - vars.yaml
-  tasks:
-    - include_tasks: ../tasks/wait-elemental-tasks.yml
+- import_playbook: ../tasks/wait-elemental-tasks.yml
