@@ -1,6 +1,6 @@
 resource "harvester_image" "elemental" {
   name      = "elemental"
-  namespace = "harvester-public"
+  namespace = var.image_namespace
 
   display_name = "elemental.iso"
   source_type  = "download"
@@ -10,19 +10,19 @@ resource "harvester_image" "elemental" {
 resource "harvester_virtualmachine" "elemental-vm" {
   count     = 3
   name      = "elemental-vm-${count.index}"
-  namespace = "default"
+  namespace = var.namespace
 
   depends_on = [
     harvester_image.elemental
   ]
 
-  cpu    = 8
-  memory = "8Gi"
+  cpu    = var.cpu
+  memory = var.memory
 
   disk {
     name       = "cdrom-disk"
     type       = "cd-rom"
-    size       = "11Gi"
+    size       = "2Gi"
     bus        = "sata"
     boot_order = 2
 
@@ -33,7 +33,7 @@ resource "harvester_virtualmachine" "elemental-vm" {
   disk {
     name       = "rootdisk"
     type       = "disk"
-    size       = "60Gi"
+    size       = var.disk_size
     bus        = "virtio"
     boot_order = 1
     auto_delete = true
