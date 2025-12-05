@@ -42,7 +42,7 @@ resource "random_id" "cluster_id" {
 }
 
 resource "aws_key_pair" "ssh_public_key" {
-  key_name = "tf-key-${var.user_id}-${random_id.cluster_id.hex}"
+  key_name = "tf-key-${var.aws_hostname_prefix}-${random_id.cluster_id.hex}"
   public_key = file(var.public_ssh_key)
 }
 
@@ -64,7 +64,7 @@ resource "aws_instance" "node" {
    }
 
   tags = {
-    Name = "tf-${var.user_id}-${each.value.name}"
+    Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
   }
 }
 
