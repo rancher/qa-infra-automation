@@ -1,65 +1,72 @@
 ---
-- name: Check if kubeconfig file exists
-  stat:
-    path: "{{ kubeconfig_file }}"
-  register: kubeconfig_file_stat
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
 
-- name: Fail if kubeconfig file does not exist
-  fail:
-    msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
-  when: not kubeconfig_file_stat.stat.exists
+  tasks:
+    - name: Check if kubeconfig file exists
+      stat:
+        path: "{{ kubeconfig_file }}"
+      register: kubeconfig_file_stat
 
-- name: Install elemental-operator-crds
-  kubernetes.core.helm:
-    kubeconfig: "{{ kubeconfig_file }}"
-    name: elemental-operator-crds
-    chart_ref: "oci://registry.suse.com/rancher/elemental-operator-crds-chart"
-    release_namespace: cattle-elemental-system
-    create_namespace: true
-    wait: true
-    wait_timeout: "60s"
-    chart_version: "1.7.3"
-    validate_certs: false
-  retries: 3
-  delay: 60
+    - name: Fail if kubeconfig file does not exist
+      fail:
+        msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
+      when: not kubeconfig_file_stat.stat.exists
 
-- name: Install elemental-operator
-  kubernetes.core.helm:
-    kubeconfig: "{{ kubeconfig_file }}"
-    name: elemental-operator
-    chart_ref: "oci://registry.suse.com/rancher/elemental-operator-chart"
-    release_namespace: cattle-elemental-system
-    create_namespace: true
-    wait: true
-    wait_timeout: "60s"
-    chart_version: "1.7.3"
-    validate_certs: false
-  retries: 3
-  delay: 60
+    - name: Install elemental-operator-crds
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_file }}"
+        name: elemental-operator-crds
+        chart_ref: "oci://registry.suse.com/rancher/elemental-operator-crds-chart"
+        release_namespace: cattle-elemental-system
+        create_namespace: true
+        wait: true
+        wait_timeout: "60s"
+        chart_version: "1.7.3"
+        validate_certs: false
+      retries: 3
+      delay: 60
 
-- name: Apply Elemental config
-  kubernetes.core.k8s:
-    state: present
-    src: "{{ elementalconfig_file }}"
-    kubeconfig: "{{ kubeconfig_file }}"
+    - name: Install elemental-operator
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_file }}"
+        name: elemental-operator
+        chart_ref: "oci://registry.suse.com/rancher/elemental-operator-chart"
+        release_namespace: cattle-elemental-system
+        create_namespace: true
+        wait: true
+        wait_timeout: "60s"
+        chart_version: "1.7.3"
+        validate_certs: false
+      retries: 3
+      delay: 60
 
-- name: Wait for Elemental ISO be prepared
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Pod
-    name: fire-img
-    namespace: fleet-default
-    kubeconfig: "{{ kubeconfig_file }}"
-    wait: yes
-    wait_timeout: 180
-    validate_certs: false
-    wait_condition:
-      type: Ready
+    - name: Apply Elemental config
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ elementalconfig_file }}"
+        kubeconfig: "{{ kubeconfig_file }}"
 
-- name: Get Download Url
-  command: kubectl get seedimage -n fleet-default fire-img -o jsonpath="{.status.downloadURL}" --kubeconfig "{{ kubeconfig_file }}"
-  register: download_url
+    - name: Wait for Elemental ISO be prepared
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        name: fire-img
+        namespace: fleet-default
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_timeout: 180
+        validate_certs: false
+        wait_condition:
+          type: Ready
 
-- name: Show Download Url
-  debug:
-    var: download_url.stdout
+    - name: Get Download Url
+      command: kubectl get seedimage -n fleet-default fire-img -o jsonpath="{.status.downloadURL}" --kubeconfig "{{ kubeconfig_file }}"
+      register: download_url
+
+    - name: Show Download Url
+      debug:
+        var: download_url.stdout

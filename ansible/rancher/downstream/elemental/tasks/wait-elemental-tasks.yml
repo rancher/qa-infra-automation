@@ -1,12 +1,19 @@
 ---
-- name: Wait for Elemental cluster be ready
-  kubernetes.core.k8s_info:
-    api_version: cluster.x-k8s.io/v1beta1
-    kind: MachineDeployment
-    name: "{{ elemental_pool_name }}"
-    namespace: fleet-default
-    kubeconfig: "{{ kubeconfig_file }}"
-    wait: yes
-    wait_timeout: 1800
-    wait_condition:
-      type: Ready
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+
+  tasks:
+    - name: Wait for Elemental cluster be ready
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: MachineDeployment
+        name: "{{ elemental_pool_name }}"
+        namespace: fleet-default
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_timeout: 1800
+        wait_condition:
+          type: Ready
