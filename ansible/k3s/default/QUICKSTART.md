@@ -2,15 +2,15 @@
 
 ## Prerequisites
 
-1. Infrastructure Ready: `tofu apply` is done.
-2. Inventory Ready: `terraform-inventory.yml` is in the repo root (generated via `envsubst` in the quickstart guide for `aws/modules/cluster_nodes`). You may need to update the `project_path` there to be a path relative to the `ansible/` directory.
-3. Ansible Installed.
+1. Infrastructure Deployed: You must have run `tofu apply` successfully to bring up infrastructure. [Example module quickstart](../../../tofu/aws/modules/cluster_nodes/QUICKSTART.md).
+2. Inventory Generated: You must have the `terraform-inventory.yml` file in the repository root (generated via `envsubst` in the quickstart guide for `aws/modules/cluster_nodes`). You may need to update the `project_path` there to be a path relative to the `ansible/` directory.
+3. Ansible Installed: Ensure you have `ansible` installed locally.
 
 ## Steps 
 
 ### Step 1. Create Config
 
-Create `vars.yaml` in this folder with your version and network settings.
+Create `vars.yaml` in this folder with your desired version.
 
 ```yaml
 # K3s version

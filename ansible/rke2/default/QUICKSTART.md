@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-1. Infrastructure Deployed: You must have run `tofu apply` successfully to bring up infrastructure.
+1. Infrastructure Deployed: You must have run `tofu apply` successfully to bring up infrastructure. [Example module quickstart](../../../tofu/aws/modules/cluster_nodes/QUICKSTART.md).
 2. Inventory Generated: You must have the `terraform-inventory.yml` file in the repository root (generated via `envsubst` in the quickstart guide for `aws/modules/cluster_nodes`). You may need to update the `project_path` there to be a path relative to the `ansible/` directory.
 3. Ansible Installed: Ensure you have `ansible` installed locally.
 
