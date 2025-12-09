@@ -23,6 +23,11 @@
         url: "{{ hostvars['localhost'].download_url.stdout }}"
         dest: /tmp/elemental.iso
         validate_certs: false
+      when:
+        - hostvars['localhost'].download_url is defined
+        - hostvars['localhost'].download_url.stdout is defined
+        - hostvars['localhost'].download_url.stdout | length > 0
+      retries: 3
 
     - name: Install virt-manager
       ansible.builtin.apt:
