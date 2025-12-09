@@ -23,11 +23,6 @@ variable "memory" {
   description = "Memory size"
 }
 
-variable "harvester_kubeconfig_file" {
-  type        = string
-  description = "Path to kubeconfig file"
-}
-
 variable "user_data_base64" {
   type        = string
   description = "Base64-encoded user data"

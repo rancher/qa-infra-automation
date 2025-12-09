@@ -8,6 +8,11 @@ terraform {
   }
 }
 
+locals {
+  module_path        = abspath(path.module)
+  codebase_root_path = abspath("${path.module}")
+}
+
 provider "harvester" {
-  kubeconfig = var.harvester_kubeconfig_file
+  kubeconfig = abspath("${local.codebase_root_path}/local.yaml")
 }
