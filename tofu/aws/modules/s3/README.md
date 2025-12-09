@@ -53,7 +53,7 @@ tofu destroy -var-file="terraform.tfvars"
 ```
 ## Outputs
 
-This setup does not produce any direct outputs.
+This setup produce the bucket name.
 
 ## Sample terraform.tfvars
 
