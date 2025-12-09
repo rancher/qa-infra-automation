@@ -1,8 +1,39 @@
-variable "image_namespace" {}
-variable "image_url" {}
-variable "namespace" {}
-variable "cpu" {}
-variable "memory" {}
-variable "harvester_kubeconfig_file" {}
-variable "user_data_base64" {}
-variable "disk_size" {}
+variable "image_namespace" {
+  type        = string
+  description = "Image namespace"
+}
+
+variable "image_url" {
+  type        = string
+  description = "Source image URL"
+}
+
+variable "namespace" {
+  type        = string
+  description = "Kubernetes namespace"
+}
+
+variable "cpu" {
+  type        = number
+  description = "Number of vCPUs"
+}
+
+variable "memory" {
+  type        = string
+  description = "Memory size"
+}
+
+variable "harvester_kubeconfig_file" {
+  type        = string
+  description = "Path to kubeconfig file"
+}
+
+variable "user_data_base64" {
+  type        = string
+  description = "Base64-encoded user data"
+}
+
+variable "disk_size" {
+  type        = string
+  description = "Disk size"
+}
