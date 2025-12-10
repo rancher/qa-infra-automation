@@ -1,0 +1,129 @@
+---
+apiVersion: elemental.cattle.io/v1beta1
+kind: MachineInventorySelectorTemplate
+metadata:
+name: fire-machine-selector
+namespace: fleet-default
+spec:
+template:
+    spec:
+    selector:
+        matchExpressions:
+        - key: element
+            operator: In
+            values: [ 'fire' ]
+---
+kind: Cluster
+apiVersion: provisioning.cattle.io/v1
+metadata:
+name: elemental-cluster
+namespace: fleet-default
+spec:
+rkeConfig:
+    chartValues:
+    rke2-calico: {}
+    dataDirectories:
+    k8sDistro: ''
+    provisioning: ''
+    systemAgent: ''
+    etcd:
+    disableSnapshots: false
+    snapshotRetention: 5
+    snapshotScheduleCron: 0 */5 * * *
+    machineGlobalConfig:
+    cni: calico
+    disable-kube-proxy: false
+    etcd-expose-metrics: false
+    machinePools:
+    - controlPlaneRole: true
+        drainBeforeDelete: true
+        etcdRole: true
+        machineConfigRef:
+        apiVersion: elemental.cattle.io/v1beta1
+        kind: MachineInventorySelectorTemplate
+        name: fire-machine-selector
+        name: fire-pool
+        quantity: 1
+        unhealthyNodeTimeout: 0s
+        workerRole: true
+        hostnamePrefix: elemental-cluster-fire-pool-
+    machineSelectorConfig:
+    - config:
+        protect-kernel-defaults: false
+    registries: {}
+    upgradeStrategy:
+    controlPlaneConcurrency: '1'
+    controlPlaneDrainOptions:
+        deleteEmptyDirData: true
+        disableEviction: false
+        enabled: false
+        force: false
+        gracePeriod: -1
+        ignoreDaemonSets: true
+        skipWaitForDeleteTimeoutSeconds: 0
+        timeout: 120
+    workerConcurrency: '1'
+    workerDrainOptions:
+        deleteEmptyDirData: true
+        disableEviction: false
+        enabled: false
+        force: false
+        gracePeriod: -1
+        ignoreDaemonSets: true
+        skipWaitForDeleteTimeoutSeconds: 0
+        timeout: 120
+kubernetesVersion: v1.33.5+rke2r1
+localClusterAuthEndpoint:
+    enabled: false
+---
+apiVersion: elemental.cattle.io/v1beta1
+kind: MachineRegistration
+metadata:
+name: fire-nodes
+namespace: fleet-default
+spec:
+config:
+    cloud-config:
+    users:
+    - name: root
+        passwd: root
+    elemental:
+    install:
+        device-selector:
+        - key: Name
+        operator: In
+        values:
+        - /dev/sda
+        - /dev/vda
+        - /dev/nvme0
+        - key: Size
+        operator: Gt
+        values:
+        - 25Gi
+        reboot: true
+        snapshotter:
+        maxSnaps: 2
+        type: btrfs
+    reset:
+        reboot: true
+        reset-oem: true
+        reset-persistent: true
+machineInventoryLabels:
+    element: fire
+---
+apiVersion: elemental.cattle.io/v1beta1
+kind: SeedImage
+metadata:
+name: fire-img
+namespace: fleet-default
+spec:
+baseImage: registry.suse.com/suse/sl-micro/6.1/baremetal-iso-image:2.2.0-4.3
+cleanupAfterMinutes: 1440
+targetPlatform: linux/x86_64
+type: iso
+registrationRef:
+    apiVersion: elemental.cattle.io/v1beta1
+    kind: MachineRegistration
+    name: fire-nodes
+    namespace: fleet-default
+---

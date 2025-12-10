@@ -4,6 +4,7 @@
   gather_facts: false
   vars_files:
     - vars.yaml
+
   tasks:
     - name: Check if kubeconfig file exists
       stat:
@@ -25,6 +26,7 @@
         wait: true
         wait_timeout: "60s"
         chart_version: "1.7.3"
+        validate_certs: false
       retries: 3
       delay: 60
 
@@ -38,6 +40,7 @@
         wait: true
         wait_timeout: "60s"
         chart_version: "1.7.3"
+        validate_certs: false
       retries: 3
       delay: 60
 
@@ -46,7 +49,7 @@
         state: present
         src: "{{ elementalconfig_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
-    
+
     - name: Wait for Elemental ISO be prepared
       kubernetes.core.k8s_info:
         api_version: v1
@@ -56,78 +59,14 @@
         kubeconfig: "{{ kubeconfig_file }}"
         wait: yes
         wait_timeout: 180
+        validate_certs: false
         wait_condition:
           type: Ready
 
     - name: Get Download Url
       command: kubectl get seedimage -n fleet-default fire-img -o jsonpath="{.status.downloadURL}" --kubeconfig "{{ kubeconfig_file }}"
       register: download_url
-    
+
     - name: Show Download Url
       debug:
         var: download_url.stdout
-
-- hosts: elemental_node
-  connection: ssh
-  become: yes
-  gather_facts: false
-  vars_files:
-    - vars.yaml
-  vars:
-    vm_name: "vm-elemental-node"
-    vm_iso: "/tmp/elemental.iso"
-    vm_net: "default"
-    vm_os: "slem5.3"
-    vm_img: "/tmp/vm-elemental-node.qcow2"
-    vm_cores: 8
-    vm_disksize: 60
-    vm_ramsize: 8000
-
-  tasks:
-    - name: Download Elemental ISO
-      ansible.builtin.get_url:
-        url: "{{ hostvars['localhost'].download_url.stdout }}"
-        dest: /tmp/elemental.iso
-        validate_certs: false
-
-    - name: Install virt-manager
-      ansible.builtin.apt:
-        name: virt-manager
-        state: present
-        update_cache: yes
-
-    - name: Creating Elemental VM
-      ansible.builtin.shell: | 
-        sudo virt-install \
-          --name {{ vm_name }} \
-          --memory {{ vm_ramsize }} \
-          --vcpus {{ vm_cores }} \
-          --os-variant={{ vm_os }} \
-          --cdrom {{ vm_iso }} \
-          --network network={{ vm_net }},model=virtio \
-          --disk path={{ vm_img }},size={{ vm_disksize }},bus=virtio,format=qcow2 \
-          --boot uefi \
-          --cpu host-model \
-          --autostart \
-          --noautoconsole \
-          --wait=-1 \
-          --check disk_size=off
-      failed_when: false
-  
-- hosts: localhost
-  connection: local
-  gather_facts: false
-  vars_files:
-    - vars.yaml
-  tasks:
-    - name: Wait for Elemental cluster be ready
-      kubernetes.core.k8s_info:
-        api_version: cluster.x-k8s.io/v1beta1
-        kind: MachineDeployment
-        name: "{{ elemental_pool_name }}"
-        namespace: fleet-default
-        kubeconfig: "{{ kubeconfig_file }}"
-        wait: yes
-        wait_timeout: 1800
-        wait_condition:
-          type: Ready
