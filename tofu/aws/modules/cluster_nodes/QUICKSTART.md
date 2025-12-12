@@ -7,24 +7,7 @@
 
 ## Steps
 
-### Step 1: Clone and Navigate
-
-Clone the repository and move to the relevant directory.
-
-```sh
-git clone https://github.com/rancher/qa-infra-automation.git
-cd rancher/qa-infra-automation
-```
-
-### Step 2: Configuration
-
-Navigate to the module directory to understand the required inputs:
-
-```sh
-cd tofu/aws/modules/cluster_nodes
-```
-
-**Critical Step:** Open `variables.tf` in this directory to confirm the exact variable names. The configuration below is a template based on standard patterns in this repo.
+### Step 1: Configuration
 
 Create a file named `terraform.tfvars` in this directory.
 
@@ -67,42 +50,25 @@ nodes = [
 ]
 ```
 
-### Step 3: Deploy with Tofu
+### Step 2: Deploy with Tofu
 
-Initialize the module, verify the plan, and apply.
+Initialize the module, verify the plan, and apply. Run from the root of this repo.
 
 ```sh
 # Initialize Tofu
-tofu init
+tofu -chdir=tofu/aws/modules/cluster_nodes init
 
 # Check the execution plan
-tofu plan
+tofu -chdir=tofu/aws/modules/cluster_nodes plan
 
 # Apply the infrastructure
-tofu apply
+tofu -chdir=tofu/aws/modules/cluster_nodes apply
 ```
 
-### Step 4: Integration with Ansible (Post-Deployment)
-
-This module is designed to chain its Tofu outputs into Ansible inventories. If you plan to run the playbooks located in `ansible/`, follow these steps:
-
-1. Set the Node Source Variable: Tell the automation scripts where your Terraform/Tofu state lives.
-
-```
-export TERRAFORM_NODE_SOURCE="tofu/aws/modules/cluster_nodes"
-```
-
-2. Generate Inventory: Use envsubst to generate the Ansible inventory file from the desired template in the root of the repo. Example below shown for the template in `rke2/default`.
-
-```
-# From the repository root
-envsubst < ansible/rke2/default/inventory-template.yml > terraform-inventory.yml
-```
-
-### Step 5: Cleanup
+### Step 3: Cleanup
 
 To destroy the infrastructure when finished:
 
-```
-tofu destroy
+```sh
+tofu -chdir=tofu/aws/modules/cluster_nodes destroy
 ```
