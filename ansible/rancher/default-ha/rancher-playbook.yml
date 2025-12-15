@@ -11,10 +11,8 @@
     terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     # Use default values if not defined in vars.yaml
-    rancher_chart_repo_default: "rancher-latest"
-    rancher_chart_repo_final: "{{ rancher_chart_repo | default(rancher_chart_repo_default) }}"
-    rancher_chart_repo_url_default: "https://releases.rancher.com/server-charts/latest"
-    rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default(rancher_chart_repo_url_default) }}"
+    rancher_chart_repo_final: "{{ rancher_chart_repo | default('rancher-latest') }}"
+    rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default('https://releases.rancher.com/server-charts/latest') }}"
 
   tasks:
     - name: Check if using tfstate file
