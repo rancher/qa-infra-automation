@@ -23,17 +23,17 @@ kubeconfig_file: ../k3s/default/kubeconfig.yaml
 # Must match the DNS/IP used for your K8s cluster Load Balancer
 fqdn: "a.b.c.d.sslip.io"
 
-# Initial bootstrap and login passwords for the 'admin' user
-bootstrap_password: "admin"
-password: "fakePassw0rd"
+# Initial bootstrap and login passwords for the 'admin' user. Do not leave these blank.
+bootstrap_password: ""
+password: ""
 ```
 
 ### Step 2. Run Playbook
 
-Run this from the `ansible/` directory.
+Run this from the repository root.
 
 ```sh
-ansible-playbook rancher/default-ha/rancher-playbook.yml
+ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
 ```
 
 ### Step 3. Verify

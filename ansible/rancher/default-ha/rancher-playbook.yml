@@ -5,35 +5,47 @@
   vars_files:
     - vars.yaml # Assuming this file contains rancher_version and cert_manager_version
   vars:
-    # Get the current Terraform workspace name
-    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
-    # Construct the path to the workspace's state file
-    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
-    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    # terraform integration (optional).
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('', true) }}"
+    terraform_module_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
+    terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
+
     # Use default values if not defined in vars.yaml
     rancher_chart_repo_final: "{{ rancher_chart_repo | default('rancher-latest') }}"
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default('https://releases.rancher.com/server-charts/latest') }}"
 
   tasks:
-    - name: Check if using tfstate file
-      ansible.builtin.stat:
-        path: "{{ terraform_state_file }}"
-      register: tfstate_file_stat
+    - name: Set variables based on tofu or environment
+      when: fqdn is not defined 
+      block: 
+      - name: Check if using tfstate file
+        ansible.builtin.stat:
+          path: "{{ terraform_state_file }}"
+        register: tfstate_file_stat
 
-    - name: Set fqdn content from tfstate file if it exists
-      ansible.builtin.set_fact:
-        fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
-      when: tfstate_file_stat.stat.exists
+      - name: Set fqdn content from tfstate file if it exists
+        ansible.builtin.set_fact:
+          fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+        when: tfstate_file_stat.stat.exists
+
+      - name: Set fqdn content from env when not using terraform
+        ansible.builtin.set_fact:
+          fqdn: "{{ lookup('env', 'FQDN') }}"
+        when: not tfstate_file_stat.stat.exists
 
     - name: Check if kubeconfig file exists
       stat:
         path: "{{ kubeconfig_file }}"
       register: kubeconfig_file_stat
 
-    - name: Fail if kubeconfig file does not exist
-      fail:
-        msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
-      when: not kubeconfig_file_stat.stat.exists
+    - name: Validate required variables
+      assert:
+        that:
+          - kubeconfig_file_stat.stat.exists
+          - fqdn is defined
+          - fqdn | length > 0
+        fail_msg: "Required variables not defined. Please ensure kubeconfig_file and fqdn are set in vars.yaml or environment variables."
 
     - name: Try to connect to Kubernetes cluster by listing namespaces
       kubernetes.core.k8s_info:
