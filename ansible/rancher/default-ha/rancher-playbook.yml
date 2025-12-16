@@ -105,7 +105,7 @@
         values:
           hostname: "{{ fqdn }}"
           bootstrapPassword: "{{ bootstrap_password }}"
-          rancherImageTag: "{{ rancher_version | default(omit) }}"
+          rancherImageTag: "{{ (rancher_version == 'latest') | ternary('head', rancher_version | default(omit)) }}"
           replicas: "{{ node_info.resources | length }}"
       when: rancher_version != ""
       retries: 6
