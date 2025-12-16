@@ -55,12 +55,6 @@
   gather_facts: false
   vars:
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-
-  pre_tasks:
-    - name: Wait for node to become reachable via SSH
-      wait_for_connection:
-        timeout: 300
-        delay: 0
   
   tasks:
     - name: Detect OS family
