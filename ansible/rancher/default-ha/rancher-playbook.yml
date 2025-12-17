@@ -99,13 +99,13 @@
         chart_ref: "{{ rancher_chart_repo_final }}/rancher"
         release_namespace: cattle-system
         create_namespace: true
-        chart_version: "{{ rancher_image_tag | default(rancher_version) }}"
+        chart_version: "{{ (rancher_version == 'latest') | ternary('', rancher_image_tag | default(rancher_version)) }}"
         wait: true
         wait_timeout: "800s"
         values:
           hostname: "{{ fqdn }}"
           bootstrapPassword: "{{ bootstrap_password }}"
-          rancherImageTag: "{{ rancher_version | default(omit) }}"
+          rancherImageTag: "{{ (rancher_version == 'latest') | ternary('head', rancher_version | default(omit)) }}"
           replicas: "{{ node_info.resources | length }}"
       when: rancher_version != ""
       retries: 6
