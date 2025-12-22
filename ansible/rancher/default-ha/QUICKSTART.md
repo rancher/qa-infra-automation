@@ -2,15 +2,13 @@
 
 ## Prerequisites
 
-1. Cluster Ready: You have a k3s or rke2 cluster.
+1. Kubernetes Cluster: You must have a k3s or rke2 cluster.
 
 ## Steps
 
 ### Step 1. Create Config
 
-Create `vars.yaml` in this folder with your desired settings.
-
-**Important: `fqdn` must resolve to your Load Balancer or Master Node IP (same as the `FQDN` you used for the K8s cluster).**
+Create `vars.yaml` in this folder with your desired settings, including the FQDN for your rancher UI. This can resolve to a load balanced endpoint, or you can use a wildcard dns with one of your node's public IPs.
 
 ```yaml
 # Version information

@@ -239,7 +239,6 @@
   vars_files:
     - vars.yaml
   vars:
-    server_host: "{{ server_host_override | default((groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] if use_terraform else groups['master'][0]) }}"
     node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
