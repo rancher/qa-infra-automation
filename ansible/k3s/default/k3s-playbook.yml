@@ -4,13 +4,39 @@
   gather_facts: false
   vars_files: [vars.yaml]
   vars:
-    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
-    use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
-    terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
-    
-    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
+    # terraform integration (optional).
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('', true) }}"
+    terraform_module_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
+    terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
+    - name: Set variables based on tofu or environment
+      when: kube_api_host is not defined or fqdn is not defined 
+      block: 
+      - name: Check if using tfstate file
+        ansible.builtin.stat:
+          path: "{{ terraform_state_file }}"
+        register: tfstate_file_stat
+
+      - name: Set fqdn and kube_api_host content from tfstate file if it exists
+        ansible.builtin.set_fact:
+          kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
+          fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+          use_terraform: true
+        when: tfstate_file_stat.stat.exists
+
+      - name: Set kube_api_host content from env or vars when not using terraform
+        ansible.builtin.set_fact:
+          kube_api_host: "{{ lookup('env', 'KUBE_API_HOST') | default(kube_api_host, true) }}"
+          use_terraform: false
+        when: not tfstate_file_stat.stat.exists
+
+      - name: Set fqdn content from env or vars when not using terraform
+        ansible.builtin.set_fact:
+          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn | default(kube_api_host, true), true) }}"
+        when: not tfstate_file_stat.stat.exists
+
     - name: Validate required variables
       assert:
         that:
@@ -19,15 +45,6 @@
           - kube_api_host is defined
           - kube_api_host | length > 0
         fail_msg: "Required variables not defined. Please ensure kubernetes_version and kube_api_host are set in vars.yaml or environment variables"
-
-    - name: Wait for SSH on node(s)
-      wait_for:
-        host: "{{ hostvars[item]['ansible_host'] }}"
-        port: 22
-        timeout: 300
-        state: started
-      loop: "{{ groups['all'] }}"
-      when: hostvars[item]['ansible_host'] is defined and hostvars[item]['ansible_host'] != ''
 
 - hosts: all
   vars:
@@ -47,12 +64,6 @@
   gather_facts: false
   vars_files: [vars.yaml]
   vars:
-    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
-    use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
-    terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
-    
-    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
     node_token_file: "/tmp/node_token.txt"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
@@ -77,7 +88,6 @@
       vars:
         k3s_node_type: cluster-init
         role_server_flags: "{{ server_flags | default('') }}"
-        kubernetes_version: "{{ kubernetes_version }}"
       when: inventory_hostname == 'master'
 
     - name: Install K3s on initial cluster node
@@ -85,9 +95,8 @@
         name: k3s_install
       vars:
         k3s_node_type: cluster-init
-        kubernetes_version: "{{ kubernetes_version }}"
-        k3s_api_host: "{{ kube_api_host }}"
-        k3s_fqdn: "{{ fqdn }}"
+        k3s_api_host: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
+        k3s_fqdn: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
         k3s_node_roles: "{{ ansible_role }}"
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
@@ -124,7 +133,7 @@
       lineinfile:
         path: "{{ kubeconfig_file }}"
         regexp: '^\s+server:\s+https://127\.0\.0\.1:6443'
-        line: "    server: https://{{ fqdn | default(kube_api_host) }}:6443"
+        line: "    server: https://{{ hostvars['localhost'].fqdn | default(fqdn, true) }}:6443"
       delegate_to: localhost
       run_once: true
       become: false
@@ -135,13 +144,6 @@
   strategy: free
   vars_files: [vars.yaml]
   vars:
-    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('') }}"
-    use_terraform: "{{ terraform_workspace != '' and terraform_workspace is defined }}"
-    terraform_state_file: "{{ (lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes')) + '/terraform.tfstate.d/' + terraform_workspace + '/terraform.tfstate' if use_terraform else '' }}"
-    
-    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) if use_terraform else lookup('env', 'KUBE_API_HOST') }}"
-    fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) if use_terraform else (lookup('env', 'FQDN') | default(kube_api_host, true)) }}"
-    server_host: "{{ server_host_override | default((groups['all'] | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'defined') | selectattr('terraform_facts.output_nodes.value[inventory_hostname].is_server', 'true') | map('inventory_hostname') | list)[0] if use_terraform else groups['master'][0]) }}"
     node_token_file: "/tmp/node_token.txt"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
@@ -190,9 +192,8 @@
         name: k3s_install
       vars:
         k3s_node_type: server
-        kubernetes_version: "{{ kubernetes_version }}"
-        k3s_api_host: "{{ kube_api_host }}"
-        k3s_fqdn: "{{ fqdn }}"
+        k3s_api_host: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
+        k3s_fqdn: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
         k3s_token: "{{ node_token }}"
         k3s_node_roles: "{{ ansible_role }}"
         public_ip: "{{ ansible_host }}"
@@ -224,9 +225,8 @@
         name: k3s_install
       vars:
         k3s_node_type: agent
-        kubernetes_version: "{{ kubernetes_version }}"
-        k3s_api_host: "{{ kube_api_host }}"
-        k3s_fqdn: "{{ fqdn }}"
+        k3s_api_host: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
+        k3s_fqdn: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
         k3s_token: "{{ node_token }}"
         public_ip: "{{ ansible_host }}"
         k3s_worker_flags: "{{ worker_flags | default('') }}"
