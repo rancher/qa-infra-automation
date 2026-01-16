@@ -21,6 +21,7 @@
       ignore_errors: true
 
     - name: Display Helm version
+      when: helm_output_version.rc == 0
       ansible.builtin.debug:
         msg: "Helm version: {{ helm_output_version.stdout }}"
 
