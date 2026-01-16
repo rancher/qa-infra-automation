@@ -1,0 +1,56 @@
+---
+- name: Verify SSH setup
+  block:
+    - name: Test SSH agent availability
+      ansible.builtin.command: ssh-add -l
+      retries: 3
+      delay: 60
+      register: added_identities
+
+    - name: Start SSH agent
+      ansible.builtin.shell: eval `ssh-agent -s`
+      when: added_identities.rc != 0
+
+    - name: Show registered identities
+      ansible.builtin.debug:
+        msg: "{{ added_identities.stdout }}"
+
+    - name: Test local SSH connectivity
+      ansible.builtin.shell: >
+        ssh -o BatchMode=yes
+        -o ConnectTimeout=5
+        -o StrictHostKeyChecking=no
+        localhost 'echo success'
+      register: local_test
+      until: local_test is success
+      retries: 3
+      delay: 5
+      changed_when: false
+
+    - name: Test bastion connectivity
+      ansible.builtin.shell: >
+        ssh -o BatchMode=yes
+        -o ConnectTimeout=5
+        -o StrictHostKeyChecking=no
+        {{ ansible_user }}@{{ hostvars[groups['bastion'][0]]['ansible_host'] }}
+        'echo success'
+      register: bastion_test
+      until: bastion_test is success
+      retries: 3
+      delay: 5
+      changed_when: false
+      when: inventory_hostname != groups['bastion'][0]
+
+  always:
+    - name: Report SSH setup status
+      ansible.builtin.debug:
+        msg: |
+          SSH Setup Status:
+          - Local SSH test: {{ (local_test.stdout | default('Not run')) if (local_test is defined and local_test is success) else 'Failed' }}
+          - Bastion SSH test: {{
+              (bastion_test.stdout | default('Not run'))
+              if (bastion_test is defined and bastion_test is success)
+              else ('Skipped (bastion node)'
+              if inventory_hostname in groups['bastion']
+              else 'Failed')
+            }}
