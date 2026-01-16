@@ -27,7 +27,7 @@ module "bastion" {
   name = "${var.aws_hostname_prefix}-bastion"
   ami = var.aws_ami
   instance_type = var.instance_type
-  subnet_id = var.aws_subnet
+  subnet_id = var.aws_subnet_bastion
   ssh_key_name = var.ssh_key_name
   security_group_ids = var.aws_security_group
   volume_size = var.aws_volume_size
@@ -43,7 +43,7 @@ module "registry" {
   name = "${var.aws_hostname_prefix}-registry"
   ami = var.aws_ami
   instance_type = var.instance_type
-  subnet_id = var.aws_subnet
+  subnet_id = var.aws_subnet_bastion
   ssh_key_name = var.ssh_key_name
   security_group_ids = var.aws_security_group
   volume_size = var.aws_volume_size
@@ -62,7 +62,7 @@ module "load_balancer" {
   source = "./../load_balancer"
   name = var.aws_hostname_prefix
   internal = false
-  subnet_id = var.aws_subnet
+  subnet_id = var.aws_subnet_bastion
   vpc_id = var.aws_vpc
   ports = local.ports
 }
@@ -73,7 +73,7 @@ module "internal_load_balancer" {
   source = "./../load_balancer"
   name = "${var.aws_hostname_prefix}-internal"
   internal = true
-  subnet_id = var.aws_subnet
+  subnet_id = var.aws_subnet_airgap
   vpc_id = var.aws_vpc
   ports = local.ports
 }
@@ -90,7 +90,7 @@ module "airgap_nodes" {
   name = "${var.aws_hostname_prefix}-${each.value}"
   ami = var.aws_ami
   instance_type = var.instance_type
-  subnet_id = var.aws_subnet
+  subnet_id = var.aws_subnet_airgap
   ssh_key_name = var.ssh_key_name
   security_group_ids = var.aws_security_group
   volume_size = var.aws_volume_size
