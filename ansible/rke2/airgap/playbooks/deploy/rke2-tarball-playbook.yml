@@ -9,6 +9,23 @@
     enable_rke2_tarball_distribution: true
 
   pre_tasks:
+    - name: Get latest RKE2 version
+      ansible.builtin.uri:
+        url: https://update.rke2.io/v1-release/channels/stable
+        follow_redirects: none
+        return_content: yes
+        status_code: 302
+      register: raw_version_response
+      when: rke2_version is not defined
+
+    - name: Set rke2_version fact for all hosts
+      ansible.builtin.set_fact:
+        rke2_version: "{{ raw_version_response.content | regex_search('tag/([^/\" >]+)', '\\1') | first }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['all'] }}"
+      when: raw_version_response is defined
+
     - name: Validate required variables
       ansible.builtin.assert:
         that:

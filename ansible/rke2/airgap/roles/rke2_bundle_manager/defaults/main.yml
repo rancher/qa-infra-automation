@@ -1,9 +1,6 @@
 ---
 # Default variables for rke2_bundle_manager role
 
-# RKE2 version to download
-rke2_version: "v1.33.4+rke2r1"
-
 # Temporary directory for downloads and staging
 rke2_temp_dir: /tmp/rke2-artifacts
 rke2_staging_dir: /tmp/rke2-bundle-staging
