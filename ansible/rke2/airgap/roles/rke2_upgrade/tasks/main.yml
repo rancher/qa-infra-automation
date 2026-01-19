@@ -89,6 +89,7 @@
             ansible.builtin.stat:
               path: /opt/rke2-files/rke2-bundle.tar.gz
             delegate_to: "{{ groups['bastion'][0] }}"
+            run_once: true
             register: bundle_stat
             until: bundle_stat.stat.exists
             retries: 6

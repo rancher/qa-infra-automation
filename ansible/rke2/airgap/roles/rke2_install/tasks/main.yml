@@ -25,6 +25,7 @@
   block:
     - name: Check bundle on bastion
       delegate_to: "{{ groups['bastion'][0] }}"
+      run_once: true
       vars:
         ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
       block:
@@ -525,8 +526,8 @@
     state: directory
     mode: '0755'
   delegate_to: localhost
+  run_once: true
   become: false
-  when: inventory_hostname == groups[target_group][0]
   vars:
     ansible_connection: local
 
@@ -536,7 +537,7 @@
     dest: ~/.kube/config
     mode: '0600'
   delegate_to: localhost
+  run_once: true
   become: false
-  when: inventory_hostname == groups[target_group][0]
   vars:
     ansible_connection: local
