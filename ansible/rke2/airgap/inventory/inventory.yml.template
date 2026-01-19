@@ -5,28 +5,26 @@ all:
     # ssh_private_key_file: "<< SSH_PRIVATE_KEY_PATH >>" # ~/.ssh/id_rsa for AWS this has to be an key pair in the region
     bastion_user: "ubuntu"
     bastion_host: "<< BASTION_HOST_PUBLIC_DNS >>"
-    
+
   children:
     bastion:
       hosts:
         bastion-node:
           ansible_host: "{{ bastion_host }}"
           ansible_user: "{{ bastion_user }}"
-          ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-          ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-          
+          ansible_ssh_common_args: "-A -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
     airgap_nodes:
       vars:
         # SSH proxy configuration for all airgap nodes
         ansible_user: "ubuntu"
-        ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-        ansible_ssh_common_args: "-o ProxyCommand='ssh -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        ansible_ssh_common_args: "-A -o ProxyCommand='ssh -A -W %h:%p {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         bastion_ip: "{{ bastion_host }}"
 
-      # For airgap nodes, the first server will be the control plane and the rest will be worker nodes  
-      hosts:  
+      # For airgap nodes, the first server will be the control plane and the rest will be worker nodes
+      hosts:
         rke2-server-0:
-          ansible_host: "<< RKE2_SERVER_PRIVATE_IP >>" 
+          ansible_host: "<< RKE2_SERVER_PRIVATE_IP >>"
         rke2-server-1:
           ansible_host: "<< RKE2_SERVER_PRIVATE_IP >>"
         rke2-server-2:
