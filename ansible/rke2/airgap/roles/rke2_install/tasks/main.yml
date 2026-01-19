@@ -57,29 +57,15 @@
         group: "{{ ansible_user }}"
       become: true
 
-    - name: Copy bundle from bastion via controller
-      block:
-        - name: Fetch bundle from bastion to controller
-          ansible.builtin.fetch:
-            src: /opt/rke2-files/rke2-bundle.tar.gz
-            dest: /tmp/ansible-rke2-bundle.tar.gz
-            flat: true
-          delegate_to: "{{ groups['bastion'][0] }}"
-          become: false
-          run_once: true
-
-        - name: Copy bundle from controller to airgap node
-          ansible.builtin.copy:
-            src: /tmp/ansible-rke2-bundle.tar.gz
-            dest: /tmp/rke2-bundle.tar.gz
-            mode: '0644'
-            owner: "{{ ansible_user }}"
-            group: "{{ ansible_user }}"
-          become: true
-          register: copy_result
-          until: copy_result is success
-          retries: 3
-          delay: 5
+    - name: Fetch bundle from bastion to cluster nodes
+      ansible.builtin.shell: |
+        scp -o StrictHostKeyChecking=no \
+        /opt/rke2-files/rke2-bundle.tar.gz \
+        {{ hostvars[item]['ansible_user'] }}@{{ hostvars[item]['ansible_host'] | default(item) }}:/tmp/rke2-bundle.tar.gz
+      delegate_to: "{{ groups['bastion'][0] }}"
+      with_items: "{{ groups['airgap_nodes'] }}"
+      run_once: true
+      become: false
 
     - name: Verify bundle copy
       block:
