@@ -236,7 +236,6 @@
     state: directory
     mode: '0755'
   become: true
-  when: inventory_hostname == groups[target_group][0]
 
 - name: Copy RKE2 images to proper location
   ansible.builtin.copy:
@@ -245,7 +244,6 @@
     remote_src: true
     mode: '0644'
   become: true
-  when: inventory_hostname == groups[target_group][0]
 
 - name: Run RKE2 server install script
   ansible.builtin.shell: |
