@@ -1,0 +1,15 @@
+---
+- name: Add SSH key to the agent
+  hosts: localhost
+  tasks:
+  - name: Add SSH key to the agent
+    ansible.builtin.shell: |
+      eval $(ssh-agent -s)
+      ssh-add {{ ssh_private_key_file }}
+
+- name: Verify SSH connection on bastion host
+  hosts: bastion
+  gather_facts: yes
+  become: false
+  roles:
+  - ssh_verify
