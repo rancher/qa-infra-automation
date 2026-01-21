@@ -92,13 +92,11 @@ all:
         bastion-node:
           ansible_host: "{{ bastion_host }}"
           ansible_user: "{{ bastion_user }}"
-          ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
 
     airgap_nodes:
       vars:
         ansible_user: "ubuntu"
-        ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-        ansible_ssh_common_args: "-o ProxyCommand='ssh -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        ansible_ssh_common_args: "-A -o ProxyCommand='ssh -A -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
       hosts:
         rke2-server-0:

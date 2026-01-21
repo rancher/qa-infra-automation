@@ -105,7 +105,7 @@ If you encounter SSH connectivity issues:
    ```bash
    # Test direct bastion connection
    ssh -i /home/dnewman/.ssh/id_rsa ubuntu@<BASTION_PUBLIC_DNS_NAME>
-   
+
    # Test proxy connection to airgap node
    ssh -i /home/dnewman/.ssh/id_rsa -o ProxyCommand='ssh -W %h:%p -i /home/dnewman/.ssh/id_rsa ubuntu@<BASTION_PUBLIC_DNS_NAME>' ubuntu@172.31.4.247
    ```
@@ -126,8 +126,7 @@ bastion:
     bastion-node:
       ansible_host: "{{ bastion_host }}"
       ansible_user: "{{ bastion_user }}"
-      ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-      ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      ansible_ssh_common_args: "-A -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 ```
 
 ## Airgap Nodes Configuration
@@ -137,10 +136,9 @@ airgap_nodes:
   vars:
     # SSH proxy configuration for all airgap nodes
     ansible_user: "ubuntu"
-    ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-    ansible_ssh_common_args: "-o ProxyCommand='ssh -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    ansible_ssh_common_args: "-A -o ProxyCommand='ssh -A -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     bastion_ip: "{{ bastion_host }}"
-    
+
   hosts:
     rke2-server-0:
       ansible_host: "<AIRGAP_NODE_PRIVATE_IP>"
