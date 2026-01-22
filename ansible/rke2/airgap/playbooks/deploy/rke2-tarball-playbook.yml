@@ -148,13 +148,23 @@
           RKE2 is {{ 'running' if rke2_status.status.ActiveState == 'active' else 'not running' }}
       when: inventory_hostname == groups[target_group][0]
 
-    - name: Get cluster nodes (if kubectl is available)
+    - name: Wait for all cluster nodes to be Ready
       ansible.builtin.shell: |
         export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-        /var/lib/rancher/rke2/bin/kubectl get nodes -o wide
+        NOT_READY=$(/var/lib/rancher/rke2/bin/kubectl get nodes --no-headers | grep -v " Ready" | wc -l)
+        if [ "$NOT_READY" -eq 0 ]; then
+          /var/lib/rancher/rke2/bin/kubectl get nodes -o wide
+          exit 0
+        else
+          echo "Waiting for $NOT_READY nodes to be Ready..."
+          exit 1
+        fi
       become: true
       register: cluster_nodes
-      failed_when: false
+      until: cluster_nodes.rc == 0
+      retries: 30
+      delay: 10
+      when: inventory_hostname == groups[target_group][0]
       changed_when: false
 
     - name: Display cluster information
@@ -162,7 +172,35 @@
         msg: |
           RKE2 Cluster Information:
           {{ cluster_nodes.stdout if cluster_nodes.rc == 0 else 'kubectl not available or cluster not ready' }}
-      when: cluster_nodes is defined
+      when: cluster_nodes is defined and inventory_hostname == groups[target_group][0]
+
+    - name: Wait for critical system pods to be Running
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        NOT_RUNNING=$(/var/lib/rancher/rke2/bin/kubectl get pods -n kube-system --no-headers | grep -v Running | grep -v Completed | wc -l)
+        if [ "$NOT_RUNNING" -eq 0 ]; then
+          echo "All system pods are Running"
+          /var/lib/rancher/rke2/bin/kubectl get pods -n kube-system
+          exit 0
+        else
+          echo "Waiting for $NOT_RUNNING pods to be Running..."
+          /var/lib/rancher/rke2/bin/kubectl get pods -n kube-system | grep -v Running | grep -v Completed
+          exit 1
+        fi
+      become: true
+      register: system_pods_check
+      until: system_pods_check.rc == 0
+      retries: 30
+      delay: 10
+      when: inventory_hostname == groups[target_group][0]
+      changed_when: false
+
+    - name: Display system pods status
+      ansible.builtin.debug:
+        msg: |
+          System Pods Status:
+          {{ system_pods_check.stdout }}
+      when: system_pods_check is defined and inventory_hostname == groups[target_group][0]
 
     - name: Display kubeconfig location
       ansible.builtin.debug:

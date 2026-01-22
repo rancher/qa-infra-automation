@@ -63,9 +63,17 @@
       kubernetes.core.helm_repository:
         name: "{{ rancher_helm_chart_repo_name }}"
         repo_url: "{{ rancher_helm_chart_repo_url }}"
+      register: helm_repo_add
+      until: helm_repo_add is success
+      retries: 3
+      delay: 10
 
     - name: Update Helm repositories
       ansible.builtin.command: helm repo update
+      register: helm_update
+      until: helm_update.rc == 0
+      retries: 3
+      delay: 10
       changed_when: false
       environment:
         KUBECONFIG: "{{ kubeconfig_path }}"
@@ -98,6 +106,18 @@
           type: Available
           status: "True"
         wait_timeout: 300
+      when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
+
+    - name: Wait for cert-manager pods to be Running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: cert-manager
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: cert_manager_pods
+      until: cert_manager_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length >= 3
+      retries: 12
+      delay: 10
       when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
 
     - name: Install or Upgrade Rancher using Helm

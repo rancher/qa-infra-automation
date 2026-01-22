@@ -494,6 +494,18 @@
     enabled: true
   become: true
   when: inventory_hostname != groups[target_group][0]
+  async: 120
+  poll: 0
+  register: agent_start_async
+
+- name: Wait for all agents to start
+  ansible.builtin.async_status:
+    jid: "{{ agent_start_async.ansible_job_id }}"
+  register: agent_start_result
+  until: agent_start_result.finished
+  retries: 24
+  delay: 5
+  when: agent_start_async is defined and agent_start_async.ansible_job_id is defined
 
 - name: Wait for kubeconfig
   ansible.builtin.wait_for:

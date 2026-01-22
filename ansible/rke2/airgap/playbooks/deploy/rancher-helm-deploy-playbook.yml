@@ -26,6 +26,9 @@
     - name: Test kubectl connectivity to RKE2 cluster
       ansible.builtin.command: kubectl get nodes
       register: kubectl_nodes
+      until: kubectl_nodes.rc == 0
+      retries: 6
+      delay: 10
       changed_when: false
       environment:
         KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
@@ -149,6 +152,10 @@
                     - "{{ rancher_private_hostname }}"
                     - "{{ rancher_public_hostname }}"
                   secretName: tls-rancher-ingress
+        register: ingress_patch
+        until: ingress_patch is success
+        retries: 5
+        delay: 5
 
       when: (rancher_private_hostname is defined or internal_lb_hostname is defined) and (rancher_public_hostname is defined or external_lb_hostname is defined)
 
@@ -227,3 +234,19 @@
           - rancher_deployment_status.resources[0].status.readyReplicas | default(0) > 0
         fail_msg: "Rancher deployment is not ready"
         success_msg: "Rancher deployment is ready and functional"
+
+    - name: Wait for Rancher API to be responsive
+      ansible.builtin.uri:
+        url: "https://{{ rancher_private_hostname }}/ping"
+        method: GET
+        validate_certs: false
+        status_code: 200
+      register: rancher_api_check
+      until: rancher_api_check.status == 200
+      retries: 30
+      delay: 10
+      failed_when: false
+
+    - name: Display Rancher API health status
+      ansible.builtin.debug:
+        msg: "{{ 'Rancher API is healthy and responding at https://' + rancher_private_hostname if rancher_api_check.status == 200 else 'Rancher API check completed (status: ' + (rancher_api_check.status | default('unreachable') | string) + '). Verify connectivity to ' + rancher_private_hostname }}"

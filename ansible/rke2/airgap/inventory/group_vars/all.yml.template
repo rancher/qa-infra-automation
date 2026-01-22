@@ -90,3 +90,49 @@ audit_log_path: "/var/lib/rancher/rke2/server/logs/audit.log"
 audit_log_maxage: 30
 audit_log_maxbackup: 10
 audit_log_maxsize: 100
+
+# Registry mirrors configuration
+private_registry_mirrors:
+  - registry: "docker.io"
+    endpoints:
+      - "<PRIVATE_REGISITRY_URL>"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "proxycache/$1"
+  - registry: "quay.io"
+    endpoints:
+      - "<PRIVATE_REGISITRY_URL>"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "quaycache/$1"
+
+# Registry authentication and TLS configuration
+private_registry_configs:
+  - registry: "<PRIVATE_REGISITRY_URL>"
+    auth:
+      username: "<PRIVATE_REGISITRY_USERNAME>"
+      password: "<PRIVATE_REGISITRY_PASSWORD>"
+    tls:
+      insecure_skip_verify: true
+      # Uncomment and configure these if using custom certificates
+      # cert_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.crt"
+      # key_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.key"
+      # ca_file: "/home/ubuntu/certs/ca.crt"
+
+# Whether to enable private registry configuration
+enable_private_registry: true
+
+# Deploy Rancher
+
+# Deployment control
+deploy_rancher: true
+install_helm: true
+
+# rancher_hostname: "rancher.example.com"  # Optional: overrides internal_lb_hostname from inventory
+rancher_bootstrap_password: "rancherrocks"
+rancher_image_tag: v2.11.0
+rancher_use_bundled_system_charts: true
+# rancher_advanced_values:
+#   extraEnv:
+#     - name: CATTLE_UI_OFFLINE_PREFERRED
+#       value: true
