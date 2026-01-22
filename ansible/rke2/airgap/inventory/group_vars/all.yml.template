@@ -2,7 +2,7 @@
 # Global variables for RKE2 airgap deployment with tarball installation
 
 # RKE2 Configuration
-rke2_version: "v1.31.11+rke2r1"
+rke2_version: "<RKE2_VERSION>"
 rke2_server_options: |
   cluster-cidr: {{ cluster_cidr }}
   service-cidr: {{ service_cidr }}
@@ -130,7 +130,7 @@ install_helm: true
 
 # rancher_hostname: "rancher.example.com"  # Optional: overrides internal_lb_hostname from inventory
 rancher_bootstrap_password: "<RANCHER_BOOTSTRAP_PASSWORD>"
-rancher_image_tag: v2.11.0
+rancher_image_tag: <RANCHER_VERSION>
 rancher_use_bundled_system_charts: true
 # rancher_advanced_values:
 #   extraEnv:
