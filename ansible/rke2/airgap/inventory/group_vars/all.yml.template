@@ -95,23 +95,23 @@ audit_log_maxsize: 100
 private_registry_mirrors:
   - registry: "docker.io"
     endpoints:
-      - "<PRIVATE_REGISTRY_URL>"
+      - "<PRIVATE_REGISITRY_URL>"
     rewrite:
       - pattern: "^(.*)"
         replacement: "proxycache/$1"
   - registry: "quay.io"
     endpoints:
-      - "<PRIVATE_REGISTRY_URL>"
+      - "<PRIVATE_REGISITRY_URL>"
     rewrite:
       - pattern: "^(.*)"
         replacement: "quaycache/$1"
 
 # Registry authentication and TLS configuration
 private_registry_configs:
-  - registry: "<PRIVATE_REGISTRY_URL>"
+  - registry: "<PRIVATE_REGISITRY_URL>"
     auth:
-      username: "<PRIVATE_REGISTRY_USERNAME>"
-      password: "<PRIVATE_REGISTRY_PASSWORD>"
+      username: "<PRIVATE_REGISITRY_USERNAME>"
+      password: "<PRIVATE_REGISITRY_PASSWORD>"
     tls:
       insecure_skip_verify: true
       # Uncomment and configure these if using custom certificates
@@ -129,8 +129,8 @@ deploy_rancher: true
 install_helm: true
 
 # rancher_hostname: "rancher.example.com"  # Optional: overrides internal_lb_hostname from inventory
-rancher_bootstrap_password: "<RANCHER_BOOTSTRAP_PASSWORD>"
-rancher_image_tag: <RANCHER_VERSION>
+rancher_bootstrap_password: "rancherrocks"
+rancher_image_tag: v2.11.0
 rancher_use_bundled_system_charts: true
 # rancher_advanced_values:
 #   extraEnv:

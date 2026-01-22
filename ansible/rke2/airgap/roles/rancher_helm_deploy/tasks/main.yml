@@ -119,6 +119,18 @@
           retries: 12
           delay: 10
 
+    - name: Wait for cert-manager pods to be Running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: cert-manager
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: cert_manager_pods
+      until: cert_manager_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length >= 3
+      retries: 12
+      delay: 10
+      when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
+
     - name: Install or Upgrade Rancher using Helm
       kubernetes.core.helm:
         name: rancher
