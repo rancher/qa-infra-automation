@@ -47,23 +47,27 @@ Before running any RKE2 deployment playbooks, you must ensure SSH keys are prope
 
 1. **SSH Key Pair**: Ensure you have an SSH key pair on your Ansible control node
 2. **Bastion Access**: The bastion host must be directly accessible from your control node
-3. **Key Distribution**: SSH keys must be copied to the bastion host for proxy connections
+3. **Agent setup**: The private key should be added to the local SSH agent as an identity
 
-### Setup SSH Keys
+### Setup SSH Agent
 
-Run the SSH key setup playbook first:
+We can achieve this by simply running:
+
+```bash
+ssh-add "<path_to_private_key>"
+```
+
+Alternatively, one can run the `verify-connection.yml` playbook, that has the same effect as the above and runs a few extra verification steps:
 
 ```bash
 # Setup SSH keys on all hosts
-ansible-playbook -i inventory/inventory.yml playbooks/deploy/setup-ssh-keys.yml
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/verify-connection.yml
 ```
 
 This playbook will:
 
-- Copy your SSH private key to the bastion host with the correct filename
-- Set up proper permissions (600 for private key, 644 for public key)
-- Create backward compatibility symlinks
-- Verify SSH connectivity between hosts
+- Add the relevant identity to the local SSH agent;
+- Check if SSHing into all the relevant nodes work as expected;
 
 ### SSH Key File Structure
 

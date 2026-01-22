@@ -48,7 +48,7 @@ airgap/
 │   └── setup/
 │       ├── setup-agent-nodes.yml
 │       ├── setup-kubectl-access.yml
-│       └── setup-ssh-keys.yml
+│       └── verify-connection.yml
 ├── roles/
 │   ├── rke2_bundle_manager/         # Reusable bundle download/creation
 │   ├── rke2_install/
@@ -56,7 +56,7 @@ airgap/
 │   ├── rke2_upgrade/
 │   ├── rke2_registry_config/
 │   ├── rancher_helm_deploy/
-│   └── ssh_setup/
+│   └── ssh_verify/
 ├── ansible.cfg
 └── README.md
 ```
