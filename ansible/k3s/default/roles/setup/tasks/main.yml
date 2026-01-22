@@ -10,7 +10,6 @@
     fi
   register: pyver
   changed_when: false
-  tags: gather_facts
 
 - name: Detect OS family
   raw: |
