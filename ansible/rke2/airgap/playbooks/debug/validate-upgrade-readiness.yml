@@ -210,18 +210,18 @@
           ╠══════════════════════════════════════════════════════════════════════════════════════╣
           ║ READINESS CHECKS:                                                                    ║
           {% for check in readiness_checks %}
-          ║ {{ '✅' if check.status else '❌' }} {{ check.name }} ({{ check.weight }}pts)                                    ║
+          ║ {{ '[PASS]' if check.status else '[FAIL]' }} {{ check.name }} ({{ check.weight }}pts)                                    ║
           {% endfor %}
           ╠══════════════════════════════════════════════════════════════════════════════════════╣
           ║ BASTION HOST STATUS:                                                                 ║
-          ║ • Internet Access: {{ '✅ Available' if validation_summary.bastion.internet_access else '❌ Not Available' }}                                    ║
+          ║ • Internet Access: {{ 'Available' if validation_summary.bastion.internet_access else 'Not Available' }}                                    ║
           ║ • Disk Space: {{ validation_summary.bastion.disk_space }}                                                    ║
           ║ • SSH Connectivity: {{ validation_summary.bastion.ssh_connectivity }}/{{ groups[target_group] | length }} nodes reachable                           ║
           ╠══════════════════════════════════════════════════════════════════════════════════════╣
           ║ CLUSTER NODES STATUS:                                                                ║
           {% for node in groups[target_group] %}
           ║ {{ node }}:                                                                          ║
-          ║   • RKE2 Installed: {{ '✅' if (hostvars[node]['rke2_binary'] is defined and hostvars[node]['rke2_binary']['stat']['exists']) else '❌' }}                                                ║
+          ║   • RKE2 Installed: {{ 'Yes' if (hostvars[node]['rke2_binary'] is defined and hostvars[node]['rke2_binary']['stat']['exists']) else 'No' }}                                                ║
           {% if hostvars[node]['rke2_binary'] is defined and hostvars[node]['rke2_binary']['stat']['exists'] %}
           ║   • Current Version: {{ hostvars[node]['current_rke2_version']['stdout'] | default('unknown') }}                                    ║
           ║   • Service Status: {{ hostvars[node]['rke2_service_status']['status']['ActiveState'] | default('unknown') }}                                     ║
@@ -232,14 +232,14 @@
           ╠══════════════════════════════════════════════════════════════════════════════════════╣
           ║ RECOMMENDATIONS:                                                                     ║
           {% if total_score | int == max_score | int %}
-          ║ ✅ All checks passed! Cluster is ready for upgrade.                                 ║
-          ║ ✅ You can proceed with: ansible-playbook playbooks/rke2-upgrade-playbook.yml      ║
+          ║ [PASS] All checks passed! Cluster is ready for upgrade.                            ║
+          ║ [PASS] You can proceed with: ansible-playbook playbooks/rke2-upgrade-playbook.yml ║
           {% elif total_score | int >= (max_score | int * 0.8) %}
-          ║ ⚠️  Most checks passed. Review failed checks before proceeding.                     ║
-          ║ ⚠️  Consider fixing issues or proceed with caution.                                 ║
+          ║ [WARN] Most checks passed. Review failed checks before proceeding.                 ║
+          ║ [WARN] Consider fixing issues or proceed with caution.                             ║
           {% else %}
-          ║ ❌ Multiple critical issues found. DO NOT proceed with upgrade.                     ║
-          ║ ❌ Fix all critical issues before attempting upgrade.                               ║
+          ║ [FAIL] Multiple critical issues found. DO NOT proceed with upgrade.                ║
+          ║ [FAIL] Fix all critical issues before attempting upgrade.                          ║
           {% endif %}
           ╚══════════════════════════════════════════════════════════════════════════════════════╝
 

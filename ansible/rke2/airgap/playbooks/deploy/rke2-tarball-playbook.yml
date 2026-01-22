@@ -67,7 +67,7 @@
     - name: Display success message
       ansible.builtin.debug:
         msg: |
-          ✅ RKE2 Tarball Bundle Created Successfully!
+          RKE2 Tarball Bundle Created Successfully!
 
           Bundle Location: /opt/rke2-files/rke2-bundle.tar.gz
           Bundle Size: {{ (bundle_stat.stat.size / 1024 / 1024) | round(2) }} MB
