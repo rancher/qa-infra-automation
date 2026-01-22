@@ -129,7 +129,7 @@ deploy_rancher: true
 install_helm: true
 
 # rancher_hostname: "rancher.example.com"  # Optional: overrides internal_lb_hostname from inventory
-rancher_bootstrap_password: "rancherrocks"
+rancher_bootstrap_password: "<RANCHER_BOOTSTRAP_PASSWORD>"
 rancher_image_tag: v2.11.0
 rancher_use_bundled_system_charts: true
 # rancher_advanced_values:
