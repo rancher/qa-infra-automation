@@ -1,0 +1,93 @@
+---
+# Generate Rancher Admin Token
+#
+# This playbook generates a Rancher admin API token using the rancher_token role.
+# It provides a simple interface for CI/CD pipelines to generate tokens with
+# various configuration options.
+#
+# Usage:
+#   # Basic usage
+#   ansible-playbook playbooks/setup/generate-admin-token.yml \
+#     -e rancher_url=https://rancher.example.com
+#
+#   # With custom password
+#   ansible-playbook playbooks/setup/generate-admin-token.yml \
+#     -e rancher_url=https://rancher.example.com \
+#     -e rancher_token_password=mypassword
+#
+#   # Update cattle-config.yaml
+#   ansible-playbook playbooks/setup/generate-admin-token.yml \
+#     -e rancher_url=https://rancher.example.com \
+#     -e rancher_cattle_config_file=/path/to/cattle-config.yaml
+#
+#   # Token with 24-hour expiration
+#   ansible-playbook playbooks/setup/generate-admin-token.yml \
+#     -e rancher_url=https://rancher.example.com \
+#     -e rancher_token_ttl=86400000
+#
+#   # JSON output for CI/CD
+#   ansible-playbook playbooks/setup/generate-admin-token.yml \
+#     -e rancher_url=https://rancher.example.com \
+#     -e rancher_token_output_format=json
+#
+# Required Variables:
+#   - rancher_url: The Rancher server URL (e.g., https://rancher.example.com)
+#
+# Optional Variables (see roles/rancher_token/defaults/main.yml for full list):
+#   - rancher_token_username: Admin username (default: admin)
+#   - rancher_token_password: Admin password (default: rancherrocks)
+#   - rancher_token_ttl: Token TTL in milliseconds (default: 0 = no expiration)
+#   - rancher_token_description: Token description
+#   - rancher_token_cluster_id: Cluster ID for scoped token (empty = admin)
+#   - rancher_token_output_file: Path to write token (default: /tmp/rancher-admin-token)
+#   - rancher_token_output_format: Output format: token, json, tfvars
+#   - rancher_cattle_config_file: Path to cattle-config.yaml to update
+#   - rancher_set_permanent_password: Set permanent password after first login
+#
+# Outputs:
+#   - Token file at {{ rancher_token_output_file }}
+#   - Updated cattle-config.yaml if {{ rancher_cattle_config_file }} is specified
+#   - Facts: rancher_generated_token, rancher_generated_token_id
+
+- name: Generate Rancher Admin API Token
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    # Allow overriding via environment variables for CI/CD convenience
+    rancher_url: "{{ lookup('env', 'RANCHER_URL') | default('', true) }}"
+    rancher_token_password: "{{ lookup('env', 'RANCHER_ADMIN_PASSWORD') | default(rancher_bootstrap_password | default('rancherrocks'), true) }}"
+
+  pre_tasks:
+    - name: Display playbook header
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Rancher Admin Token Generator
+          ========================================
+          This playbook will generate an admin API token
+          for the specified Rancher server.
+          ========================================
+
+  roles:
+    - role: rancher_token
+      tags:
+        - token
+
+  post_tasks:
+    - name: Display completion summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Token Generation Complete
+          ========================================
+          Rancher URL: {{ rancher_url }}
+          Token ID: {{ rancher_generated_token_id }}
+          Token Name: {{ rancher_generated_token_name }}
+          Output File: {{ rancher_token_output_file }}
+          Output Format: {{ rancher_token_output_format }}
+          {% if rancher_cattle_config_file | default('') | length > 0 %}
+          Cattle Config: {{ rancher_cattle_config_file }} (updated)
+          {% endif %}
+          ========================================
