@@ -13,3 +13,37 @@
   become: false
   roles:
   - ssh_verify
+  post_tasks:
+    - name: Verify that bastion has internet connection
+      ansible.builtin.command: ping 1.1.1.1 -c 5
+      changed_when: false
+
+- name: Run tasks on registry hosts (if defined)
+  hosts: "{{ 'registry' if 'registry' in groups else 'localhost' }}"
+  gather_facts: no
+  pre_tasks:
+    - name: Skip if group is missing
+      ansible.builtin.meta: end_play
+      when: "'registry' not in groups"
+  roles:
+  - ssh_verify
+  post_tasks:
+    - name: Verify that bastion has internet connection
+      ansible.builtin.command: ping 1.1.1.1 -c 5
+      changed_when: false
+
+- name: Verify that nodes are airgapped
+  hosts: airgap_nodes
+  tasks:
+  - name: Verify IPv4 internet access is blocked
+    ansible.builtin.command: ping 1.1.1.1 -c 5
+    register: ping_ipv4_result
+    failed_when: ping_ipv4_result.rc == 0
+    changed_when: false
+
+  - name: Verify IPv6 internet access is blocked
+    ansible.builtin.command: ping -6 2606:4700:4700::1111 -c 5
+    register: ping_ipv6_result
+    when: ansible_all_ipv6_addresses | length > 0
+    failed_when: ping_ipv6_result.rc == 0
+    changed_when: false
