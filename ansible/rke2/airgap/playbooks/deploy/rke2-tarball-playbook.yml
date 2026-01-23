@@ -77,7 +77,6 @@
 
 - name: Install RKE2 on Airgap Nodes
   hosts: "{{ target_group }}"
-  become: true
   gather_facts: true
 
   vars:
@@ -268,7 +267,6 @@
         state: directory
         mode: '0700'
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
 
     - name: Fetch KUBECONFIG from first RKE2 server
@@ -304,7 +302,6 @@
         dest: "/home/{{ ansible_user }}/.kube/config"
         mode: '0600'
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
 
     - name: Clean up temporary kubeconfig

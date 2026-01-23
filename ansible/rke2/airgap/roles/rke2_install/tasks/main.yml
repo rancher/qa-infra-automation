@@ -45,7 +45,6 @@
         state: directory
         mode: '1777'
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       become: true
 
     - name: Ensure bundle destination has proper permissions
@@ -54,8 +53,6 @@
         state: touch
         mode: '0644'
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-      become: true
 
     - name: Fetch bundle from bastion to cluster nodes
       ansible.builtin.shell: |
@@ -108,7 +105,6 @@
         state: directory
         mode: '0755'
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       become: true
 
     - name: Create temp extraction directory
@@ -117,7 +113,6 @@
         state: directory
         mode: '0755'
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       become: true
 
     - name: Extract RKE2 bundle to temp directory
@@ -127,7 +122,6 @@
         remote_src: true
         mode: '0755'
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
         list_files: true
       register: extract_result
       become: true
@@ -135,7 +129,6 @@
     - name: Display extracted files
       ansible.builtin.debug:
         msg: "Extracted files: {{ extract_result.files }}"
-      run_once: true
 
     - name: List temp directory contents
       ansible.builtin.command: ls -la /tmp/rke2-extract/
@@ -151,7 +144,6 @@
       ansible.builtin.stat:
         path: /tmp/rke2-install.sh
       register: install_script_check
-      become: true
 
     - name: Move files to correct locations
       ansible.builtin.shell: |
@@ -169,7 +161,6 @@
           mv /tmp/rke2-extract/tmp/rke2-artifacts/* /tmp/rke2-artifacts/ 2>/dev/null || true
         fi
       register: move_result
-      become: true
       changed_when: move_result.rc == 0
       when: not install_script_check.stat.exists
 
@@ -183,8 +174,6 @@
         path: /tmp/rke2-install.sh
         mode: '0755'
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-      become: true
 
     - name: Clean up temp directory
       ansible.builtin.file:
@@ -264,8 +253,8 @@
         name: rke2-server
         state: started
         enabled: true
-      become: true
       register: rke2_start_result
+      become: true
 
     - name: Display RKE2 start success
       ansible.builtin.debug:
@@ -278,7 +267,6 @@
       ansible.builtin.shell: systemctl status rke2-server.service
       # Using shell because systemctl is a shell command
       register: rke2_status
-      become: true
       failed_when: false
       changed_when: false
 
@@ -286,7 +274,6 @@
       ansible.builtin.shell: journalctl -xeu rke2-server.service --no-pager -n 50
       # Using shell because journalctl is a shell command
       register: rke2_logs
-      become: true
       failed_when: false
       changed_when: false
 
@@ -307,7 +294,6 @@
       become: true
       failed_when: false
       changed_when: false
-      # Using shell because cat is a shell command
 
     - name: Display RKE2 configuration
       ansible.builtin.debug:
@@ -433,7 +419,6 @@
   ansible.builtin.systemd:
     name: rke2-server
     state: started
-  become: true
   when: inventory_hostname == groups[target_group][0]
 
 - name: Pause for server initialization
