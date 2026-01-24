@@ -57,29 +57,33 @@
 - name: Extract login token
   ansible.builtin.set_fact:
     rancher_login_token: "{{ rancher_login_response.json.token }}"
-    rancher_user_id: "{{ rancher_login_response.json.userId }}"
+
+# Get user ID (needed for password setting and token metadata)
+- name: Get current user details
+  ansible.builtin.uri:
+    url: "{{ rancher_url_normalized }}/v3/users?me=true"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ rancher_login_token }}"
+      Accept: "application/json"
+    validate_certs: "{{ rancher_validate_certs }}"
+    status_code: 200
+  register: rancher_user_response
+  retries: 3
+  delay: 5
+  until: rancher_user_response.status == 200
+
+- name: Extract user ID
+  ansible.builtin.set_fact:
+    rancher_user_id: "{{ rancher_user_response.json.data[0].id }}"
 
 # Step 2: Optionally set permanent password (first login flow)
 - name: Set permanent password
   when: rancher_set_permanent_password | bool
   block:
-    - name: Get user details
-      ansible.builtin.uri:
-        url: "{{ rancher_url_normalized }}/v3/users?me=true"
-        method: GET
-        headers:
-          Authorization: "Bearer {{ rancher_login_token }}"
-          Accept: "application/json"
-        validate_certs: "{{ rancher_validate_certs }}"
-        status_code: 200
-      register: rancher_user_response
-      retries: 3
-      delay: 5
-      until: rancher_user_response.status == 200
-
     - name: Set permanent password via API
       ansible.builtin.uri:
-        url: "{{ rancher_url_normalized }}/v3/users/{{ rancher_user_response.json.data[0].id }}?action=setpassword"
+        url: "{{ rancher_url_normalized }}/v3/users/{{ rancher_user_id }}?action=setpassword"
         method: POST
         body:
           newPassword: "{{ rancher_permanent_password }}"
