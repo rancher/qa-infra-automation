@@ -104,16 +104,25 @@
         msg: "Permanent password has been set for user {{ rancher_token_username }}"
 
 # Step 3: Create API token with specified options
+# Note: We build the body as a dict with proper types to ensure JSON serialization is correct
+- name: Build token request body
+  ansible.builtin.set_fact:
+    token_request_body:
+      type: "token"
+      description: "{{ rancher_token_description }}"
+      ttl: "{{ rancher_token_ttl | int }}"
+
+- name: Add cluster ID to request body if specified
+  ansible.builtin.set_fact:
+    token_request_body: "{{ token_request_body | combine({'clusterId': rancher_token_cluster_id}) }}"
+  when: rancher_token_cluster_id | default('') | length > 0
+
 - name: Create API token with configuration
   ansible.builtin.uri:
     url: "{{ rancher_url_normalized }}/v3/tokens"
     method: POST
-    body:
-      type: "token"
-      description: "{{ rancher_token_description }}"
-      ttl: "{{ rancher_token_ttl | int }}"
-      clusterId: "{{ rancher_token_cluster_id | default(omit, true) }}"
-    body_format: json
+    body: "{{ token_request_body | to_json }}"
+    body_format: raw
     headers:
       Authorization: "Bearer {{ rancher_login_token }}"
       Content-Type: "application/json"
