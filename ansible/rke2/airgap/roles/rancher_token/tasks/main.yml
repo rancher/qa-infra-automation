@@ -9,17 +9,44 @@
 # - Optional cattle-config.yaml updates
 # - Optional permanent password setting
 
-- name: Validate required variables
+# Step 1: Determine Rancher URL from available sources
+- name: Determine Rancher URL from inventory or explicit variable
+  ansible.builtin.set_fact:
+    rancher_url_resolved: >-
+      {%- if rancher_url | default('') | length > 0 -%}
+        {{ rancher_url }}
+      {%- elif external_lb_hostname | default('') | length > 0 -%}
+        {{ rancher_url_scheme }}://{{ external_lb_hostname }}
+      {%- elif internal_lb_hostname | default('') | length > 0 -%}
+        {{ rancher_url_scheme }}://{{ internal_lb_hostname }}
+      {%- else -%}
+
+      {%- endif -%}
+
+- name: Display URL resolution
+  ansible.builtin.debug:
+    msg: |
+      Rancher URL Resolution:
+        rancher_url (explicit): {{ rancher_url | default('not set') }}
+        external_lb_hostname: {{ external_lb_hostname | default('not set') }}
+        internal_lb_hostname: {{ internal_lb_hostname | default('not set') }}
+        Resolved URL: {{ rancher_url_resolved }}
+  when: ansible_verbosity >= 1
+
+- name: Validate Rancher URL is available
   ansible.builtin.assert:
     that:
-      - rancher_url is defined
-      - rancher_url | length > 0
-    fail_msg: "rancher_url must be defined (e.g., https://rancher.example.com)"
-    success_msg: "Required variables validated"
+      - rancher_url_resolved | length > 0
+    fail_msg: |
+      No Rancher URL could be determined. Please provide one of:
+        - rancher_url: Explicit full URL (e.g., https://rancher.example.com)
+        - external_lb_hostname: Hostname from inventory (will use {{ rancher_url_scheme }}://)
+        - internal_lb_hostname: Internal hostname from inventory (will use {{ rancher_url_scheme }}://)
+    success_msg: "Rancher URL resolved: {{ rancher_url_resolved }}"
 
 - name: Normalize Rancher URL
   ansible.builtin.set_fact:
-    rancher_url_normalized: "{{ rancher_url | regex_replace('/$', '') }}"
+    rancher_url_normalized: "{{ rancher_url_resolved | regex_replace('/$', '') }}"
 
 - name: Display token generation configuration
   ansible.builtin.debug:
@@ -104,25 +131,34 @@
         msg: "Permanent password has been set for user {{ rancher_token_username }}"
 
 # Step 3: Create API token with specified options
-# Note: We build the body as a dict with proper types to ensure JSON serialization is correct
-- name: Build token request body
+# Note: TTL must be an integer in the JSON body. We use a Python expression to ensure proper typing.
+- name: Build token request body with proper integer types
   ansible.builtin.set_fact:
-    token_request_body:
-      type: "token"
-      description: "{{ rancher_token_description }}"
-      ttl: "{{ rancher_token_ttl | int }}"
+    token_request_body: >-
+      {{
+        {
+          "type": "token",
+          "description": rancher_token_description,
+          "ttl": rancher_token_ttl | int
+        }
+      }}
 
 - name: Add cluster ID to request body if specified
   ansible.builtin.set_fact:
     token_request_body: "{{ token_request_body | combine({'clusterId': rancher_token_cluster_id}) }}"
   when: rancher_token_cluster_id | default('') | length > 0
 
+- name: Debug token request body
+  ansible.builtin.debug:
+    msg: "Token request body: {{ token_request_body | to_nice_json }}"
+  when: ansible_verbosity >= 1
+
 - name: Create API token with configuration
   ansible.builtin.uri:
     url: "{{ rancher_url_normalized }}/v3/tokens"
     method: POST
-    body: "{{ token_request_body | to_json }}"
-    body_format: raw
+    body: "{{ token_request_body }}"
+    body_format: json
     headers:
       Authorization: "Bearer {{ rancher_login_token }}"
       Content-Type: "application/json"

@@ -6,32 +6,39 @@
 # various configuration options.
 #
 # Usage:
-#   # Basic usage
+#   # Basic usage with inventory (uses external_lb_hostname from inventory)
+#   ansible-playbook -i inventory/inventory.yml playbooks/setup/generate-admin-token.yml
+#
+#   # Explicit URL (overrides inventory hostnames)
 #   ansible-playbook playbooks/setup/generate-admin-token.yml \
 #     -e rancher_url=https://rancher.example.com
 #
 #   # With custom password
-#   ansible-playbook playbooks/setup/generate-admin-token.yml \
-#     -e rancher_url=https://rancher.example.com \
+#   ansible-playbook -i inventory/inventory.yml playbooks/setup/generate-admin-token.yml \
 #     -e rancher_token_password=mypassword
 #
 #   # Update cattle-config.yaml
-#   ansible-playbook playbooks/setup/generate-admin-token.yml \
-#     -e rancher_url=https://rancher.example.com \
+#   ansible-playbook -i inventory/inventory.yml playbooks/setup/generate-admin-token.yml \
 #     -e rancher_cattle_config_file=/path/to/cattle-config.yaml
 #
 #   # Token with 24-hour expiration
-#   ansible-playbook playbooks/setup/generate-admin-token.yml \
-#     -e rancher_url=https://rancher.example.com \
+#   ansible-playbook -i inventory/inventory.yml playbooks/setup/generate-admin-token.yml \
 #     -e rancher_token_ttl=86400000
 #
 #   # JSON output for CI/CD
-#   ansible-playbook playbooks/setup/generate-admin-token.yml \
-#     -e rancher_url=https://rancher.example.com \
+#   ansible-playbook -i inventory/inventory.yml playbooks/setup/generate-admin-token.yml \
 #     -e rancher_token_output_format=json
 #
+# URL Resolution Priority:
+#   1. rancher_url (explicit, if provided)
+#   2. external_lb_hostname (from inventory)
+#   3. internal_lb_hostname (from inventory)
+#
 # Required Variables:
-#   - rancher_url: The Rancher server URL (e.g., https://rancher.example.com)
+#   One of the following must be available:
+#   - rancher_url: Explicit Rancher URL (e.g., https://rancher.example.com)
+#   - external_lb_hostname: From inventory (will be prefixed with https://)
+#   - internal_lb_hostname: From inventory (will be prefixed with https://)
 #
 # Optional Variables (see roles/rancher_token/defaults/main.yml for full list):
 #   - rancher_token_username: Admin username (default: admin)
@@ -56,6 +63,7 @@
 
   vars:
     # Allow overriding via environment variables for CI/CD convenience
+    # If not set, the role will fall back to external_lb_hostname or internal_lb_hostname from inventory
     rancher_url: "{{ lookup('env', 'RANCHER_URL') | default('', true) }}"
     rancher_token_password: "{{ lookup('env', 'RANCHER_ADMIN_PASSWORD') | default(rancher_bootstrap_password | default('rancherrocks'), true) }}"
 
@@ -68,6 +76,11 @@
           ========================================
           This playbook will generate an admin API token
           for the specified Rancher server.
+
+          URL will be resolved from (in order):
+            1. rancher_url variable
+            2. external_lb_hostname from inventory
+            3. internal_lb_hostname from inventory
           ========================================
 
   roles:
@@ -82,7 +95,7 @@
           ========================================
           Token Generation Complete
           ========================================
-          Rancher URL: {{ rancher_url }}
+          Rancher URL: {{ rancher_url_normalized }}
           Token ID: {{ rancher_generated_token_id }}
           Token Name: {{ rancher_generated_token_name }}
           Output File: {{ rancher_token_output_file }}

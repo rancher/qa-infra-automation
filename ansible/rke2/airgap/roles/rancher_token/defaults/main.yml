@@ -1,6 +1,12 @@
 ---
 # Rancher Token Role - Default Variables
 #
+# Rancher URL Configuration
+# Priority: rancher_url > external_lb_hostname > internal_lb_hostname
+# If rancher_url is not set, the role will attempt to use external_lb_hostname or internal_lb_hostname from inventory
+rancher_url: ""
+rancher_url_scheme: "https"  # URL scheme to use when building URL from hostname
+
 # Authentication
 rancher_token_username: "admin"
 rancher_token_password: "{{ rancher_bootstrap_password | default('rancherrocks') }}"
