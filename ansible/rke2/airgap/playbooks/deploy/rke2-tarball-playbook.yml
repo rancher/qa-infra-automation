@@ -245,7 +245,7 @@
       delay: 5
 
     - name: Verify kubectl installation
-      ansible.builtin.command: kubectl version --client
+      ansible.builtin.command: /usr/local/bin/kubectl version --client
       register: kubectl_version
       changed_when: false
 
