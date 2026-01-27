@@ -16,12 +16,11 @@
         msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
       when: not kubeconfig_file_stat.stat.exists
 
-    - name: Apply CAPI configs
+    - name: Apply CAPI cluster config
       kubernetes.core.k8s:
         state: present
         src: "{{ capi_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
-      tasks:
 
     - name: Wait for CAPI cluster be ready
       kubernetes.core.k8s_info:
