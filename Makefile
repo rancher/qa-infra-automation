@@ -52,6 +52,10 @@ help: ## Show this help message
 	@echo "  4. Run: make cluster"
 	@echo "  5. Run: make rancher"
 	@echo ""
+	@echo "Note: If not using 'make infra-up', create inventory manually:"
+	@echo "  cp $(ANSIBLE_DIR)/inventory/inventory.yml.template $(INVENTORY)"
+	@echo "  cp $(ANSIBLE_DIR)/inventory/group_vars/all.yml.template $(GROUP_VARS)"
+	@echo ""
 	@echo "INFRASTRUCTURE (Tofu):"
 	@echo "  infra-init          Initialize Tofu (downloads providers)"
 	@echo "  infra-plan          Plan infrastructure changes"
@@ -63,7 +67,7 @@ help: ## Show this help message
 	@echo "  cluster             Install Kubernetes cluster"
 	@echo "  agents              Setup additional agent nodes"
 	@echo "  rancher             Deploy Rancher to cluster"
-	@echo "  upgrade             Upgrade Kubernetes cluster"
+	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
 	@echo ""
 	@echo "UTILITIES:"
@@ -193,7 +197,7 @@ rancher: check-inventory ## Deploy Rancher to cluster
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
-.PHONY: upgrade
+.PHONY: upgrade-cluster
 upgrade: check-inventory ## Upgrade Kubernetes cluster
 	@echo "Upgrading $(DISTRO) cluster..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
