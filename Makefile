@@ -43,6 +43,7 @@ help: ## Show this help message
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws"
+	@echo "At the moment this only supports rke2, airgap, and aws"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. Configure $(TOFU_DIR)/terraform.tfvars"
