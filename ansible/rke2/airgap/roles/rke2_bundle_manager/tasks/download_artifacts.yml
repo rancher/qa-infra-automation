@@ -22,6 +22,10 @@
   delay: "{{ rke2_download_delay }}"
   become: false
 
+- name: Set rke2-arch fact
+  ansible.builtin.set_fact:
+    rke2_arch: "{{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
+
 - name: Show urls used to get artifacts
   ansible.builtin.debug:
     msg: |
@@ -43,7 +47,7 @@
 
 - name: Download RKE2 images
   ansible.builtin.get_url:
-    url: "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images.linux-amd64.tar.gz"
+    url: "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images.linux-{{ rke2_arch }}.tar.gz"
     dest: "{{ rke2_temp_dir }}/rke2-images.tar.gz"
     mode: '0644'
     timeout: "{{ rke2_download_timeout }}"

@@ -13,9 +13,6 @@ rke2_bundle_dir: /opt/rke2-files
 rke2_install_script_url: "https://raw.githubusercontent.com/rancher/rke2/master/install.sh"
 rke2_github_release_url: "https://github.com/rancher/rke2/releases/download"
 
-# Architecture
-rke2_arch: amd64
-
 # Download timeout in seconds
 rke2_download_timeout: 60
 

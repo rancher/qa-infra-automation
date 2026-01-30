@@ -7,7 +7,7 @@
     msg: |
       RKE2 Bundle Manager:
       - Version: {{ rke2_version }}
-      - Architecture: {{ rke2_arch }}
+      - Architecture: {{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}
       - Bundle directory: {{ rke2_bundle_dir }}
       - Bundle filename: {{ rke2_bundle_filename }}
 
