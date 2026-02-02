@@ -237,7 +237,7 @@
       ansible.builtin.get_url:
         url: "https://dl.k8s.io/release/{{ k8s_version }}/bin/linux/amd64/kubectl"
         dest: /usr/local/bin/kubectl
-        mode: '0755'
+        mode: "0755"
         owner: root
         group: root
       register: kubectl_download
@@ -257,7 +257,7 @@
       ansible.builtin.file:
         path: /root/.kube
         state: directory
-        mode: '0700'
+        mode: "0700"
         owner: root
         group: root
 
@@ -265,7 +265,7 @@
       ansible.builtin.file:
         path: "/home/{{ ansible_user }}/.kube"
         state: directory
-        mode: '0700'
+        mode: "0700"
         owner: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
 
@@ -286,13 +286,14 @@
 
     - name: Update server URL in kubeconfig content
       ansible.builtin.set_fact:
-        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups[target_group][0]]['ansible_host'] + ':6443') }}"
+        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups[target_group][0]]['ansible_host']
+          + ':6443') }}"
 
     - name: Write kubeconfig to bastion root
       ansible.builtin.copy:
         content: "{{ updated_kubeconfig }}"
         dest: /root/.kube/config
-        mode: '0600'
+        mode: "0600"
         owner: root
         group: root
 
@@ -300,7 +301,7 @@
       ansible.builtin.copy:
         content: "{{ updated_kubeconfig }}"
         dest: "/home/{{ ansible_user }}/.kube/config"
-        mode: '0600'
+        mode: "0600"
         owner: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
 
@@ -333,7 +334,7 @@
           {% endif %}
 
     - name: Display final instructions
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Cluster Setup Complete!
 

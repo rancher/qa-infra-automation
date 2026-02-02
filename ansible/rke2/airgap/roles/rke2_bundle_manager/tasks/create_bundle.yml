@@ -5,18 +5,18 @@
   ansible.builtin.file:
     path: "{{ rke2_bundle_dir }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
     owner: "{{ ansible_user }}"
 
 - name: Create staging directory structure
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
     owner: "{{ ansible_user }}"
   loop:
-  - "{{ rke2_staging_dir }}/tmp"
-  - "{{ rke2_staging_dir }}/tmp/rke2-artifacts"
+    - "{{ rke2_staging_dir }}/tmp"
+    - "{{ rke2_staging_dir }}/tmp/rke2-artifacts"
 
 - name: Copy files to staging directory
   ansible.builtin.copy:
@@ -25,14 +25,14 @@
     mode: preserve
     remote_src: true
   loop:
-  - src: /tmp/rke2-install.sh
-    dest: "{{ rke2_staging_dir }}/tmp/rke2-install.sh"
-  - src: "{{ rke2_temp_dir }}/rke2.linux-{{ rke2_arch }}.tar.gz"
-    dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2.linux-{{ rke2_arch }}.tar.gz"
-  - src: "{{ rke2_temp_dir }}/rke2-images.tar.gz"
-    dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2-images.tar.gz"
-  - src: "{{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt"
-    dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/sha256sum-{{ rke2_arch }}.txt"
+    - src: /tmp/rke2-install.sh
+      dest: "{{ rke2_staging_dir }}/tmp/rke2-install.sh"
+    - src: "{{ rke2_temp_dir }}/rke2.linux-{{ rke2_arch }}.tar.gz"
+      dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2.linux-{{ rke2_arch }}.tar.gz"
+    - src: "{{ rke2_temp_dir }}/rke2-images.tar.gz"
+      dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2-images.tar.gz"
+    - src: "{{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt"
+      dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/sha256sum-{{ rke2_arch }}.txt"
 
 - name: Create archive of RKE2 files
   community.general.archive:
@@ -40,7 +40,7 @@
     dest: "{{ rke2_bundle_dir }}/{{ rke2_bundle_filename }}"
     format: gz
     owner: "{{ ansible_user }}"
-    mode: '0644'
+    mode: "0644"
     remove: true
   register: bundle_created
 
@@ -63,7 +63,7 @@
     path: "{{ item }}"
     state: absent
   loop:
-  - "{{ rke2_staging_dir }}"
-  - "{{ rke2_temp_dir }}"
-  - /tmp/rke2-install.sh
+    - "{{ rke2_staging_dir }}"
+    - "{{ rke2_temp_dir }}"
+    - /tmp/rke2-install.sh
   when: rke2_cleanup_temp_files | bool

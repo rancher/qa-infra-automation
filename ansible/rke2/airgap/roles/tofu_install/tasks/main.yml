@@ -3,21 +3,21 @@
   ansible.builtin.get_url:
     url: "{{ download_url }}"
     dest: "{{ temp_download_path }}"
-    mode: '0644'
+    mode: "0644"
 
 - name: Unzip binary into install directory
   become: true
   ansible.builtin.unarchive:
     src: "{{ temp_download_path }}"
     dest: "{{ install_dir }}"
-    remote_src: yes
+    remote_src: true
     creates: "{{ install_dir }}/tofu"
 
 - name: Ensure the 'tofu' binary is executable
   become: true
   ansible.builtin.file:
     path: "{{ install_dir }}/tofu"
-    mode: '0755'
+    mode: "0755"
 
 - name: Clean up the downloaded zip file
   ansible.builtin.file:

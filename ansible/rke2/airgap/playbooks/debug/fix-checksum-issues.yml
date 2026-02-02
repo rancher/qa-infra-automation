@@ -25,13 +25,13 @@
       ansible.builtin.file:
         path: /tmp/rke2-artifacts
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Download install script fresh
       ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/rancher/rke2/master/install.sh
         dest: /tmp/rke2-install.sh
-        mode: '0755'
+        mode: "0755"
         timeout: 60
         force: true
 
@@ -80,7 +80,7 @@
       ansible.builtin.debug:
         msg: |
           [OK] RKE2 checksum issues have been resolved!
-          
+
           Summary:
           - Version: {{ rke2_version }}
           - All files downloaded with verified checksums

@@ -1,4 +1,4 @@
 ---
 # Ansible-lint configuration
 skip_list:
-  - 'command-instead-of-shell'  # Allow shell when needed for system commands
+  - "command-instead-of-shell" # Allow shell when needed for system commands

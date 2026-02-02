@@ -15,7 +15,7 @@
   ansible.builtin.get_url:
     url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/sha256sum-amd64.txt"
     dest: /tmp/rke2-artifacts/sha256sum-amd64.txt
-    mode: '0644'
+    mode: "0644"
     timeout: 60
     force: true
   register: checksum_download
@@ -67,7 +67,7 @@
   ansible.builtin.get_url:
     url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2.linux-amd64.tar.gz"
     dest: /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-    mode: '0644'
+    mode: "0644"
     timeout: 300
     checksum: "sha256:{{ expected_tarball_checksum.stdout }}"
     force: true
@@ -81,7 +81,7 @@
   ansible.builtin.get_url:
     url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2-images.linux-amd64.tar.gz"
     dest: /tmp/rke2-artifacts/rke2-images.tar.gz
-    mode: '0644'
+    mode: "0644"
     timeout: 300
     checksum: "sha256:{{ expected_images_checksum.stdout }}"
     force: true

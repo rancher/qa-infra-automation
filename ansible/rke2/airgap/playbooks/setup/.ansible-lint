@@ -1,4 +1,4 @@
 ---
 # Ansible-lint configuration
 skip_list:
-  - 'syntax-check[specific]'  # Skip role not found errors
+  - "syntax-check[specific]" # Skip role not found errors

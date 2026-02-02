@@ -9,7 +9,7 @@
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Generate registries.yaml configuration
       ansible.builtin.template:
@@ -17,7 +17,7 @@
         dest: /etc/rancher/rke2/registries.yaml
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
         backup: true
       notify:
         - restart rke2-server

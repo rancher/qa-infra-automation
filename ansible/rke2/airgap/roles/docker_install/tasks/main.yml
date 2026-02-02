@@ -1,0 +1,21 @@
+---
+- name: Download Docker binary
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/static/stable/{{ ansible_architecture }}/docker-{{ docker_version }}.tgz
+    dest: /tmp
+    mode: "0755"
+    timeout: 60
+    force: true
+
+- name: Extract binaries
+  ansible.builtin.command: tar xzvf /tmp/docker-{{ docker_version }}.tgz --directory=/tmp
+
+- name: Move binaries to install directory and start daemon
+  ansible.builtin.shell: |
+    mv /tmp/docker/* {{ install_dir }}
+    dockerd 2>&1 | logger -t docker
+  become: true
+
+- name: Check that docker was installed correctly
+  ansible.builtin.command: docker run hello-world
+  changed_when: false

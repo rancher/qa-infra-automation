@@ -69,33 +69,33 @@
 - name: Handle checksum verification failure
   when: tarball_checksum_verify.rc != 0 or images_checksum_verify.rc != 0
   block:
-  - name: Regenerate checksum file with actual values
-    ansible.builtin.shell: |
-      cd {{ rke2_temp_dir }}
-      sha256sum rke2.linux-{{ rke2_arch }}.tar.gz > sha256sum-{{ rke2_arch }}.txt
-      sha256sum rke2-images.tar.gz >> sha256sum-{{ rke2_arch }}.txt
-      echo "Generated new checksum file with actual file hashes"
-    when: rke2_regenerate_checksums_on_failure | bool
-    register: checksum_regen
-    changed_when: true
-    become: false
+    - name: Regenerate checksum file with actual values
+      ansible.builtin.shell: |
+        cd {{ rke2_temp_dir }}
+        sha256sum rke2.linux-{{ rke2_arch }}.tar.gz > sha256sum-{{ rke2_arch }}.txt
+        sha256sum rke2-images.tar.gz >> sha256sum-{{ rke2_arch }}.txt
+        echo "Generated new checksum file with actual file hashes"
+      when: rke2_regenerate_checksums_on_failure | bool
+      register: checksum_regen
+      changed_when: true
+      become: false
 
-  - name: Display regeneration notice
-    ansible.builtin.debug:
-      msg: |
-        WARNING: Checksum verification failed, but regenerated checksums from actual files.
-        This may indicate a version mismatch or corrupted download.
-        Proceeding with actual file checksums.
-    when: rke2_regenerate_checksums_on_failure | bool
+    - name: Display regeneration notice
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Checksum verification failed, but regenerated checksums from actual files.
+          This may indicate a version mismatch or corrupted download.
+          Proceeding with actual file checksums.
+      when: rke2_regenerate_checksums_on_failure | bool
 
-  - name: Fail on checksum mismatch
-    ansible.builtin.fail:
-      msg: |
-        Checksum verification failed!
-        RKE2 Tarball: {{ tarball_checksum_verify.stdout }}
-        RKE2 Images: {{ images_checksum_verify.stdout }}
-        Set rke2_regenerate_checksums_on_failure: true to continue with actual checksums.
-    when: not (rke2_regenerate_checksums_on_failure | bool)
+    - name: Fail on checksum mismatch
+      ansible.builtin.fail:
+        msg: |
+          Checksum verification failed!
+          RKE2 Tarball: {{ tarball_checksum_verify.stdout }}
+          RKE2 Images: {{ images_checksum_verify.stdout }}
+          Set rke2_regenerate_checksums_on_failure: true to continue with actual checksums.
+      when: not (rke2_regenerate_checksums_on_failure | bool)
 
 - name: Confirm successful verification
   ansible.builtin.debug:
