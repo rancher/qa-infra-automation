@@ -313,9 +313,9 @@ This will check:
 - SSH connectivity and bastion host readiness
 - Generate a comprehensive readiness report
 
-### 2. Update Target Version
+### 2. Update Target Version (Optional)
 
-Edit `inventory/group_vars/all.yml` to specify the target RKE2 version:
+If you wish to use a specific version of RKE2 other than the latest, you can update [`inventory/group_vars/all.yml`](../../inventory/group_vars/all.yml.template) to specify the target RKE2 version:
 
 ```yaml
 # RKE2 Configuration
@@ -355,9 +355,6 @@ For detailed upgrade procedures, troubleshooting, and best practices, see [`docs
 Key configuration options:
 
 ```yaml
-# RKE2 Configuration
-rke2_version: "v1.31.11+rke2r1"
-
 # SSH Configuration
 ssh_private_key_file: "~/.ssh/id_rsa"
 

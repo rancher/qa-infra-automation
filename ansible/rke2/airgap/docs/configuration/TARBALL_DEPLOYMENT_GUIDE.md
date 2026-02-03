@@ -94,9 +94,6 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbo
 ### **Basic Configuration** (`inventory/group_vars/all.yml`)
 
 ```yaml
-# RKE2 Version
-rke2_version: "v1.31.1+rke2r1"
-
 # SSH Key
 ssh_private_key_file: "~/.ssh/your-key"
 
@@ -170,7 +167,7 @@ export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
 # Server node
 sudo systemctl status rke2-server
 
-# Agent nodes  
+# Agent nodes
 sudo systemctl status rke2-agent
 ```
 
@@ -191,7 +188,7 @@ kubectl get pods --all-namespaces
    ```bash
    # Check internet connectivity
    curl -I https://github.com/rancher/rke2/releases/
-   
+
    # Verify RKE2 version exists
    curl -I https://github.com/rancher/rke2/releases/tag/v1.31.1+rke2r1
    ```
@@ -201,7 +198,7 @@ kubectl get pods --all-namespaces
    ```bash
    # Test SSH connectivity from bastion
    ssh -i ~/.ssh/your-key user@airgap-node 'echo "SSH OK"'
-   
+
    # Check bundle exists on bastion
    ls -la /opt/rke2-files/rke2-bundle.tar.gz
    ```
@@ -211,10 +208,10 @@ kubectl get pods --all-namespaces
    ```bash
    # Check extracted artifacts
    ls -la /tmp/rke2-artifacts/
-   
+
    # Check install script permissions
    ls -la /tmp/rke2-install.sh
-   
+
    # Manual installation test
    sudo INSTALL_RKE2_ARTIFACT_PATH=/tmp/rke2-artifacts sh /tmp/rke2-install.sh
    ```
@@ -225,7 +222,7 @@ kubectl get pods --all-namespaces
    # Check service logs
    sudo journalctl -u rke2-server -f
    sudo journalctl -u rke2-agent -f
-   
+
    # Check configuration
    sudo cat /etc/rancher/rke2/config.yaml
    ```
@@ -251,7 +248,7 @@ sudo ctr --address /run/k3s/containerd/containerd.sock images list
 
 ### **Different RKE2 Version**
 
-1. Update `inventory/group_vars/all.yml`:
+1. If you wish to use a specific version of RKE2 other than the latest, you can update [`inventory/group_vars/all.yml`](../../inventory/group_vars/all.yml.template) to specify the desired RKE2 version:
 
 ```yaml
 rke2_version: "v1.32.0+rke2r1"
@@ -263,7 +260,7 @@ rke2_version: "v1.32.0+rke2r1"
 
 ```yaml
 cluster_cidr: "192.168.0.0/16"
-service_cidr: "10.96.0.0/12" 
+service_cidr: "10.96.0.0/12"
 cluster_dns: "10.96.0.10"
 ```
 
