@@ -2,7 +2,7 @@
 # Global variables for RKE2 airgap deployment with tarball installation
 
 # RKE2 Configuration
-rke2_version: "v1.31.11+rke2r1"
+rke2_version: "<RKE2_VERSION>"
 rke2_server_options: |
   cluster-cidr: {{ cluster_cidr }}
   service-cidr: {{ service_cidr }}
@@ -90,3 +90,49 @@ audit_log_path: "/var/lib/rancher/rke2/server/logs/audit.log"
 audit_log_maxage: 30
 audit_log_maxbackup: 10
 audit_log_maxsize: 100
+
+# Registry mirrors configuration
+private_registry_mirrors:
+  - registry: "docker.io"
+    endpoints:
+      - "<PRIVATE_REGISTRY_URL>"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "proxycache/$1"
+  - registry: "quay.io"
+    endpoints:
+      - "<PRIVATE_REGISTRY_URL>"
+    rewrite:
+      - pattern: "^(.*)"
+        replacement: "quaycache/$1"
+
+# Registry authentication and TLS configuration
+private_registry_configs:
+  - registry: "<PRIVATE_REGISTRY_URL>"
+    auth:
+      username: "<PRIVATE_REGISTRY_USERNAME>"
+      password: "<PRIVATE_REGISTRY_PASSWORD>"
+    tls:
+      insecure_skip_verify: true
+      # Uncomment and configure these if using custom certificates
+      # cert_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.crt"
+      # key_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.key"
+      # ca_file: "/home/ubuntu/certs/ca.crt"
+
+# Whether to enable private registry configuration
+enable_private_registry: true
+
+# Deploy Rancher
+
+# Deployment control
+deploy_rancher: true
+install_helm: true
+
+# rancher_hostname: "rancher.example.com"  # Optional: overrides internal_lb_hostname from inventory
+rancher_bootstrap_password: "<RANCHER_BOOTSTRAP_PASSWORD>"
+rancher_image_tag: <RANCHER_VERSION>
+rancher_use_bundled_system_charts: true
+# rancher_advanced_values:
+#   extraEnv:
+#     - name: CATTLE_UI_OFFLINE_PREFERRED
+#       value: true

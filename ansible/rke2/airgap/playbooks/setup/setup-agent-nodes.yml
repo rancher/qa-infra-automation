@@ -3,7 +3,7 @@
   hosts: airgap_nodes
   become: true
   gather_facts: true
-  serial: 1
+  serial: 3  # Process 3 agents at a time instead of 1
   vars:
       target_group: "{{ target | default('rancher') }}"
   tasks:
@@ -58,9 +58,17 @@
       when: inventory_hostname != groups[target_group][0]
 
     - name: Wait for agent to join cluster
-      ansible.builtin.pause:
-        seconds: 30
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        /var/lib/rancher/rke2/bin/kubectl get node {{ inventory_hostname }} --no-headers 2>/dev/null | grep -q " Ready"
+      delegate_to: "{{ groups[target_group][0] }}"
+      become: true
+      register: agent_join_check
+      until: agent_join_check.rc == 0
+      retries: 12
+      delay: 10
       when: inventory_hostname != groups[target_group][0]
+      changed_when: false
 
     - name: Check RKE2 service status
       ansible.builtin.systemd:

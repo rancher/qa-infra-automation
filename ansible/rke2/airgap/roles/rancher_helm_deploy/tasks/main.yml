@@ -63,42 +63,61 @@
       kubernetes.core.helm_repository:
         name: "{{ rancher_helm_chart_repo_name }}"
         repo_url: "{{ rancher_helm_chart_repo_url }}"
+      register: helm_repo_add
+      until: helm_repo_add is success
+      retries: 3
+      delay: 10
 
     - name: Update Helm repositories
       ansible.builtin.command: helm repo update
+      register: helm_update
+      until: helm_update.rc == 0
+      retries: 3
+      delay: 10
       changed_when: false
       environment:
         KUBECONFIG: "{{ kubeconfig_path }}"
 
-    - name: Add jetstack Helm repository for cert-manager
-      kubernetes.core.helm_repository:
-        name: jetstack
-        repo_url: "https://charts.jetstack.io"
+    - name: Setup cert-manager
       when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
+      block:
+        - name: Add jetstack Helm repository for cert-manager
+          kubernetes.core.helm_repository:
+            name: jetstack
+            repo_url: "https://charts.jetstack.io"
 
-    - name: Install cert-manager if required
-      kubernetes.core.helm:
-        name: cert-manager
-        chart_ref: jetstack/cert-manager
-        release_namespace: cert-manager
-        create_namespace: true
-        values:
-          installCRDs: true
-        kubeconfig: "{{ kubeconfig_path }}"
-      when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
+        - name: Install cert-manager
+          kubernetes.core.helm:
+            name: cert-manager
+            chart_ref: jetstack/cert-manager
+            release_namespace: cert-manager
+            create_namespace: true
+            values:
+              installCRDs: true
+            kubeconfig: "{{ kubeconfig_path }}"
 
-    - name: Wait for cert-manager to be ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: cert-manager
-        namespace: cert-manager
-        kubeconfig: "{{ kubeconfig_path }}"
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 300
-      when: rancher_tls_source == "letsEncrypt" or rancher_tls_source == "rancher"
+        - name: Wait for cert-manager to be ready
+          kubernetes.core.k8s_info:
+            api_version: apps/v1
+            kind: Deployment
+            name: cert-manager
+            namespace: cert-manager
+            kubeconfig: "{{ kubeconfig_path }}"
+            wait_condition:
+              type: Available
+              status: "True"
+            wait_timeout: 300
+
+        - name: Wait for cert-manager pods to be Running
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Pod
+            namespace: cert-manager
+            kubeconfig: "{{ kubeconfig_path }}"
+          register: cert_manager_pods
+          until: cert_manager_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length >= 3
+          retries: 12
+          delay: 10
 
     - name: Install or Upgrade Rancher using Helm
       kubernetes.core.helm:

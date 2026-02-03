@@ -163,7 +163,7 @@
   hosts: "target_group[1:]"  # All nodes except the first (server)
   become: true
   gather_facts: true
-  serial: 1  # Upgrade one agent at a time
+  serial: 2  # Upgrade 2 agents at a time for faster upgrades
   vars:
     target_group: "{{ target | default('rancher') }}"
   vars_files:
@@ -191,9 +191,17 @@
             name: rke2-agent
           register: agent_status
 
-        - name: Wait for agent to join cluster
-          ansible.builtin.pause:
-            seconds: 30
+        - name: Wait for upgraded agent to rejoin cluster
+          ansible.builtin.shell: |
+            export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+            /var/lib/rancher/rke2/bin/kubectl get node {{ inventory_hostname }} --no-headers | grep -q " Ready"
+          delegate_to: "{{ groups[target_group][0] }}"
+          register: agent_rejoin_check
+          until: agent_rejoin_check.rc == 0
+          retries: 18
+          delay: 10
+          become: true
+          changed_when: false
 
         - name: Verify agent joined cluster
           ansible.builtin.shell: |
@@ -271,26 +279,62 @@
               - Agent nodes upgraded: {{ (groups[target_group] | length - 1) if groups[target_group] | length > 1 else 0 }}
               - Total nodes in cluster: {{ final_cluster_status.stdout_lines | length - 1 }}
 
-        - name: Verify all nodes are Ready
+        - name: Wait for all nodes to be Ready after upgrade
           ansible.builtin.shell: |
             set -o pipefail
             export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-            /var/lib/rancher/rke2/bin/kubectl get nodes --no-headers | grep -v Ready | wc -l
+            NOT_READY=$(/var/lib/rancher/rke2/bin/kubectl get nodes --no-headers | grep -v " Ready" | wc -l)
+            TOTAL=$(/var/lib/rancher/rke2/bin/kubectl get nodes --no-headers | wc -l)
+            if [ "$NOT_READY" -eq 0 ]; then
+              echo "All $TOTAL nodes are Ready"
+              exit 0
+            else
+              echo "Waiting: $NOT_READY of $TOTAL nodes not Ready"
+              exit 1
+            fi
           args:
             executable: /bin/bash
-          register: not_ready_count
+          register: nodes_ready_check
+          until: nodes_ready_check.rc == 0
+          retries: 30
+          delay: 10
           changed_when: false
           become: true
 
-        - name: Warn about not ready nodes
+        - name: Display nodes ready status
           ansible.builtin.debug:
-            msg: "[WARNING] {{ not_ready_count.stdout }} nodes are not in Ready state. Check cluster status."
-          when: not_ready_count.stdout | int > 0
+            msg: "[OK] {{ nodes_ready_check.stdout }}"
+          when: nodes_ready_check.rc == 0
 
-        - name: Success message
+        - name: Wait for critical system pods to be Running after upgrade
+          ansible.builtin.shell: |
+            set -o pipefail
+            export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+            NOT_RUNNING=$(/var/lib/rancher/rke2/bin/kubectl get pods -n kube-system --no-headers | grep -v Running | grep -v Completed | wc -l)
+            if [ "$NOT_RUNNING" -eq 0 ]; then
+              echo "All system pods are Running"
+              /var/lib/rancher/rke2/bin/kubectl get pods -n kube-system
+              exit 0
+            else
+              echo "Waiting for $NOT_RUNNING pods to be Running..."
+              /var/lib/rancher/rke2/bin/kubectl get pods -n kube-system | grep -v Running | grep -v Completed
+              exit 1
+            fi
+          args:
+            executable: /bin/bash
+          register: system_pods_check
+          until: system_pods_check.rc == 0
+          retries: 30
+          delay: 10
+          changed_when: false
+          become: true
+
+        - name: Display system pods status
           ansible.builtin.debug:
-            msg: "[OK] All {{ final_cluster_status.stdout_lines | length - 1 }} nodes are Ready!"
-          when: not_ready_count.stdout | int == 0
+            msg: |
+              System Pods Status:
+              {{ system_pods_check.stdout }}
+          when: system_pods_check is defined
 
 - name: RKE2 Airgap Upgrade - Update kubectl on Bastion
   hosts: bastion

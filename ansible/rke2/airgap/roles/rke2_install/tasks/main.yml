@@ -461,12 +461,11 @@
     src: /var/lib/rancher/rke2/server/node-token
   become: true
   register: node_token_result
-  when: inventory_hostname == groups[target_group][0]
+  delegate_to: "{{ groups[target_group][0] }}"
 
 - name: Set node token fact on all hosts
   ansible.builtin.set_fact:
-    rke2_token: "{{ hostvars[groups[target_group][0]]['node_token_result']['content'] | b64decode | trim }}"
-  when: hostvars[groups[target_group][0]]['node_token_result'] is defined
+    rke2_token: "{{ node_token_result['content'] | b64decode | trim }}"
 
 - name: Configure RKE2 agent
   ansible.builtin.template:
@@ -494,6 +493,18 @@
     enabled: true
   become: true
   when: inventory_hostname != groups[target_group][0]
+  async: 120
+  poll: 0
+  register: agent_start_async
+
+- name: Wait for all agents to start
+  ansible.builtin.async_status:
+    jid: "{{ agent_start_async.ansible_job_id }}"
+  register: agent_start_result
+  until: agent_start_result.finished
+  retries: 24
+  delay: 5
+  when: agent_start_async is defined and agent_start_async.ansible_job_id is defined
 
 - name: Wait for kubeconfig
   ansible.builtin.wait_for:
