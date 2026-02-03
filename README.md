@@ -10,6 +10,16 @@ Some contributors may be more familiar with Terraform than Tofu. Tofu is the ope
 
 It may be helpful when developing or running the modules and playbooks here to have a file with some default environment variables. For a reference, please see this [example](./vars.example-env).
 
+## Quickstart (Airgap only)
+
+A make file is provided to make it easier to get started. See the [Makefile](./Makefile) for more information.
+This only works for airgap currently, but future enhancements will be made to support other use cases.
+
+To display the help menu for tips on how to use the Makefile, run:
+```bash
+make help
+```
+
 ## Directory Structure
 
 See below for a visual representation of the directory structure. In the ansible directory, a product might be "rke2" or "rancher", and a feature might be "airgap." Scripts are there for reusable scripts, for example to run the set of commands required to install an rke2 server node. In the terraform directory, a provider might be "aws" or "harvester", and context might be "airgap".
