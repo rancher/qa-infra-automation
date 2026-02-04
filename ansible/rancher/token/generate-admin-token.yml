@@ -40,6 +40,7 @@
           ========================================
 
   roles:
+    # TODO refactor roles to be in the top level ansible directory
     - role: rancher_token
       tags:
         - token
