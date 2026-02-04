@@ -98,11 +98,11 @@ installation_method: "registry_distribution"
 # These are appended to /etc/rancher/rke2/config.yaml
 rke2_server_options: |
   ingress-controller: traefik
-  protect-kernel-defaults: true
 
 # RKE2 Agent configuration options
 rke2_agent_options: |
-  protect-kernel-defaults: true
+  node-label:
+    - "workload=general"
 
 # Custom images for your applications
 custom_images:
@@ -127,11 +127,9 @@ The `rke2_server_options` and `rke2_agent_options` variables allow passing arbit
 # Server options (control-plane nodes)
 rke2_server_options: |
   ingress-controller: traefik
-  protect-kernel-defaults: true
 
 # Agent options (worker nodes)
 rke2_agent_options: |
-  protect-kernel-defaults: true
   node-label:
     - "workload=general"
 ```
@@ -143,7 +141,6 @@ rke2_agent_options: |
 | Use Traefik (default) | `ingress-controller: traefik` |
 | Use Nginx | `ingress-controller: ""` or omit |
 | Disable ingress | (add `rke2-ingress-nginx` to `disable_components`) |
-| CIS hardening | `protect-kernel-defaults: true` |
 
 See [RKE2 Server Config Reference](https://docs.rke2.io/reference/server_config) and [RKE2 Agent Config Reference](https://docs.rke2.io/reference/linux_agent_config) for all options.
 

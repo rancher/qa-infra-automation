@@ -366,7 +366,9 @@ rke2_server_options: |
   ingress-controller: traefik
 
 # Worker/Agent configuration options (applied to agent/worker nodes)
-rke2_agent_options: ""
+rke2_agent_options: |
+  # Example: node-label:
+  #   - "workload=general"
 
 # SSH Configuration
 ssh_private_key_file: "~/.ssh/id_rsa"
@@ -419,9 +421,9 @@ The `rke2_server_options` variable allows you to pass any RKE2 server configurat
 | Use Traefik (default) | `ingress-controller: traefik` |
 | Use Nginx | `ingress-controller: ""` or omit |
 | Disable ingress | (add `rke2-ingress-nginx` to `disable_components`) |
-| CIS hardening | `protect-kernel-defaults: true` |
 
 See [RKE2 Server Config Reference](https://docs.rke2.io/reference/server_config) for all options.
+See [GROUP_VARS_GUIDE.md](docs/configuration/GROUP_VARS_GUIDE.md) for more configuration examples.
 
 ## CNI (Container Network Interface) Configuration
 

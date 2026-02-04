@@ -2,7 +2,11 @@
 # Agent configuration
 server: https://{{ hostvars[groups[target_group][0]].ansible_host }}:9345
 token: {{ rke2_token }}
-{{ rke2_agent_options | default('') }}
 {% if installation_method is defined and installation_method == 'registry_distribution' and hostvars[groups['bastion'][0]].ansible_host is defined %}
 system-default-registry: {{ hostvars[groups['bastion'][0]].ansible_host }}:5000
+{% endif %}
+
+# Additional agent options from rke2_agent_options
+{% if rke2_agent_options is defined and rke2_agent_options | trim | length > 0 %}
+{{ rke2_agent_options }}
 {% endif %}
