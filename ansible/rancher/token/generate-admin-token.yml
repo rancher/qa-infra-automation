@@ -39,10 +39,6 @@
             4. internal_lb_hostname from inventory
           ========================================
 
-    - name: Display resolved roles path (debug)
-      ansible.builtin.debug:
-        msg: "DEFAULT_ROLES_PATH={{ lookup('config', 'DEFAULT_ROLES_PATH') }}"
-
   roles:
     - role: "{{ playbook_dir }}/../roles/rancher_token"
       tags:
