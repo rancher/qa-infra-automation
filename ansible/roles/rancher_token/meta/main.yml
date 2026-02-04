@@ -1,0 +1,27 @@
+---
+# Rancher Token Role - Metadata
+galaxy_info:
+  author: Rancher QA
+  description: Generate Rancher API tokens with configurable options
+  license: Apache-2.0
+  min_ansible_version: "2.10"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: SLES
+      versions:
+        - "15"
+    - name: SLE_Micro
+      versions:
+        - "5"
+
+  galaxy_tags:
+    - rancher
+    - kubernetes
+    - authentication
+    - token
+
+dependencies: []
