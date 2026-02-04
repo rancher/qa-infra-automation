@@ -94,6 +94,16 @@ registry_auth: true
 rke2_version: "v1.24.1+rke2r1"
 installation_method: "registry_distribution"
 
+# RKE2 Server configuration options
+# These are appended to /etc/rancher/rke2/config.yaml
+rke2_server_options: |
+  ingress-controller: traefik
+  protect-kernel-defaults: true
+
+# RKE2 Agent configuration options
+rke2_agent_options: |
+  protect-kernel-defaults: true
+
 # Custom images for your applications
 custom_images:
   - "harbor.prod.company.com/apps/frontend:v1.2.3"
@@ -108,6 +118,34 @@ disable_components:
 enable_audit_log: true
 audit_log_maxage: 30
 ```
+
+### RKE2 Server and Agent Options
+
+The `rke2_server_options` and `rke2_agent_options` variables allow passing arbitrary configuration to RKE2:
+
+```yaml
+# Server options (control-plane nodes)
+rke2_server_options: |
+  ingress-controller: traefik
+  protect-kernel-defaults: true
+
+# Agent options (worker nodes)
+rke2_agent_options: |
+  protect-kernel-defaults: true
+  node-label:
+    - "workload=general"
+```
+
+**Common server configurations:**
+
+| Configuration | rke2_server_options value |
+|--------------|---------------------------|
+| Use Traefik (default) | `ingress-controller: traefik` |
+| Use Nginx | `ingress-controller: ""` or omit |
+| Disable ingress | (add `rke2-ingress-nginx` to `disable_components`) |
+| CIS hardening | `protect-kernel-defaults: true` |
+
+See [RKE2 Server Config Reference](https://docs.rke2.io/reference/server_config) and [RKE2 Agent Config Reference](https://docs.rke2.io/reference/linux_agent_config) for all options.
 
 ### Development Configuration
 

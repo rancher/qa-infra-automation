@@ -65,6 +65,34 @@ fqdn: a.b.c.d.sslip.io # Your FQDN, or a wildcard DNS like sslip.io with your IP
 kube_api_host: a.b.c.d # Your initial node IP
 ```
 
+### Step 2b: Configure RKE2 Options (Optional)
+
+The `vars.yaml` file supports additional RKE2 configuration via `server_flags` and `worker_flags`:
+
+```yaml
+# Server configuration (control-plane nodes)
+server_flags: |
+  ingress-controller: traefik
+  protect-kernel-defaults: true
+
+# Worker configuration (agent nodes)
+worker_flags: |
+  protect-kernel-defaults: true
+  node-label:
+    - "workload=general"
+```
+
+**Common configurations:**
+
+| Configuration | server_flags value |
+|--------------|-------------------|
+| Use Traefik (default) | `ingress-controller: traefik` |
+| Use Nginx | `ingress-controller: ""` or omit |
+| Disable ingress | `disable: rke2-ingress-nginx` |
+| CIS hardening | `protect-kernel-defaults: true` |
+
+See [RKE2 Server Config Reference](https://docs.rke2.io/reference/server_config) for all options.
+
 ### Step 3: Run the Playbook
 
 Run the playbook targeting the inventory file located in the root directory.

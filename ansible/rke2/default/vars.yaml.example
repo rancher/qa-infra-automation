@@ -1,6 +1,6 @@
 
 # rke2 version and installation settings
-kubernetes_version: 'f0f0ffd24dc607ea4577f836ea36301aa091c749'
+kubernetes_version: 'v1.34.2+rke2r1'
 
 # kubeconfig file
 kubeconfig_file: './kubeconfig.yaml'
@@ -10,3 +10,14 @@ cni: "calico"
 
 # node token file for cluster communication
 node_token_file: "/tmp/node_token.txt"
+
+# Server configuration flags (applied to server/control-plane nodes)
+# These are written directly to /etc/rancher/rke2/config.yaml
+# Format: YAML key-value pairs using literal block scalar (|)
+server_flags: |
+  ingress-controller: traefik
+
+# Worker/Agent configuration flags (applied to agent/worker nodes)
+# These are written directly to /etc/rancher/rke2/config.yaml
+# worker_flags: |
+#   protect-kernel-defaults: true

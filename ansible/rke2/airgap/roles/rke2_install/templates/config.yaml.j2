@@ -62,3 +62,8 @@ audit-log-maxage: {{ audit_log_maxage | default(30) }}
 audit-log-maxbackup: {{ audit_log_maxbackup | default(10) }}
 audit-log-maxsize: {{ audit_log_maxsize | default(100) }}
 {% endif %}
+
+# Additional server options from rke2_server_options
+{% if rke2_server_options is defined and rke2_server_options | trim | length > 0 %}
+{{ rke2_server_options }}
+{% endif %}
