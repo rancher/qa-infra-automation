@@ -62,7 +62,9 @@
         Set Permanent Password: {{ 'yes' if rancher_permanent_password | default('') | length > 0 else 'no' }}
   when: ansible_verbosity >= 1
 
-# Step 2: Authenticate and get initial token
+# Step 2: Authenticate and get initial login token
+# Note: This login token is temporary (Rancher's default ~15 hour TTL) and is only used
+# for authentication during this playbook run. It is NOT the token written to the output file.
 - name: Authenticate with Rancher API
   ansible.builtin.uri:
     url: "{{ rancher_url_normalized }}/v3-public/localProviders/local?action=login"
@@ -131,8 +133,15 @@
       ansible.builtin.debug:
         msg: "Permanent password has been set for user {{ rancher_token_username }}"
 
-# Step 4: Create API token with specified options
-# Note: TTL must be an integer in the JSON body. We use a Python expression to ensure proper typing.
+# Step 4: Create the persistent API token (this is what gets written to the output file)
+#
+# Generated token characteristics:
+#   - TTL: Controlled by rancher_token_ttl (default: 0 = no expiration)
+#   - Scope: Full admin access unless rancher_token_cluster_id is set to a specific cluster ID
+#   - The 'clusterId' field is the Rancher API's expected JSON key name for cluster-scoped tokens
+#
+# Note: TTL must be an integer in the JSON body. We build the request body as a Python dict
+# inside {{ }} to ensure proper type handling (integers stay as integers, not strings).
 - name: Build token request body with proper integer types
   ansible.builtin.set_fact:
     token_request_body: >-
