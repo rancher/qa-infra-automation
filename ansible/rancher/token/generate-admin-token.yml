@@ -44,8 +44,7 @@
         msg: "DEFAULT_ROLES_PATH={{ lookup('config', 'DEFAULT_ROLES_PATH') }}"
 
   roles:
-    # TODO refactor roles to be in the top level ansible directory
-    - role: rancher_token
+    - role: "{{ playbook_dir }}/../roles/rancher_token"
       tags:
         - token
 
