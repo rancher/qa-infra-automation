@@ -39,6 +39,10 @@
             4. internal_lb_hostname from inventory
           ========================================
 
+    - name: Display resolved roles path (debug)
+      ansible.builtin.debug:
+        msg: "DEFAULT_ROLES_PATH={{ lookup('config', 'DEFAULT_ROLES_PATH') }}"
+
   roles:
     # TODO refactor roles to be in the top level ansible directory
     - role: rancher_token
