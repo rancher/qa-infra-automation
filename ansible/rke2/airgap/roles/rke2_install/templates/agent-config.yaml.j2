@@ -8,5 +8,5 @@ system-default-registry: {{ hostvars[groups['bastion'][0]].ansible_host }}:5000
 
 # Additional agent options from rke2_agent_options
 {% if rke2_agent_options is defined and rke2_agent_options | trim | length > 0 %}
-{{ rke2_agent_options }}
+{{ rke2_agent_options | from_yaml) | to_nice_yaml(indent=0, explicit=False) | trim }}
 {% endif %}
