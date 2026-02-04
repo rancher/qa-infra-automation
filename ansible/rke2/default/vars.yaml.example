@@ -14,6 +14,9 @@ node_token_file: "/tmp/node_token.txt"
 # Server configuration flags (applied to server/control-plane nodes)
 # These are written directly to /etc/rancher/rke2/config.yaml
 # Format: YAML key-value pairs using literal block scalar (|)
+# Note: The indentation in the example below is only for the YAML literal block scalar;
+#       in the generated /etc/rancher/rke2/config.yaml these flags are top-level keys
+#       and must not be indented.
 server_flags: |
   ingress-controller: traefik
 

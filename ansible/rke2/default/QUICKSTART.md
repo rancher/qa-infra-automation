@@ -87,7 +87,7 @@ worker_flags: |
 | Configuration | server_flags value |
 |--------------|-------------------|
 | Use Traefik (default) | `ingress-controller: traefik` |
-| Use Nginx | `ingress-controller: ""` or omit |
+| Use RKE2 default Nginx ingress | omit `ingress-controller` (uses `rke2-ingress-nginx`) |
 | Disable ingress | `disable: rke2-ingress-nginx` |
 | CIS hardening | `protect-kernel-defaults: true` |
 

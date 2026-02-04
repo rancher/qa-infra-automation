@@ -322,7 +322,7 @@
       
     - name: Detect ingress controller type
       ansible.builtin.set_fact:
-        ingress_controller: "{{ 'traefik' if (server_flags | default('')) is search('ingress-controller:\\s*traefik') else 'nginx' }}"
+        ingress_controller: "{{ 'nginx' if (server_flags | default('')) is search('ingress-controller:\\s*nginx') else 'traefik' }}"
 
     - name: Wait for ingress-nginx admission webhook to be ready
       kubernetes.core.k8s_info:
