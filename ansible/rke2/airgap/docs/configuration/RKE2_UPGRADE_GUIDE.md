@@ -32,7 +32,7 @@ The RKE2 upgrade process for airgap environments involves:
 
 ### 1. Update Target Version
 
-Edit [`inventory/group_vars/all.yml`](../../inventory/group_vars/all.yml.template) to specify the target RKE2 version:
+If you wish to update a specific version of RKE2 other than the latest, you can update `inventory/group_vars/all.yml` to specify the target RKE2 version:
 
 ```yaml
 # RKE2 Configuration

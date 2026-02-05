@@ -3,9 +3,9 @@
   hosts: airgap_nodes
   become: true
   gather_facts: true
-  serial: 3  # Process 3 agents at a time instead of 1
+  serial: 3 # Process 3 agents at a time instead of 1
   vars:
-      target_group: "{{ target | default('rancher') }}"
+    target_group: "{{ target | default('rancher') }}"
   tasks:
     - name: Get server token from first node
       ansible.builtin.slurp:
@@ -34,7 +34,7 @@
         dest: /etc/rancher/rke2/config.yaml
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: inventory_hostname != groups[target_group][0]
 
     - name: Display agent configuration

@@ -199,7 +199,7 @@
 
     - name: Generate detailed readiness report
       ansible.builtin.debug:
-        msg: |
+        msg: |2
 
           ╔══════════════════════════════════════════════════════════════════════════════════════╗
           ║                           RKE2 UPGRADE READINESS REPORT                             ║
@@ -275,7 +275,7 @@
         dest: "./rke2-upgrade-readiness-{{ ansible_date_time.epoch | default(ansible_date_time.iso8601 | default('unknown')) }}.txt"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-        mode: '0644'
+        mode: "0644"
       delegate_to: localhost
 
     - name: Final recommendation

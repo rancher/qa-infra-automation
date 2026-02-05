@@ -23,7 +23,7 @@
         dest: /etc/rancher/rke2/config.yaml
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: inventory_hostname == groups[target_group][0]
 
     - name: Regenerate RKE2 agent configuration for additional nodes
@@ -32,7 +32,7 @@
         dest: /etc/rancher/rke2/config.yaml
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: inventory_hostname != groups[target_group][0]
 
     - name: Display new RKE2 configuration
@@ -76,7 +76,7 @@
         dest: /etc/rancher/rke2/config.yaml
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: inventory_hostname != groups[target_group][0]
 
     - name: Start RKE2 agent service on additional nodes

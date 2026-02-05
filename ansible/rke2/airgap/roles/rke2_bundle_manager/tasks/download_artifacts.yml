@@ -5,14 +5,14 @@
   ansible.builtin.file:
     path: "{{ rke2_temp_dir }}"
     state: directory
-    mode: '0755'
-  become: true
+    mode: "0755"
+  become: false
 
 - name: Download RKE2 install script
   ansible.builtin.get_url:
     url: "{{ rke2_install_script_url }}"
     dest: /tmp/rke2-install.sh
-    mode: '0755'
+    mode: "0755"
     timeout: "{{ rke2_download_timeout }}"
     headers:
       Accept: application/octet-stream
@@ -20,43 +20,54 @@
   until: download_result is success
   retries: "{{ rke2_download_retries }}"
   delay: "{{ rke2_download_delay }}"
-  become: true
+  become: false
+
+- name: Set rke2-arch fact
+  ansible.builtin.set_fact:
+    rke2_arch: "{{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
+
+- name: Show urls used to get artifacts
+  ansible.builtin.debug:
+    msg: |
+      "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2.linux-{{ rke2_arch }}.tar.gz"
+      "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images.linux-{{ rke2_arch }}.tar.gz"
+      "{{ rke2_github_release_url }}/{{ rke2_version }}/sha256sum-{{ rke2_arch }}.txt"
 
 - name: Download RKE2 tarball
   ansible.builtin.get_url:
     url: "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2.linux-{{ rke2_arch }}.tar.gz"
     dest: "{{ rke2_temp_dir }}/rke2.linux-{{ rke2_arch }}.tar.gz"
-    mode: '0644'
+    mode: "0644"
     timeout: "{{ rke2_download_timeout }}"
   register: tarball_download
   until: tarball_download is success
   retries: "{{ rke2_download_retries }}"
   delay: "{{ rke2_download_delay }}"
-  become: true
+  become: false
 
 - name: Download RKE2 images
   ansible.builtin.get_url:
     url: "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images.linux-{{ rke2_arch }}.tar.gz"
     dest: "{{ rke2_temp_dir }}/rke2-images.tar.gz"
-    mode: '0644'
+    mode: "0644"
     timeout: "{{ rke2_download_timeout }}"
   register: images_download
   until: images_download is success
   retries: "{{ rke2_download_retries }}"
   delay: "{{ rke2_download_delay }}"
-  become: true
+  become: false
 
 - name: Download checksum file
   ansible.builtin.get_url:
     url: "{{ rke2_github_release_url }}/{{ rke2_version }}/sha256sum-{{ rke2_arch }}.txt"
     dest: "{{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt"
-    mode: '0644'
+    mode: "0644"
     timeout: "{{ rke2_download_timeout }}"
   register: checksum_download
   until: checksum_download is success
   retries: "{{ rke2_download_retries }}"
   delay: "{{ rke2_download_delay }}"
-  become: true
+  become: false
 
 - name: Include checksum verification tasks
   ansible.builtin.include_tasks: verify_checksums.yml

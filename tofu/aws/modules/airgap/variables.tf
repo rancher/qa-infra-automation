@@ -17,7 +17,14 @@ variable "aws_ssh_user" {}
 variable "aws_security_group" { type = list(string) }
 variable "aws_vpc" {}
 variable "aws_volume_size" {}
-variable "aws_subnet" {}
+variable "aws_subnet_airgap" {
+  description = "Subnet in which the airgapped nodes should be created. This subnet should have no routes for internet access."
+  type        = string
+}
+variable "aws_subnet_bastion" {
+  description = "Subnet in which the bastion should be created. This subnet should have routes in place for internet access."
+  type        = string
+}
 variable "instance_type" {}
 variable "provision_registry" {
   description = "Set to false to not provision a registry instance."

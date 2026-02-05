@@ -32,7 +32,6 @@
       changed_when: false
       environment:
         KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
-      become_user: "{{ ansible_user }}"
 
     - name: Display cluster nodes
       ansible.builtin.debug:
@@ -48,7 +47,7 @@
       ansible.builtin.package:
         name: python3-pip
         state: present
-        update_cache: yes
+        update_cache: true
       when: pip_check.rc != 0
       become: true
       ignore_errors: true
@@ -64,7 +63,7 @@
           - python3-kubernetes
           - python3-yaml
         state: present
-        update_cache: yes
+        update_cache: true
       become: true
       ignore_errors: true
 
@@ -112,52 +111,47 @@
           {% endfor %}
 
     - name: Add internal hostname to ingress
-      block:
-      - name: Set fact for new Ingress Rule
-        ansible.builtin.set_fact:
-          ingress_rules:
-            - host: "{{ rancher_private_hostname }}"
-              http:
-                paths:
-                  - backend:
-                      service:
-                        name: "rancher"
-                        port:
-                          number: 80
-                    path: /
-                    pathType: ImplementationSpecific
-            - host: "{{ rancher_public_hostname }}"
-              http:
-                paths:
-                  - backend:
-                      service:
-                        name: "rancher"
-                        port:
-                          number: 80
-                    path: /
-                    pathType: ImplementationSpecific
-
-      - name: Patch the Ingress to add the new hostname rule and TLS host
-        kubernetes.core.k8s:
-          state: patched
-          api_version: networking.k8s.io/v1
-          kind: Ingress
-          name: "rancher"
-          namespace: "cattle-system"
-          definition:
-            spec:
-              rules: "{{ ingress_rules }}"
-              tls:
-                - hosts:
-                    - "{{ rancher_private_hostname }}"
-                    - "{{ rancher_public_hostname }}"
-                  secretName: tls-rancher-ingress
-        register: ingress_patch
-        until: ingress_patch is success
-        retries: 5
-        delay: 5
-
       when: (rancher_private_hostname is defined or internal_lb_hostname is defined) and (rancher_public_hostname is defined or external_lb_hostname is defined)
+      block:
+        - name: Set fact for new Ingress Rule
+          ansible.builtin.set_fact:
+            ingress_rules:
+              - host: "{{ rancher_private_hostname }}"
+                http:
+                  paths:
+                    - backend:
+                        service:
+                          name: "rancher"
+                          port:
+                            number: 80
+                      path: /
+                      pathType: ImplementationSpecific
+              - host: "{{ rancher_public_hostname }}"
+                http:
+                  paths:
+                    - backend:
+                        service:
+                          name: "rancher"
+                          port:
+                            number: 80
+                      path: /
+                      pathType: ImplementationSpecific
+
+        - name: Patch the Ingress to add the new hostname rule and TLS host
+          kubernetes.core.k8s:
+            state: patched
+            api_version: networking.k8s.io/v1
+            kind: Ingress
+            name: "rancher"
+            namespace: "cattle-system"
+            definition:
+              spec:
+                rules: "{{ ingress_rules }}"
+                tls:
+                  - hosts:
+                      - "{{ rancher_private_hostname }}"
+                      - "{{ rancher_public_hostname }}"
+                    secretName: tls-rancher-ingress
 
     - name: Get LoadBalancer or NodePort service details
       kubernetes.core.k8s_info:
@@ -217,7 +211,7 @@
         dest: "/home/{{ ansible_user }}/rancher-deployment-summary.txt"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-        mode: '0644'
+        mode: "0644"
 
     - name: Final deployment verification
       kubernetes.core.k8s_info:
@@ -249,4 +243,5 @@
 
     - name: Display Rancher API health status
       ansible.builtin.debug:
-        msg: "{{ 'Rancher API is healthy and responding at https://' + rancher_private_hostname if rancher_api_check.status == 200 else 'Rancher API check completed (status: ' + (rancher_api_check.status | default('unreachable') | string) + '). Verify connectivity to ' + rancher_private_hostname }}"
+        msg: "{{ 'Rancher API is healthy and responding at https://' + rancher_private_hostname if rancher_api_check.status == 200 else 'Rancher API check completed
+          (status: ' + (rancher_api_check.status | default('unreachable') | string) + '). Verify connectivity to ' + rancher_private_hostname }}"

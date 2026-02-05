@@ -3,14 +3,14 @@
   ansible.builtin.file:
     path: /etc/rancher/rke2
     state: directory
-    mode: '0755'
+    mode: "0755"
   become: true
 
 - name: Configure RKE2 server
   ansible.builtin.template:
     src: config.yaml.j2
     dest: /etc/rancher/rke2/config.yaml
-    mode: '0644'
+    mode: "0644"
   become: true
   when: inventory_hostname == groups[target_group][0]
 
@@ -18,13 +18,14 @@
   ansible.builtin.file:
     path: /tmp/rke2-artifacts
     state: directory
-    mode: '0755'
+    mode: "0755"
   become: true
 
 - name: Synchronize RKE2 bundle from bastion
   block:
     - name: Check bundle on bastion
       delegate_to: "{{ groups['bastion'][0] }}"
+      run_once: true
       vars:
         ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
       block:
@@ -42,43 +43,26 @@
       ansible.builtin.file:
         path: /tmp
         state: directory
-        mode: '1777'
+        mode: "1777"
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       become: true
 
     - name: Ensure bundle destination has proper permissions
       ansible.builtin.file:
         path: /tmp/rke2-bundle.tar.gz
         state: touch
-        mode: '0644'
+        mode: "0644"
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-      become: true
 
-    - name: Copy bundle from bastion via controller
-      block:
-        - name: Fetch bundle from bastion to controller
-          ansible.builtin.fetch:
-            src: /opt/rke2-files/rke2-bundle.tar.gz
-            dest: /tmp/ansible-rke2-bundle.tar.gz
-            flat: true
-          delegate_to: "{{ groups['bastion'][0] }}"
-          become: false
-          run_once: true
-
-        - name: Copy bundle from controller to airgap node
-          ansible.builtin.copy:
-            src: /tmp/ansible-rke2-bundle.tar.gz
-            dest: /tmp/rke2-bundle.tar.gz
-            mode: '0644'
-            owner: "{{ ansible_user }}"
-            group: "{{ ansible_user }}"
-          become: true
-          register: copy_result
-          until: copy_result is success
-          retries: 3
-          delay: 5
+    - name: Fetch bundle from bastion to cluster nodes
+      ansible.builtin.shell: |
+        scp -o StrictHostKeyChecking=no \
+        /opt/rke2-files/rke2-bundle.tar.gz \
+        {{ hostvars[item]['ansible_user'] }}@{{ hostvars[item]['ansible_host'] | default(item) }}:/tmp/rke2-bundle.tar.gz
+      delegate_to: "{{ groups['bastion'][0] }}"
+      with_items: "{{ groups['airgap_nodes'] }}"
+      run_once: true
+      become: false
 
     - name: Verify bundle copy
       block:
@@ -119,18 +103,16 @@
       ansible.builtin.file:
         path: /tmp/rke2-artifacts
         state: directory
-        mode: '0755'
+        mode: "0755"
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       become: true
 
     - name: Create temp extraction directory
       ansible.builtin.file:
         path: /tmp/rke2-extract
         state: directory
-        mode: '0755'
+        mode: "0755"
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       become: true
 
     - name: Extract RKE2 bundle to temp directory
@@ -138,9 +120,8 @@
         src: /tmp/rke2-bundle.tar.gz
         dest: /tmp/rke2-extract/
         remote_src: true
-        mode: '0755'
+        mode: "0755"
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
         list_files: true
       register: extract_result
       become: true
@@ -148,7 +129,6 @@
     - name: Display extracted files
       ansible.builtin.debug:
         msg: "Extracted files: {{ extract_result.files }}"
-      run_once: true
 
     - name: List temp directory contents
       ansible.builtin.command: ls -la /tmp/rke2-extract/
@@ -164,7 +144,6 @@
       ansible.builtin.stat:
         path: /tmp/rke2-install.sh
       register: install_script_check
-      become: true
 
     - name: Move files to correct locations
       ansible.builtin.shell: |
@@ -182,7 +161,6 @@
           mv /tmp/rke2-extract/tmp/rke2-artifacts/* /tmp/rke2-artifacts/ 2>/dev/null || true
         fi
       register: move_result
-      become: true
       changed_when: move_result.rc == 0
       when: not install_script_check.stat.exists
 
@@ -194,10 +172,8 @@
     - name: Set correct permissions
       ansible.builtin.file:
         path: /tmp/rke2-install.sh
-        mode: '0755'
+        mode: "0755"
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-      become: true
 
     - name: Clean up temp directory
       ansible.builtin.file:
@@ -247,18 +223,16 @@
   ansible.builtin.file:
     path: /var/lib/rancher/rke2/agent/images
     state: directory
-    mode: '0755'
+    mode: "0755"
   become: true
-  when: inventory_hostname == groups[target_group][0]
 
 - name: Copy RKE2 images to proper location
   ansible.builtin.copy:
     src: /tmp/rke2-artifacts/rke2-images.tar.gz
     dest: /var/lib/rancher/rke2/agent/images/
     remote_src: true
-    mode: '0644'
+    mode: "0644"
   become: true
-  when: inventory_hostname == groups[target_group][0]
 
 - name: Run RKE2 server install script
   ansible.builtin.shell: |
@@ -279,8 +253,8 @@
         name: rke2-server
         state: started
         enabled: true
-      become: true
       register: rke2_start_result
+      become: true
 
     - name: Display RKE2 start success
       ansible.builtin.debug:
@@ -293,7 +267,6 @@
       ansible.builtin.shell: systemctl status rke2-server.service
       # Using shell because systemctl is a shell command
       register: rke2_status
-      become: true
       failed_when: false
       changed_when: false
 
@@ -301,7 +274,6 @@
       ansible.builtin.shell: journalctl -xeu rke2-server.service --no-pager -n 50
       # Using shell because journalctl is a shell command
       register: rke2_logs
-      become: true
       failed_when: false
       changed_when: false
 
@@ -322,7 +294,6 @@
       become: true
       failed_when: false
       changed_when: false
-      # Using shell because cat is a shell command
 
     - name: Display RKE2 configuration
       ansible.builtin.debug:
@@ -448,7 +419,6 @@
   ansible.builtin.systemd:
     name: rke2-server
     state: started
-  become: true
   when: inventory_hostname == groups[target_group][0]
 
 - name: Pause for server initialization
@@ -471,7 +441,7 @@
   ansible.builtin.template:
     src: agent-config.yaml.j2
     dest: /etc/rancher/rke2/config.yaml
-    mode: '0644'
+    mode: "0644"
   become: true
   when: inventory_hostname != groups[target_group][0]
 
@@ -523,10 +493,10 @@
   ansible.builtin.file:
     path: ~/.kube
     state: directory
-    mode: '0755'
+    mode: "0755"
   delegate_to: localhost
+  run_once: true
   become: false
-  when: inventory_hostname == groups[target_group][0]
   vars:
     ansible_connection: local
 
@@ -534,9 +504,9 @@
   ansible.builtin.copy:
     content: "{{ kubeconfig['content'] | b64decode }}"
     dest: ~/.kube/config
-    mode: '0600'
+    mode: "0600"
   delegate_to: localhost
+  run_once: true
   become: false
-  when: inventory_hostname == groups[target_group][0]
   vars:
     ansible_connection: local

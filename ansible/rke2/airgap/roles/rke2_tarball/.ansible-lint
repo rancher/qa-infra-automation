@@ -1,4 +1,4 @@
 ---
 # Ansible-lint configuration
 skip_list:
-  - 'command-instead-of-module'  # Allow tar commands for listing contents
+  - "command-instead-of-module" # Allow tar commands for listing contents

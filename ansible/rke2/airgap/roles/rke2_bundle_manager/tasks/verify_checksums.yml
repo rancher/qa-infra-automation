@@ -7,7 +7,7 @@
     grep "rke2.linux-{{ rke2_arch }}.tar.gz" {{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt | awk '{print $1}'
   register: expected_tarball_checksum
   changed_when: false
-  become: true
+  become: false
   args:
     executable: /bin/bash
 
@@ -17,7 +17,7 @@
     grep "rke2-images.linux-{{ rke2_arch }}.tar.gz" {{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt | awk '{print $1}'
   register: expected_images_checksum
   changed_when: false
-  become: true
+  become: false
   args:
     executable: /bin/bash
 
@@ -35,7 +35,7 @@
     fi
   register: tarball_checksum_verify
   changed_when: false
-  become: true
+  become: false
   failed_when: false
   args:
     executable: /bin/bash
@@ -54,7 +54,7 @@
     fi
   register: images_checksum_verify
   changed_when: false
-  become: true
+  become: false
   failed_when: false
   args:
     executable: /bin/bash
@@ -78,7 +78,7 @@
       when: rke2_regenerate_checksums_on_failure | bool
       register: checksum_regen
       changed_when: true
-      become: true
+      become: false
 
     - name: Display regeneration notice
       ansible.builtin.debug:

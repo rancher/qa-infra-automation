@@ -29,7 +29,7 @@ This repo supports switching Terraform state backend between S3 and local.
 - From local -> s3:
   - Back up local state: `cp terraform.tfstate terraform.tfstate.backup`
   - Run the init script with S3 options: `./scripts/init-backend.sh s3 --bucket ... --key ... --region ...`
-  - Tofu will prompt to copy existing state to the new backend. 
+  - Tofu will prompt to copy existing state to the new backend.
 - From s3 -> local:
   - `tofu state pull > statefile.tfstate`
   - Run init script for local `./scripts/init-backend.sh local`
@@ -146,7 +146,8 @@ aws_secret_key        = "secretkey"
 aws_ami               = "ami-"
 instance_type         = "t3.xlarge"
 aws_security_group    = ["sg-"]
-aws_subnet            = "subnet-"
+aws_subnet_airgap     = "subnet-0b80e9a553633f5a9" # This subnet should not allow internet connectivity
+aws_subnet_bastion    = "subnet-ee8cac86"
 aws_volume_size       = 500
 aws_hostname_prefix   = "hostnameprefix"
 aws_region            = "us-west-1"

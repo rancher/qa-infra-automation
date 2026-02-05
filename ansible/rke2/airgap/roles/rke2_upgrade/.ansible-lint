@@ -1,5 +1,5 @@
 ---
 # Ansible-lint configuration
 skip_list:
-  - 'schema[tasks]'  # Skip schema validation errors
-  - 'internal-error'  # Skip internal errors
+  - "schema[tasks]" # Skip schema validation errors
+  - "internal-error" # Skip internal errors
