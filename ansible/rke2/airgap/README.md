@@ -367,8 +367,8 @@ rke2_server_options: |
 
 # Worker/Agent configuration options (applied to agent/worker nodes)
 rke2_agent_options: |
-  # Example: node-label:
-  #   - "workload=general"
+  node-label:
+    - "workload=general"
 
 # SSH Configuration
 ssh_private_key_file: "~/.ssh/id_rsa"
