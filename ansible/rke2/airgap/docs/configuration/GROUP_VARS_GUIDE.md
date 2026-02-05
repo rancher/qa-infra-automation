@@ -31,9 +31,6 @@ external_registry_password: "your-robot-token"
 # Local Registry Credentials
 registry_username: "admin"
 registry_password: "secure-password-123"
-
-# RKE2 Version
-rke2_version: "v1.24.1+rke2r1"
 ```
 
 ### 2. Customize Bastion Settings (Optional)
@@ -73,7 +70,6 @@ external_registry_username: "username"
 external_registry_password: "password"
 registry_username: "admin"
 registry_password: "admin123"
-rke2_version: "v1.24.1+rke2r1"
 ```
 
 ### Production Configuration
@@ -91,7 +87,6 @@ registry_username: "{{ vault_registry_username }}"
 registry_password: "{{ vault_registry_password }}"
 registry_auth: true
 
-rke2_version: "v1.24.1+rke2r1"
 installation_method: "registry_distribution"
 
 # RKE2 Server configuration options
@@ -158,8 +153,6 @@ external_registry_verify_ssl: false  # Self-signed certs
 registry_username: "admin"
 registry_password: "admin"
 registry_auth: false  # No auth for dev
-
-rke2_version: "v1.24.1+rke2r1"
 
 # Development-specific settings
 log_level: "debug"

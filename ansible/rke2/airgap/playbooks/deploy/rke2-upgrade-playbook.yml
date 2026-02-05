@@ -9,6 +9,23 @@
     target_group: "{{ target | default('rancher') }}"
 
   pre_tasks:
+    - name: Get latest RKE2 version
+      ansible.builtin.uri:
+        url: https://update.rke2.io/v1-release/channels/stable
+        follow_redirects: none
+        return_content: yes
+        status_code: 302
+      register: raw_version_response
+      when: rke2_version is not defined
+
+    - name: Set rke2_version fact for all hosts
+      ansible.builtin.set_fact:
+        rke2_version: "{{ raw_version_response.content | regex_search('tag/([^/\" >]+)', '\\1') | first }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['all'] }}"
+      when: raw_version_response is defined
+
     - name: Validate required variables for upgrade
       ansible.builtin.assert:
         that:
@@ -106,7 +123,7 @@
       when: not upgrade_needed
 
 - name: RKE2 Airgap Upgrade - Upgrade Server Node
-  hosts: "{{ target_group }}[0]"  # First server node only
+  hosts: "{{ target_group }}[0]" # First server node only
   become: true
   gather_facts: true
   serial: 1
@@ -160,10 +177,10 @@
               - Cluster Nodes: {{ kubectl_test.stdout_lines | length - 1 }} nodes visible
 
 - name: RKE2 Airgap Upgrade - Upgrade Agent Nodes
-  hosts: "target_group[1:]"  # All nodes except the first (server)
+  hosts: "target_group[1:]" # All nodes except the first (server)
   become: true
   gather_facts: true
-  serial: 2  # Upgrade 2 agents at a time for faster upgrades
+  serial: 2 # Upgrade 2 agents at a time for faster upgrades
   vars:
     target_group: "{{ target | default('rancher') }}"
   vars_files:
@@ -224,7 +241,7 @@
               {% endif %}
 
 - name: RKE2 Airgap Upgrade - Post-upgrade Verification
-  hosts: target_group[0]  # Run verification from server node
+  hosts: target_group[0] # Run verification from server node
   gather_facts: false
   vars:
     target_group: "{{ target | default('rancher') }}"
@@ -365,7 +382,7 @@
           ansible.builtin.get_url:
             url: "https://dl.k8s.io/release/{{ expected_k8s_version }}/bin/linux/amd64/kubectl"
             dest: /usr/local/bin/kubectl
-            mode: '0755'
+            mode: "0755"
             owner: root
             group: root
             backup: true

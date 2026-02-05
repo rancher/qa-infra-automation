@@ -44,10 +44,10 @@ This will generate an `inventory.yml` file on `qa-infra-automation/ansible/rke2/
 ### 2. Install RKE2 on both clusters
 
 From here on out, all the commands are being run from `qa-infra-automation/ansible/rke2/airgap`
-First it is needed to set up SSH access on all the nodes so we can safely access the airgapped nodes using Ansible going through the bastion:
+First it is needed to set up the local SSH agent so we can safely access the airgapped nodes using Ansible going through the bastion:
 
 ```bash
-ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-ssh-keys.yml
+ssh-add "<path_to_private_key>"
 ```
 
 Then we install RKE2 in both groups of nodes:

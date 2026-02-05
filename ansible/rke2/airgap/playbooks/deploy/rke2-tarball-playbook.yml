@@ -9,6 +9,23 @@
     enable_rke2_tarball_distribution: true
 
   pre_tasks:
+    - name: Get latest RKE2 version
+      ansible.builtin.uri:
+        url: https://update.rke2.io/v1-release/channels/stable
+        follow_redirects: none
+        return_content: yes
+        status_code: 302
+      register: raw_version_response
+      when: rke2_version is not defined
+
+    - name: Set rke2_version fact for all hosts
+      ansible.builtin.set_fact:
+        rke2_version: "{{ raw_version_response.content | regex_search('tag/([^/\" >]+)', '\\1') | first }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['all'] }}"
+      when: raw_version_response is defined
+
     - name: Validate required variables
       ansible.builtin.assert:
         that:
@@ -77,7 +94,6 @@
 
 - name: Install RKE2 on Airgap Nodes
   hosts: "{{ target_group }}"
-  become: true
   gather_facts: true
 
   vars:
@@ -238,7 +254,7 @@
       ansible.builtin.get_url:
         url: "https://dl.k8s.io/release/{{ k8s_version }}/bin/linux/amd64/kubectl"
         dest: /usr/local/bin/kubectl
-        mode: '0755'
+        mode: "0755"
         owner: root
         group: root
       register: kubectl_download
@@ -246,7 +262,7 @@
       delay: 5
 
     - name: Verify kubectl installation
-      ansible.builtin.command: kubectl version --client
+      ansible.builtin.command: /usr/local/bin/kubectl version --client
       register: kubectl_version
       changed_when: false
 
@@ -258,7 +274,7 @@
       ansible.builtin.file:
         path: /root/.kube
         state: directory
-        mode: '0700'
+        mode: "0700"
         owner: root
         group: root
 
@@ -266,9 +282,8 @@
       ansible.builtin.file:
         path: "/home/{{ ansible_user }}/.kube"
         state: directory
-        mode: '0700'
+        mode: "0700"
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
 
     - name: Fetch KUBECONFIG from first RKE2 server
@@ -288,13 +303,14 @@
 
     - name: Update server URL in kubeconfig content
       ansible.builtin.set_fact:
-        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups[target_group][0]]['ansible_host'] + ':6443') }}"
+        updated_kubeconfig: "{{ (kubeconfig_content.content | b64decode) | regex_replace('https://127\\.0\\.0\\.1:6443', 'https://' + hostvars[groups[target_group][0]]['ansible_host']
+          + ':6443') }}"
 
     - name: Write kubeconfig to bastion root
       ansible.builtin.copy:
         content: "{{ updated_kubeconfig }}"
         dest: /root/.kube/config
-        mode: '0600'
+        mode: "0600"
         owner: root
         group: root
 
@@ -302,9 +318,8 @@
       ansible.builtin.copy:
         content: "{{ updated_kubeconfig }}"
         dest: "/home/{{ ansible_user }}/.kube/config"
-        mode: '0600'
+        mode: "0600"
         owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
 
     - name: Clean up temporary kubeconfig
@@ -336,7 +351,7 @@
           {% endif %}
 
     - name: Display final instructions
-      debug:
+      ansible.builtin.debug:
         msg: |
           RKE2 Cluster Setup Complete!
 

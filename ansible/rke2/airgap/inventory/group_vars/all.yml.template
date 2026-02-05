@@ -2,7 +2,7 @@
 # Global variables for RKE2 airgap deployment with tarball installation
 
 # RKE2 Configuration
-rke2_version: "<RKE2_VERSION>"
+# rke2_version: "v1.34.3+rke2r1"
 rke2_server_options: |
   cluster-cidr: {{ cluster_cidr }}
   service-cidr: {{ service_cidr }}
@@ -36,7 +36,7 @@ cluster_dns: "10.43.0.10"
 #   - "cilium":
 #   - "multus": Enable Multus for multiple network interfaces (has to be combined with others)
 #   - "none": Disable CNI installation (bring your own CNI)
-cni: "canal"  # Default RKE2 CNI
+cni: "canal" # Default RKE2 CNI
 
 # CNI-specific configuration
 cni_config:
@@ -48,7 +48,7 @@ cni_config:
     bgp_enabled: true
     # Network policy enforcement
     network_policy: true
-    
+
   # Cilium specific settings
   cilium:
     # Enable Hubble for observability
@@ -59,14 +59,14 @@ cni_config:
     bgp_enabled: false
     # Enable service mesh features
     service_mesh: false
-    
+
   # Canal specific settings (Flannel + Calico)
   canal:
     # Flannel backend: vxlan, host-gw, udp
     flannel_backend: "vxlan"
     # Enable Calico network policies
     network_policy: true
-    
+
   # Multus specific settings
   multus:
     # Default CNI to use with Multus (canal, calico, cilium)
@@ -76,9 +76,9 @@ cni_config:
 
 # Security Configuration
 disable_components:
-  - rke2-snapshot-controller
-  - rke2-snapshot-controller-crd
-  - rke2-snapshot-validation-webhook
+- rke2-snapshot-controller
+- rke2-snapshot-controller-crd
+- rke2-snapshot-validation-webhook
 
 # Performance Tuning
 max_pods_per_node: 110
@@ -93,33 +93,33 @@ audit_log_maxsize: 100
 
 # Registry mirrors configuration
 private_registry_mirrors:
-  - registry: "docker.io"
-    endpoints:
-      - "<PRIVATE_REGISTRY_URL>"
-    rewrite:
-      - pattern: "^(.*)"
-        replacement: "proxycache/$1"
-  - registry: "quay.io"
-    endpoints:
-      - "<PRIVATE_REGISTRY_URL>"
-    rewrite:
-      - pattern: "^(.*)"
-        replacement: "quaycache/$1"
+- registry: "docker.io"
+  endpoints:
+  - "<PRIVATE_REGISTRY_URL>"
+  rewrite:
+  - pattern: "^(.*)"
+    replacement: "proxycache/$1"
+- registry: "quay.io"
+  endpoints:
+  - "<PRIVATE_REGISTRY_URL>"
+  rewrite:
+  - pattern: "^(.*)"
+    replacement: "quaycache/$1"
 
 # Registry authentication and TLS configuration
 private_registry_configs:
-  - registry: "<PRIVATE_REGISTRY_URL>"
-    auth:
-      username: "<PRIVATE_REGISTRY_USERNAME>"
-      password: "<PRIVATE_REGISTRY_PASSWORD>"
-    tls:
-      insecure_skip_verify: true
-      # Uncomment and configure these if using custom certificates
-      # cert_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.crt"
-      # key_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.key"
-      # ca_file: "/home/ubuntu/certs/ca.crt"
+- registry: "<PRIVATE_REGISTRY_URL>"
+  auth:
+    username: "<PRIVATE_REGISTRY_USERNAME>"
+    password: "<PRIVATE_REGISTRY_PASSWORD>"
+  tls:
+    insecure_skip_verify: true
+    # Uncomment and configure these if using custom certificates
+    # cert_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.crt"
+    # key_file: "/home/ubuntu/certs/privateregistry.qa.rancher.space.key"
+    # ca_file: "/home/ubuntu/certs/ca.crt"
 
-# Whether to enable private registry configuration
+    # Whether to enable private registry configuration
 enable_private_registry: true
 
 # Deploy Rancher
@@ -132,6 +132,7 @@ install_helm: true
 rancher_bootstrap_password: "<RANCHER_BOOTSTRAP_PASSWORD>"
 rancher_image_tag: <RANCHER_VERSION>
 rancher_use_bundled_system_charts: true
+
 # rancher_advanced_values:
 #   extraEnv:
 #     - name: CATTLE_UI_OFFLINE_PREFERRED

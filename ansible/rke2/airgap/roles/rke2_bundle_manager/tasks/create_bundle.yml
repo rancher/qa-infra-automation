@@ -5,22 +5,18 @@
   ansible.builtin.file:
     path: "{{ rke2_bundle_dir }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
     owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-  become: true
 
 - name: Create staging directory structure
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
     owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
   loop:
     - "{{ rke2_staging_dir }}/tmp"
     - "{{ rke2_staging_dir }}/tmp/rke2-artifacts"
-  become: true
 
 - name: Copy files to staging directory
   ansible.builtin.copy:
@@ -37,7 +33,6 @@
       dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2-images.tar.gz"
     - src: "{{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt"
       dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/sha256sum-{{ rke2_arch }}.txt"
-  become: true
 
 - name: Create archive of RKE2 files
   community.general.archive:
@@ -45,10 +40,8 @@
     dest: "{{ rke2_bundle_dir }}/{{ rke2_bundle_filename }}"
     format: gz
     owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-    mode: '0644'
+    mode: "0644"
     remove: true
-  become: true
   register: bundle_created
 
 - name: Verify bundle creation
@@ -73,5 +66,4 @@
     - "{{ rke2_staging_dir }}"
     - "{{ rke2_temp_dir }}"
     - /tmp/rke2-install.sh
-  become: true
   when: rke2_cleanup_temp_files | bool

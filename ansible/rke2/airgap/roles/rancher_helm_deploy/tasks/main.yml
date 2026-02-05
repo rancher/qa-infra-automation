@@ -21,6 +21,7 @@
       ignore_errors: true
 
     - name: Display Helm version
+      when: helm_output_version.rc == 0
       ansible.builtin.debug:
         msg: "Helm version: {{ helm_output_version.stdout }}"
 
@@ -31,7 +32,7 @@
           ansible.builtin.get_url:
             url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
             dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
-            mode: '0644'
+            mode: "0644"
           retries: 3
           delay: 30
 
@@ -47,7 +48,7 @@
           ansible.builtin.copy:
             src: /tmp/linux-amd64/helm
             dest: /usr/local/bin/helm
-            mode: '0755'
+            mode: "0755"
             remote_src: true
 
         - name: Verify Helm installation

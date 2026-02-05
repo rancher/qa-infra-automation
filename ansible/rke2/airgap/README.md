@@ -48,7 +48,7 @@ airgap/
 │   └── setup/
 │       ├── setup-agent-nodes.yml
 │       ├── setup-kubectl-access.yml
-│       └── setup-ssh-keys.yml
+│       └── verify-connection.yml
 ├── roles/
 │   ├── rke2_bundle_manager/         # Reusable bundle download/creation
 │   ├── rke2_install/
@@ -56,7 +56,7 @@ airgap/
 │   ├── rke2_upgrade/
 │   ├── rke2_registry_config/
 │   ├── rancher_helm_deploy/
-│   └── ssh_setup/
+│   └── ssh_verify/
 ├── ansible.cfg
 └── README.md
 ```
@@ -92,13 +92,11 @@ all:
         bastion-node:
           ansible_host: "{{ bastion_host }}"
           ansible_user: "{{ bastion_user }}"
-          ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
 
     airgap_nodes:
       vars:
         ansible_user: "ubuntu"
-        ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
-        ansible_ssh_common_args: "-o ProxyCommand='ssh -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        ansible_ssh_common_args: "-A -o ProxyCommand='ssh -A -W %h:%p -i {{ ssh_private_key_file }} {{ bastion_user }}@{{ bastion_host }}' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
       hosts:
         rke2-server-0:
@@ -315,9 +313,9 @@ This will check:
 - SSH connectivity and bastion host readiness
 - Generate a comprehensive readiness report
 
-### 2. Update Target Version
+### 2. Update Target Version (Optional)
 
-Edit `inventory/group_vars/all.yml` to specify the target RKE2 version:
+If you wish to use a specific version of RKE2 other than the latest, you can update [`inventory/group_vars/all.yml`](../../inventory/group_vars/all.yml.template) to specify the target RKE2 version:
 
 ```yaml
 # RKE2 Configuration

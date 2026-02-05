@@ -18,7 +18,7 @@
       ansible.builtin.get_url:
         url: "https://dl.k8s.io/release/{{ k8s_version }}/bin/linux/amd64/kubectl"
         dest: /usr/local/bin/kubectl
-        mode: '0755'
+        mode: "0755"
         owner: root
         group: root
       register: kubectl_download
@@ -38,7 +38,7 @@
       ansible.builtin.file:
         path: /root/.kube
         state: directory
-        mode: '0700'
+        mode: "0700"
         owner: root
         group: root
 
@@ -46,7 +46,7 @@
       ansible.builtin.file:
         path: "/home/{{ ansible_user }}/.kube"
         state: directory
-        mode: '0700'
+        mode: "0700"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
@@ -77,7 +77,7 @@
       ansible.builtin.copy:
         content: "{{ updated_kubeconfig }}"
         dest: /root/.kube/config
-        mode: '0600'
+        mode: "0600"
         owner: root
         group: root
 
@@ -85,7 +85,7 @@
       ansible.builtin.copy:
         content: "{{ updated_kubeconfig }}"
         dest: "/home/{{ ansible_user }}/.kube/config"
-        mode: '0600'
+        mode: "0600"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
@@ -98,8 +98,7 @@
       become: false
 
     - name: Test kubectl connectivity
-      ansible.builtin.shell: kubectl get nodes -o wide
-      # Using shell because we need to set environment variables
+      ansible.builtin.command: kubectl get nodes -o wide
       environment:
         KUBECONFIG: /root/.kube/config
       register: kubectl_test
