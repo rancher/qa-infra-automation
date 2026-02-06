@@ -21,6 +21,14 @@ rancher_use_bundled_system_charts: true
 # TLS configuration options: "rancher", "letsEncrypt", "secret"
 rancher_tls_source: "rancher"
 
+# Private registry configuration for airgap deployments
+# Set rancher_system_default_registry to your private registry URL (without https://)
+# Example: "privateregistry.qa.rancher.space"
+rancher_system_default_registry: ""
+
+# Optional: Specify custom Rancher image repository
+# rancher_image_repository: "privateregistry.qa.rancher.space/rancher/rancher"
+
 # Advanced configuration
 rancher_advanced_values: {}
   # Example advanced configuration:

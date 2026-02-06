@@ -355,6 +355,19 @@ For detailed upgrade procedures, troubleshooting, and best practices, see [`docs
 Key configuration options:
 
 ```yaml
+# RKE2 Configuration
+rke2_version: "v1.31.11+rke2r1"
+
+# Server configuration options (applied to server/control-plane nodes)
+# These are appended to /etc/rancher/rke2/config.yaml after core settings
+rke2_server_options: |
+  ingress-controller: traefik
+
+# Worker/Agent configuration options (applied to agent/worker nodes)
+rke2_agent_options: |
+  node-label:
+    - "workload=general"
+
 # SSH Configuration
 ssh_private_key_file: "~/.ssh/id_rsa"
 
@@ -396,6 +409,19 @@ private_registry_configs:
     tls:
       insecure_skip_verify: true
 ```
+
+### RKE2 Server Options
+
+The `rke2_server_options` variable allows you to pass any RKE2 server configuration. Common configurations:
+
+| Configuration | rke2_server_options value |
+|--------------|---------------------------|
+| Use Traefik (default) | `ingress-controller: traefik` |
+| Use Nginx | `ingress-controller: ""` or omit |
+| Disable ingress | (add `rke2-ingress-nginx` to `disable_components`) |
+
+See [RKE2 Server Config Reference](https://docs.rke2.io/reference/server_config) for all options.
+See [GROUP_VARS_GUIDE.md](docs/configuration/GROUP_VARS_GUIDE.md) for more configuration examples.
 
 ## CNI (Container Network Interface) Configuration
 

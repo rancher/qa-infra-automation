@@ -3,6 +3,9 @@
 - name: Configure private registry for RKE2
   when: enable_private_registry | default(false) | bool
   block:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
     - name: Create RKE2 configuration directory
       ansible.builtin.file:
         path: /etc/rancher/rke2
@@ -19,14 +22,40 @@
         group: root
         mode: "0644"
         backup: true
-      notify:
-        - restart rke2-server
-        - restart rke2-agent
+      register: registries_changed
+
+    - name: Restart rke2-server if registries changed
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: restarted
+      when:
+        - registries_changed.changed
+        - ansible_facts.services['rke2-server.service'] is defined
+        - ansible_facts.services['rke2-server.service']['state'] == 'running'
+
+    - name: Wait for rke2-server to be ready after restart
+      ansible.builtin.wait_for:
+        path: /var/lib/rancher/rke2/server/node-token
+        timeout: 300
+      when:
+        - registries_changed.changed
+        - ansible_facts.services['rke2-server.service'] is defined
+        - ansible_facts.services['rke2-server.service']['state'] == 'running'
+
+    - name: Restart rke2-agent if registries changed
+      ansible.builtin.systemd:
+        name: rke2-agent
+        state: restarted
+      when:
+        - registries_changed.changed
+        - ansible_facts.services['rke2-agent.service'] is defined
+        - ansible_facts.services['rke2-agent.service']['state'] == 'running'
 
     - name: Wait for registry configuration to be applied
       ansible.builtin.pause:
-        seconds: 5
-        prompt: "Waiting for registry configuration to be written"
+        seconds: 10
+        prompt: "Waiting for registry configuration to be applied"
+      when: registries_changed.changed
 
     - name: Verify registries.yaml exists and is readable
       ansible.builtin.stat:
@@ -35,4 +64,9 @@
 
     - name: Display registry configuration status
       ansible.builtin.debug:
-        msg: "Registry configuration file created: {{ registries_file.stat.exists }}"
+        msg: |
+          Registry configuration:
+          - File exists: {{ registries_file.stat.exists }}
+          - File changed: {{ registries_changed.changed }}
+          - Mirrors configured: {{ private_registry_mirrors | length }}
+          - Registry configs: {{ private_registry_configs | length }}

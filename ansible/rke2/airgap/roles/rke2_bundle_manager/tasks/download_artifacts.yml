@@ -30,7 +30,9 @@
   ansible.builtin.debug:
     msg: |
       "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2.linux-{{ rke2_arch }}.tar.gz"
-      "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images.linux-{{ rke2_arch }}.tar.gz"
+      "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images-core.linux-{{ rke2_arch }}.tar.gz"
+      "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images-{{ cni | default('canal') }}.linux-{{ rke2_arch }}.tar.gz"
+      "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images-traefik.linux-{{ rke2_arch }}.tar.gz"
       "{{ rke2_github_release_url }}/{{ rke2_version }}/sha256sum-{{ rke2_arch }}.txt"
 
 - name: Download RKE2 tarball
@@ -45,14 +47,38 @@
   delay: "{{ rke2_download_delay }}"
   become: false
 
-- name: Download RKE2 images
+- name: Download RKE2 core images
   ansible.builtin.get_url:
-    url: "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images.linux-{{ rke2_arch }}.tar.gz"
-    dest: "{{ rke2_temp_dir }}/rke2-images.tar.gz"
+    url: "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images-core.linux-{{ rke2_arch }}.tar.gz"
+    dest: "{{ rke2_temp_dir }}/rke2-images-core.tar.gz"
     mode: "0644"
     timeout: "{{ rke2_download_timeout }}"
-  register: images_download
-  until: images_download is success
+  register: core_images_download
+  until: core_images_download is success
+  retries: "{{ rke2_download_retries }}"
+  delay: "{{ rke2_download_delay }}"
+  become: false
+
+- name: Download RKE2 CNI images ({{ cni | default('canal') }})
+  ansible.builtin.get_url:
+    url: "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images-{{ cni | default('canal') }}.linux-{{ rke2_arch }}.tar.gz"
+    dest: "{{ rke2_temp_dir }}/rke2-images-cni.tar.gz"
+    mode: "0644"
+    timeout: "{{ rke2_download_timeout }}"
+  register: cni_images_download
+  until: cni_images_download is success
+  retries: "{{ rke2_download_retries }}"
+  delay: "{{ rke2_download_delay }}"
+  become: false
+
+- name: Download RKE2 Traefik ingress images
+  ansible.builtin.get_url:
+    url: "{{ rke2_github_release_url }}/{{ rke2_version }}/rke2-images-traefik.linux-{{ rke2_arch }}.tar.gz"
+    dest: "{{ rke2_temp_dir }}/rke2-images-traefik.tar.gz"
+    mode: "0644"
+    timeout: "{{ rke2_download_timeout }}"
+  register: traefik_images_download
+  until: traefik_images_download is success
   retries: "{{ rke2_download_retries }}"
   delay: "{{ rke2_download_delay }}"
   become: false

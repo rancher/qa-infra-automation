@@ -1,6 +1,5 @@
-
 # rke2 version and installation settings
-kubernetes_version: 'f0f0ffd24dc607ea4577f836ea36301aa091c749'
+kubernetes_version: 'v1.34.2+rke2r1'
 
 # kubeconfig file
 kubeconfig_file: './kubeconfig.yaml'
@@ -10,3 +9,8 @@ cni: "calico"
 
 # node token file for cluster communication
 node_token_file: "/tmp/node_token.txt"
+
+# Server configuration flags (applied to server/control-plane nodes)
+# See https://docs.rke2.io/reference/server_config for all options
+server_flags: |
+  ingress-controller: traefik

@@ -162,29 +162,6 @@
         kubeconfig: "/home/{{ ansible_user }}/.kube/config"
       register: rancher_service_info
 
-    - name: Display Rancher access information
-      ansible.builtin.debug:
-        msg: |
-          ========================================
-          Rancher Deployment Complete!
-          ========================================
-          Hostname: {{ rancher_private_hostname }}
-          Public Hostname: {{ rancher_public_hostname }}
-          Namespace: {{ rancher_namespace }}
-          Access URL: https://{{ rancher_public_hostname }}
-
-          Service Type: {{ rancher_service_info.resources[0].spec.type }}
-          {% if rancher_service_info.resources[0].spec.type == 'LoadBalancer' %}
-          LoadBalancer IP: {{ rancher_service_info.resources[0].status.loadBalancer.ingress[0].ip | default('Pending') }}
-          {% elif rancher_service_info.resources[0].spec.type == 'NodePort' %}
-          NodePort: {{ rancher_service_info.resources[0].spec.ports[0].nodePort }}
-          {% endif %}
-
-          Bootstrap Password: {{ rancher_bootstrap_password }}
-
-          Note: Configure DNS or /etc/hosts to point {{ rancher_public_hostname }} to the appropriate IP address.
-          ========================================
-
     - name: Create Rancher configuration summary
       ansible.builtin.copy:
         content: |
@@ -241,7 +218,25 @@
       delay: 10
       failed_when: false
 
-    - name: Display Rancher API health status
+    - name: Display Rancher access information
       ansible.builtin.debug:
-        msg: "{{ 'Rancher API is healthy and responding at https://' + rancher_private_hostname if rancher_api_check.status == 200 else 'Rancher API check completed
-          (status: ' + (rancher_api_check.status | default('unreachable') | string) + '). Verify connectivity to ' + rancher_private_hostname }}"
+        msg: |
+          ╔════════════════════════════════════════════════════════════════╗
+          ║              RANCHER DEPLOYMENT COMPLETE                       ║
+          ╠════════════════════════════════════════════════════════════════╣
+          ║  Access URL:        https://{{ rancher_public_hostname }}
+          ║  Internal URL:      https://{{ rancher_private_hostname }}
+          ║  Namespace:         {{ rancher_namespace }}
+          ╠════════════════════════════════════════════════════════════════╣
+          ║  Bootstrap Password: {{ rancher_bootstrap_password }}
+          ╠════════════════════════════════════════════════════════════════╣
+          ║  Service Type: {{ rancher_service_info.resources[0].spec.type }}
+          {% if rancher_service_info.resources[0].spec.type == 'LoadBalancer' %}
+          ║  LoadBalancer IP: {{ rancher_service_info.resources[0].status.loadBalancer.ingress[0].ip | default('Pending') }}
+          {% elif rancher_service_info.resources[0].spec.type == 'NodePort' %}
+          ║  NodePort: {{ rancher_service_info.resources[0].spec.ports[0].nodePort }}
+          {% endif %}
+          ║  API Status: {{ 'HEALTHY' if rancher_api_check.status == 200 else 'CHECK CONNECTIVITY' }}
+          ╠════════════════════════════════════════════════════════════════╣
+          ║  Summary file: /home/{{ ansible_user }}/rancher-deployment-summary.txt
+          ╚════════════════════════════════════════════════════════════════╝
