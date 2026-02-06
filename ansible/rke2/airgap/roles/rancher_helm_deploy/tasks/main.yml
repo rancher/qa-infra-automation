@@ -92,33 +92,7 @@
             cert_manager_helm_values:
               installCRDs: true
 
-        - name: Add private registry to cert-manager values (airgap)
-          when:
-            - enable_private_registry | default(false) | bool
-            - private_registry_mirrors is defined
-          block:
-            - name: Find quay.io mirror configuration
-              ansible.builtin.set_fact:
-                quay_mirror: "{{ private_registry_mirrors | selectattr('registry', 'equalto', 'quay.io') | first | default({}) }}"
-
-            - name: Extract registry endpoint and rewrite prefix
-              ansible.builtin.set_fact:
-                cert_manager_registry: "{{ quay_mirror.endpoints[0] | default('') | regex_replace('^https?://', '') }}"
-                cert_manager_rewrite_prefix: "{{ quay_mirror.rewrite[0].replacement | default('$1') | regex_replace('\\$1$', '') | regex_replace('/$', '') }}"
-              when: quay_mirror | length > 0
-
-            - name: Build cert-manager image paths
-              ansible.builtin.set_fact:
-                cert_manager_helm_values: "{{ cert_manager_helm_values | combine({
-                  'image': {'registry': cert_manager_registry, 'repository': cert_manager_rewrite_prefix + '/jetstack/cert-manager-controller'},
-                  'webhook': {'image': {'registry': cert_manager_registry, 'repository': cert_manager_rewrite_prefix + '/jetstack/cert-manager-webhook'}},
-                  'cainjector': {'image': {'registry': cert_manager_registry, 'repository': cert_manager_rewrite_prefix + '/jetstack/cert-manager-cainjector'}},
-                  'startupapicheck': {'image': {'registry': cert_manager_registry, 'repository': cert_manager_rewrite_prefix + '/jetstack/cert-manager-startupapicheck'}}
-                }, recursive=True) }}"
-              when:
-                - cert_manager_registry is defined
-                - cert_manager_registry | length > 0
-
+  
         - name: Display cert-manager Helm values
           ansible.builtin.debug:
             msg: |
@@ -166,30 +140,6 @@
           ingress:
             tls:
               source: "{{ rancher_tls_source }}"
-
-    - name: Configure Rancher for private registry (airgap)
-      when:
-        - enable_private_registry | default(false) | bool
-        - private_registry_mirrors is defined
-      block:
-        - name: Find docker.io mirror configuration for Rancher
-          ansible.builtin.set_fact:
-            docker_mirror: "{{ private_registry_mirrors | selectattr('registry', 'equalto', 'docker.io') | first | default({}) }}"
-
-        - name: Extract docker.io registry endpoint and rewrite prefix
-          ansible.builtin.set_fact:
-            rancher_registry: "{{ docker_mirror.endpoints[0] | default('') | regex_replace('^https?://', '') }}"
-            rancher_rewrite_prefix: "{{ docker_mirror.rewrite[0].replacement | default('$1') | regex_replace('\\$1$', '') | regex_replace('/$', '') }}"
-          when: docker_mirror | length > 0
-
-        - name: Build systemDefaultRegistry with rewrite prefix
-          ansible.builtin.set_fact:
-            rancher_helm_values: "{{ rancher_helm_values | combine({'systemDefaultRegistry': rancher_registry + '/' + rancher_rewrite_prefix}) }}"
-          when:
-            - rancher_registry is defined
-            - rancher_registry | length > 0
-            - rancher_rewrite_prefix is defined
-            - rancher_rewrite_prefix | length > 0
 
     - name: Add rancherImageTag to Helm values
       ansible.builtin.set_fact:
