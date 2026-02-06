@@ -193,7 +193,7 @@
       register: cluster_nodes
       until: cluster_nodes.rc == 0
       retries: 60
-      delay: 15
+      delay: 10
       when: inventory_hostname == groups[target_group][0]
       changed_when: false
 
@@ -221,7 +221,7 @@
       register: system_pods_check
       until: system_pods_check.rc == 0
       retries: 60
-      delay: 15
+      delay: 10
       when: inventory_hostname == groups[target_group][0]
       changed_when: false
 
