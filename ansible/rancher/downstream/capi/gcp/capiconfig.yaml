@@ -1,0 +1,725 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capg-system
+---
+apiVersion: turtles-capi.cattle.io/v1alpha1
+kind: CAPIProvider
+metadata:
+  name: gcp
+  namespace: capg-system
+spec:
+  type: infrastructure
+  variables:
+    GCP_B64ENCODED_CREDENTIALS: ${GCP_B64ENCODED_CREDENTIALS}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capi-kubeadm-bootstrap-system
+---
+apiVersion: turtles-capi.cattle.io/v1alpha1
+kind: CAPIProvider
+metadata:
+  name: kubeadm-bootstrap
+  namespace: capi-kubeadm-bootstrap-system
+spec:
+  name: kubeadm
+  type: bootstrap
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capi-kubeadm-control-plane-system
+---
+apiVersion: turtles-capi.cattle.io/v1alpha1
+kind: CAPIProvider
+metadata:
+  name: kubeadm-control-plane
+  namespace: capi-kubeadm-control-plane-system
+spec:
+  name: kubeadm
+  type: controlPlane
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: gcp-kubeadm-example
+spec:
+  controlPlane:
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+      kind: KubeadmControlPlaneTemplate
+      name: gcp-kubeadm-example-control-plane
+    machineInfrastructure:
+      ref:
+        kind: GCPMachineTemplate
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        name: gcp-machine-control-plane
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: GCPClusterTemplate
+      name: gcp-kubeadm-example
+  workers:
+    machineDeployments:
+      - class: default-worker
+        template:
+          bootstrap:
+            ref:
+              apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+              kind: KubeadmConfigTemplate
+              name: gcp-kubeadm-example-worker-bootstraptemplate
+          infrastructure:
+            ref:
+              apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+              kind: GCPMachineTemplate
+              name: gcp-kubeadm-example-worker-machinetemplate
+  variables:
+    - name: gcpProject
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+    - name: region
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: us-west1
+    - name: clusterFailureDomains
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: array
+          items:
+            type: string
+    - name: gcpNetworkName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+    - name: imageId
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+    - name: machineType
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: n1-standard-2
+  patches:
+    - name: gcpProject
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: GCPClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/project
+              valueFrom:
+                variable: gcpProject
+    - name: region
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: GCPClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/region
+              valueFrom:
+                variable: region
+    - name: gcpNetworkName
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: GCPClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/network/name
+              valueFrom:
+                variable: gcpNetworkName
+    - name: clusterFailureDomains
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: GCPClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/failureDomains
+              valueFrom:
+                variable: clusterFailureDomains
+    - name: controlPlaneImageId
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: GCPMachineTemplate
+            matchResources:
+              controlPlane: true
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/image
+              valueFrom:
+                variable: imageId
+    - name: workerImageId
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: GCPMachineTemplate
+            matchResources:
+              machineDeploymentClass:
+                names:
+                  - default-worker
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/image
+              valueFrom:
+                variable: imageId
+    - name: controlPlaneMachineType
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: GCPMachineTemplate
+            matchResources:
+              controlPlane: true
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/instanceType
+              valueFrom:
+                variable: machineType
+    - name: workerMachineType
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: GCPMachineTemplate
+            matchResources:
+              machineDeploymentClass:
+                names:
+                  - default-worker
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/instanceType
+              valueFrom:
+                variable: machineType
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: GCPClusterTemplate
+metadata:
+  name: gcp-kubeadm-example
+spec:
+  template:
+    spec:
+      project: REPLACEME  # this value is replaced by a patch
+      region: REPLACEME   # this value is replaced by a patch
+      network:
+        name: REPLACEME   # this value is replaced by a patch
+      failureDomains:
+      - REPLACEME # this value is replaced by a patch
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlaneTemplate
+metadata:
+  name: gcp-kubeadm-example-control-plane
+spec:
+  template:
+    spec:
+      kubeadmConfigSpec:
+        clusterConfiguration:
+          apiServer:
+            timeoutForControlPlane: 20m
+          controllerManager:
+            extraArgs:
+              allocate-node-cidrs: "false"
+        initConfiguration:
+          nodeRegistration:
+            name: '{{ ds.meta_data.local_hostname.split(".")[0] }}'
+            kubeletExtraArgs:
+              cloud-provider: external
+        joinConfiguration:
+          nodeRegistration:
+            name: '{{ ds.meta_data.local_hostname.split(".")[0] }}'
+            kubeletExtraArgs:
+              cloud-provider: external
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: GCPMachineTemplate
+metadata:
+  name: gcp-machine-control-plane
+spec:
+  template:
+    spec:
+      instanceType: REPLACEME
+      image: REPLACEME
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: GCPMachineTemplate
+metadata:
+  name: gcp-kubeadm-example-worker-machinetemplate
+spec:
+  template:
+    spec:
+      instanceType: REPLACEME
+      image: REPLACEME
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: gcp-kubeadm-example-worker-bootstraptemplate
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          name: '{{ ds.meta_data.local_hostname.split(".")[0] }}'
+          kubeletExtraArgs:
+            cloud-provider: external
+---
+apiVersion: fleet.cattle.io/v1alpha1
+kind: HelmOp
+metadata:
+  name: calico-cni
+spec:
+  helm:
+    version: v3.29.3
+    releaseName: projectcalico
+    repo: https://docs.tigera.io/calico/charts
+    chart: tigera-operator
+    templateValues:
+      installation: |-
+        cni:
+          type: Calico
+        calicoNetwork:
+          bgp: Disabled
+          mtu: 1350
+          ipPools:
+            ${- range $cidr := .ClusterValues.Cluster.spec.clusterNetwork.pods.cidrBlocks }
+            - cidr: "${ $cidr }"
+              encapsulation: VXLAN
+            ${- end}
+        ${- range $variable := .ClusterValues.Cluster.spec.topology.variables }
+          ${- if eq $variable.name "imagePullSecret" }
+        imagePullSecrets:
+        - name: "${ $variable.value }"
+          ${- end}
+        ${- end } 
+  diff:
+    comparePatches:
+    - apiVersion: operator.tigera.io/v1
+      kind: Installation
+      name: default
+      operations:
+      - {"op":"remove", "path":"/spec/kubernetesProvider"}
+  insecureSkipTLSVerify: true
+  targets:
+  - clusterSelector:
+      matchLabels:
+        cni: calico
+      matchExpressions:
+      - key: clusterclass-name.fleet.addons.cluster.x-k8s.io
+        operator: In
+        values:
+          - azure-rke2-example
+          - azure-kubeadm-example
+          - docker-kubeadm-example
+          - docker-rke2-example
+          - etcd-snapshot-restore
+          - vsphere-kubeadm-example
+          - vsphere-rke2-example
+          - gcp-kubeadm-example
+---
+kind: Bundle
+apiVersion: fleet.cattle.io/v1alpha1
+metadata:
+  name: cloud-controller-manager-gcp
+spec:
+  resources:
+  - content: |-
+      ---
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        name: cloud-controller-manager
+        namespace: kube-system
+        labels:
+          component: cloud-controller-manager
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      spec:
+        selector:
+          matchLabels:
+            component: cloud-controller-manager
+        updateStrategy:
+          type: RollingUpdate
+        template:
+          metadata:
+            labels:
+              tier: control-plane
+              component: cloud-controller-manager
+          spec:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: node-role.kubernetes.io/control-plane
+                      operator: Exists
+                  - matchExpressions:
+                    - key: node-role.kubernetes.io/master
+                      operator: Exists
+            tolerations:
+            - key: node.cloudprovider.kubernetes.io/uninitialized
+              value: "true"
+              effect: NoSchedule
+            - key: node.kubernetes.io/not-ready
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/master
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/control-plane
+              effect: NoSchedule
+            serviceAccountName: cloud-controller-manager
+            containers:
+            - name: cloud-controller-manager
+              image: gcr.io/k8s-staging-cloud-provider-gcp/cloud-controller-manager:master
+              imagePullPolicy: IfNotPresent
+              command:
+              - /cloud-controller-manager
+              - --cluster-cidr=192.168.0.0/16
+              - --cloud-provider=gce
+              - --leader-elect=true
+              - --use-service-account-credentials
+              - --allocate-node-cidrs=true
+              - --configure-cloud-routes=false
+              - --cidr-allocator-type=CloudAllocator
+              - --cloud-config=/etc/kubernetes/cloud.config
+              livenessProbe:
+                failureThreshold: 3
+                httpGet:
+                  host: 127.0.0.1
+                  path: /healthz
+                  port: 10258
+                  scheme: HTTPS
+                initialDelaySeconds: 15
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 15
+              resources:
+                requests:
+                  cpu: "200m"
+              volumeMounts:
+              - mountPath: /etc/kubernetes/cloud.config
+                name: cloudconfig
+                readOnly: true
+            hostNetwork: true
+            priorityClassName: system-cluster-critical
+            volumes:
+            - hostPath:
+                path: /etc/kubernetes/cloud.config
+                type: FileOrCreate
+              name: cloudconfig
+      ---
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: cloud-controller-manager
+        namespace: kube-system
+        labels:
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: cloud-controller-manager:apiserver-authentication-reader
+        namespace: kube-system
+        labels:
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: extension-apiserver-authentication-reader
+      subjects:
+      - apiGroup: ""
+        kind: ServiceAccount
+        name: cloud-controller-manager
+        namespace: kube-system
+      ---
+      # https://github.com/kubernetes/cloud-provider-gcp/blob/master/deploy/cloud-node-controller-role.yaml
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: system:cloud-controller-manager
+        labels:
+          addonmanager.kubernetes.io/mode: Reconcile
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      rules:
+      - apiGroups:
+        - ""
+        - events.k8s.io
+        resources:
+        - events
+        verbs:
+        - create
+        - patch
+        - update
+      - apiGroups:
+        - coordination.k8s.io
+        resources:
+        - leases
+        verbs:
+        - create
+        - get
+        - list
+        - watch
+        - update
+      - apiGroups:
+        - coordination.k8s.io
+        resourceNames:
+        - cloud-controller-manager
+        resources:
+        - leases
+        verbs:
+        - get
+        - update
+      - apiGroups:
+        - ""
+        resources:
+        - endpoints
+        - serviceaccounts
+        verbs:
+        - create
+        - get
+        - update
+      - apiGroups:
+        - ""
+        resources:
+        - nodes
+        verbs:
+        - get
+        - update
+        - patch # until #393 lands
+      - apiGroups:
+        - ""
+        resources:
+        - namespaces
+        verbs:
+        - get
+      - apiGroups:
+        - ""
+        resources:
+        - nodes/status
+        verbs:
+        - patch
+        - update
+      - apiGroups:
+        - ""
+        resources:
+        - secrets
+        verbs:
+        - create
+        - delete
+        - get
+        - update
+      - apiGroups:
+        - "authentication.k8s.io"
+        resources:
+        - tokenreviews
+        verbs:
+        - create
+      - apiGroups:
+        - "*"
+        resources:
+        - "*"
+        verbs:
+        - list
+        - watch
+      - apiGroups:
+        - ""
+        resources:
+        - serviceaccounts/token
+        verbs:
+        - create
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: system::leader-locking-cloud-controller-manager
+        namespace: kube-system
+        labels:
+          addonmanager.kubernetes.io/mode: Reconcile
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      rules:
+      - apiGroups:
+        - ""
+        resources:
+        - configmaps
+        verbs:
+        - watch
+      - apiGroups:
+        - ""
+        resources:
+        - configmaps
+        resourceNames:
+        - cloud-controller-manager
+        verbs:
+        - get
+        - update
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: system:controller:cloud-node-controller
+        labels:
+          addonmanager.kubernetes.io/mode: Reconcile
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      rules:
+      - apiGroups:
+        - ""
+        resources:
+        - events
+        verbs:
+        - create
+        - patch
+        - update
+      - apiGroups:
+        - ""
+        resources:
+        - nodes
+        verbs:
+        - get
+        - list
+        - update
+        - delete
+        - patch
+      - apiGroups:
+        - ""
+        resources:
+        - nodes/status
+        verbs:
+        - get
+        - list
+        - update
+        - delete
+        - patch
+
+      - apiGroups:
+        - ""
+        resources:
+        - pods
+        verbs:
+        - list
+        - delete
+      - apiGroups:
+        - ""
+        resources:
+        - pods/status
+        verbs:
+        - list
+        - delete
+      ---
+
+      # https://github.com/kubernetes/cloud-provider-gcp/blob/master/deploy/cloud-node-controller-binding.yaml
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: system::leader-locking-cloud-controller-manager
+        namespace: kube-system
+        labels:
+          addonmanager.kubernetes.io/mode: Reconcile
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: system::leader-locking-cloud-controller-manager
+      subjects:
+      - kind: ServiceAccount
+        name: cloud-controller-manager
+        namespace: kube-system
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: system:cloud-controller-manager
+        labels:
+          addonmanager.kubernetes.io/mode: Reconcile
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:cloud-controller-manager
+      subjects:
+      - kind: ServiceAccount
+        apiGroup: ""
+        name: cloud-controller-manager
+        namespace: kube-system
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: system:controller:cloud-node-controller
+        labels:
+          addonmanager.kubernetes.io/mode: Reconcile
+          addon.kops.k8s.io/name: gcp-cloud-controller.addons.k8s.io
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:controller:cloud-node-controller
+      subjects:
+      - kind: ServiceAccount
+        name: cloud-node-controller
+        namespace: kube-system
+    name: cloud-controller-manager-gcp.yaml
+  targets:
+  - clusterSelector:
+      matchLabels:
+        cloud-provider: gcp
+      matchExpressions:
+      - key: clusterclass-name.fleet.addons.cluster.x-k8s.io
+        operator: In
+        values:
+        - gcp-kubeadm-example
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  labels:
+    cluster-api.cattle.io/rancher-auto-import: "true"
+    cni: calico
+    cloud-provider: gcp
+  name: gcp-quickstart
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 192.168.0.0/16
+  topology:
+    class: gcp-kubeadm-example
+    controlPlane:
+      replicas: 1
+    workers:
+      machineDeployments:
+        - class: "default-worker"
+          name: "md-0"
+          replicas: 1
+    variables:
+      - name: gcpProject
+        value: ei-container-platform-qa
+      - name: region
+        value: us-central1
+      - name: gcpNetworkName
+        value: default
+      - name: clusterFailureDomains
+        value:
+          - "us-central1-f"
+      - name: imageId
+        value: projects/ei-container-platform-qa/global/images/cluster-api-ubuntu-2404-v1-32-4-1767906970
+      - name: machineType
+        value: n2d-standard-8
+    version: v1.32.4
