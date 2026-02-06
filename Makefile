@@ -50,7 +50,8 @@ help: ## Show this help message
 	@echo "  2. Run: make infra-up"
 	@echo "  3. Configure $(GROUP_VARS) if needed"
 	@echo "  4. Run: make cluster"
-	@echo "  5. Run: make rancher"
+	@echo "  5. Run: make registry    (for airgap environments)"
+	@echo "  6. Run: make rancher"
 	@echo ""
 	@echo "Note: If not using 'make infra-up', create inventory manually:"
 	@echo "  cp $(ANSIBLE_DIR)/inventory/inventory.yml.template $(INVENTORY)"
@@ -66,12 +67,14 @@ help: ## Show this help message
 	@echo "CLUSTER (Ansible):"
 	@echo "  cluster             Install Kubernetes cluster"
 	@echo "  agents              Setup additional agent nodes"
+	@echo "  registry            Configure private registry on cluster nodes"
 	@echo "  rancher             Deploy Rancher to cluster"
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
+	@echo "  info                Display cluster and Rancher access information"
 	@echo "  test-ssh            Test SSH connectivity to all nodes"
 	@echo "  ssh-bastion         SSH to bastion host"
 	@echo "  ping                Ping all hosts"
@@ -197,6 +200,12 @@ rancher: check-inventory ## Deploy Rancher to cluster
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
+.PHONY: registry
+registry: check-inventory ## Configure private registry on cluster nodes
+	@echo "Configuring private registry..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rke2-registry-config-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+
 .PHONY: upgrade-cluster
 upgrade: check-inventory ## Upgrade Kubernetes cluster
 	@echo "Upgrading $(DISTRO) cluster..."
@@ -230,6 +239,12 @@ status: check-inventory ## Show cluster status
 	@echo "=== Rancher Pods ==="
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible -i $(INVENTORY) bastion -m shell -a "kubectl get pods -n cattle-system 2>/dev/null || echo 'Rancher not deployed'" 2>/dev/null || true
+
+.PHONY: info
+info: check-inventory ## Display cluster and Rancher access information
+	@echo "Gathering cluster and Rancher information..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/info/cluster-info-playbook.yml $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: ssh-bastion
 ssh-bastion: check-inventory ## SSH to bastion host
@@ -266,14 +281,14 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster registry rancher ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster registry rancher ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""
