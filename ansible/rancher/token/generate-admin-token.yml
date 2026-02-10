@@ -1,8 +1,8 @@
 ---
 # Generate Rancher Admin Token
 #
-# This playbook generates a Rancher admin API token using the rancher_token role.
-# See ansible/roles/rancher_token/README.md for complete documentation.
+# This playbook generates a Rancher admin API token using the rancher_auth role.
+# See ansible/rancher/roles/rancher_auth/README.md for complete documentation.
 
 - name: Generate Rancher Admin API Token
   hosts: localhost
@@ -40,7 +40,7 @@
           ========================================
 
   roles:
-    - role: "{{ playbook_dir }}/../roles/rancher_token"
+    - role: "{{ playbook_dir }}/../roles/rancher_auth"
       tags:
         - token
 

@@ -24,4 +24,4 @@ ansible-playbook ansible/rancher/token/generate-admin-token.yml \
   -e rancher_token_password=mypassword
 ```
 
-**See also:** [ansible/roles/rancher_token/README.md](../../roles/rancher_token/README.md) for complete documentation of all options.
+**See also:** [ansible/rancher/roles/rancher_auth/README.md](../roles/rancher_auth/README.md) for complete documentation of all options.

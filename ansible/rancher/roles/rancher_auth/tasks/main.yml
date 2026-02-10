@@ -1,19 +1,22 @@
 ---
-# Rancher Token Role - Main Tasks
+# Rancher Auth Role - Main Tasks
 #
-# This role generates Rancher API tokens with configurable options including:
-# - Token TTL/expiration
-# - Cluster-scoped vs no-scope (admin) tokens
-# - Token descriptions
-# - Output formats (token, json, tfvars)
-# - Optional cattle-config.yaml updates
-# - Optional permanent password setting
+# This role authenticates with Rancher and generates a persistent API token.
+#
+# Token lifecycle:
+#   1. A temporary login token (~15h TTL) is created via /v3-public/localProviders/local
+#   2. The login token is used to create a persistent API token via /v3/tokens
+#   3. The persistent token is written to the output file
+#   4. The temporary login token is deleted (cleanup)
+#
+# Only the persistent API token is preserved. The temporary login token is
+# an implementation detail and is cleaned up automatically.
 
 # Step 1: Determine Rancher URL from available sources
 # Priority: rancher_url variable > external_lb_hostname > internal_lb_hostname
 - name: Determine Rancher URL from inventory or explicit variable
   ansible.builtin.set_fact:
-    rancher_url_resolved: "{{ rancher_url_scheme }}://{{ external_lb_hostname | default(internal_lb_hostname | default('')) }}"
+    rancher_url_resolved: "https://{{ external_lb_hostname | default(internal_lb_hostname | default('')) }}"
   when: rancher_url | default('') | length == 0
 
 - name: Use explicit rancher_url when provided
@@ -35,13 +38,13 @@
   ansible.builtin.assert:
     that:
       - rancher_url_resolved | length > 0
-      - rancher_url_resolved != (rancher_url_scheme ~ '://')
+      - rancher_url_resolved != 'https://'
     fail_msg: |
       No Rancher URL could be determined. Please provide one of:
         - RANCHER_URL environment variable
         - rancher_url: Explicit full URL (e.g., https://rancher.example.com)
-        - external_lb_hostname: Hostname from inventory (will use {{ rancher_url_scheme }}://)
-        - internal_lb_hostname: Internal hostname from inventory (will use {{ rancher_url_scheme }}://)
+        - external_lb_hostname: Hostname from inventory (will use https://)
+        - internal_lb_hostname: Internal hostname from inventory (will use https://)
     success_msg: "Rancher URL resolved: {{ rancher_url_resolved }}"
 
 - name: Normalize Rancher URL
@@ -54,9 +57,7 @@
       Token Generation Configuration:
         Rancher URL: {{ rancher_url_normalized }}
         Username: {{ rancher_token_username }}
-        Token Description: {{ rancher_token_description }}
         Token TTL: {{ rancher_token_ttl | int }} ms ({{ 'no expiration' if rancher_token_ttl | int == 0 else (rancher_token_ttl | int / 3600000) | round(2) ~ ' hours' }})
-        Cluster Scope: {{ rancher_token_cluster_id | default('none (admin token)', true) }}
         Output File: {{ rancher_token_output_file }}
         Output Format: {{ rancher_token_output_format }}
         Set Permanent Password: {{ 'yes' if rancher_permanent_password | default('') | length > 0 else 'no' }}
@@ -79,13 +80,14 @@
     validate_certs: "{{ rancher_validate_certs }}"
     status_code: 201
   register: rancher_login_response
-  retries: "{{ rancher_api_retries }}"
-  delay: "{{ rancher_api_retry_delay }}"
+  retries: 10
+  delay: 15
   until: rancher_login_response.status == 201
 
 - name: Extract login token
   ansible.builtin.set_fact:
     rancher_login_token: "{{ rancher_login_response.json.token }}"
+    rancher_login_token_id: "{{ rancher_login_response.json.id }}"
 
 # Get user ID (needed for password setting and token metadata)
 - name: Get current user details
@@ -137,26 +139,22 @@
 #
 # Generated token characteristics:
 #   - TTL: Controlled by rancher_token_ttl (default: 0 = no expiration)
-#   - Scope: Full admin access unless rancher_token_cluster_id is set to a specific cluster ID
-#   - The 'clusterId' field is the Rancher API's expected JSON key name for cluster-scoped tokens
+#   - Scope: Full admin access (unscoped admin token)
 #
-# Note: TTL must be an integer in the JSON body. We build the request body as a Python dict
-# inside {{ }} to ensure proper type handling (integers stay as integers, not strings).
+# Note: TTL must be an integer in the JSON body. The {{ }} block below constructs
+# a Jinja2 dictionary literal. The `| int` filter converts the TTL value to a Python
+# integer, ensuring the resulting JSON has `"ttl": 0` (number) instead of `"ttl": "0"`
+# (string). The Rancher API rejects string values for numeric fields.
 - name: Build token request body with proper integer types
   ansible.builtin.set_fact:
     token_request_body: >-
       {{
         {
           "type": "token",
-          "description": rancher_token_description,
+          "description": "automation-token-" ~ ansible_date_time.epoch,
           "ttl": rancher_token_ttl | int
         }
       }}
-
-- name: Add cluster ID to request body if specified
-  ansible.builtin.set_fact:
-    token_request_body: "{{ token_request_body | combine({'clusterId': rancher_token_cluster_id}) }}"
-  when: rancher_token_cluster_id | default('') | length > 0
 
 - name: Debug token request body
   ansible.builtin.debug:
@@ -217,7 +215,7 @@
         "token_id": "{{ rancher_token_id }}",
         "token_name": "{{ rancher_token_name }}",
         "user_id": "{{ rancher_user_id }}",
-        "description": "{{ rancher_token_description }}",
+        "description": "automation-token-{{ ansible_date_time.epoch }}",
         "ttl": {{ rancher_token_ttl | int }},
         "created_at": "{{ ansible_date_time.iso8601 }}"
       }
@@ -229,7 +227,7 @@
 - name: Write token (tfvars format)
   ansible.builtin.copy:
     content: |
-      # Generated by rancher_token role at {{ ansible_date_time.iso8601 }}
+      # Generated by rancher_auth role at {{ ansible_date_time.iso8601 }}
       fqdn = "{{ rancher_url_normalized }}"
       api_key = "{{ rancher_api_token }}"
     dest: "{{ rancher_token_output_file }}"
@@ -285,6 +283,26 @@
     - name: Display cattle config update status
       ansible.builtin.debug:
         msg: "Updated {{ rancher_cattle_config_file }} with adminToken"
+
+# Step 7: Clean up temporary login token
+# The login API creates a session token (~15h TTL) that is only needed during this
+# playbook run. We delete it to avoid leaving orphaned tokens in Rancher.
+- name: Delete temporary login token
+  ansible.builtin.uri:
+    url: "{{ rancher_url_normalized }}/v3/tokens/{{ rancher_login_token_id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ rancher_api_token }}"
+      Accept: "application/json"
+    validate_certs: "{{ rancher_validate_certs }}"
+    status_code: [200, 204]
+  register: login_token_cleanup
+  failed_when: false
+
+- name: Display login token cleanup status
+  ansible.builtin.debug:
+    msg: "{{ 'Temporary login token cleaned up' if login_token_cleanup.status in [200, 204] else 'Warning: Could not clean up temporary login token (non-critical)' }}"
+  when: ansible_verbosity >= 1
 
 # Export token as fact for use by other tasks/roles
 - name: Set token facts for downstream tasks

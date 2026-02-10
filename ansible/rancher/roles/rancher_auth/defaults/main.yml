@@ -1,5 +1,5 @@
 ---
-# Rancher Token Role - Default Variables
+# Rancher Auth Role - Default Variables
 #
 # See README.md for complete documentation and usage examples.
 
@@ -7,7 +7,6 @@
 # Priority: RANCHER_URL env var > rancher_url variable > external_lb_hostname > internal_lb_hostname
 # If rancher_url is not set, the role will attempt to use external_lb_hostname or internal_lb_hostname from inventory
 rancher_url: ""
-rancher_url_scheme: "https"  # URL scheme to use when building URL from hostname
 
 # Authentication
 # Can also be set via RANCHER_ADMIN_PASSWORD environment variable
@@ -15,14 +14,10 @@ rancher_token_username: "admin"
 rancher_token_password: "{{ rancher_bootstrap_password | default('rancherrocks') }}"
 
 # Token Configuration
-rancher_token_description: "automation-token-{{ ansible_date_time.epoch }}"
 rancher_token_ttl: 0  # Token TTL in milliseconds (0 = no expiration)
-rancher_token_cluster_id: ""  # Empty = no scope (admin token), or specify cluster ID for scoped token
 
 # API Configuration
 rancher_validate_certs: false
-rancher_api_retries: 10
-rancher_api_retry_delay: 15
 
 # Output Configuration
 rancher_token_output_file: "/tmp/rancher-admin-token"

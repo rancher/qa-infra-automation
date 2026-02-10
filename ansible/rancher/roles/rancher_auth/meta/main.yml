@@ -1,8 +1,8 @@
 ---
-# Rancher Token Role - Metadata
+# Rancher Auth Role - Metadata
 galaxy_info:
   author: Rancher QA
-  description: Generate Rancher API tokens with configurable options
+  description: Generate Rancher API tokens and manage authentication
   license: Apache-2.0
   min_ansible_version: "2.10"
 
@@ -22,6 +22,7 @@ galaxy_info:
     - rancher
     - kubernetes
     - authentication
+    - auth
     - token
 
 dependencies: []
