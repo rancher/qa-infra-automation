@@ -87,25 +87,14 @@
             name: jetstack
             repo_url: "https://charts.jetstack.io"
 
-        - name: Build cert-manager Helm values
-          ansible.builtin.set_fact:
-            cert_manager_helm_values:
-              installCRDs: true
-
-  
-        - name: Display cert-manager Helm values
-          ansible.builtin.debug:
-            msg: |
-              Cert-Manager Helm Values:
-              {{ cert_manager_helm_values | to_nice_yaml }}
-
         - name: Install cert-manager
           kubernetes.core.helm:
             name: cert-manager
             chart_ref: jetstack/cert-manager
             release_namespace: cert-manager
             create_namespace: true
-            values: "{{ cert_manager_helm_values }}"
+            values:
+              installCRDs: true
             kubeconfig: "{{ kubeconfig_path }}"
 
         - name: Wait for cert-manager to be ready
@@ -131,27 +120,6 @@
           retries: 12
           delay: 10
 
-    - name: Build Rancher Helm values
-      ansible.builtin.set_fact:
-        rancher_helm_values:
-          hostname: "{{ rancher_private_hostname }}"
-          bootstrapPassword: "{{ rancher_bootstrap_password }}"
-          useBundledSystemChart: "{{ rancher_use_bundled_system_charts }}"
-          ingress:
-            tls:
-              source: "{{ rancher_tls_source }}"
-
-    - name: Add rancherImageTag to Helm values
-      ansible.builtin.set_fact:
-        rancher_helm_values: "{{ rancher_helm_values | combine({'rancherImageTag': rancher_image_tag}) }}"
-      when: rancher_image_tag is defined and rancher_image_tag | length > 0
-
-    - name: Display Rancher Helm values
-      ansible.builtin.debug:
-        msg: |
-          Rancher Helm Values:
-          {{ rancher_helm_values | to_nice_yaml }}
-
     - name: Install or Upgrade Rancher using Helm
       kubernetes.core.helm:
         name: rancher
@@ -163,7 +131,14 @@
         wait_timeout: 600s
         state: present
         kubeconfig: "{{ kubeconfig_path }}"
-        values: "{{ rancher_helm_values }}"
+        values:
+          hostname: "{{ rancher_private_hostname }}"
+          bootstrapPassword: "{{ rancher_bootstrap_password }}"
+          useBundledSystemChart: "{{ rancher_use_bundled_system_charts }}"
+          rancherImageTag: "{{ rancher_image_tag | default(omit) }}"
+          ingress:
+            tls:
+              source: "{{ rancher_tls_source }}"
 
     - name: Wait for Rancher deployment to be ready
       kubernetes.core.k8s_info:

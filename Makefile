@@ -74,7 +74,6 @@ help: ## Show this help message
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
-	@echo "  info                Display cluster and Rancher access information"
 	@echo "  test-ssh            Test SSH connectivity to all nodes"
 	@echo "  ssh-bastion         SSH to bastion host"
 	@echo "  ping                Ping all hosts"
@@ -239,12 +238,6 @@ status: check-inventory ## Show cluster status
 	@echo "=== Rancher Pods ==="
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible -i $(INVENTORY) bastion -m shell -a "kubectl get pods -n cattle-system 2>/dev/null || echo 'Rancher not deployed'" 2>/dev/null || true
-
-.PHONY: info
-info: check-inventory ## Display cluster and Rancher access information
-	@echo "Gathering cluster and Rancher information..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/info/cluster-info-playbook.yml $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: ssh-bastion
 ssh-bastion: check-inventory ## SSH to bastion host
