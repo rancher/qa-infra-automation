@@ -1,0 +1,31 @@
+---
+# Rancher Auth Role - Default Variables
+#
+# See README.md for complete documentation and usage examples.
+
+# Rancher URL Configuration
+# Priority: RANCHER_URL env var > rancher_url variable > external_lb_hostname > internal_lb_hostname
+# If rancher_url is not set, the role will attempt to use external_lb_hostname or internal_lb_hostname from inventory
+rancher_url: ""
+
+# Authentication
+# Can also be set via RANCHER_ADMIN_PASSWORD environment variable
+rancher_token_username: "admin"
+rancher_token_password: "{{ rancher_bootstrap_password | default('rancherrocks') }}"
+
+# Token Configuration
+rancher_token_ttl: 0  # Token TTL in milliseconds (0 = no expiration)
+
+# API Configuration
+rancher_validate_certs: false
+
+# Output Configuration
+rancher_token_output_file: "/tmp/rancher-admin-token"
+rancher_token_output_format: "token"  # Options: token, json, tfvars
+
+# Optional: Update cattle-config.yaml
+rancher_cattle_config_file: ""  # If set, updates this file with the token
+
+# Optional: Set permanent password after first login
+# If rancher_permanent_password is defined and non-empty, the permanent password will be set
+rancher_permanent_password: ""

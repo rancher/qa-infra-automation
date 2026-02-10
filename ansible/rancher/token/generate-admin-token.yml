@@ -1,0 +1,62 @@
+---
+# Generate Rancher Admin Token
+#
+# This playbook generates a Rancher admin API token using the rancher_auth role.
+# See ansible/rancher/roles/rancher_auth/README.md for complete documentation.
+
+- name: Generate Rancher Admin API Token
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  pre_tasks:
+    # Environment variable support for CI/CD convenience
+    # Only override variables when env vars are actually set (non-empty)
+    # This preserves any values from inventory/group_vars/all.yml
+    - name: Override rancher_url from RANCHER_URL env var if set
+      ansible.builtin.set_fact:
+        rancher_url: "{{ lookup('env', 'RANCHER_URL') }}"
+      when: lookup('env', 'RANCHER_URL') | length > 0
+
+    - name: Override rancher_token_password from RANCHER_ADMIN_PASSWORD env var if set
+      ansible.builtin.set_fact:
+        rancher_token_password: "{{ lookup('env', 'RANCHER_ADMIN_PASSWORD') }}"
+      when: lookup('env', 'RANCHER_ADMIN_PASSWORD') | length > 0
+
+    - name: Display playbook header
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Rancher Admin Token Generator
+          ========================================
+          This playbook will generate an admin API token
+          for the specified Rancher server.
+
+          URL will be resolved from (in order):
+            1. RANCHER_URL environment variable
+            2. rancher_url variable (from inventory/extra vars)
+            3. external_lb_hostname from inventory
+            4. internal_lb_hostname from inventory
+          ========================================
+
+  roles:
+    - role: "{{ playbook_dir }}/../roles/rancher_auth"
+      tags:
+        - token
+
+  post_tasks:
+    - name: Display completion summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Token Generation Complete
+          ========================================
+          Rancher URL: {{ rancher_url_normalized }}
+          Token ID: {{ rancher_generated_token_id }}
+          Token Name: {{ rancher_generated_token_name }}
+          Output File: {{ rancher_token_output_file }}
+          Output Format: {{ rancher_token_output_format }}
+          {% if rancher_cattle_config_file | default('') | length > 0 %}
+          Cattle Config: {{ rancher_cattle_config_file }} (updated)
+          {% endif %}
+          ========================================
