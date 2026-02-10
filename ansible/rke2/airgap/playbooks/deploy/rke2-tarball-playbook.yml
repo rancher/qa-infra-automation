@@ -18,13 +18,21 @@
       register: raw_version_response
       when: rke2_version is not defined
 
-    - name: Set rke2_version fact for all hosts
+    - name: Extract RKE2 version from response
       ansible.builtin.set_fact:
         rke2_version: "{{ raw_version_response.content | regex_search('tag/([^/\" >]+)', '\\1') | first }}"
+      when:
+        - rke2_version is not defined
+        - raw_version_response is defined
+        - raw_version_response.content is defined
+
+    - name: Set rke2_version fact for all hosts
+      ansible.builtin.set_fact:
+        rke2_version: "{{ rke2_version }}"
       delegate_to: "{{ item }}"
       delegate_facts: true
       loop: "{{ groups['all'] }}"
-      when: raw_version_response is defined
+      when: rke2_version is defined
 
     - name: Validate required variables
       ansible.builtin.assert:
@@ -167,18 +175,24 @@
     - name: Wait for all cluster nodes to be Ready
       ansible.builtin.shell: |
         export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-        NOT_READY=$(/var/lib/rancher/rke2/bin/kubectl get nodes --no-headers | grep -v " Ready" | wc -l)
-        if [ "$NOT_READY" -eq 0 ]; then
+        # Expected number of nodes in target group
+        EXPECTED={{ groups[target_group] | length }}
+        # Get nodes and check STATUS column (column 2) for Ready
+        TOTAL=$(/var/lib/rancher/rke2/bin/kubectl get nodes --no-headers 2>/dev/null | wc -l)
+        READY=$(/var/lib/rancher/rke2/bin/kubectl get nodes --no-headers 2>/dev/null | awk '$2 == "Ready" {count++} END {print count+0}')
+        if [ "$TOTAL" -ge "$EXPECTED" ] && [ "$READY" -eq "$TOTAL" ]; then
+          echo "All $TOTAL nodes are Ready (expected: $EXPECTED)"
           /var/lib/rancher/rke2/bin/kubectl get nodes -o wide
           exit 0
         else
-          echo "Waiting for $NOT_READY nodes to be Ready..."
+          echo "Waiting for nodes: $READY/$TOTAL Ready (expected: $EXPECTED nodes)"
+          /var/lib/rancher/rke2/bin/kubectl get nodes --no-headers 2>/dev/null || echo "kubectl not ready yet"
           exit 1
         fi
       become: true
       register: cluster_nodes
       until: cluster_nodes.rc == 0
-      retries: 30
+      retries: 60
       delay: 10
       when: inventory_hostname == groups[target_group][0]
       changed_when: false
@@ -187,7 +201,7 @@
       ansible.builtin.debug:
         msg: |
           RKE2 Cluster Information:
-          {{ cluster_nodes.stdout if cluster_nodes.rc == 0 else 'kubectl not available or cluster not ready' }}
+          {{ cluster_nodes.stdout | default('kubectl not available or cluster not ready') }}
       when: cluster_nodes is defined and inventory_hostname == groups[target_group][0]
 
     - name: Wait for critical system pods to be Running
@@ -206,7 +220,7 @@
       become: true
       register: system_pods_check
       until: system_pods_check.rc == 0
-      retries: 30
+      retries: 60
       delay: 10
       when: inventory_hostname == groups[target_group][0]
       changed_when: false

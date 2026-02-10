@@ -320,6 +320,10 @@
       retries: 5
       delay: 60
       
+    - name: Detect ingress controller type
+      ansible.builtin.set_fact:
+        ingress_controller: "{{ 'nginx' if (server_flags | default('')) is search('ingress-controller:\\s*nginx') else 'traefik' }}"
+
     - name: Wait for ingress-nginx admission webhook to be ready
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig_file }}"
@@ -334,3 +338,20 @@
         (ingress_endpoints.resources[0].subsets[0].addresses | default([])) | length > 0
       retries: 30
       delay: 20
+      when: ingress_controller == 'nginx'
+
+    - name: Wait for traefik ingress controller to be ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - app.kubernetes.io/name=traefik
+      register: traefik_pods
+      until: >
+        traefik_pods.resources | length > 0 and
+        (traefik_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length > 0)
+      retries: 30
+      delay: 20
+      when: ingress_controller == 'traefik'

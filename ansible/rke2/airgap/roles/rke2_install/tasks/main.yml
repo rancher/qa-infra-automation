@@ -204,7 +204,9 @@
       failed_when: not file_check.stat.exists
       loop:
         - /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
-        - /tmp/rke2-artifacts/rke2-images.tar.gz
+        - /tmp/rke2-artifacts/rke2-images-core.tar.gz
+        - /tmp/rke2-artifacts/rke2-images-cni.tar.gz
+        - /tmp/rke2-artifacts/rke2-images-traefik.tar.gz
         - /tmp/rke2-artifacts/sha256sum-amd64.txt
         - /tmp/rke2-install.sh
 
@@ -214,9 +216,11 @@
           RKE2 Artifacts Status:
           - Bundle extracted to: /tmp/rke2-artifacts/
           - RKE2 tarball: {{ file_check.results[0].stat.exists }}
-          - Images bundle: {{ file_check.results[1].stat.exists }}
-          - Checksums file: {{ file_check.results[2].stat.exists }}
-          - Install script: {{ file_check.results[3].stat.exists }}
+          - Core images: {{ file_check.results[1].stat.exists }}
+          - CNI images ({{ cni | default('canal') }}): {{ file_check.results[2].stat.exists }}
+          - Traefik ingress images: {{ file_check.results[3].stat.exists }}
+          - Checksums file: {{ file_check.results[4].stat.exists }}
+          - Install script: {{ file_check.results[5].stat.exists }}
       run_once: true
 
 - name: Create RKE2 images directory
@@ -226,13 +230,19 @@
     mode: "0755"
   become: true
 
-- name: Copy RKE2 images to proper location
+- name: Copy all RKE2 images to proper location
   ansible.builtin.copy:
-    src: /tmp/rke2-artifacts/rke2-images.tar.gz
+    src: "{{ item }}"
     dest: /var/lib/rancher/rke2/agent/images/
     remote_src: true
     mode: "0644"
   become: true
+  loop:
+    - /tmp/rke2-artifacts/rke2-images-core.tar.gz
+    - /tmp/rke2-artifacts/rke2-images-cni.tar.gz
+    - /tmp/rke2-artifacts/rke2-images-traefik.tar.gz
+  loop_control:
+    label: "{{ item | basename }}"
 
 - name: Run RKE2 server install script
   ansible.builtin.shell: |
@@ -426,6 +436,14 @@
     seconds: 30
   when: inventory_hostname == groups[target_group][0]
 
+- name: Wait for node token to exist on server (from agent nodes)
+  ansible.builtin.wait_for:
+    path: /var/lib/rancher/rke2/server/node-token
+    timeout: 600
+  become: true
+  delegate_to: "{{ groups[target_group][0] }}"
+  when: inventory_hostname != groups[target_group][0]
+
 - name: Get node token from server
   ansible.builtin.slurp:
     src: /var/lib/rancher/rke2/server/node-token
@@ -456,25 +474,43 @@
   become: true
   when: inventory_hostname != groups[target_group][0]
 
-- name: Start RKE2 agent
+- name: Start RKE2 agent service
   ansible.builtin.systemd:
     name: rke2-agent
     state: started
     enabled: true
+    daemon_reload: true
   become: true
   when: inventory_hostname != groups[target_group][0]
-  async: 120
-  poll: 0
-  register: agent_start_async
-
-- name: Wait for all agents to start
-  ansible.builtin.async_status:
-    jid: "{{ agent_start_async.ansible_job_id }}"
   register: agent_start_result
-  until: agent_start_result.finished
-  retries: 24
-  delay: 5
-  when: agent_start_async is defined and agent_start_async.ansible_job_id is defined
+  failed_when: false
+
+- name: Wait for RKE2 agent service to be active
+  ansible.builtin.shell: |
+    # Check if service is active (running)
+    STATE=$(systemctl is-active rke2-agent.service 2>/dev/null || echo "unknown")
+    if [ "$STATE" = "active" ] || [ "$STATE" = "activating" ]; then
+      echo "RKE2 agent service state: $STATE"
+      exit 0
+    else
+      echo "RKE2 agent service state: $STATE"
+      journalctl -u rke2-agent.service --no-pager -n 5 2>/dev/null || true
+      exit 1
+    fi
+  become: true
+  register: agent_service_check
+  until: agent_service_check.rc == 0
+  retries: 60
+  delay: 10
+  when: inventory_hostname != groups[target_group][0]
+  changed_when: false
+
+- name: Display agent service status
+  ansible.builtin.debug:
+    msg: |
+      RKE2 Agent Status on {{ inventory_hostname }}:
+      {{ agent_service_check.stdout | default('No output') }}
+  when: inventory_hostname != groups[target_group][0] and agent_service_check is defined
 
 - name: Wait for kubeconfig
   ansible.builtin.wait_for:
