@@ -347,7 +347,7 @@
         kind: Pod
         namespace: kube-system
         label_selectors:
-          - app.kubernetes.io/name=traefik
+          - app.kubernetes.io/name=rke2-traefik
       register: traefik_pods
       until: >
         traefik_pods.resources | length > 0 and
