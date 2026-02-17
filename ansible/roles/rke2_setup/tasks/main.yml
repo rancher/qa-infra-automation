@@ -1,0 +1,33 @@
+---
+# Main tasks for rke2_setup role
+# Prepares the system for RKE2 installation
+
+- name: Display OS information
+  ansible.builtin.debug:
+    msg: "Detected OS: {{ ansible_distribution }} {{ ansible_distribution_version }} ({{ ansible_os_family }})"
+
+- name: Install required packages (SLES/openSUSE)
+  community.general.zypper:
+    name: "{{ rke2_required_packages }}"
+    state: present
+  when: ansible_os_family == "Suse"
+  become: true
+
+- name: Install required packages (RHEL/CentOS)
+  ansible.builtin.yum:
+    name: "{{ rke2_required_packages }}"
+    state: present
+  when: ansible_os_family == "RedHat"
+  become: true
+
+- name: Install required packages (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: "{{ rke2_required_packages }}"
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+  become: true
+
+- name: Display setup completion
+  ansible.builtin.debug:
+    msg: "System setup complete. Required packages installed. Firewall managed by cloud provider security groups."

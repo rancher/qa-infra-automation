@@ -80,6 +80,7 @@ aws_hostname_prefix   = "hostnameprefix"
 aws_ssh_user          = "ec2-user"
 user_id               = "user_id"
 public_ssh_key        = "sshkey"
+private_ssh_key       = "/path/to/.ssh/id_rsa"
 nodes = [
   {
     count = 1

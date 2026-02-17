@@ -1,0 +1,30 @@
+---
+# Default variables for rke2_config role
+
+# RKE2 configuration directory
+rke2_config_dir: /etc/rancher/rke2
+
+# RKE2 token file (for joining nodes)
+rke2_token_file: "{{ rke2_config_dir }}/token"
+
+# Default CNI (Container Network Interface)
+rke2_cni: calico
+
+# Default RKE2 configuration for server nodes
+rke2_server_config:
+  cni: "{{ rke2_cni }}"
+  tls-san:
+    - "{{ fqdn }}"
+    - "{{ kube_api_host }}"
+  write-kubeconfig-mode: "0644"
+
+# Default RKE2 configuration for agent nodes
+rke2_agent_config:
+  server: "https://{{ kube_api_host }}:9345"
+
+# Whether to disable default components
+rke2_disable_components: []
+# Example: ["rke2-ingress-nginx", "rke2-metrics-server"]
+
+# Additional configuration options (merged into config)
+rke2_additional_config: {}
