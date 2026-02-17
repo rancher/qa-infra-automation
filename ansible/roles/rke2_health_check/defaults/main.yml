@@ -1,0 +1,32 @@
+---
+# Default variables for rke2_health_check role
+
+# Path to kubeconfig file (local copy fetched from master)
+rke2_kubeconfig_path: "{{ playbook_dir }}/kubeconfig.yaml"
+
+# Whether to check if all nodes are Ready
+rke2_check_nodes_ready: true
+
+# Whether to check if all system pods are Running
+rke2_check_system_pods: true
+
+# Whether to check if API server is responsive
+rke2_check_api_server: true
+
+# Whether to check etcd health
+rke2_check_etcd_health: true
+
+# Timeout for health checks (seconds)
+rke2_health_check_timeout: 60
+
+# Whether to fail playbook if health checks fail
+rke2_health_check_fail_on_error: true
+
+# Minimum number of expected nodes (0 = don't check)
+rke2_expected_node_count: 0
+
+# System namespaces to check for pod health
+rke2_system_namespaces:
+  - kube-system
+  - kube-public
+  - kube-node-lease

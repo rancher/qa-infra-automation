@@ -1,0 +1,32 @@
+---
+# Default variables for rke2_cluster role
+
+# RKE2 configuration directory
+rke2_config_dir: /etc/rancher/rke2
+
+# RKE2 data directory
+rke2_data_dir: /var/lib/rancher/rke2
+
+# RKE2 token file (for joining nodes)
+rke2_token_file: "{{ rke2_data_dir }}/server/token"
+
+# Timeout for waiting for RKE2 to be ready (seconds)
+rke2_wait_timeout: 300
+
+# Interval for checking RKE2 status (seconds)
+rke2_check_interval: 10
+
+# Path to kubeconfig on master node
+rke2_kubeconfig_source: /etc/rancher/rke2/rke2.yaml
+
+# Local destination for kubeconfig
+rke2_kubeconfig_dest: "{{ playbook_dir }}/kubeconfig.yaml"
+
+# Wait for cluster to be fully ready
+rke2_wait_for_ready: true
+
+# Number of retries for starting services
+rke2_service_start_retries: 3
+
+# Delay between service start retries (seconds)
+rke2_service_start_delay: 10

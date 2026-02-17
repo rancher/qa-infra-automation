@@ -1,0 +1,239 @@
+---
+# Main tasks for rke2_cluster role
+# Starts RKE2 services and forms the cluster
+
+- name: Display cluster formation start
+  ansible.builtin.debug:
+    msg: "Starting RKE2 cluster formation..."
+  run_once: true
+
+# Master node initialization
+- name: Start RKE2 on master node
+  when: rke2_node_role == 'master'
+  block:
+    - name: Start rke2-server service on master
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: started
+        enabled: true
+      become: true
+      register: master_service_start
+      retries: "{{ rke2_service_start_retries }}"
+      delay: "{{ rke2_service_start_delay }}"
+      until: master_service_start is succeeded
+
+    - name: Wait for RKE2 to generate token
+      ansible.builtin.wait_for:
+        path: "{{ rke2_token_file }}"
+        state: present
+        timeout: "{{ rke2_wait_timeout }}"
+      become: true
+
+    - name: Read cluster token from master
+      ansible.builtin.slurp:
+        src: "{{ rke2_token_file }}"
+      become: true
+      register: master_token_content
+
+    - name: Set cluster token fact
+      ansible.builtin.set_fact:
+        rke2_cluster_token: "{{ master_token_content['content'] | b64decode | trim }}"
+
+    - name: Wait for first node to be ready
+      ansible.builtin.command: >
+        /var/lib/rancher/rke2/bin/kubectl --kubeconfig {{ rke2_kubeconfig_source }}
+        get nodes --no-headers
+      register: ready_nodes
+      until: ready_nodes.stdout_lines | length > 0
+      retries: "{{ (rke2_wait_timeout / rke2_check_interval) | int }}"
+      delay: "{{ rke2_check_interval }}"
+      changed_when: false
+      become: true
+      when: rke2_wait_for_ready
+
+    - name: Display ready nodes
+      ansible.builtin.debug:
+        msg: "Ready node(s): {{ ready_nodes.stdout }}"
+      when: rke2_wait_for_ready
+
+# Distribute token to other nodes
+- name: Set cluster token on all nodes
+  ansible.builtin.set_fact:
+    rke2_token: "{{ hostvars[groups['master'][0]]['rke2_cluster_token'] }}"
+  when: rke2_node_role != 'master'
+
+- name: Write token to config on non-master nodes
+  ansible.builtin.lineinfile:
+    path: "{{ rke2_config_dir }}/config.yaml"
+    regexp: '^token:'
+    line: "token: {{ rke2_token }}"
+    create: false
+  become: true
+  when: rke2_node_role != 'master'
+
+# Start server nodes (control-plane/etcd)
+- name: Start RKE2 on server nodes
+  when:
+    - rke2_node_role != 'master'
+    - "'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',')"
+  block:
+    - name: Start rke2-server service on server nodes
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: started
+        enabled: true
+      become: true
+      register: server_service_start
+      retries: "{{ rke2_service_start_retries }}"
+      delay: "{{ rke2_service_start_delay }}"
+      until: server_service_start is succeeded
+
+    - name: Check rke2-server service status on server nodes
+      ansible.builtin.systemd:
+        name: rke2-server
+      register: server_service_status
+      become: true
+
+    - name: Display service status
+      ansible.builtin.debug:
+        msg: "Service {{ server_service_status.name }} is {{ server_service_status.status.ActiveState }}"
+
+    - name: Get recent rke2-server logs
+      ansible.builtin.command: journalctl -u rke2-server -n 50 --no-pager
+      register: server_logs
+      changed_when: false
+      become: true
+
+    - name: Display recent logs
+      ansible.builtin.debug:
+        msg: "{{ server_logs.stdout_lines }}"
+
+    - name: Wait for all server nodes to be ready
+      ansible.builtin.command: >
+        /var/lib/rancher/rke2/bin/kubectl --kubeconfig {{ rke2_kubeconfig_source }}
+        get nodes --no-headers -o custom-columns=NAME:.metadata.name,STATUS:.status.conditions[?(@.type==\"Ready\")].status
+      register: node_status
+      until: >
+        node_status.stdout_lines | select('search', 'True') | list | length >=
+        (groups['master'] | length + groups['server'] | default([]) | length)
+      retries: "{{ (rke2_wait_timeout / rke2_check_interval) | int }}"
+      delay: "{{ rke2_check_interval }}"
+      changed_when: false
+      become: true
+      when: rke2_wait_for_ready
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display all ready nodes
+      ansible.builtin.command: >
+        /var/lib/rancher/rke2/bin/kubectl --kubeconfig {{ rke2_kubeconfig_source }}
+        get nodes
+      register: all_nodes
+      changed_when: false
+      become: true
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Show cluster nodes
+      ansible.builtin.debug:
+        msg: "{{ all_nodes.stdout_lines }}"
+      run_once: true
+      when: rke2_wait_for_ready
+
+# Start agent nodes (workers)
+- name: Start RKE2 on agent nodes
+  when:
+    - rke2_node_role != 'master'
+    - "'worker' in node_roles.split(',')"
+    - "'cp' not in node_roles.split(',') and 'etcd' not in node_roles.split(',')"
+  block:
+    - name: Start rke2-agent service on worker nodes
+      ansible.builtin.systemd:
+        name: rke2-agent
+        state: started
+        enabled: true
+      become: true
+      register: agent_service_start
+      retries: "{{ rke2_service_start_retries }}"
+      delay: "{{ rke2_service_start_delay }}"
+      until: agent_service_start is succeeded
+
+    - name: Wait for agent nodes to be ready
+      ansible.builtin.command: >
+        /var/lib/rancher/rke2/bin/kubectl --kubeconfig {{ rke2_kubeconfig_source }}
+        get nodes --no-headers
+      register: all_nodes_check
+      until: all_nodes_check.stdout_lines | length >= (groups['master'] | length + groups['server'] | default([]) | length + groups['worker'] | default([]) | length)
+      retries: "{{ (rke2_wait_timeout / rke2_check_interval) | int }}"
+      delay: "{{ rke2_check_interval }}"
+      changed_when: false
+      become: true
+      when: rke2_wait_for_ready
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display all nodes after workers joined
+      ansible.builtin.command: >
+        /var/lib/rancher/rke2/bin/kubectl --kubeconfig {{ rke2_kubeconfig_source }}
+        get nodes
+      register: final_nodes
+      changed_when: false
+      become: true
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+      when: rke2_wait_for_ready
+
+    - name: Show all cluster nodes
+      ansible.builtin.debug:
+        msg: "{{ final_nodes.stdout_lines }}"
+      run_once: true
+      when: rke2_wait_for_ready
+
+# Fetch kubeconfig from master
+- name: Fetch kubeconfig from master
+  block:
+    - name: Retrieve kubeconfig from master
+      ansible.builtin.fetch:
+        src: "{{ rke2_kubeconfig_source }}"
+        dest: "{{ rke2_kubeconfig_dest }}"
+        flat: true
+      become: true
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Replace localhost with master IP in kubeconfig
+      ansible.builtin.replace:
+        path: "{{ rke2_kubeconfig_dest }}"
+        regexp: '127\.0\.0\.1'
+        replace: "{{ hostvars[groups['master'][0]]['ansible_host'] }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Display kubeconfig location
+      ansible.builtin.debug:
+        msg: "Kubeconfig saved to {{ rke2_kubeconfig_dest }}"
+
+# Final cluster status
+- name: Get cluster status
+  ansible.builtin.command: >
+    /var/lib/rancher/rke2/bin/kubectl --kubeconfig {{ rke2_kubeconfig_source }}
+    get nodes -o wide
+  register: cluster_status
+  changed_when: false
+  become: true
+  when: rke2_node_role == 'master'
+  run_once: true
+
+- name: Display cluster status
+  ansible.builtin.debug:
+    msg: "{{ cluster_status.stdout_lines }}"
+  when:
+    - rke2_node_role == 'master'
+    - cluster_status is defined
+  run_once: true
+
+- name: Display cluster formation complete
+  ansible.builtin.debug:
+    msg: "RKE2 cluster formation complete!"
+  run_once: true

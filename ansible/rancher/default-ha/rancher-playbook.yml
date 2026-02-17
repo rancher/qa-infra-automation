@@ -110,6 +110,20 @@
         name: "{{ rancher_chart_repo_final }}"
         repo_url: "{{ rancher_chart_repo_url_final }}"
       when: rancher_version != ""
+      register: add_repo_result
+      failed_when:
+        - add_repo_result.failed
+        - "'already have a repository' not in add_repo_result.msg"
+
+    - name: Update Helm repository cache
+      ansible.builtin.command: helm repo update
+      changed_when: false
+      when: rancher_version != ""
+
+    - name: Set chart version (strip 'v' prefix if present)
+      ansible.builtin.set_fact:
+        rancher_chart_version: "{{ rancher_version | regex_replace('^v', '') if rancher_version != 'latest' else '' }}"
+      when: rancher_version != ""
 
     - name: Install Rancher
       kubernetes.core.helm:
@@ -118,7 +132,7 @@
         chart_ref: "{{ rancher_chart_repo_final }}/rancher"
         release_namespace: cattle-system
         create_namespace: true
-        chart_version: "{{ (rancher_version == 'latest') | ternary('', rancher_version | default(rancher_version)) }}"
+        chart_version: "{{ rancher_chart_version }}"
         wait: true
         wait_timeout: "800s"
         values:
