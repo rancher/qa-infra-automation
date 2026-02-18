@@ -29,7 +29,7 @@
           RKE2 Agent Service: {{ ansible_facts.services['rke2-agent.service'].state | default('not found') }}
 
   roles:
-    - role: rke2_registry_config
+    - role: airgap_rke2_registry_config
       tags:
         - registry
         - config

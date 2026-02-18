@@ -74,7 +74,7 @@
       changed_when: collection_install.rc == 0 and 'already satisfied' not in collection_install.stderr
 
   roles:
-    - role: rancher_helm_deploy
+    - role: airgap_rancher_helm_deploy
       tags:
         - rancher
 

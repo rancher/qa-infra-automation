@@ -114,7 +114,7 @@
 
     - name: Download and prepare new RKE2 tarball bundle
       ansible.builtin.include_role:
-        name: rke2_tarball
+        name: airgap_rke2_tarball
       when: upgrade_needed
 
     - name: Skip download if no upgrade needed
@@ -138,7 +138,7 @@
 
     - name: Upgrade RKE2 server
       ansible.builtin.include_role:
-        name: rke2_upgrade
+        name: airgap_rke2_upgrade
       when: server_upgrade_needed
 
     - name: Skip server upgrade
@@ -192,7 +192,7 @@
 
     - name: Upgrade RKE2 agent
       ansible.builtin.include_role:
-        name: rke2_upgrade
+        name: airgap_rke2_upgrade
       when: agent_upgrade_needed
 
     - name: Skip agent upgrade

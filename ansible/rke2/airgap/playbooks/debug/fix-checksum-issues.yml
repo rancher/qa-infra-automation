@@ -69,12 +69,12 @@
 
     - name: Download and verify checksums
       ansible.builtin.include_role:
-        name: rke2_tarball
+        name: airgap_rke2_tarball
         tasks_from: verify_checksums
 
     - name: Create bundle with verified files
       ansible.builtin.include_role:
-        name: rke2_tarball
+        name: airgap_rke2_tarball
 
     - name: Display success message
       ansible.builtin.debug:

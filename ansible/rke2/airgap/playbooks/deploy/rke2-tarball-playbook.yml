@@ -56,7 +56,7 @@
           - Target Directory: /opt/rke2-files
 
   roles:
-    - role: rke2_tarball
+    - role: airgap_rke2_tarball
       tags:
         - rke2
         - tarball
@@ -144,7 +144,7 @@
           - Airgap Nodes: {{ groups[target_group] | length }}
 
   roles:
-    - role: rke2_install
+    - role: airgap_rke2_install
       tags:
         - rke2
         - install
