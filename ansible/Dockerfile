@@ -15,7 +15,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x -o /tmp/nodesource_setup.s
 # Install relevant CLIs: steadybit, kubectl, and helm
 RUN npm install -g steadybit
 
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+RUN arch="$(uname -m)" && \
+    case "$arch" in \
+      x86_64) kubectl_arch=amd64 ;; \
+      aarch64|arm64) kubectl_arch=arm64 ;; \
+      *) echo "Unsupported architecture for kubectl: $arch" >&2; exit 1 ;; \
+    esac && \
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${kubectl_arch}/kubectl" && \
     chmod +x kubectl && \
     mv kubectl /usr/local/bin/
 
