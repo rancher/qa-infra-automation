@@ -34,7 +34,7 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 WORKDIR /ansible
 
 # Install Ansible and any dependencies that may exist in our playbooks
-RUN pip install ansible kubernetes
+RUN pip install --no-cache-dir ansible kubernetes
 
 RUN ansible-galaxy collection install cloud.terraform kubernetes.core
 
