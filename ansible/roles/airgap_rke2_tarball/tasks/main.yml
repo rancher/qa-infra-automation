@@ -4,7 +4,7 @@
 
 - name: Use rke2_bundle_manager to create RKE2 bundle
   ansible.builtin.include_role:
-    name: rke2_bundle_manager
+    name: airgap_rke2_bundle_manager
 
 - name: Display bundle contents for verification
   ansible.builtin.command: tar tvf {{ rke2_bundle_dir | default('/opt/rke2-files') }}/{{ rke2_bundle_filename | default('rke2-bundle.tar.gz') }}

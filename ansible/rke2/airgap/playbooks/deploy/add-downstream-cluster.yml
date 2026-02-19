@@ -27,7 +27,7 @@
       ignore_errors: true
 
   roles:
-    - role: tofu_install
+    - role: airgap_tofu_install
       when: tofu_check.rc != 0
 
   tasks:
