@@ -1,9 +1,9 @@
 # Use a minimal base image with Python, as Ansible requires it
 FROM python:3.14-slim
 
-# Update package lists and install curl and ssh
+# Update package lists and install curl and ssh client
 RUN apt-get update && \
-    apt-get install -y curl openssh-server
+    apt-get install -y curl openssh-client
 
 # Install NodeJS and NPM, then remove package lists
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x -o /tmp/nodesource_setup.sh && \
