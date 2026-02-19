@@ -36,7 +36,7 @@ WORKDIR /ansible
 # Install Ansible and any dependencies that may exist in our playbooks
 RUN pip install ansible kubernetes
 
-RUN ansible-galaxy collection install cloud.terraform
+RUN ansible-galaxy collection install cloud.terraform kubernetes.core
 
 # Set an entrypoint to make the container act as an executable for ansible-playbook
 ENTRYPOINT ["ansible-playbook"]
