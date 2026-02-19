@@ -6,7 +6,9 @@ RUN apt-get update && \
     apt-get install -y curl openssh-server
 
 # Install NodeJS and NPM, then remove package lists
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x -o /tmp/nodesource_setup.sh && \
+    bash /tmp/nodesource_setup.sh && \
+    rm /tmp/nodesource_setup.sh && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
