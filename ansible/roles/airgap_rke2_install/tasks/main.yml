@@ -57,6 +57,7 @@
     - name: Fetch bundle from bastion to cluster nodes
       ansible.builtin.shell: |
         scp -o StrictHostKeyChecking=no \
+        -i ~/.ssh/{{ ssh_private_key_file | basename }} \
         /opt/rke2-files/rke2-bundle.tar.gz \
         {{ hostvars[item]['ansible_user'] }}@{{ hostvars[item]['ansible_host'] | default(item) }}:/tmp/rke2-bundle.tar.gz
       delegate_to: "{{ groups['bastion'][0] }}"

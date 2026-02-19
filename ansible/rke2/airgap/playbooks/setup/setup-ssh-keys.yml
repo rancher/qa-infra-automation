@@ -1,0 +1,7 @@
+---
+- name: Setup SSH keys on bastion host
+  hosts: bastion
+  gather_facts: true
+  become: false
+  roles:
+    - ssh_setup
