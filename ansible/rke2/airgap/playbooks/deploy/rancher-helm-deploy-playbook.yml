@@ -4,8 +4,6 @@
   gather_facts: true
 
   vars:
-    # Enable Rancher deployment
-    deploy_rancher: true
     rancher_private_hostname: "{{ rancher_hostname | default(internal_lb_hostname) }}" # Keeping rancher_hostname to not break previous runs.
     rancher_public_hostname: "{{ public_hostname | default(external_lb_hostname) | default('') }}"
 

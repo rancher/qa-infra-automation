@@ -124,8 +124,6 @@ enable_private_registry: true
 
 # Deploy Rancher
 
-# Deployment control
-deploy_rancher: true
 install_helm: true
 
 # rancher_hostname: "rancher.example.com"  # Optional: overrides internal_lb_hostname from inventory
