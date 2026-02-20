@@ -40,7 +40,7 @@
           ========================================
 
   roles:
-    - role: "{{ playbook_dir }}/../roles/rancher_auth"
+    - role: rancher_auth
       tags:
         - token
 
