@@ -23,3 +23,52 @@ Before running a playbook, ensure you have the following:
     ```
 
     **Note:** you may need to add the flag `--break-system-packages` if not using a venv
+
+## Ansible Configuration
+
+A shared `ansible.cfg` lives at `ansible/ansible.cfg` and applies to all playbooks in this directory tree. It sets common defaults for timeouts, SSH multiplexing, fact caching, and the central roles path.
+
+### Running playbooks locally
+
+If you run `ansible-playbook` from within the `ansible/` directory, the config is picked up automatically:
+
+```bash
+cd ansible/
+ansible-playbook k3s/default/k3s-playbook.yml -i <inventory>
+```
+
+If you run from the repo root or another directory, point Ansible to the shared config explicitly:
+
+```bash
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/k3s/default/k3s-playbook.yml -i <inventory>
+```
+
+### Running playbooks in CI/Jenkins
+
+Set `ANSIBLE_CONFIG` in your pipeline before invoking any playbook:
+
+```groovy
+env.ANSIBLE_CONFIG = "${WORKSPACE}/ansible/ansible.cfg"
+```
+
+or in a shell step:
+
+```bash
+export ANSIBLE_CONFIG="${WORKSPACE}/ansible/ansible.cfg"
+ansible-playbook ansible/k3s/default/k3s-playbook.yml -i <inventory>
+```
+
+### Product-specific overrides
+
+Two products have settings that cannot be shared globally and keep their own configs:
+
+| File | Purpose |
+|---|---|
+| `rke2/airgap/ansible.cfg` | Sets `inventory`, `remote_user`, and `stdout_callback` for airgap deployments |
+| `chaos/ansible.cfg` | Sets `localhost_warning` and `inventory_ignore_patterns` for chaos experiments |
+
+When running those playbooks, set `ANSIBLE_CONFIG` to the product-specific file instead. Neither file sets `roles_path`, so roles are still resolved from `ansible/roles/` via `ANSIBLE_ROLES_PATH` or by running from `ansible/`.
+
+### Roles
+
+All reusable roles live in `ansible/roles/`. The shared `ansible.cfg` sets `roles_path = ./roles` which resolves correctly when the working directory is `ansible/`. Do not add `roles_path` to product-specific configs.

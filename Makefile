@@ -21,6 +21,15 @@ GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
 
 # Ansible settings
 export ANSIBLE_HOST_KEY_CHECKING := False
+export ANSIBLE_CONFIG            := ansible/ansible.cfg
+export ANSIBLE_ROLES_PATH        := $(CURDIR)/ansible/roles
+
+# Airgap deployments need a remote user and yaml output; set via env vars so the
+# shared ansible.cfg does not need product-specific overrides.
+ifeq ($(ENV),airgap)
+export ANSIBLE_REMOTE_USER     := ec2-user
+export ANSIBLE_STDOUT_CALLBACK := yaml
+endif
 
 # Validate configuration
 VALID_DISTROS   := rke2 k3s
@@ -180,8 +189,7 @@ infra-output: ## Show Tofu outputs
 .PHONY: cluster
 cluster: check-inventory ## Install Kubernetes cluster
 	@echo "Installing $(DISTRO) cluster ($(ENV) environment)..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	if [ "$(ENV)" = "airgap" ]; then \
+	@if [ "$(ENV)" = "airgap" ]; then \
 		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml -v $(ANSIBLE_EXTRA_VARS); \
 	else \
 		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml -v $(ANSIBLE_EXTRA_VARS); \
@@ -190,32 +198,27 @@ cluster: check-inventory ## Install Kubernetes cluster
 .PHONY: agents
 agents: check-inventory ## Setup additional agent nodes
 	@echo "Setting up agent nodes..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/setup-agent-nodes.yml -v $(ANSIBLE_EXTRA_VARS)
+	@ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/setup-agent-nodes.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: rancher
 rancher: check-inventory ## Deploy Rancher to cluster
 	@echo "Deploying Rancher..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+	@ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: registry
 registry: check-inventory ## Configure private registry on cluster nodes
 	@echo "Configuring private registry..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rke2-registry-config-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+	@ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rke2-registry-config-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: upgrade-cluster
 upgrade: check-inventory ## Upgrade Kubernetes cluster
 	@echo "Upgrading $(DISTRO) cluster..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-upgrade-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+	@ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-upgrade-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: kubectl-setup
 kubectl-setup: check-inventory ## Setup kubectl access on bastion
 	@echo "Setting up kubectl access..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
+	@ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
 
 # ============================================================================
 # UTILITIES
@@ -224,25 +227,21 @@ kubectl-setup: check-inventory ## Setup kubectl access on bastion
 .PHONY: test-ssh
 test-ssh: check-inventory ## Test SSH connectivity to all nodes
 	@echo "Testing SSH connectivity..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/debug/test-ssh-connectivity.yml -v
+	@ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/debug/test-ssh-connectivity.yml -v
 
 .PHONY: status
 status: check-inventory ## Show cluster status
 	@echo "Cluster Status ($(DISTRO)/$(ENV)):"
 	@echo ""
 	@echo "=== Nodes ==="
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible -i $(INVENTORY) bastion -m shell -a "kubectl get nodes -o wide" 2>/dev/null || echo "Could not get cluster status"
+	@ansible -i $(INVENTORY) bastion -m shell -a "kubectl get nodes -o wide" 2>/dev/null || echo "Could not get cluster status"
 	@echo ""
 	@echo "=== Rancher Pods ==="
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible -i $(INVENTORY) bastion -m shell -a "kubectl get pods -n cattle-system 2>/dev/null || echo 'Rancher not deployed'" 2>/dev/null || true
+	@ansible -i $(INVENTORY) bastion -m shell -a "kubectl get pods -n cattle-system 2>/dev/null || echo 'Rancher not deployed'" 2>/dev/null || true
 
 .PHONY: ssh-bastion
 ssh-bastion: check-inventory ## SSH to bastion host
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	BASTION=$$(ansible-inventory -i $(INVENTORY) --host bastion-node 2>/dev/null | grep '"bastion_host"' | cut -d'"' -f4); \
+	@BASTION=$$(ansible-inventory -i $(INVENTORY) --host bastion-node 2>/dev/null | grep '"bastion_host"' | cut -d'"' -f4); \
 	KEY=$$(ansible-inventory -i $(INVENTORY) --host bastion-node 2>/dev/null | grep '"ssh_private_key_file"' | cut -d'"' -f4); \
 	USER=$$(ansible-inventory -i $(INVENTORY) --host bastion-node 2>/dev/null | grep '"bastion_user"' | cut -d'"' -f4); \
 	KEY=$$(eval echo $$KEY); \
@@ -251,13 +250,11 @@ ssh-bastion: check-inventory ## SSH to bastion host
 
 .PHONY: ping
 ping: check-inventory ## Ping all hosts
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible -i $(INVENTORY) all -m ping
+	@ansible -i $(INVENTORY) all -m ping
 
 .PHONY: inventory-graph
 inventory-graph: check-inventory ## Show inventory structure
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-inventory -i $(INVENTORY) --graph
+	@ansible-inventory -i $(INVENTORY) --graph
 
 .PHONY: clean
 clean: ## Clean local temporary files
