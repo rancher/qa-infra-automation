@@ -15,7 +15,7 @@ all:
         bastion-node:
           ansible_host: "{{ bastion_host }}"
           ansible_user: "{{ bastion_user }}"
-          ansible_ssh_common_args: "-A -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 %{if registry_host != null}
 
     registry:
@@ -23,14 +23,14 @@ all:
         registry-node:
           ansible_host: "{{ registry_host }}"
           ansible_user: "{{ bastion_user }}"
-          ansible_ssh_common_args: "-A -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 %{endif}
     airgap_nodes:
       vars:
         # SSH proxy configuration for all airgap nodes
         ansible_user: "${aws_ssh_user}"
-        ansible_ssh_common_args: "-A -o ProxyCommand='ssh -A -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {{ bastion_user }}@{{ bastion_host }}'"
+        ansible_ssh_common_args: "-o ProxyCommand='ssh -i {{ ssh_private_key_file }} -W %h:%p {{ bastion_user }}@{{ bastion_host }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         bastion_ip: "{{ bastion_host }}"
       children:
 %{for name, addresses in group_addresses~}

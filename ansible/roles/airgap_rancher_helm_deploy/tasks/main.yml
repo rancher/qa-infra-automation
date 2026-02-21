@@ -1,7 +1,6 @@
 ---
 # Deploy Rancher to RKE2 cluster using Helm from bastion server
 - name: Deploy Rancher to RKE2 cluster
-  when: deploy_rancher | default(false) | bool
   tags:
     - rancher
   block:

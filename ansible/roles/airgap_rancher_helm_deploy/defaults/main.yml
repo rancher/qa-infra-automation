@@ -2,7 +2,6 @@
 # Default configuration for Rancher deployment via Helm
 
 # Deployment control
-deploy_rancher: false
 install_helm: true
 
 # Helm configuration

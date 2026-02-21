@@ -1,0 +1,20 @@
+---
+- name: Ensure .ssh directory exists
+  ansible.builtin.file:
+    path: "~{{ ansible_user }}/.ssh"
+    state: directory
+    mode: '0700'
+    owner: "{{ ansible_user }}"
+
+- name: Copy SSH private key to node
+  ansible.builtin.copy:
+    src: "{{ ssh_private_key_file }}"
+    dest: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
+    mode: '0400'
+    owner: "{{ ansible_user }}"
+
+- name: Fix SSH key permissions
+  ansible.builtin.file:
+    path: "~{{ ansible_user }}/.ssh/{{ ssh_private_key_file | basename }}"
+    mode: '0400'
+    owner: "{{ ansible_user }}"
