@@ -1,0 +1,35 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+
+  tasks:
+    - name: Check if kubeconfig file exists
+      stat:
+        path: "{{ kubeconfig_file }}"
+      register: kubeconfig_file_stat
+
+    - name: Fail if kubeconfig file does not exist
+      fail:
+        msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
+      when: not kubeconfig_file_stat.stat.exists
+
+    - name: Apply CAPI cluster config
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ capi_file }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Wait for CAPI cluster be ready
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: MachineDeployment
+        name: "{{ capi_pool_name }}"
+        namespace: fleet-default
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_timeout: 600
+        wait_condition:
+          type: Ready
