@@ -103,6 +103,11 @@
         k3s_channel: "{{ channel | default('latest') }}"
       when: inventory_hostname == 'master'
 
+    - name: Wait for node-token file to be created
+      wait_for:
+        path: /var/lib/rancher/k3s/server/node-token
+        timeout: 120
+
     - name: Get node-token from master
       slurp:
         src: /var/lib/rancher/k3s/server/node-token
