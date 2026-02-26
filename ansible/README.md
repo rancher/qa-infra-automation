@@ -30,12 +30,14 @@ A shared `ansible.cfg` lives at `ansible/ansible.cfg` and applies to all playboo
 
 ### Running playbooks locally
 
-If you run `ansible-playbook` from within the `ansible/` directory, the config is picked up automatically:
+If you run `ansible-playbook` from within the `ansible/` directory, the shared config is picked up automatically:
 
 ```bash
 cd ansible/
 ansible-playbook k3s/default/k3s-playbook.yml -i <inventory>
 ```
+
+> **Note:** If a product subdirectory contains its own `ansible.cfg` (e.g. `rke2/airgap/ansible.cfg`), that local config takes precedence over the shared one when your working directory is inside that subdirectory. See [Product-specific overrides](#product-specific-overrides) below.
 
 If you run from the repo root or another directory, point Ansible to the shared config explicitly:
 
@@ -67,8 +69,21 @@ Two products have settings that cannot be shared globally and keep their own con
 | `rke2/airgap/ansible.cfg` | Sets `inventory`, `remote_user`, and `stdout_callback` for airgap deployments |
 | `chaos/ansible.cfg` | Sets `localhost_warning` and `inventory_ignore_patterns` for chaos experiments |
 
-When running those playbooks, set `ANSIBLE_CONFIG` to the product-specific file instead. Neither file sets `roles_path`, so roles are still resolved from `ansible/roles/` via `ANSIBLE_ROLES_PATH` or by running from `ansible/`.
+When running those playbooks, set `ANSIBLE_CONFIG` to the product-specific file instead:
+
+```bash
+ANSIBLE_CONFIG=ansible/rke2/airgap/ansible.cfg ansible-playbook ...
+```
+
+> **Important:** Ansible does not merge config files. When `ANSIBLE_CONFIG` points to a product-specific `ansible.cfg`, settings from the shared `ansible/ansible.cfg` (including `roles_path`) are **not** inherited. To ensure roles are still resolved from `ansible/roles/`, set `ANSIBLE_ROLES_PATH` explicitly:
+>
+> ```bash
+> export ANSIBLE_ROLES_PATH=$(pwd)/ansible/roles
+> ANSIBLE_CONFIG=ansible/rke2/airgap/ansible.cfg ansible-playbook ...
+> ```
+>
+> The `Makefile` handles this automatically — it sets both `ANSIBLE_CONFIG` and `ANSIBLE_ROLES_PATH` for all targets.
 
 ### Roles
 
-All reusable roles live in `ansible/roles/`. The shared `ansible.cfg` sets `roles_path = ./roles` which resolves correctly when the working directory is `ansible/`. Do not add `roles_path` to product-specific configs.
+All reusable roles live in `ansible/roles/`. The shared `ansible.cfg` sets `roles_path = ./roles`, which resolves correctly when the working directory is `ansible/` and the shared config is in use. Product-specific configs intentionally omit `roles_path` — use `ANSIBLE_ROLES_PATH` instead so that the central roles directory is always authoritative.

@@ -1,7 +1,5 @@
 # Contributing Guide
 
-<!-- AUTO-GENERATED sections are marked and regenerated from Makefile and vars.example-env -->
-
 ## Prerequisites
 
 Install the following tools before working with this repository:
@@ -19,8 +17,6 @@ Install the following tools before working with this repository:
 4. Copy inventory templates and configure group vars (see relevant QUICKSTART.md)
 
 ## Available Commands
-
-<!-- AUTO-GENERATED from Makefile -->
 
 ### Configuration
 
@@ -73,11 +69,7 @@ Override defaults with `make <target> DISTRO=k3s ENV=default PROVIDER=aws`.
 | `make all`            | Full setup: infrastructure + cluster + registry + Rancher|
 | `make setup-from-infra` | Cluster + Rancher setup (infrastructure already exists)|
 
-<!-- END AUTO-GENERATED -->
-
 ## Environment Variables
-
-<!-- AUTO-GENERATED from vars.example-env -->
 
 The following variables can be set in an environment file (see `vars.example-env`):
 
@@ -94,8 +86,6 @@ The following variables can be set in an environment file (see `vars.example-env
 | `KUBECONFIG_FILE`         | Path to kubeconfig output file                      |
 | `VARS_FILE`               | Path to Ansible variables file                      |
 | `PRIVATE_KEY_FILE`        | Path to SSH private key for node access             |
-
-<!-- END AUTO-GENERATED -->
 
 ## Code Standards
 

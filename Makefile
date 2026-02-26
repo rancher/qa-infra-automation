@@ -21,7 +21,7 @@ GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
 
 # Ansible settings
 export ANSIBLE_HOST_KEY_CHECKING := False
-export ANSIBLE_CONFIG            := ansible/ansible.cfg
+export ANSIBLE_CONFIG            := $(CURDIR)/ansible/ansible.cfg
 export ANSIBLE_ROLES_PATH        := $(CURDIR)/ansible/roles
 
 # Airgap deployments need a remote user and yaml output; set via env vars so the
