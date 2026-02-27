@@ -110,6 +110,11 @@
             path: /var/lib/rancher/k3s/server/node-token
             timeout: 300
       rescue:
+        - name: Get k3s service unit definition
+          command: systemctl cat k3s
+          register: k3s_unit_on_failure
+          ignore_errors: true
+
         - name: Get k3s service status on failure
           command: systemctl status k3s --no-pager
           register: k3s_status_on_failure
@@ -120,6 +125,20 @@
           register: k3s_logs_on_failure
           ignore_errors: true
 
+        - name: Check what is listening on port 6443
+          shell: ss -tlnp | grep ':6443' || echo "Nothing on 6443"
+          register: port_6443_on_failure
+          ignore_errors: true
+
+        - name: Check for running k3s processes
+          shell: pgrep -a k3s || echo "No k3s processes"
+          register: k3s_procs_on_failure
+          ignore_errors: true
+
+        - name: Display k3s service unit
+          debug:
+            var: k3s_unit_on_failure.stdout_lines
+
         - name: Display k3s service status
           debug:
             var: k3s_status_on_failure.stdout_lines
@@ -128,9 +147,17 @@
           debug:
             var: k3s_logs_on_failure.stdout_lines
 
+        - name: Display what is on port 6443
+          debug:
+            var: port_6443_on_failure.stdout_lines
+
+        - name: Display k3s processes
+          debug:
+            var: k3s_procs_on_failure.stdout_lines
+
         - name: Fail with context
           fail:
-            msg: "K3s node-token was not created within 300s. K3s may have failed to initialize. Check logs above."
+            msg: "K3s node-token was not created within 300s. K3s may have failed to initialize. Check diagnostics above."
 
     - name: Get node-token from master
       slurp:
