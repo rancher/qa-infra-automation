@@ -53,10 +53,23 @@
 
 - name: Download and install K3s
   shell: |
-    # Skip installation if K3s is already installed
-    if [ -f /usr/local/bin/k3s ]; then
+    # Determine expected service unit path for this node type
+    {% if k3s_node_type == 'agent' %}
+    SERVICE_UNIT="/etc/systemd/system/k3s-agent.service"
+    {% else %}
+    SERVICE_UNIT="/etc/systemd/system/k3s.service"
+    {% endif %}
+
+    # Skip only if both the binary AND the service unit already exist.
+    # If the binary exists but the unit is missing the install script must
+    # run again so that it recreates the systemd service files.
+    if [ -f /usr/local/bin/k3s ] && [ -f "$SERVICE_UNIT" ]; then
       echo "K3s already installed, skipping"
       exit 0
+    fi
+
+    if [ -f /usr/local/bin/k3s ] && [ ! -f "$SERVICE_UNIT" ]; then
+      echo "K3s binary present but service unit missing, reinstalling to recreate systemd unit"
     fi
     
     # Set installation variables - detect if version is a commit hash or version tag
