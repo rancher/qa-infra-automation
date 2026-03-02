@@ -33,8 +33,20 @@
       wait_for:
         host: "{{ kube_api_host }}"
         port: 22
-        timeout: 120
+        timeout: 240
         state: started
+
+# Harden nodes before registration if `harden: true` is set.
+# Controlled by the `harden` variable (default: false).
+# Set via extra-vars: ansible-playbook ... -e "harden=true"
+- hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    harden: "{{ lookup('env', 'HARDEN') | default(false) | bool }}"
+  roles:
+    - role: node_hardening
 
 - hosts: all
   become: true
@@ -75,10 +87,10 @@
   tasks:
     - name: Wait for Node Registration to Complete
       script: ./wait-to-complete.sh
-      register: script_result
+      register: wait_result
       when: '"cp" in ansible_role or "etcd" in ansible_role'
 
-    - name: Display script output (stdout)
+    - name: Display wait script output
       debug:
-        var: script_result.stdout_lines
+        var: wait_result.stdout_lines
       when: '"cp" in ansible_role or "etcd" in ansible_role'

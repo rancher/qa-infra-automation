@@ -1,0 +1,90 @@
+---
+# Detects the distro from the registration token command prefix (rke2 vs k3s)
+# and applies CIS benchmark hardening to the node before it registers with Rancher.
+#
+# Controlled by the `harden` variable (default: false).
+# When enabled, this role:
+#   - Applies kernel security parameters required by protect-kernel-defaults
+#   - Deploys an AdmissionConfiguration for PodSecurity and EventRateLimit
+#   - Deploys an audit policy
+#   - Writes the above files to the correct distro path (rke2 or k3s)
+
+- name: Skip hardening if not enabled
+  meta: end_host
+  when: not (harden | default(false) | bool)
+
+- name: Detect distro from registration token
+  set_fact:
+    _distro: >-
+      {{ 'rke2' if 'rke2' in (hostvars['localhost']['cluster_registration_token'] | default(''))
+         else 'k3s' }}
+
+- name: Set distro-specific paths
+  set_fact:
+    _rancher_dir: "{{ '/etc/rancher/rke2' if _distro == 'rke2' else '/etc/rancher/k3s' }}"
+    _server_dir: "{{ '/var/lib/rancher/rke2/server' if _distro == 'rke2' else '/var/lib/rancher/k3s/server' }}"
+
+- name: Create rancher config directory
+  file:
+    path: "{{ _rancher_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Create server directory
+  file:
+    path: "{{ _server_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when: '"cp" in ansible_role or "etcd" in ansible_role'
+
+- name: Apply kernel security parameters (CIS kubelet hardening)
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/90-kubelet.conf
+  loop:
+    - { key: 'vm.panic_on_oom',           value: '0' }
+    - { key: 'vm.overcommit_memory',       value: '1' }
+    - { key: 'kernel.panic',               value: '10' }
+    - { key: 'kernel.panic_on_oops',       value: '1' }
+    - { key: 'kernel.keys.root_maxbytes',  value: '25000000' }
+
+- name: Restart systemd-sysctl to apply kernel parameters
+  systemd:
+    name: systemd-sysctl
+    state: restarted
+
+- name: Deploy AdmissionConfiguration for CIS hardening
+  template:
+    src: admission-config.j2
+    dest: "{{ _server_dir }}/admission-config.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  when: '"cp" in ansible_role or "etcd" in ansible_role'
+
+- name: Deploy audit policy for CIS hardening
+  template:
+    src: audit.j2
+    dest: "{{ _server_dir }}/audit.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  when: '"cp" in ansible_role or "etcd" in ansible_role'
+
+- name: Show hardening status
+  debug:
+    msg: |
+      Node Hardening: ENABLED
+      Distro: {{ _distro }}
+      Config dir: {{ _rancher_dir }}
+      Server dir: {{ _server_dir }}
+      Kernel defaults protection: YES
+      AdmissionConfiguration: {{ 'deployed' if ('cp' in ansible_role or 'etcd' in ansible_role) else 'skipped (worker-only node)' }}
+      Audit policy: {{ 'deployed' if ('cp' in ansible_role or 'etcd' in ansible_role) else 'skipped (worker-only node)' }}
