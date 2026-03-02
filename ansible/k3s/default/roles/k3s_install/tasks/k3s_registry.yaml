@@ -1,0 +1,21 @@
+---
+mirrors:
+  docker.io:
+    endpoint:
+      - "https://10.115.253.191.sslip.io"
+    rewrite:
+      "^(.*)": "dockercache/$1"
+  ghcr.io:
+    endpoint:
+      - "https://10.115.253.191.sslip.io"
+    rewrite:
+      "^(.*)": "ghcrcache/$1"
+  quay.io:
+    endpoint:
+      - "https://10.115.253.191.sslip.io"
+    rewrite:
+      "^(.*)": "quaycache/$1"
+configs:
+  "10.115.253.191.sslip.io":
+    tls:
+      insecure_skip_verify: true
