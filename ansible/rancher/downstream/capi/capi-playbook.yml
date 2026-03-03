@@ -16,10 +16,72 @@
         msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
       when: not kubeconfig_file_stat.stat.exists
 
-    - name: Apply CAPI config
+    - name: Apply CAPI providers
       kubernetes.core.k8s:
         state: present
         src: "{{ capiconfig_file }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+    
+    - name: Fetch clusterclass-ec2-rke2
+      ansible.builtin.uri:
+        url: "https://raw.githubusercontent.com/rancher/turtles/refs/heads/main/examples/clusterclasses/aws/rke2/clusterclass-ec2-rke2-example.yaml"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: clusterclass
+
+    - name: Apply cluster class
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ clusterclass.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Fetch helm-chart
+      ansible.builtin.uri:
+        url: "https://raw.githubusercontent.com/rancher/turtles/refs/heads/main/examples/applications/csi/aws/helm-chart.yaml"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: helm-chart
+
+    - name: Apply helm-chart
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ helm-chart.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Fetch calico helm-chart
+      ansible.builtin.uri:
+        url: "https://raw.githubusercontent.com/rancher/turtles/refs/heads/main/examples/applications/cni/aws/calico/helm-chart.yaml"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: calico-helm-chart
+
+    - name: Apply calico helm-chart
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ calico-helm-chart.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Fetch ccm helm-chart
+      ansible.builtin.uri:
+        url: "https://raw.githubusercontent.com/rancher/turtles/refs/heads/main/examples/applications/ccm/aws/helm-chart.yaml"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: ccm-helm-chart
+
+    - name: Apply ccm helm-chart
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ ccm-helm-chart.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Apply CAPI cluster
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ capiclusterconfig_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
 
     - name: Wait for CAPI cluster be ready
