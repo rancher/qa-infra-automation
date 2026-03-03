@@ -54,9 +54,6 @@ ansible-playbook -i my-inventory.yml k3s-playbook.yml --extra-vars "@vars.yaml"
 ### Basic Deployment
 
 ```bash
-# Set ANSIBLE_CONFIG (optional)
-export ANSIBLE_CONFIG=/path/to/qa-infra-automation/ansible/k3s/default/ansible.cfg
-
 # Run with Terraform inventory
 ansible-playbook -i inventory-template.yml k3s-playbook.yml --extra-vars "@vars.yaml" -vvv
 

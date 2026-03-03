@@ -62,7 +62,7 @@ airgap/
 ```
 
 > **Note:** Common Ansible settings (SSH multiplexing, timeouts, host key checking, roles path) live in
-> the shared [`ansible/ansible.cfg`](../../../ansible.cfg). The local `ansible.cfg` only overrides
+> the shared [`ansible.cfg`](../../../ansible.cfg) at the repo root. The local `ansible.cfg` only overrides
 > the settings that differ for airgap deployments. See [Ansible Configuration](#ansible-configuration) below.
 
 ## Ansible Configuration
@@ -71,7 +71,7 @@ This directory uses a two-level configuration hierarchy:
 
 | File | Purpose |
 |------|---------|
-| [`ansible/ansible.cfg`](../../../ansible.cfg) | Shared base: SSH multiplexing, timeouts, host key checking, `roles_path`, inventory plugins |
+| [`ansible.cfg`](../../../ansible.cfg) (repo root) | Shared base: SSH multiplexing, timeouts, host key checking, `roles_path`, inventory plugins |
 | [`ansible/rke2/airgap/ansible.cfg`](./ansible.cfg) | Airgap overrides: `inventory`, `remote_user = ec2-user`, `stdout_callback = yaml` |
 
 Ansible reads a single config file — the two files are not merged. There are two supported ways to run:
@@ -81,7 +81,7 @@ Ansible reads a single config file — the two files are not merged. There are t
 The Makefile always uses the shared config and injects airgap-specific settings as environment variables:
 
 ```bash
-make cluster DISTRO=rke2 ENV=airgap     # ANSIBLE_CONFIG=ansible/ansible.cfg is set automatically
+make cluster DISTRO=rke2 ENV=airgap     # ANSIBLE_CONFIG=ansible.cfg is set automatically
 ```
 
 ### Running playbooks directly
@@ -702,4 +702,4 @@ Detailed documentation is available in the `docs/` directory:
 - **Security**: TLS certificates, authentication, and secure communication by default
 - **Simplicity**: Single, reliable deployment approach optimized for airgap environments
 - **Diagnostics**: Comprehensive troubleshooting tools and documentation
-- **ansible.cfg**: This directory's `ansible.cfg` contains only airgap-specific overrides (`inventory`, `remote_user`, `stdout_callback`). Common settings (SSH multiplexing, timeouts, roles path) live in the shared `ansible/ansible.cfg`. See [Ansible Configuration](#ansible-configuration) for details.
+- **ansible.cfg**: This directory's `ansible.cfg` contains only airgap-specific overrides (`inventory`, `remote_user`, `stdout_callback`). Common settings (SSH multiplexing, timeouts, roles path) live in the shared repo-root `ansible.cfg`. See [Ansible Configuration](#ansible-configuration) for details.

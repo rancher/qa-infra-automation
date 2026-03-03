@@ -26,37 +26,30 @@ Before running a playbook, ensure you have the following:
 
 ## Ansible Configuration
 
-A shared `ansible.cfg` lives at `ansible/ansible.cfg` and applies to all playbooks in this directory tree. It sets common defaults for timeouts, SSH multiplexing, fact caching, and the central roles path.
+A shared `ansible.cfg` lives at the **repo root** and applies to all playbooks. It sets common defaults for timeouts, SSH multiplexing, fact caching, and the central roles path (`ansible/roles`).
 
 ### Running playbooks locally
 
-If you run `ansible-playbook` from within the `ansible/` directory, the shared config is picked up automatically:
+Run `ansible-playbook` from the repo root — Ansible picks up `ansible.cfg` automatically:
 
 ```bash
-cd ansible/
-ansible-playbook k3s/default/k3s-playbook.yml -i <inventory>
+ansible-playbook ansible/k3s/default/k3s-playbook.yml -i <inventory>
 ```
 
-> **Note:** If a product subdirectory contains its own `ansible.cfg` (e.g. `rke2/airgap/ansible.cfg`), that local config takes precedence over the shared one when your working directory is inside that subdirectory. See [Product-specific overrides](#product-specific-overrides) below.
-
-If you run from the repo root or another directory, point Ansible to the shared config explicitly:
-
-```bash
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/k3s/default/k3s-playbook.yml -i <inventory>
-```
+> **Note:** If a product subdirectory contains its own `ansible.cfg` (e.g. `rke2/airgap/ansible.cfg`), you must set `ANSIBLE_CONFIG` explicitly when running that playbook directly. See [Product-specific overrides](#product-specific-overrides) below.
 
 ### Running playbooks in CI/Jenkins
 
-Set `ANSIBLE_CONFIG` in your pipeline before invoking any playbook:
+No extra configuration is needed when running from the repo root. If your pipeline `cd`s into a subdirectory, point Ansible back to the repo-root config explicitly:
 
 ```groovy
-env.ANSIBLE_CONFIG = "${WORKSPACE}/ansible/ansible.cfg"
+env.ANSIBLE_CONFIG = "${WORKSPACE}/ansible.cfg"
 ```
 
 or in a shell step:
 
 ```bash
-export ANSIBLE_CONFIG="${WORKSPACE}/ansible/ansible.cfg"
+export ANSIBLE_CONFIG="${WORKSPACE}/ansible.cfg"
 ansible-playbook ansible/k3s/default/k3s-playbook.yml -i <inventory>
 ```
 
@@ -75,7 +68,7 @@ When running those playbooks, set `ANSIBLE_CONFIG` to the product-specific file 
 ANSIBLE_CONFIG=ansible/rke2/airgap/ansible.cfg ansible-playbook ...
 ```
 
-> **Important:** Ansible does not merge config files. When `ANSIBLE_CONFIG` points to a product-specific `ansible.cfg`, settings from the shared `ansible/ansible.cfg` (including `roles_path`) are **not** inherited. To ensure roles are still resolved from `ansible/roles/`, set `ANSIBLE_ROLES_PATH` explicitly:
+> **Important:** Ansible does not merge config files. When `ANSIBLE_CONFIG` points to a product-specific `ansible.cfg`, settings from the shared repo-root `ansible.cfg` (including `roles_path`) are **not** inherited. To ensure roles are still resolved from `ansible/roles/`, set `ANSIBLE_ROLES_PATH` explicitly:
 >
 > ```bash
 > export ANSIBLE_ROLES_PATH=$(pwd)/ansible/roles
@@ -86,4 +79,4 @@ ANSIBLE_CONFIG=ansible/rke2/airgap/ansible.cfg ansible-playbook ...
 
 ### Roles
 
-All reusable roles live in `ansible/roles/`. The shared `ansible.cfg` sets `roles_path = ./roles`, which resolves correctly when the working directory is `ansible/` and the shared config is in use. Product-specific configs intentionally omit `roles_path` — use `ANSIBLE_ROLES_PATH` instead so that the central roles directory is always authoritative.
+All reusable roles live in `ansible/roles/`. The repo-root `ansible.cfg` sets `roles_path = ansible/roles`, which resolves correctly when running from the repo root. Product-specific configs intentionally omit `roles_path` — use `ANSIBLE_ROLES_PATH` instead so that the central roles directory is always authoritative.
