@@ -25,11 +25,12 @@
     
     - name: Fetch clusterclass-ec2-rke2
       ansible.builtin.uri:
-        url: "https://raw.githubusercontent.com/rancher/turtles/refs/heads/main/examples/clusterclasses/aws/rke2/clusterclass-ec2-rke2-example.yaml"
+        url: "{{ clusterclass_url }}"
         method: GET
         return_content: true
         body_format: raw
       register: clusterclass
+      when: clusterclass_url is defined and clusterclass_url != ''
 
     - name: Apply cluster class
       kubernetes.core.k8s:
@@ -37,14 +38,16 @@
         state: present
         resource_definition: "{{ clusterclass.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
+      when: clusterclass_url is defined and clusterclass_url != ''
 
     - name: Fetch helm-chart
       ansible.builtin.uri:
-        url: "https://raw.githubusercontent.com/rancher/turtles/refs/heads/main/examples/applications/csi/aws/helm-chart.yaml"
+        url: "{{ helm_chart_url }}"
         method: GET
         return_content: true
         body_format: raw
       register: helm_chart
+      when: helm_chart_url is defined and helm_chart_url != ''
 
     - name: Apply helm-chart
       kubernetes.core.k8s:
@@ -52,14 +55,16 @@
         state: present
         resource_definition: "{{ helm_chart.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
+      when: helm_chart_url is defined and helm_chart_url != ''
 
     - name: Fetch calico helm-chart
       ansible.builtin.uri:
-        url: "https://raw.githubusercontent.com/rancher/turtles/refs/heads/main/examples/applications/cni/aws/calico/helm-chart.yaml"
+        url: "{{ calico_helm_chart_url }}"
         method: GET
         return_content: true
         body_format: raw
       register: calico_helm_chart
+      when: calico_helm_chart_url is defined and calico_helm_chart_url != ''
 
     - name: Apply calico helm-chart
       kubernetes.core.k8s:
@@ -67,14 +72,16 @@
         state: present
         resource_definition: "{{ calico_helm_chart.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
+      when: calico_helm_chart_url is defined and calico_helm_chart_url != ''
 
     - name: Fetch ccm helm-chart
       ansible.builtin.uri:
-        url: "https://raw.githubusercontent.com/rancher/turtles/refs/heads/main/examples/applications/ccm/aws/helm-chart.yaml"
+        url: "{{ ccm_helm_chart_url }}"
         method: GET
         return_content: true
         body_format: raw
       register: ccm_helm_chart
+      when: ccm_helm_chart_url is defined and ccm_helm_chart_url != ''
 
     - name: Apply ccm helm-chart
       kubernetes.core.k8s:
@@ -82,6 +89,7 @@
         state: present
         resource_definition: "{{ ccm_helm_chart.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
+      when: ccm_helm_chart_url is defined and ccm_helm_chart_url != ''
 
     - name: Apply CAPI cluster
       kubernetes.core.k8s:
