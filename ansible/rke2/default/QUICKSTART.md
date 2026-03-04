@@ -23,10 +23,7 @@ Each role can be executed independently using Ansible tags.
 
 Before running the playbook, verify that your inventory file is correctly populated with the relevant data. Do one of the two steps below:
 
-- **If you brought up infrastructure from Tofu**, the inventory file is automatically generated:
-  1. Run `tofu apply` in your infrastructure module (e.g., `tofu/aws/modules/cluster_nodes`)
-  2. Tofu will generate `inventory.yml` in the module directory containing all node information
-  3. The inventory includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `server`, `worker`, `etcd`, `cp`)
+- **If you brought up infrastructure from Tofu via `make infra-up`**, the inventory file is automatically generated at `ansible/rke2/default/inventory.yml` and includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `server`, `worker`, `etcd`, `cp`).
 
 - **If bringing your own nodes or filling in manually**, create an inventory file with this structure:
 
@@ -54,11 +51,10 @@ Before running the playbook, verify that your inventory file is correctly popula
             node_roles: "worker"
   ```
 
-Once you have your inventory file, verify it has the correct data. Ensure you see your nodes listed in the JSON output with IPs, SSH users, and node roles.
+Once you have your inventory file, verify it has the correct data:
 
 ```sh
-# From the repository root (adjust path to your inventory.yml location)
-ansible-inventory -i tofu/aws/modules/cluster_nodes/inventory.yml --list
+ansible-inventory -i ansible/rke2/default/inventory.yml --list
 ```
 
 ### Step 2: Define Ansible Variables
@@ -73,9 +69,6 @@ You must tell Ansible which version of RKE2 to install and configure other deplo
 # rke2 version
 kubernetes_version: 'v1.34.2+rke2r1'
 
-# where to store the kubeconfig file
-kubeconfig_file: './kubeconfig.yaml'
-
 # network configuration
 cni: "calico"
 
@@ -84,16 +77,19 @@ cni: "calico"
 # kube_api_host: a.b.c.d # Your initial node IP
 ```
 
+The kubeconfig is written to `ansible/rke2/default/kubeconfig.yaml` on completion.
+
 ### Step 3: Run the Playbook
 
-Run the playbook targeting the Tofu-generated inventory file.
+**Via Makefile (recommended)** — run from the repository root:
 
 ```sh
-# Syntax: ansible-playbook -i <inventory_path> <playbook_path>
-# If using Tofu-generated inventory:
-ansible-playbook -i tofu/aws/modules/cluster_nodes/inventory.yml ansible/rke2/default/rke2-playbook.yml
+make cluster
+```
 
-# If using manual inventory in ansible/rke2/default/:
+**Manually** — run from the repository root:
+
+```sh
 ansible-playbook -i ansible/rke2/default/inventory.yml ansible/rke2/default/rke2-playbook.yml
 ```
 

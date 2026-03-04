@@ -10,15 +10,26 @@ Some contributors may be more familiar with Terraform than Tofu. Tofu is the ope
 
 It may be helpful when developing or running the modules and playbooks here to have a file with some default environment variables. For a reference, please see this [example](./vars.example-env).
 
-## Quickstart (Airgap only)
+## Quickstart
 
-A make file is provided to make it easier to get started. See the [Makefile](./Makefile) for more information.
-This only works for airgap currently, but future enhancements will be made to support other use cases.
+A Makefile is provided to make it easier to get started. It supports both standard (`default`) and air-gapped (`airgap`) deployments on AWS. See the [Makefile](./Makefile) for all available targets.
 
-To display the help menu for tips on how to use the Makefile, run:
+To display the help menu:
 ```bash
 make help
 ```
+
+**Standard (internet-connected) deployment:**
+```bash
+make all
+```
+
+**Air-gapped deployment:**
+```bash
+make all ENV=airgap
+```
+
+Both workflows run: infrastructure provisioning → cluster install → Rancher deploy. The airgap workflow additionally configures the private registry.
 
 ## Directory Structure
 

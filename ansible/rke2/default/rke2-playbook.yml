@@ -1,43 +1,13 @@
 ---
-- hosts: "localhost"
-  connection: local
-  gather_facts: false
+- hosts: all
+  name: Setup nodes - Python and NetworkManager
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yaml
   vars:
-    # terraform integration (optional).
-    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('', true) }}"
-    terraform_module_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
-    terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
-    terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  tasks:
-    - name: Set variables based on tofu or environment
-      when: kube_api_host is not defined or fqdn is not defined 
-      block: 
-      - name: Check if using tfstate file
-        ansible.builtin.stat:
-          path: "{{ terraform_state_file }}"
-        register: tfstate_file_stat
-
-      - name: Set fqdn and kube_api_host content from tfstate file if it exists
-        ansible.builtin.set_fact:
-          kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
-          fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
-          use_terraform: true
-        when: tfstate_file_stat.stat.exists
-
-      - name: Set kube_api_host content from env or vars when not using terraform
-        ansible.builtin.set_fact:
-          kube_api_host: "{{ lookup('env', 'KUBE_API_HOST') | default(kube_api_host, true) }}"
-          use_terraform: false
-        when: not tfstate_file_stat.stat.exists
-
-      - name: Set fqdn content from env or vars when not using terraform
-        ansible.builtin.set_fact:
-          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn | default(kube_api_host, true), true) }}"
-        when: not tfstate_file_stat.stat.exists
-
+  pre_tasks:
     - name: Validate required variables
       assert:
         that:
@@ -47,14 +17,8 @@
           - kube_api_host | length > 0
           - cni is defined
           - cni | length > 0
-        fail_msg: "Required variables not defined. Please ensure kubernetes_version, kube_api_host, and cni are set in vars.yaml or environment variables"
-
-- hosts: all
-  name: Setup nodes - Python and NetworkManager
-  become: true
-  gather_facts: true
-  vars:
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        fail_msg: "Required variables not defined. Set kubernetes_version, kube_api_host, and cni in vars.yaml or inventory all.vars"
+      run_once: true
   roles:
     - role: rke2_setup
       tags: ['setup', 'rke2']
@@ -71,10 +35,9 @@
     - role: rke2_config
       vars:
         rke2_kubernetes_version: "{{ kubernetes_version }}"
-        rke2_kube_api_host: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
-        rke2_fqdn: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
+        rke2_kube_api_host: "{{ kube_api_host }}"
+        rke2_fqdn: "{{ fqdn | default(kube_api_host) }}"
         rke2_cni: "{{ cni }}"
-        # rke2_node_role is already defined in inventory, no need to pass it
         rke2_server_flags: "{{ server_flags | default('') }}"
         rke2_worker_flags: "{{ worker_flags | default('') }}"
       tags: ['config', 'rke2']
@@ -107,9 +70,8 @@
   roles:
     - role: rke2_cluster
       vars:
-        # rke2_node_role is already defined in inventory, no need to pass it
-        rke2_kube_api_host: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
-        rke2_kubeconfig_file: "{{ kubeconfig_file }}"
+        rke2_kube_api_host: "{{ kube_api_host }}"
+        rke2_kubeconfig_dest: "{{ playbook_dir }}/kubeconfig.yaml"
         rke2_node_token_file: "{{ node_token_file }}"
       tags: ['cluster', 'rke2']
 
@@ -121,6 +83,6 @@
   roles:
     - role: rke2_health_check
       vars:
-        rke2_kubeconfig_file: "{{ kubeconfig_file }}"
+        rke2_kubeconfig_path: "{{ playbook_dir }}/kubeconfig.yaml"
         rke2_server_flags: "{{ server_flags | default('') }}"
       tags: ['health', 'rke2']

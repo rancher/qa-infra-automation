@@ -1,4 +1,4 @@
-# Running the Rancher Playbook
+# Rancher Deployment Playbook
 
 This directory contains the Ansible playbooks for deploying Rancher in HA mode on
 an existing Kubernetes cluster and for performing follow-up upgrade operations.
@@ -11,31 +11,50 @@ Before running the playbooks, ensure you have the [general Ansible prerequisites
 - `helm` installed on the machine running Ansible. The Rancher upgrade flow installs
   the `helm-diff` plugin automatically because `kubernetes.core.helm` uses
   `reuse_values: true`.
+- Ansible `kubernetes.core` collection:
+  ```bash
+  ansible-galaxy collection install kubernetes.core
+  ```
 - A `vars.yaml` file in this directory. Both `rancher-playbook.yml` and
   `downstream-upgrade-playbook.yml` load it automatically.
 
+## Usage
+
+### Via Makefile (recommended)
+
+From the repository root, with an existing cluster:
+
+```bash
+make rancher ENV=default DISTRO=rke2 PROVIDER=aws
+```
+
+### Manually
+
+1. Create `vars.yaml` in this directory (see [QUICKSTART.md](./QUICKSTART.md) for the template).
+
+2. Run from the repository root:
+
+```bash
+ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
+```
+
+> **Important:** Run all commands from the repository root, not from inside `ansible/`.
+
 ## Configuration
 
-Create `ansible/rancher/default-ha/vars.yaml` with the values needed for your environment.
+All configuration is in `vars.yaml`. Key variables:
 
-### Minimum variables for a fresh Rancher install
-
-```yaml
-rancher_version: "v2.13.0"
-cert_manager_version: "1.19.1"
-kubeconfig_file: /absolute/path/to/kubeconfig.yaml
-fqdn: "rancher.example.com"
-bootstrap_password: "initial-admin-password"
-password: "permanent-admin-password"
-```
-
-### Common optional variables
-
-```yaml
-rancher_chart_repo: rancher-latest
-rancher_chart_repo_url: https://releases.rancher.com/server-charts/latest
-rancher_image_tag: latest
-```
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `rancher_version` | Yes | Rancher version to install (e.g. `v2.13.0`) |
+| `cert_manager_version` | Yes | cert-manager version, without `v` prefix (e.g. `1.19.1`) |
+| `kubeconfig_file` | No | Path to kubeconfig. Set automatically via `KUBECONFIG_FILE` env var when using `make rancher`; only needed when running manually |
+| `fqdn` | Yes | FQDN for the Rancher UI (e.g. `1.2.3.4.sslip.io`) |
+| `bootstrap_password` | Yes | Initial admin bootstrap password |
+| `password` | Yes | Admin password after first login |
+| `rancher_chart_repo` | No | Helm repo name (default: `rancher-latest`) |
+| `rancher_chart_repo_url` | No | Helm repo URL (default: latest releases) |
+| `rancher_image_tag` | No | Rancher image tag (default: `latest`) |
 
 ### Additional variables for Rancher upgrades
 
@@ -52,14 +71,6 @@ rancher_image_tag_upgrade: latest    # optional; use "latest" to map to the "hea
 The upgrade tasks authenticate to Rancher with the permanent `password`, not
 `bootstrap_password`, because the bootstrap password is no longer valid after the
 initial setup changes the admin password.
-
-## Running the Rancher install playbook
-
-> **Important:** Run all commands from the repository root, not from inside `ansible/`.
-
-```bash
-ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
-```
 
 The install flow:
 
@@ -123,3 +134,8 @@ debug output and write `generated.tfvars` containing:
 fqdn = "https://<fqdn>"
 api_key = "<rancher-api-token>"
 ```
+
+## Related
+
+- [QUICKSTART.md](./QUICKSTART.md) — step-by-step guide
+- [RKE2 default playbook](../../rke2/default/README.md) — deploy the cluster first
