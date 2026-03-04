@@ -1,3 +1,6 @@
+# This can be built from the root directory with the command: 
+# docker build -t ansible-runner -f ansible/Dockerfile .
+
 # Use a minimal base image with Python, as Ansible requires it
 FROM python:3.14-slim
 
