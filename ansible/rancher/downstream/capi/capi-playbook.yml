@@ -18,6 +18,7 @@
 
     - name: Apply CAPI providers
       kubernetes.core.k8s:
+        namespace: default
         state: present
         src: "{{ capiconfig_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
@@ -32,8 +33,9 @@
 
     - name: Apply cluster class
       kubernetes.core.k8s:
+        namespace: default
         state: present
-        src: "{{ clusterclass.content }}"
+        resource_definition: "{{ clusterclass.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
 
     - name: Fetch helm-chart
@@ -42,12 +44,13 @@
         method: GET
         return_content: true
         body_format: raw
-      register: helm-chart
+      register: helm_chart
 
     - name: Apply helm-chart
       kubernetes.core.k8s:
+        namespace: default
         state: present
-        src: "{{ helm-chart.content }}"
+        resource_definition: "{{ helm_chart.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
 
     - name: Fetch calico helm-chart
@@ -56,12 +59,13 @@
         method: GET
         return_content: true
         body_format: raw
-      register: calico-helm-chart
+      register: calico_helm_chart
 
     - name: Apply calico helm-chart
       kubernetes.core.k8s:
+        namespace: default
         state: present
-        src: "{{ calico-helm-chart.content }}"
+        resource_definition: "{{ calico_helm_chart.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
 
     - name: Fetch ccm helm-chart
@@ -70,16 +74,18 @@
         method: GET
         return_content: true
         body_format: raw
-      register: ccm-helm-chart
+      register: ccm_helm_chart
 
     - name: Apply ccm helm-chart
       kubernetes.core.k8s:
+        namespace: default
         state: present
-        src: "{{ ccm-helm-chart.content }}"
+        resource_definition: "{{ ccm_helm_chart.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
 
     - name: Apply CAPI cluster
       kubernetes.core.k8s:
+        namespace: default
         state: present
         src: "{{ capiclusterconfig_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
