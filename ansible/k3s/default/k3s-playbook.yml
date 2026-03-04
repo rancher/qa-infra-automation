@@ -180,14 +180,14 @@
     - name: Save kubeconfig locally
       copy:
         content: "{{ kubeconfig_contents.content | b64decode }}"
-        dest: "{{ kubeconfig_file }}"
+        dest: "{{ playbook_dir }}/kubeconfig.yaml"
       delegate_to: localhost
       run_once: true
       become: false
 
     - name: Update kubeconfig server address
       lineinfile:
-        path: "{{ kubeconfig_file }}"
+        path: "{{ playbook_dir }}/kubeconfig.yaml"
         regexp: '^\s+server:\s+https://127\.0\.0\.1:6443'
         line: "    server: https://{{ hostvars['localhost'].fqdn | default(fqdn, true) }}:6443"
       delegate_to: localhost
