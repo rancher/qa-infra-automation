@@ -180,14 +180,14 @@
     - name: Save kubeconfig locally
       copy:
         content: "{{ kubeconfig_contents.content | b64decode }}"
-        dest: "{{ playbook_dir }}/kubeconfig.yaml"
+        dest: "{{ kubeconfig_file }}"
       delegate_to: localhost
       run_once: true
       become: false
 
     - name: Update kubeconfig server address
       lineinfile:
-        path: "{{ playbook_dir }}/kubeconfig.yaml"
+        path: "{{ kubeconfig_file }}"
         regexp: '^\s+server:\s+https://127\.0\.0\.1:6443'
         line: "    server: https://{{ hostvars['localhost'].fqdn | default(fqdn, true) }}:6443"
       delegate_to: localhost
@@ -296,7 +296,7 @@
   tasks:
     - name: Wait until all K3s system pods are Running or Succeeded
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ playbook_dir }}/kubeconfig.yaml"
+        kubeconfig: "{{ kubeconfig_file }}"
         api_version: v1
         kind: Pod
         namespace: kube-system
