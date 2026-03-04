@@ -76,11 +76,16 @@ locals {
 }
 
 # Write generated inventory to file
-resource "local_file" "ansible_inventory" {
-  content  = local.ansible_inventory_content
-  filename = "${path.module}/inventory.yml"
+# inventory_output_path lets callers (e.g. Makefile) direct the file to the
+# appropriate ansible/<distro>/<env>/ directory. Falls back to the module
+# directory when run standalone.
+locals {
+  inventory_path = var.inventory_output_path != "" ? var.inventory_output_path : "${path.module}/inventory.yml"
+}
 
-  # Ensure proper file permissions for Ansible to read
+resource "local_file" "ansible_inventory" {
+  content         = local.ansible_inventory_content
+  filename        = local.inventory_path
   file_permission = "0644"
 }
 
