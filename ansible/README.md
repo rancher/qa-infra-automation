@@ -23,3 +23,60 @@ Before running a playbook, ensure you have the following:
     ```
 
     **Note:** you may need to add the flag `--break-system-packages` if not using a venv
+
+## Ansible Configuration
+
+A shared `ansible.cfg` lives at the **repo root** and applies to all playbooks. It sets common defaults for timeouts, SSH multiplexing, fact caching, and the central roles path (`ansible/roles`).
+
+### Running playbooks locally
+
+Run `ansible-playbook` from the repo root — Ansible picks up `ansible.cfg` automatically:
+
+```bash
+ansible-playbook ansible/k3s/default/k3s-playbook.yml -i <inventory>
+```
+
+> **Note:** If a product subdirectory contains its own `ansible.cfg` (e.g. `rke2/airgap/ansible.cfg`), you must set `ANSIBLE_CONFIG` explicitly when running that playbook directly. See [Product-specific overrides](#product-specific-overrides) below.
+
+### Running playbooks in CI/Jenkins
+
+No extra configuration is needed when running from the repo root. If your pipeline `cd`s into a subdirectory, point Ansible back to the repo-root config explicitly:
+
+```groovy
+env.ANSIBLE_CONFIG = "${WORKSPACE}/ansible.cfg"
+```
+
+or in a shell step:
+
+```bash
+export ANSIBLE_CONFIG="${WORKSPACE}/ansible.cfg"
+ansible-playbook ansible/k3s/default/k3s-playbook.yml -i <inventory>
+```
+
+### Product-specific overrides
+
+Two products have settings that cannot be shared globally and keep their own configs:
+
+| File | Purpose |
+|---|---|
+| `rke2/airgap/ansible.cfg` | Sets `inventory`, `remote_user`, and `stdout_callback` for airgap deployments |
+| `chaos/ansible.cfg` | Sets `localhost_warning` and `inventory_ignore_patterns` for chaos experiments |
+
+When running those playbooks, set `ANSIBLE_CONFIG` to the product-specific file instead:
+
+```bash
+ANSIBLE_CONFIG=ansible/rke2/airgap/ansible.cfg ansible-playbook ...
+```
+
+> **Important:** Ansible does not merge config files. When `ANSIBLE_CONFIG` points to a product-specific `ansible.cfg`, settings from the shared repo-root `ansible.cfg` (including `roles_path`) are **not** inherited. To ensure roles are still resolved from `ansible/roles/`, set `ANSIBLE_ROLES_PATH` explicitly:
+>
+> ```bash
+> export ANSIBLE_ROLES_PATH=$(pwd)/ansible/roles
+> ANSIBLE_CONFIG=ansible/rke2/airgap/ansible.cfg ansible-playbook ...
+> ```
+>
+> The `Makefile` handles this automatically — it sets both `ANSIBLE_CONFIG` and `ANSIBLE_ROLES_PATH` for all targets.
+
+### Roles
+
+All reusable roles live in `ansible/roles/`. The repo-root `ansible.cfg` sets `roles_path = ansible/roles`, which resolves correctly when running from the repo root. Product-specific configs intentionally omit `roles_path` — use `ANSIBLE_ROLES_PATH` instead so that the central roles directory is always authoritative.

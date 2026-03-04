@@ -57,9 +57,46 @@ airgap/
 │   ├── rke2_registry_config/
 │   ├── rancher_helm_deploy/
 │   └── ssh_verify/
-├── ansible.cfg
+├── ansible.cfg           # Airgap-specific overrides (inventory, remote_user, stdout_callback)
 └── README.md
 ```
+
+> **Note:** Common Ansible settings (SSH multiplexing, timeouts, host key checking, roles path) live in
+> the shared [`ansible.cfg`](../../../ansible.cfg) at the repo root. The local `ansible.cfg` only overrides
+> the settings that differ for airgap deployments. See [Ansible Configuration](#ansible-configuration) below.
+
+## Ansible Configuration
+
+This directory uses a two-level configuration hierarchy:
+
+| File | Purpose |
+|------|---------|
+| [`ansible.cfg`](../../../ansible.cfg) (repo root) | Shared base: SSH multiplexing, timeouts, host key checking, `roles_path`, inventory plugins |
+| [`ansible/rke2/airgap/ansible.cfg`](./ansible.cfg) | Airgap overrides: `inventory`, `remote_user = ec2-user`, `stdout_callback = yaml` |
+
+Ansible reads a single config file — the two files are not merged. There are two supported ways to run:
+
+### Via Makefile (recommended)
+
+The Makefile always uses the shared config and injects airgap-specific settings as environment variables:
+
+```bash
+make cluster DISTRO=rke2 ENV=airgap     # ANSIBLE_CONFIG=ansible.cfg is set automatically
+```
+
+### Running playbooks directly
+
+When running `ansible-playbook` outside the Makefile, set `ANSIBLE_CONFIG` to this directory's config
+file and export `ANSIBLE_ROLES_PATH` so roles resolve correctly:
+
+```bash
+export ANSIBLE_CONFIG=ansible/rke2/airgap/ansible.cfg
+export ANSIBLE_ROLES_PATH=$(pwd)/ansible/roles
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml
+```
+
+> The airgap `ansible.cfg` does not set `roles_path`. Always export `ANSIBLE_ROLES_PATH` (pointing to
+> `ansible/roles/`) or run from the `ansible/` directory so that shared roles are found.
 
 ## Installation Method
 
@@ -665,3 +702,4 @@ Detailed documentation is available in the `docs/` directory:
 - **Security**: TLS certificates, authentication, and secure communication by default
 - **Simplicity**: Single, reliable deployment approach optimized for airgap environments
 - **Diagnostics**: Comprehensive troubleshooting tools and documentation
+- **ansible.cfg**: This directory's `ansible.cfg` contains only airgap-specific overrides (`inventory`, `remote_user`, `stdout_callback`). Common settings (SSH multiplexing, timeouts, roles path) live in the shared repo-root `ansible.cfg`. See [Ansible Configuration](#ansible-configuration) for details.
