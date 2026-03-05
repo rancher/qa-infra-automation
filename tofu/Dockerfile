@@ -6,6 +6,6 @@
 # It can be used in CI pipelines or other environments where you want to run OpenTofu commands without installing it on the host machine.
 
 FROM alpine:latest
-RUN apk add --no-cache opentofu
+RUN apk add --no-cache opentofu gettext-envsubst
 WORKDIR /tofu
 ENTRYPOINT ["/bin/sh"]
