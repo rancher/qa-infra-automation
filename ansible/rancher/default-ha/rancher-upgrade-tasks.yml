@@ -20,6 +20,10 @@
     name: "{{ rancher_chart_repo_final }}"
     repo_url: "{{ rancher_chart_repo_url_final }}"
 
+- name: Install helm-diff plugin (required by kubernetes.core.helm reuse_values)
+  ansible.builtin.command: helm plugin install https://github.com/databus23/helm-diff
+  failed_when: false
+
 - name: Upgrade Rancher in-place
   # reuse_values preserves all values from the current release (hostname, replicas, etc.)
   # so only the chart version and rancherImageTag are changed.
