@@ -1,19 +1,4 @@
 ---
-# Upgrade tasks for an existing Rancher installation.
-# Imported by rancher-playbook.yml when upgrade_mode=true.
-#
-# At this point the common tasks in rancher-playbook.yml have already run:
-# fqdn is resolved, kubeconfig is verified, and the cluster is reachable.
-#
-# Required vars (inherited from the parent play):
-#   rancher_version_upgrade      - target chart version  (e.g. "2.9.3" or "latest")
-#   rancher_image_tag_upgrade    - target image tag       (e.g. "v2.9.3" or "latest")
-#   rancher_chart_repo_final     - helm repo name
-#   rancher_chart_repo_url_final - helm repo URL
-#   kubeconfig_file              - path to cluster kubeconfig
-#   password                     - permanent admin password (set during initial install)
-#   fqdn                         - Rancher hostname
-
 - name: Add Rancher Helm repository for upgrade target
   kubernetes.core.helm_repository:
     kubeconfig: "{{ kubeconfig_file }}"

@@ -1,0 +1,29 @@
+---
+- name: Patch downstream cluster kubernetesVersion
+  kubernetes.core.k8s_json_patch:
+    kubeconfig: "{{ kubeconfig_file }}"
+    api_version: provisioning.cattle.io/v1
+    kind: Cluster
+    namespace: "{{ downstream_cluster_namespace | default('fleet-default') }}"
+    name: "{{ downstream_cluster_name }}"
+    patch:
+      - op: replace
+        path: /spec/kubernetesVersion
+        value: "{{ kubernetes_version_upgrade }}"
+
+- name: Wait for downstream cluster to finish k8s upgrade
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig_file }}"
+    api_version: provisioning.cattle.io/v1
+    kind: Cluster
+    namespace: "{{ downstream_cluster_namespace | default('fleet-default') }}"
+    name: "{{ downstream_cluster_name }}"
+  register: k8s_cluster_status
+  until: >
+    k8s_cluster_status.resources | length > 0 and
+    k8s_cluster_status.resources[0].status is defined and
+    (k8s_cluster_status.resources[0].status.conditions | default([]) |
+     selectattr('type', 'equalto', 'Ready') |
+     selectattr('status', 'equalto', 'True') | list | length > 0)
+  retries: 40
+  delay: 30

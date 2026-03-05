@@ -19,6 +19,10 @@
     # tasks and run rancher-upgrade-tasks.yml instead (helm upgrade --reuse-values).
     upgrade_mode: false
 
+    # Set to true via -e "k8s_upgrade_mode=true" to upgrade the downstream cluster
+    # k8s version. Requires kubernetes_version_upgrade to be passed via -e as well.
+    k8s_upgrade_mode: false
+
   tasks:
     - name: Set variables based on tofu or environment
       when: fqdn is not defined 
@@ -290,3 +294,7 @@
     - name: Upgrade Rancher
       ansible.builtin.include_tasks: rancher-upgrade-tasks.yml
       when: upgrade_mode | bool
+
+    - name: Upgrade downstream cluster k8s version
+      ansible.builtin.include_tasks: k8s-upgrade-tasks.yml
+      when: k8s_upgrade_mode | bool
