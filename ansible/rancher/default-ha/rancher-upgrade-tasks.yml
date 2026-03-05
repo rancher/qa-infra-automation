@@ -1,0 +1,97 @@
+---
+# Upgrade tasks for an existing Rancher installation.
+# Imported by rancher-playbook.yml when upgrade_mode=true.
+#
+# At this point the common tasks in rancher-playbook.yml have already run:
+# fqdn is resolved, kubeconfig is verified, and the cluster is reachable.
+#
+# Required vars (inherited from the parent play):
+#   rancher_version              - target chart version  (e.g. "2.9.3" or "latest")
+#   rancher_image_tag            - target image tag       (e.g. "v2.9.3" or "latest")
+#   rancher_chart_repo_final     - helm repo name
+#   rancher_chart_repo_url_final - helm repo URL
+#   kubeconfig_file              - path to cluster kubeconfig
+#   password                     - permanent admin password (set during initial install)
+#   fqdn                         - Rancher hostname
+
+- name: Add Rancher Helm repository for upgrade target
+  kubernetes.core.helm_repository:
+    kubeconfig: "{{ kubeconfig_file }}"
+    name: "{{ rancher_chart_repo_final }}"
+    repo_url: "{{ rancher_chart_repo_url_final }}"
+
+- name: Upgrade Rancher in-place
+  # reuse_values preserves all values from the current release (hostname, replicas, etc.)
+  # so only the chart version and rancherImageTag are changed.
+  kubernetes.core.helm:
+    kubeconfig: "{{ kubeconfig_file }}"
+    name: rancher
+    chart_ref: "{{ rancher_chart_repo_final }}/rancher"
+    release_namespace: cattle-system
+    chart_version: "{{ '' if rancher_version == 'latest' else rancher_version }}"
+    reuse_values: true
+    wait: true
+    wait_timeout: "800s"
+    values:
+      rancherImageTag: "{{ 'head' if rancher_image_tag == 'latest' else rancher_image_tag | default(omit) }}"
+  retries: 6
+  delay: 120
+
+- name: Wait for Rancher deployment to be ready after upgrade
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig_file }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: cattle-system
+    name: rancher
+  register: rancher_deployment_upgrade
+  until: >
+    rancher_deployment_upgrade.resources | length > 0 and
+    rancher_deployment_upgrade.resources[0].status.readyReplicas is defined and
+    rancher_deployment_upgrade.resources[0].status.readyReplicas == rancher_deployment_upgrade.resources[0].status.replicas
+  retries: 15
+  delay: 30
+
+- name: Wait for Rancher UI to respond after upgrade
+  ansible.builtin.uri:
+    url: "https://{{ fqdn }}"
+    method: GET
+    status_code: 200
+    validate_certs: false
+  register: webpage_result_upgrade
+  retries: 30
+  delay: 10
+  until: webpage_result_upgrade.status == 200
+
+# The bootstrap password is no longer valid after the initial install changed it,
+# so authenticate with the permanent password to get a fresh API token.
+- name: Get Rancher Token after upgrade
+  ansible.builtin.uri:
+    url: "https://{{ fqdn }}/v3-public/localproviders/local?action=login"
+    body:
+      username: admin
+      password: "{{ password }}"
+    method: POST
+    force_basic_auth: true
+    validate_certs: false
+    status_code: 201
+    body_format: json
+  register: rancherjson
+  retries: 5
+  delay: 10
+  until: rancherjson.status == 201
+
+- name: Extract Rancher Token after upgrade
+  ansible.builtin.set_fact:
+    API_KEY: "{{ rancherjson.json.token }}"
+
+- name: Print Token
+  ansible.builtin.debug:
+    msg: "RANCHER_API_KEY: {{ API_KEY }}"
+
+- name: Write updated token to generated.tfvars
+  ansible.builtin.copy:
+    dest: generated.tfvars
+    content: |
+      fqdn = "https://{{ fqdn }}"
+      api_key = "{{ API_KEY }}"
