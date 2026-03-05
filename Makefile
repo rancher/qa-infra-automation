@@ -20,7 +20,7 @@ GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
 # Environment-specific paths
 ifeq ($(ENV),default)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
-CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/rke2-playbook.yml
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
 REGISTRY_TARGET  :=
 else ifeq ($(ENV),airgap)
