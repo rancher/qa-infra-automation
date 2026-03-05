@@ -90,7 +90,7 @@
           kubernetes.core.helm:
             name: cert-manager
             chart_ref: jetstack/cert-manager
-            chart_version: "{{ cert_manager_version | default(omit) }}"
+            chart_version: "{{ cert_manager_version | default(omit, true) }}"
             release_namespace: cert-manager
             create_namespace: true
             values:
