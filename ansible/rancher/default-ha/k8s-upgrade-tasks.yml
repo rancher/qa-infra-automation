@@ -1,11 +1,26 @@
 ---
-- name: Patch downstream cluster kubernetesVersion
+- name: List all provisioned clusters in Rancher
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig_file }}"
+    api_version: provisioning.cattle.io/v1
+    kind: Cluster
+    namespace: fleet-default
+  register: k8s_all_clusters
+
+- name: Resolve downstream cluster name (first non-local cluster)
+  ansible.builtin.set_fact:
+    k8s_downstream_cluster_name: >-
+      {{ (k8s_all_clusters.resources
+          | rejectattr('metadata.name', 'equalto', 'local')
+          | list | first).metadata.name }}
+
+- name: Upgrade downstream cluster kubernetesVersion
   kubernetes.core.k8s_json_patch:
     kubeconfig: "{{ kubeconfig_file }}"
     api_version: provisioning.cattle.io/v1
     kind: Cluster
-    namespace: "{{ downstream_cluster_namespace | default('fleet-default') }}"
-    name: "{{ downstream_cluster_name }}"
+    namespace: fleet-default
+    name: "{{ k8s_downstream_cluster_name }}"
     patch:
       - op: replace
         path: /spec/kubernetesVersion
@@ -16,8 +31,8 @@
     kubeconfig: "{{ kubeconfig_file }}"
     api_version: provisioning.cattle.io/v1
     kind: Cluster
-    namespace: "{{ downstream_cluster_namespace | default('fleet-default') }}"
-    name: "{{ downstream_cluster_name }}"
+    namespace: fleet-default
+    name: "{{ k8s_downstream_cluster_name }}"
   register: k8s_cluster_status
   until: >
     k8s_cluster_status.resources | length > 0 and
