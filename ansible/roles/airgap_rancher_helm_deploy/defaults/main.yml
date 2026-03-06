@@ -20,7 +20,7 @@ rancher_use_bundled_system_charts: true
 # TLS configuration options: "rancher", "letsEncrypt", "secret"
 rancher_tls_source: "rancher"
 
-# Cert-manager version (leave empty to use latest)
+# Cert-manager chart version (SemVer without leading "v", e.g. 1.12.3). Leave empty to use latest.
 cert_manager_version: ""
 
 # Private registry configuration for airgap deployments
