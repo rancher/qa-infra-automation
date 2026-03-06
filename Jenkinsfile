@@ -25,7 +25,7 @@ pipeline {
       steps{
         script {
           sshDir = "${env.WORKSPACE}/.ssh"
-          property.useWithCredentials(['AWS_SSH_PEM_KEY_NAME', 'AWS_SSH_PEM_KEY', 'AWS_SSH_RSA_KEY_NAME', 'AWS_SSH_RSA_KEY']) {
+          property.useWithCredentials(['AWS_SSH_PEM_KEY_NAME', 'AWS_SSH_PEM_KEY', 'AWS_SSH_RSA_KEY_NAME', 'AWS_SSH_RSA_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']) {
             dir(sshDir) {
               if (params.SSH_KEY_TYPE == 'pem') {
                 infrastructure.writeSshKey(keyContent: env.AWS_SSH_PEM_KEY, keyName: env.AWS_SSH_PEM_KEY_NAME, pubKeyName: pubKey, dir: sshDir)
@@ -37,8 +37,6 @@ pipeline {
                 error "Unsupported SSH_KEY_TYPE: ${params.SSH_KEY_TYPE}. Supported types are 'pem' and 'rsa'."
               }
             }
-          }
-          property.useWithCredentials(['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']) {
             dir("${repoRoot}/${params.TOFU_MODULE}") {
               writeFile file: 'terraform.tfvars', text: """${params.TOFU_CONFIG}
 aws_access_key = "${AWS_ACCESS_KEY_ID}"
@@ -87,7 +85,7 @@ aws_hostname_prefix = "${params.HOSTNAME_PREFIX}"
             image: runnerImage,
             volumes: ["${repoRoot}:/tofu", "${sshDir}:/.ssh"],
             envVars: [TERRAFORM_NODE_SOURCE: "${params.TOFU_MODULE}"],
-            command: "sh -c \"pwd && ls -la && envsubst < ${playbookDir}/inventory-template.yml > ${playbookDir}/terraform-inventory.yml\"",
+            command: "sh -c \"envsubst < ${playbookDir}/inventory-template.yml > ${playbookDir}/terraform-inventory.yml\"",
             workingDir: "/tofu"
           )
 
