@@ -70,7 +70,7 @@ public_ssh_key = "/.ssh/${pubKey}"
             name: "${JOB_BASE_NAME}_${BUILD_NUMBER}_tofu",
             image: runnerImage,
             volumes: ["${repoRoot}:/tofu", "${sshDir}:/.ssh"],
-            command: "sh -c \"tofu -chdir=\\\"${params.TOFU_MODULE}\\\" init && tofu -chdir=\\\"${params.TOFU_MODULE}\\\" apply -auto-approve\"",
+            command: "sh -c \"tofu -chdir=${params.TOFU_MODULE} init && tofu -chdir=${params.TOFU_MODULE} apply -auto-approve\"",
             workingDir: "/tofu"
           )
         }
@@ -98,7 +98,7 @@ public_ssh_key = "/.ssh/${pubKey}"
             image: runnerImage,
             volumes: ["${repoRoot}:/tofu", "${sshDir}:/.ssh"],
             envVars: [TERRAFORM_NODE_SOURCE: "${params.TOFU_MODULE}"],
-            command: "sh -c \"pwd && ls -la && envsubst < \\\"${playbookDir}/inventory-template.yml\\\" > \\\"${playbookDir}/terraform-inventory.yml\\\"\"",
+            command: "sh -c \"pwd && ls -la && envsubst < ${playbookDir}/inventory-template.yml > ${playbookDir}/terraform-inventory.yml\"",
             workingDir: "/tofu"
           )
 
@@ -121,7 +121,7 @@ kube_api_host: "${kube_api_host}"
             image: runnerImage,
             volumes: ["${repoRoot}:/ansible", "${sshDir}:/.ssh"],
             envVars: [ANSIBLE_CONFIG: "${playbookDir}/ansible.cfg", ANSIBLE_PRIVATE_KEY_FILE: "/.ssh/${privateKey}"],
-            command: "sh -c \"ansible-playbook -i \\\"${playbookDir}/terraform-inventory.yml\\\" -vvvv \\\"${params.ANSIBLE_PLAYBOOK}\\\"\"",
+            command: "sh -c \"ansible-playbook -i ${playbookDir}/terraform-inventory.yml ${params.ANSIBLE_PLAYBOOK}\"",
             workingDir: "/ansible"
           )
         }
@@ -136,7 +136,7 @@ kube_api_host: "${kube_api_host}"
             image: runnerImage,
             volumes: ["${repoRoot}:/tofu"],
             envVars: [TERRAFORM_NODE_SOURCE: "${params.TOFU_MODULE}"],
-            command: "sh -c \"cat \\\"${playbookDir}/kubeconfig.yaml\\\"\"",
+            command: "sh -c \"cat ${playbookDir}/kubeconfig.yaml\"",
             workingDir: "/tofu"
           )
         }
