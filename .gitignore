@@ -25,3 +25,10 @@ ansible/rke2/airgap/playbooks/debug/*.txt
 ansible/rke2/airgap/playbooks/*.txt
 terraform-inventory*.yml
 .lock
+
+# Local scripts and docs
+ansible/rancher/default-ha/vars.yaml.example
+create-run.sh
+deploy-rancher-on-k3s.sh
+docs/rancher-on-hardened-k3s.md
+example-cluster-deploy.sh
