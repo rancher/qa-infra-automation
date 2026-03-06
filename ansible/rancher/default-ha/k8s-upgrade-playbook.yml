@@ -1,0 +1,53 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  vars:
+    kubernetes_version_upgrade: ""
+    downstream_cluster_namespace: fleet-default
+    # Set to true via -e "k8s_upgrade_mode=true" to execute the upgrade tasks.
+    k8s_upgrade_mode: false
+
+  tasks:
+    - name: Upgrade downstream cluster k8s version
+      when: k8s_upgrade_mode | bool
+      block:
+        - name: Wait for downstream cluster to be active before upgrading
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_file }}"
+            api_version: provisioning.cattle.io/v1
+            kind: Cluster
+            namespace: "{{ downstream_cluster_namespace }}"
+            name: "{{ k8s_downstream_cluster_name }}"
+            wait: yes
+            wait_sleep: 30
+            wait_timeout: 1800
+            wait_condition:
+              type: Ready
+
+        - name: Upgrade downstream cluster kubernetesVersion
+          kubernetes.core.k8s_json_patch:
+            kubeconfig: "{{ kubeconfig_file }}"
+            api_version: provisioning.cattle.io/v1
+            kind: Cluster
+            namespace: "{{ downstream_cluster_namespace }}"
+            name: "{{ k8s_downstream_cluster_name }}"
+            patch:
+              - op: replace
+                path: /spec/kubernetesVersion
+                value: "{{ kubernetes_version_upgrade }}"
+
+        - name: Wait for downstream cluster to finish k8s upgrade
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_file }}"
+            api_version: provisioning.cattle.io/v1
+            kind: Cluster
+            namespace: "{{ downstream_cluster_namespace }}"
+            name: "{{ k8s_downstream_cluster_name }}"
+            wait: yes
+            wait_sleep: 60
+            wait_timeout: 1800
+            wait_condition:
+              type: Ready
