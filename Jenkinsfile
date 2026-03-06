@@ -129,7 +129,7 @@ kube_api_host: "${kube_api_host}"
         )
       }
     }
-    always {
+    unsuccessful {
       script {
         if (params.DESTROY_ON_FAILURE?.toBoolean() && repoRoot && params?.TOFU_MODULE && fileExists("${repoRoot}/${params.TOFU_MODULE}")) {
           container.runCommand(
