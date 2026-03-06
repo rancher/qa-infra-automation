@@ -33,12 +33,8 @@
     kind: Cluster
     namespace: fleet-default
     name: "{{ k8s_downstream_cluster_name }}"
-  register: k8s_cluster_status
-  until: >
-    k8s_cluster_status.resources | length > 0 and
-    k8s_cluster_status.resources[0].status is defined and
-    (k8s_cluster_status.resources[0].status.conditions | default([]) |
-     selectattr('type', 'equalto', 'Ready') |
-     selectattr('status', 'equalto', 'True') | list | length > 0)
-  retries: 40
-  delay: 30
+    wait: yes
+    wait_sleep: 60
+    wait_timeout: 1800
+    wait_condition:
+      type: Ready
