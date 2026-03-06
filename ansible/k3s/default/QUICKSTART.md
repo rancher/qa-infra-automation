@@ -69,7 +69,7 @@ Run the playbook targeting the inventory file located in the root directory.
 
 ```sh
 # Syntax: ansible-playbook -i <inventory_path> <playbook_path>
-ansible-playbook -i ansible/k3s/default/terraform-inventory.yml ansible/k3s/default/k3s-playbook.yml
+ANSIBLE_CONFIG="./ansible/k3s/default/ansible.cfg" ansible-playbook -i ansible/k3s/default/terraform-inventory.yml ansible/k3s/default/k3s-playbook.yml
 ```
 
 ### Step 4: Verify K3s Installation
