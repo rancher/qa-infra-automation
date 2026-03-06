@@ -5,23 +5,11 @@ def repoRoot
 def sshDir
 def privateKey
 def pubKey = "public.pub"
-def runnerImage = "maxross/infra-runner:v1.0.0"
+def runnerImage = "ranchertest/infra-runner:v1.0.0"
 def playbookDir
 
 pipeline {
   agent any
-
-  // Commenting out parameters since we'll have these defined via Jenkins Job Builder. They can be re-enabled if we want to run this pipeline manually from the Jenkins UI. 
-  // Furthermore, the default values for these parameters are more well defined in the Jenkins Job Builder YAML file.
-  // parameters {
-  //     string(name: 'REPO', defaultValue: '', description: 'Git repository to checkout')
-  //     string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch or ref to checkout')
-  //     string(name: 'TOFU_MODULE', defaultValue: 'tofu/aws/modules/cluster_nodes', description: 'Tofu module path to apply')
-  //     text(name: 'TOFU_CONFIG', defaultValue: '', description: 'Base tfvars file content used to build terraform.tfvars')
-  //     string(name: 'SSH_KEY_TYPE', defaultValue: 'pem', description: 'Type of SSH key provided (pem or rsa)')
-  //     string(name: 'ANSIBLE_PLAYBOOK', defaultValue: 'ansible/k3s/default/k3s-playbook.yml', description: 'Path to Ansible playbook relative to repo root')
-  //     text(name: 'ANSIBLE_VARS', defaultValue: '', description: 'Additional Ansible variables in YAML format; content is written directly to vars.yaml')
-  // }
 
   stages {
 
@@ -50,12 +38,13 @@ pipeline {
               }
             }
           }
-          property.useWithProperties(['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']) {
+          property.useWithCredentials(['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']) {
             dir("${repoRoot}/${params.TOFU_MODULE}") {
               writeFile file: 'terraform.tfvars', text: """${params.TOFU_CONFIG}
 aws_access_key = "${AWS_ACCESS_KEY_ID}"
 aws_secret_key = "${AWS_SECRET_ACCESS_KEY}"
 public_ssh_key = "/.ssh/${pubKey}"
+aws_hostname_prefix = "${params.HOSTNAME_PREFIX}"
 """
             }
           }
@@ -127,16 +116,29 @@ kube_api_host: "${kube_api_host}"
         }
       }
     }
+  }
 
-    stage('Print Kubeconfig') {
-      steps {
-        script {
+  post {
+    success {
+      script {
+        container.runCommand(
+          name: "${JOB_BASE_NAME}_${BUILD_NUMBER}_print_kubeconfig",
+          image: runnerImage,
+          volumes: ["${repoRoot}:/tofu"],
+          envVars: [TERRAFORM_NODE_SOURCE: "${params.TOFU_MODULE}"],
+          command: "sh -c \"cat ${playbookDir}/kubeconfig.yaml\"",
+          workingDir: "/tofu"
+        )
+      }
+    }
+    always {
+      script {
+        if (params.DESTROY_ON_FAILURE?.toBoolean() && repoRoot && params?.TOFU_MODULE && fileExists("${repoRoot}/${params.TOFU_MODULE}")) {
           container.runCommand(
-            name: "${JOB_BASE_NAME}_${BUILD_NUMBER}_print_kubeconfig",
+            name: "${JOB_BASE_NAME}_${BUILD_NUMBER}_tofu_destroy",
             image: runnerImage,
-            volumes: ["${repoRoot}:/tofu"],
-            envVars: [TERRAFORM_NODE_SOURCE: "${params.TOFU_MODULE}"],
-            command: "sh -c \"cat ${playbookDir}/kubeconfig.yaml\"",
+            volumes: ["${repoRoot}:/tofu", "${sshDir}:/.ssh"],
+            command: "sh -c \"tofu -chdir=${params.TOFU_MODULE} destroy -auto-approve\"",
             workingDir: "/tofu"
           )
         }
