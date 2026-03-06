@@ -1,11 +1,17 @@
 ---
-- name: List all provisioned clusters in Rancher
+- name: Wait for downstream cluster to appear in fleet-default
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig_file }}"
     api_version: provisioning.cattle.io/v1
     kind: Cluster
     namespace: fleet-default
   register: k8s_all_clusters
+  until: >
+    (k8s_all_clusters.resources
+     | rejectattr('metadata.name', 'equalto', 'local')
+     | list | length > 0)
+  retries: 20
+  delay: 30
 
 - name: Resolve downstream cluster name (first non-local cluster)
   ansible.builtin.set_fact:
