@@ -39,7 +39,7 @@
     rancher_deployment_upgrade.resources[0].status.readyReplicas is defined and
     rancher_deployment_upgrade.resources[0].status.readyReplicas == rancher_deployment_upgrade.resources[0].status.replicas
   retries: 15
-  delay: 30
+  delay: 120
 
 - name: Wait for Rancher UI to respond after upgrade
   ansible.builtin.uri:
@@ -48,8 +48,8 @@
     status_code: 200
     validate_certs: false
   register: webpage_result_upgrade
-  retries: 30
-  delay: 10
+  retries: 15
+  delay: 120
   until: webpage_result_upgrade.status == 200
 
 # The bootstrap password is no longer valid after the initial install changed it,
