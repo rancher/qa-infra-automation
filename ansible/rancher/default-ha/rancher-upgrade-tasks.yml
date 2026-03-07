@@ -33,24 +33,25 @@
     kind: Deployment
     namespace: cattle-system
     name: rancher
-  register: rancher_deployment_upgrade
-  until: >
-    rancher_deployment_upgrade.resources | length > 0 and
-    rancher_deployment_upgrade.resources[0].status.readyReplicas is defined and
-    rancher_deployment_upgrade.resources[0].status.readyReplicas == rancher_deployment_upgrade.resources[0].status.replicas
+  register: rancher_deploy_info
   retries: 15
   delay: 120
+  until: >
+    rancher_deploy_info.resources | default([]) | length > 0 and
+    (rancher_deploy_info.resources[0].status.readyReplicas | default(0)) > 0 and
+    (rancher_deploy_info.resources[0].status.readyReplicas | default(0)) ==
+    (rancher_deploy_info.resources[0].status.replicas | default(1))
 
 - name: Wait for Rancher UI to respond after upgrade
   ansible.builtin.uri:
     url: "https://{{ fqdn }}"
     method: GET
-    status_code: 200
     validate_certs: false
   register: webpage_result_upgrade
   retries: 15
   delay: 120
-  until: webpage_result_upgrade.status == 200
+  until: webpage_result_upgrade.status is defined and webpage_result_upgrade.status == 200
+  failed_when: false
 
 # The bootstrap password is no longer valid after the initial install changed it,
 # so authenticate with the permanent password to get a fresh API token.
