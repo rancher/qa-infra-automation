@@ -36,17 +36,30 @@
         timeout: 240
         state: started
 
-# Harden nodes before registration if `harden: true` is set.
-# Controlled by the `harden` variable (default: false).
-# Set via extra-vars: ansible-playbook ... -e "harden=true"
+# Harden nodes before registration if the HARDEN environment variable is set.
+# Defaults to disabled. Enable with: HARDEN=true ansible-playbook ...
 - hosts: all
   become: true
   gather_facts: true
   vars:
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     harden: "{{ lookup('env', 'HARDEN') | default(false) | bool }}"
-  roles:
-    - role: k3s_hardening
+  tasks:
+    - name: Apply hardening on control-plane / etcd nodes
+      include_role:
+        name: k3s_hardening
+      vars:
+        k3s_node_type: server
+        role_server_flags: ""
+      when: '"cp" in ansible_role or "etcd" in ansible_role'
+
+    - name: Apply hardening on worker / agent nodes
+      include_role:
+        name: k3s_hardening
+      vars:
+        k3s_node_type: agent
+        role_worker_flags: ""
+      when: ansible_role == 'worker'
 
 - hosts: all
   become: true

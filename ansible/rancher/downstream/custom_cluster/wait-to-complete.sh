@@ -90,6 +90,12 @@ done
 
 echo "Watching service: ${SERVICE}"
 
+# Agent nodes have no kubectl / kubeconfig — Phases 1+2 are enough for them.
+IS_AGENT=false
+if [[ "${SERVICE}" == "rke2-agent" || "${SERVICE}" == "k3s-agent" ]]; then
+    IS_AGENT=true
+fi
+
 # ---------------------------------------------------------------------------
 # Phase 1: Wait for the service to become active
 # ---------------------------------------------------------------------------
@@ -111,6 +117,12 @@ while true; do
     sleep 10
 done
 
+# Agent nodes do not run the API server — skip the kubectl Ready check.
+if [[ "${IS_AGENT}" == "true" ]]; then
+    echo "Agent node: skipping Phase 2 (no kubectl on agent)."
+    exit 0
+fi
+
 # ---------------------------------------------------------------------------
 # Phase 2: Wait for the node to appear as Ready in Kubernetes
 # ---------------------------------------------------------------------------
@@ -124,7 +136,8 @@ while true; do
 
     READY=$(KUBECONFIG="${KUBECONFIG}" "${KUBECTL}" get node "${NODE_NAME}" \
         --request-timeout=10s \
-        --no-headers -o custom-columns='STATUS:.status.conditions[-1].status' 2>/dev/null || true)
+        -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
+        | grep '^Ready=' | cut -d= -f2 || true)
 
     if [[ "${READY}" == "True" ]]; then
         echo "Node ${NODE_NAME} is Ready."
