@@ -1,6 +1,6 @@
 plugin: cloud.terraform.terraform_provider
-project_path: "tofu/aws/modules/cluster_nodes"
-workspace: "my-aws-test"
+project_path: "tofu/harvester/modules/vm"
+workspace: "my-hvst-test4"
 binary_path: tofu
 
 keyed_groups:

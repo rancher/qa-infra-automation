@@ -46,7 +46,7 @@
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     harden: "{{ lookup('env', 'HARDEN') | default(false) | bool }}"
   roles:
-    - role: node_hardening
+    - role: k3s_hardening
 
 - hosts: all
   become: true
@@ -63,7 +63,7 @@
       debug:
         var: hostvars['localhost']['cluster_registration_token']
 
-    - name: Transfer and Node Registration
+    - name: "Register node={{ inventory_hostname }} ip={{ ansible_host }} role={{ ansible_role }}"
       script: ./register-node.sh
       environment:
         TOKEN: "{{ hostvars['localhost']['cluster_registration_token'] }}"
@@ -87,6 +87,8 @@
   tasks:
     - name: Wait for Node Registration to Complete
       script: ./wait-to-complete.sh
+      environment:
+        NODE_NAME: "{{ inventory_hostname }}"
       register: wait_result
       when: '"cp" in ansible_role or "etcd" in ansible_role'
 

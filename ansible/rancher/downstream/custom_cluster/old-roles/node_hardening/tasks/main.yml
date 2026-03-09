@@ -23,6 +23,7 @@
   set_fact:
     _rancher_dir: "{{ '/etc/rancher/rke2' if _distro == 'rke2' else '/etc/rancher/k3s' }}"
     _server_dir: "{{ '/var/lib/rancher/rke2/server' if _distro == 'rke2' else '/var/lib/rancher/k3s/server' }}"
+    _config_dropin_dir: "{{ '/etc/rancher/rke2/config.yaml.d' if _distro == 'rke2' else '/etc/rancher/k3s/config.yaml.d' }}"
 
 - name: Create rancher config directory
   file:
@@ -31,6 +32,15 @@
     owner: root
     group: root
     mode: '0700'
+
+- name: Create config drop-in directory
+  file:
+    path: "{{ _config_dropin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when: '"cp" in ansible_role or "etcd" in ansible_role'
 
 - name: Create server directory
   file:
@@ -60,6 +70,15 @@
     name: systemd-sysctl
     state: restarted
 
+- name: Create audit log directory
+  file:
+    path: "{{ _server_dir }}/logs"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when: '"cp" in ansible_role or "etcd" in ansible_role'
+
 - name: Deploy AdmissionConfiguration for CIS hardening
   template:
     src: admission-config.j2
@@ -78,6 +97,15 @@
     mode: '0600'
   when: '"cp" in ansible_role or "etcd" in ansible_role'
 
+- name: Deploy CIS distro config drop-in (sets profile/service-account-extend-token-expiration and apiserver args)
+  template:
+    src: cis-config.j2
+    dest: "{{ _config_dropin_dir }}/90-cis-hardening.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  when: '"cp" in ansible_role or "etcd" in ansible_role'
+
 - name: Show hardening status
   debug:
     msg: |
@@ -86,5 +114,7 @@
       Config dir: {{ _rancher_dir }}
       Server dir: {{ _server_dir }}
       Kernel defaults protection: YES
+      CIS distro config: {{ 'deployed to ' + _config_dropin_dir + '/90-cis-hardening.yaml' if ('cp' in ansible_role or 'etcd' in ansible_role) else 'skipped (worker-only node)' }}
       AdmissionConfiguration: {{ 'deployed' if ('cp' in ansible_role or 'etcd' in ansible_role) else 'skipped (worker-only node)' }}
       Audit policy: {{ 'deployed' if ('cp' in ansible_role or 'etcd' in ansible_role) else 'skipped (worker-only node)' }}
+      service-account-extend-token-expiration: false
