@@ -1,9 +1,12 @@
 ---
 - name: Validate if K3s hardening is enabled
   set_fact:
-    hardening_enabled: "{{ harden }}"
+    hardening_enabled: >-
+      {{ (harden | default(false) | bool) or
+         (role_server_flags is defined and 'protect-kernel-defaults' in role_server_flags) or
+         (role_worker_flags is defined and 'protect-kernel-defaults' in role_worker_flags) }}
 
-- name: Ensure K3s directories exist
+- name: Ensure K3s server directories exist (server/CP/etcd nodes only)
   file:
     path: "{{ item }}"
     state: directory
@@ -11,8 +14,9 @@
   loop:
     - "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}"
     - "{{ k3s_manifests_dir | default('/var/lib/rancher/k3s/server/manifests') }}"
+  when: k3s_node_type in ['cluster-init', 'server']
 
-- name: Apply K3s security hardening
+- name: Apply kernel security parameters (all nodes)
   when: hardening_enabled | bool
   block:
     - name: Apply kernel security parameters
@@ -34,6 +38,11 @@
         name: systemd-sysctl
         state: restarted
 
+- name: Apply K3s server hardening artifacts (server/CP/etcd nodes only)
+  when:
+    - hardening_enabled | bool
+    - k3s_node_type in ['cluster-init', 'server']
+  block:
     - name: Deploy AdmissionConfiguration for CIS hardening
       template:
         src: admission-config-base.j2
@@ -63,7 +72,7 @@
         path: "{{ k3s_manifests_dir | default('/var/lib/rancher/k3s/server/manifests') }}/policy.yaml"
         block: "{{ lookup('template', 'traefik-policies.j2') }}"
         marker: "# {mark} TRAEFIK POLICIES"
-      when: 
+      when:
         - role_server_flags is not defined or 'disable-traefik' not in role_server_flags
 
     - name: Create ingress policy manifest
@@ -76,6 +85,6 @@
   debug:
     msg: |
       K3s Security Hardening: {{ 'ENABLED' if hardening_enabled else 'DISABLED' }}
-      Protect Kernel Defaults: {{ 'YES' if hardening_enabled else 'NO' }}
-      {% if not hardening_enabled %}
-      {% endif %}
+      Node Type: {{ k3s_node_type }}
+      Kernel parameters: {{ 'YES' if hardening_enabled else 'NO' }}
+      Server artifacts (AdmissionConfig/audit/manifests): {{ 'deployed' if (hardening_enabled and k3s_node_type in ['cluster-init', 'server']) else 'skipped' }}
