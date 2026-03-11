@@ -25,4 +25,3 @@ ansible/rke2/airgap/playbooks/debug/*.txt
 ansible/rke2/airgap/playbooks/*.txt
 terraform-inventory*.yml
 .lock
--hardened-k3s.md
