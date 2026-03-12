@@ -88,6 +88,7 @@
       vars:
         k3s_node_type: cluster-init
         role_server_flags: "{{ server_flags | default('') }}"
+        harden: "{{ harden | default(false) | bool }}"
       when: inventory_hostname == 'master'
 
     - name: Install K3s on initial cluster node
@@ -183,6 +184,7 @@
         k3s_node_type: server
         role_server_flags: "{{ server_flags | default('') }}"
         kubernetes_version: "{{ kubernetes_version }}"
+        harden: "{{ harden | default(false) | bool }}"
       when:
         - inventory_hostname != 'master'
         - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
@@ -210,6 +212,7 @@
         k3s_node_type: agent
         role_server_flags: "{{ server_flags | default('') }}"
         role_worker_flags: "{{ worker_flags | default('') }}"
+        harden: "{{ harden | default(false) | bool }}"
       when: ansible_role is defined and ansible_role == 'worker'
 
     - name: Validate required variables for agent installation

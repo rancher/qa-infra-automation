@@ -7,12 +7,17 @@
 kubernetes_version: 'v1.32.1+k3s1'
 kubeconfig_file: './kubeconfig.yaml'
 
-# Optional server/worker flags (customize as needed)
-server_flags: |
-  protect-kernel-defaults: true
+# CIS hardening (opt-in).
+# Set to true to apply CIS benchmark hardening before installation.
+# Alternatively, including 'protect-kernel-defaults: true' in server_flags
+# also enables hardening as a fallback (legacy behaviour).
+harden: false
 
-worker_flags: |
-  protect-kernel-defaults: true
+# Optional server/worker flags for custom k3s args.
+# Note: setting 'protect-kernel-defaults: true' here also enables CIS hardening.
+server_flags: ""
+
+worker_flags: ""
 
 # Optional channel for K3s installation
 channel: "stable"

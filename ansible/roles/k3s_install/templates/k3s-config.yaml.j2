@@ -104,7 +104,9 @@ tls-san:
 {% endif %}
 
 # CIS hardening configuration
-{% set is_hardening_enabled = (server_flags is defined and 'protect-kernel-defaults' in server_flags) or (role_server_flags is defined and 'protect-kernel-defaults' in role_server_flags) %}
+{% set is_hardening_enabled = (harden | default(false) | bool) or
+   (server_flags is defined and 'protect-kernel-defaults' in server_flags) or
+   (role_server_flags is defined and 'protect-kernel-defaults' in role_server_flags) %}
 {% if is_hardening_enabled and k3s_node_type in ['cluster-init', 'server'] %}
 secrets-encryption: true
 kube-apiserver-arg:
