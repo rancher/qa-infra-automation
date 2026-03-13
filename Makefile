@@ -10,14 +10,37 @@ SHELL := /bin/bash
 
 # Configurable parameters (override with: make <target> DISTRO=k3s ENV=default)
 DISTRO   ?= rke2
-ENV      ?= airgap
+ENV      ?= default
 PROVIDER ?= aws
 
 # Derived paths
-TOFU_DIR    := tofu/$(PROVIDER)/modules/$(ENV)
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
-INVENTORY   := $(ANSIBLE_DIR)/inventory/inventory.yml
 GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
+
+# Environment-specific paths
+ifeq ($(ENV),default)
+TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
+RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
+REGISTRY_TARGET  :=
+else ifeq ($(ENV),airgap)
+TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
+RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
+REGISTRY_TARGET  := registry
+else
+TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
+RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
+REGISTRY_TARGET  :=
+endif
+
+# Inventory always lives in the ansible directory.
+# infra-up passes this path to Tofu so it writes there directly.
+INVENTORY := $(ANSIBLE_DIR)/inventory.yml
+
+# Kubeconfig written by the cluster role; rancher needs to know where it is.
+KUBECONFIG_FILE := $(CURDIR)/$(ANSIBLE_DIR)/kubeconfig.yaml
 
 # Ansible settings
 export ANSIBLE_HOST_KEY_CHECKING := False
@@ -43,7 +66,7 @@ help: ## Show this help message
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws"
-	@echo "At the moment this only supports rke2, airgap, and aws"
+	@echo "At the moment this only supports rke2, default/airgap, and aws"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. Configure $(TOFU_DIR)/terraform.tfvars"
@@ -85,9 +108,10 @@ help: ## Show this help message
 	@echo "  setup-from-infra    Setup cluster + Rancher (infra already exists)"
 	@echo ""
 	@echo "EXAMPLES:"
-	@echo "  make all                                    # RKE2 airgap on AWS (default)"
-	@echo "  make all DISTRO=k3s ENV=default             # K3s default on AWS"
-	@echo "  make cluster DISTRO=rke2 ENV=airgap         # Just RKE2 airgap cluster"
+	@echo "  make all                                    # RKE2 default on AWS (default)"
+	@echo "  make all ENV=airgap                         # RKE2 airgap on AWS"
+	@echo "  make all DISTRO=k3s                         # K3s default on AWS"
+	@echo "  make cluster ENV=airgap                     # Just RKE2 airgap cluster"
 	@echo "  make status                                 # Check current cluster"
 	@echo ""
 
@@ -159,7 +183,9 @@ infra-plan: infra-init ## Plan infrastructure changes
 .PHONY: infra-up
 infra-up: infra-init ## Create infrastructure
 	@echo "Creating $(PROVIDER) infrastructure for $(ENV) environment..."
-	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars -auto-approve
+	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars \
+		-var="inventory_output_path=$(CURDIR)/$(INVENTORY)" \
+		-auto-approve
 	@echo ""
 	@echo "Infrastructure created. Inventory generated at $(INVENTORY)"
 
@@ -181,11 +207,7 @@ infra-output: ## Show Tofu outputs
 cluster: check-inventory ## Install Kubernetes cluster
 	@echo "Installing $(DISTRO) cluster ($(ENV) environment)..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	if [ "$(ENV)" = "airgap" ]; then \
-		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml -v $(ANSIBLE_EXTRA_VARS); \
-	else \
-		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml -v $(ANSIBLE_EXTRA_VARS); \
-	fi
+	ansible-playbook -i $(INVENTORY) $(CLUSTER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: agents
 agents: check-inventory ## Setup additional agent nodes
@@ -196,8 +218,8 @@ agents: check-inventory ## Setup additional agent nodes
 .PHONY: rancher
 rancher: check-inventory ## Deploy Rancher to cluster
 	@echo "Deploying Rancher..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg KUBECONFIG_FILE=$(KUBECONFIG_FILE); \
+	ansible-playbook -i $(INVENTORY) $(RANCHER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: registry
 registry: check-inventory ## Configure private registry on cluster nodes
@@ -274,14 +296,14 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster registry rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster registry rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) rancher ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""
@@ -299,15 +321,20 @@ debug-vars: ## Show current variable values
 	@echo "  PROVIDER    = $(PROVIDER)"
 	@echo ""
 	@echo "Derived Paths:"
-	@echo "  TOFU_DIR    = $(TOFU_DIR)"
-	@echo "  ANSIBLE_DIR = $(ANSIBLE_DIR)"
-	@echo "  INVENTORY   = $(INVENTORY)"
-	@echo "  GROUP_VARS  = $(GROUP_VARS)"
+	@echo "  TOFU_DIR         = $(TOFU_DIR)"
+	@echo "  ANSIBLE_DIR      = $(ANSIBLE_DIR)"
+	@echo "  INVENTORY        = $(INVENTORY)"
+	@echo "  CLUSTER_PLAYBOOK = $(CLUSTER_PLAYBOOK)"
+	@echo "  RANCHER_PLAYBOOK = $(RANCHER_PLAYBOOK)"
+	@echo "  KUBECONFIG_FILE  = $(KUBECONFIG_FILE)"
+	@echo "  GROUP_VARS       = $(GROUP_VARS)"
 	@echo ""
 	@echo "Directory Status:"
-	@echo "  Tofu dir exists:    $$([ -d "$(TOFU_DIR)" ] && echo "yes" || echo "no")"
-	@echo "  Ansible dir exists: $$([ -d "$(ANSIBLE_DIR)" ] && echo "yes" || echo "no")"
-	@echo "  Inventory exists:   $$([ -f "$(INVENTORY)" ] && echo "yes" || echo "no")"
+	@echo "  Tofu dir exists:       $$([ -d "$(TOFU_DIR)" ] && echo "yes" || echo "no")"
+	@echo "  Ansible dir exists:    $$([ -d "$(ANSIBLE_DIR)" ] && echo "yes" || echo "no")"
+	@echo "  Inventory exists:      $$([ -f "$(INVENTORY)" ] && echo "yes" || echo "no")"
+	@echo "  Cluster playbook exists: $$([ -f "$(CLUSTER_PLAYBOOK)" ] && echo "yes" || echo "no")"
+	@echo "  Rancher playbook exists: $$([ -f "$(RANCHER_PLAYBOOK)" ] && echo "yes" || echo "no")"
 
 # Extra vars support
 ifdef EXTRA_VARS

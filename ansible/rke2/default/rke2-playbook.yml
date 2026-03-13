@@ -1,43 +1,18 @@
 ---
-- hosts: "localhost"
-  connection: local
-  gather_facts: false
+- hosts: all
+  name: Setup nodes - Python and NetworkManager
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yaml
   vars:
-    # terraform integration (optional).
-    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('', true) }}"
-    terraform_module_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
-    terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
-    terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  tasks:
-    - name: Set variables based on tofu or environment
-      when: kube_api_host is not defined or fqdn is not defined 
-      block: 
-      - name: Check if using tfstate file
-        ansible.builtin.stat:
-          path: "{{ terraform_state_file }}"
-        register: tfstate_file_stat
-
-      - name: Set fqdn and kube_api_host content from tfstate file if it exists
-        ansible.builtin.set_fact:
-          kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
-          fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
-          use_terraform: true
-        when: tfstate_file_stat.stat.exists
-
-      - name: Set kube_api_host content from env or vars when not using terraform
-        ansible.builtin.set_fact:
-          kube_api_host: "{{ lookup('env', 'KUBE_API_HOST') | default(kube_api_host, true) }}"
-          use_terraform: false
-        when: not tfstate_file_stat.stat.exists
-
-      - name: Set fqdn content from env or vars when not using terraform
-        ansible.builtin.set_fact:
-          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn | default(kube_api_host, true), true) }}"
-        when: not tfstate_file_stat.stat.exists
-
+  pre_tasks:
+    - name: Wait for SSH to become available
+      ansible.builtin.wait_for_connection:
+        delay: 10
+        timeout: 300
+      become: false
     - name: Validate required variables
       assert:
         that:
@@ -47,311 +22,72 @@
           - kube_api_host | length > 0
           - cni is defined
           - cni | length > 0
-        fail_msg: "Required variables not defined. Please ensure kubernetes_version, kube_api_host, and cni are set in vars.yaml or environment variables"
+        fail_msg: "Required variables not defined. Set kubernetes_version, kube_api_host, and cni in vars.yaml or inventory all.vars"
+      run_once: true
+  roles:
+    - role: rke2_setup
+      tags: ['setup', 'rke2']
 
 - hosts: all
-  strategy: linear
+  name: Generate RKE2 configuration files
   become: true
-  gather_facts: false
-  vars:
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  
-  tasks:
-    - name: Detect OS family
-      raw: |
-        . /etc/os-release
-        echo "${ID}|${ID_LIKE}|${VERSION_ID}"
-      register: osr
-      changed_when: false
-      tags: gather_facts
-
-    - name: Set OS facts
-      set_fact:
-        _os_id:   "{{ (osr.stdout | default('||')).split('|')[0] | lower }}"
-        _os_like: "{{ (osr.stdout | default('||')).split('|')[1] | lower }}"
-      tags: gather_facts
-
-    - name: Check python3 version
-      raw: |
-        if command -v /usr/bin/python3 >/dev/null 2>&1; then
-          v="$(/usr/bin/python3 -V 2>&1 | awk '{print $2}')"
-          maj="${v%%.*}"; rest="${v#*.}"; min="${rest%%.*}"
-          echo "${maj:-0}.${min:-0}"
-        else
-          echo "0.0"
-        fi
-      register: pyver
-      changed_when: false
-      tags: gather_facts
-
-    - name: Debian/Ubuntu | ensure python3 (>=3.8 in repo)
-      raw: |
-        set -e
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -y
-        apt-get install -y python3
-      when: _os_id in ['debian','ubuntu'] and (pyver.stdout is version('3.8', '<'))
-      tags: gather_facts
-
-    - name: RHEL-family | ensure python39 (or python3)
-      raw: |
-        set -e
-        if command -v dnf >/dev/null 2>&1; then
-          dnf -y module enable python39 || true
-          dnf -y install python39 || dnf -y install python3
-        else
-          yum -y install python39 || yum -y install python3
-        fi
-      when: (_os_id in ['rhel','centos','rocky','almalinux','ol'] or 'rhel' in _os_like) and (pyver.stdout is version('3.8', '<'))
-      tags: gather_facts
-
-    - name: SUSE/SLES | ensure python311
-      raw: |
-        set -e
-        zypper -n refresh || true
-        zypper -n install -y python311 || true
-      when: (_os_id in ['sles','suse','opensuse-leap','opensuse'] or 'suse' in _os_like)
-      tags: gather_facts
-
-    - name: Discover best Python interpreter path
-      raw: |
-        for p in /usr/bin/python3.12 /usr/bin/python3.11 /usr/bin/python311 /usr/bin/python3.10 /usr/bin/python3.9 /usr/bin/python3; do
-          if [ -x "$p" ]; then echo "$p"; exit 0; fi
-        done
-        echo /usr/bin/python3
-      register: pywhich
-      changed_when: false
-      tags: gather_facts
-
-    - name: Bind Ansible to the discovered interpreter
-      set_fact:
-        ansible_discovered_interpreter_python: "{{ pywhich.stdout | trim }}"
-      tags: gather_facts
-
-    - meta: reset_connection
-      tags: gather_facts
-
-    - name: Gather facts with the new interpreter
-      setup:
-      tags: gather_facts
-
-- hosts: "all"
-  become: true
-  gather_facts: false
-  pre_tasks:
-    - name: Gather facts
-      setup:
-      tags: gather_facts
-  tasks:
-    - name: Disable NetworkManager cloud setup services
-      raw: |
-        systemctl stop nm-cloud-setup.service || true
-        systemctl disable nm-cloud-setup.service || true
-        systemctl stop nm-cloud-setup.timer || true
-        systemctl disable nm-cloud-setup.timer || true
-      changed_when: false
-      when:
-        - ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
-        - ansible_distribution_major_version|int >= 8
-      tags: gather_facts
-
-    - name: Create NetworkManager config for CNI interfaces
-      raw: |
-        mkdir -p /etc/NetworkManager/conf.d
-        cat > /etc/NetworkManager/conf.d/99-cni.conf << 'EOF'
-        [keyfile]
-        unmanaged-devices=interface-name:cali*;interface-name:tunl*;interface-name:vxlan.calico;interface-name:flannel*
-        EOF
-        chmod 644 /etc/NetworkManager/conf.d/99-cni.conf
-      changed_when: false
-      when: ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
-      tags: gather_facts
-
-    - name: Restart NetworkManager
-      raw: systemctl restart NetworkManager || true
-      changed_when: false
-      when: ansible_os_family == "RedHat" or ansible_distribution in ['OracleLinux', 'Oracle']
-      tags: gather_facts
-
-- hosts: "master"
-  become: true
-  gather_facts: false
+  gather_facts: true
   vars_files:
     - vars.yaml
   vars:
-    node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  pre_tasks:
-    - name: Gather facts
-      setup:
-      tags: gather_facts
-  tasks:
-    - name: Transfer and execute init-cluster.sh (initial etcd node)
-      script: ./init-cluster.sh
-      environment:
-        KUBERNETES_VERSION: "{{ kubernetes_version }}"
-        KUBE_API_HOST: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
-        FQDN: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
-        CNI: "{{ cni }}"
-        NODE_ROLE: "{{ ansible_role }}"
-        PUBLIC_IP: "{{ ansible_host }}"
-        CHANNEL: "{{ channel | default('') }}"
-        SERVER_FLAGS: "{{ server_flags | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
-      register: script_result
+  roles:
+    - role: rke2_config
+      vars:
+        rke2_kubernetes_version: "{{ kubernetes_version }}"
+        rke2_kube_api_host: "{{ kube_api_host }}"
+        rke2_fqdn: "{{ fqdn | default(kube_api_host) }}"
+        rke2_cni: "{{ cni }}"
+        rke2_server_flags: "{{ server_flags | default('') }}"
+        rke2_worker_flags: "{{ worker_flags | default('') }}"
+      tags: ['config', 'rke2']
 
-    - name: Display script output (stdout)
-      debug:
-        var: script_result.stdout_lines
-
-    - name: Check script return code
-      debug:
-        msg: "Script returned: {{ script_result.rc }}"
-
-    - name: Display script errors (stderr) if any
-      debug:
-        var: script_result.stderr_lines
-      when: script_result.rc != 0
-
-    - name: Get node-token from master
-      raw: cat /var/lib/rancher/rke2/server/node-token 2>/dev/null
-      register: node_token_output
-
-    - name: Save node_token to local file
-      delegate_to: localhost
-      run_once: true
-      become: no
-      shell: echo "{{ node_token_output.stdout }}" > "{{ node_token_file }}"
-
-    - name: Read file contents into a variable
-      raw: cat /etc/rancher/rke2/rke2.yaml 2>/dev/null
-      register: file_contents
-
-    - name: Save file contents locally
-      delegate_to: localhost
-      run_once: true
-      become: no
-      shell: echo "{{ file_contents.stdout }}" > "{{ kubeconfig_file }}"
-
-- hosts: "all"
+- hosts: all
+  name: Install RKE2 binaries
   become: true
-  gather_facts: false
+  gather_facts: true
   vars_files:
     - vars.yaml
   vars:
-    node_token_file: "/tmp/node_token.txt" # Local file to store the token
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  pre_tasks:
-    - name: Gather facts
-      setup:
-      tags: gather_facts
-  tasks:
-    - name: Read node_token from local file
-      delegate_to: localhost
-      run_once: true
-      become: false
-      slurp:
-        src: "{{ node_token_file }}"
-      register: node_token_file_content
+  roles:
+    - role: rke2_install
+      vars:
+        rke2_version: "{{ kubernetes_version }}"
+        rke2_channel: "{{ channel | default('stable') }}"
+        rke2_install_method: "{{ install_method | default('online') }}"
+      tags: ['install', 'rke2']
 
-    - name: Set node_token fact from file content
-      set_fact:
-        node_token: "{{ node_token_file_content.content | b64decode | trim }}"
-      run_once: true
-      delegate_to: localhost
-
-    - name: Transfer and execute init-server.sh (Server)
-      script: ./init-server.sh
-      environment:
-        KUBERNETES_VERSION: "{{ kubernetes_version }}"
-        KUBE_API_HOST: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
-        FQDN: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
-        CNI: "{{ cni }}"
-        NODE_TOKEN: "{{ node_token }}"
-        NODE_ROLE: "{{ ansible_role }}"
-        PUBLIC_IP: "{{ ansible_host }}"
-        SERVER_FLAGS: "{{ server_flags | default('') }}"
-        CHANNEL: "{{ channel | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
-      register: script_result
-      when: >
-        "master" not in inventory_hostname and
-        (
-          ansible_role is defined and
-          (
-            "cp" in ansible_role.split(',') or
-            "etcd" in ansible_role.split(',')
-          )
-        )
-
-    - name: Transfer and execute init-agent.sh (Agent)
-      script: ./init-agent.sh
-      environment:
-        KUBERNETES_VERSION: "{{ kubernetes_version }}"
-        KUBE_API_HOST: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
-        FQDN: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
-        CNI: "{{ cni }}"
-        NODE_TOKEN: "{{ node_token }}"
-        PUBLIC_IP: "{{ ansible_host }}"
-        WORKER_FLAGS: "{{ worker_flags | default('') }}"
-        CHANNEL: "{{ channel | default('') }}"
-        INSTALL_METHOD: "{{ install_method | default('') }}"
-      register: script_result
-      when: ansible_role == "worker"
+- hosts: all
+  name: Form RKE2 cluster
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yaml
+  vars:
+    node_token_file: "/tmp/node_token.txt"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  roles:
+    - role: rke2_cluster
+      vars:
+        rke2_kube_api_host: "{{ kube_api_host }}"
+        rke2_kubeconfig_dest: "{{ playbook_dir }}/kubeconfig.yaml"
+        rke2_node_token_file: "{{ node_token_file }}"
+      tags: ['cluster', 'rke2']
 
 - hosts: localhost
   connection: local
   gather_facts: false
   vars_files:
     - vars.yaml
-  tasks:
-    - name: Wait until all RKE2 Helm-managed pods in kube-system are Running or Succeeded
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig_file }}"
-        api_version: v1
-        kind: Pod
-        namespace: kube-system
-        label_selectors:
-          - app.kubernetes.io/managed-by=Helm
-      register: rke2_pods_check
-      until: >
-        rke2_pods_check.resources is defined and
-        (rke2_pods_check.resources | rejectattr('status.phase', 'in', ['Running', 'Succeeded']) | list | length == 0)
-      retries: 5
-      delay: 60
-      
-    - name: Detect ingress controller type
-      ansible.builtin.set_fact:
-        ingress_controller: "{{ 'nginx' if (server_flags | default('')) is search('ingress-controller:\\s*nginx') else 'traefik' }}"
-
-    - name: Wait for ingress-nginx admission webhook to be ready
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig_file }}"
-        api_version: v1
-        kind: Endpoints
-        namespace: kube-system
-        name: rke2-ingress-nginx-controller-admission
-      register: ingress_endpoints
-      until: >
-        ingress_endpoints.resources | length > 0 and
-        (ingress_endpoints.resources[0].subsets | default([])) | length > 0 and
-        (ingress_endpoints.resources[0].subsets[0].addresses | default([])) | length > 0
-      retries: 30
-      delay: 20
-      when: ingress_controller == 'nginx'
-
-    - name: Wait for traefik ingress controller to be ready
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig_file }}"
-        api_version: v1
-        kind: Pod
-        namespace: kube-system
-        label_selectors:
-          - app.kubernetes.io/name=rke2-traefik
-      register: traefik_pods
-      until: >
-        traefik_pods.resources | length > 0 and
-        (traefik_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length > 0)
-      retries: 30
-      delay: 20
-      when: ingress_controller == 'traefik'
+  roles:
+    - role: rke2_health_check
+      vars:
+        rke2_kubeconfig_path: "{{ playbook_dir }}/kubeconfig.yaml"
+        rke2_server_flags: "{{ server_flags | default('') }}"
+      tags: ['health', 'rke2']

@@ -1,0 +1,10 @@
+---
+# Handlers for rke2_config role
+
+- name: restart rke2
+  ansible.builtin.systemd:
+    name: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}rke2-server{% else %}rke2-agent{% endif %}"
+    state: restarted
+  become: true
+  when: rke2_installed is defined and rke2_installed
+  listen: restart rke2

@@ -1,4 +1,5 @@
 variable "public_ssh_key" {} // The corrals public key.  This should be installed on every node.
+variable "private_ssh_key" {} // Path to private SSH key for Ansible connections
 variable "aws_access_key" {}
 variable "aws_secret_key" {}
 variable "aws_region" {}
@@ -23,3 +24,7 @@ variable "nodes" {
 }
 variable "airgap_setup" {}
 variable "proxy_setup" {}
+variable "inventory_output_path" {
+  description = "Path where the generated Ansible inventory file will be written. Defaults to inventory.yml alongside the module."
+  default     = ""
+}
