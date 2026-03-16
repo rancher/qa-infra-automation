@@ -28,7 +28,7 @@ password: ""
 
 ### Step 2. Run Playbook
 
-Run this from the repository root.
+> **Important:** All `ansible-playbook` commands must be run from the **repository root**, not from inside the `ansible/` subdirectory.
 
 ```sh
 ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
@@ -39,3 +39,32 @@ ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
 Open your browser and navigate to `https://<fqdn>`.
 
 Log in with the username `admin` and the `password` you defined.
+
+---
+
+## Upgrading the Downstream Cluster Kubernetes Version
+
+To upgrade the Kubernetes version of a downstream cluster managed by Rancher, use `k8s-upgrade-playbook.yml`.
+
+### Step 1. Ensure `vars.yaml` exists
+
+The playbook reads `vars.yaml` from the same directory. At minimum it must define:
+
+```yaml
+kubeconfig_file: /absolute/path/to/kubeconfig.yaml
+k8s_downstream_cluster_name: "my-cluster"
+```
+
+### Step 2. Run the k8s upgrade playbook
+
+Run this from the **repository root**:
+
+```sh
+ansible-playbook ansible/rancher/default-ha/k8s-upgrade-playbook.yml \
+  -e "k8s_upgrade_mode=true" \
+  -e "kubernetes_version_upgrade=v1.31.0"
+```
+
+Replace `v1.31.0` with your target Kubernetes version.
+
+> `k8s_upgrade_mode` is `false` by default — the playbook is a no-op unless you pass `-e "k8s_upgrade_mode=true"`.

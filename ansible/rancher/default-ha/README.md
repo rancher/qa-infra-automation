@@ -37,11 +37,26 @@ Before running the playbook, ensure you have the following in addition to the [g
 
 ## Running the Playbook
 
+> **Important:** Run all commands from the **repository root**, not from inside the `ansible/` subdirectory.
+
 To run the playbook, use the following command:
 
 ```bash
-ansible-playbook "ansible/rancher/rancher-playbook.yml" -vvvv -e "@$VARS_FILE"
+ansible-playbook "ansible/rancher/default-ha/rancher-playbook.yml" -vvvv -e "@$VARS_FILE"
 ```
+
+## Upgrading the Downstream Cluster Kubernetes Version
+
+To upgrade the Kubernetes version of a downstream cluster managed by Rancher:
+
+```bash
+ansible-playbook "ansible/rancher/default-ha/k8s-upgrade-playbook.yml" \
+  -e "k8s_upgrade_mode=true" \
+  -e "kubernetes_version_upgrade=v1.31.0" \
+  -e "@$VARS_FILE"
+```
+
+Replace `v1.31.0` with the target Kubernetes version. The `k8s_downstream_cluster_name` variable must be set in `vars.yaml`.
 
 ## Outputs
 
