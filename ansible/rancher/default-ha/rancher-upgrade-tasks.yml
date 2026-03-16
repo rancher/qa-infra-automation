@@ -34,8 +34,8 @@
     namespace: cattle-system
     name: rancher
   register: rancher_deploy_info
-  retries: 15
-  delay: 120
+  retries: 12
+  delay: 300
   until: >
     rancher_deploy_info.resources | default([]) | length > 0 and
     (rancher_deploy_info.resources[0].status.readyReplicas | default(0)) > 0 and
