@@ -1,10 +1,10 @@
 # rke2_setup
 
-Prepares systems for RKE2 installation by installing required packages and configuring firewall.
+Prepares systems for RKE2 installation by installing required OS packages.
 
 ## Description
 
-This role handles the initial system preparation for RKE2 installation. It detects the operating system, installs necessary packages, and ensures firewalld is available and running.
+This role handles the initial system preparation for RKE2 installation. It detects the operating system and installs the necessary packages using the appropriate package manager. Firewall configuration is managed externally (e.g., via cloud provider security groups).
 
 ## Requirements
 
@@ -19,9 +19,6 @@ Variables defined in `defaults/main.yml`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `rke2_required_packages` | `[tar, curl, wget]` | List of packages required for RKE2 installation |
-| `rke2_firewall_service` | `firewalld` | Firewall service name |
-| `rke2_firewall_state` | `started` | Desired firewall service state |
-| `rke2_firewall_enabled` | `true` | Enable firewall on boot |
 
 ## Dependencies
 
@@ -53,7 +50,6 @@ With custom variables:
           - curl
           - wget
           - jq
-        rke2_firewall_enabled: false
 ```
 
 ## OS Support
@@ -66,11 +62,11 @@ This role automatically detects the operating system and uses the appropriate pa
 
 ## Tasks Performed
 
-1. Display OS information
-2. Install required packages (tar, curl, wget) using OS-specific package manager
-3. Check if firewalld is available
-4. Install firewalld if not present
-5. Enable and start firewalld service
+1. Display OS information (distribution, version, family)
+2. Install required packages using the OS-specific package manager (zypper/yum/apt)
+3. Log setup completion
+
+> **Note:** Firewall configuration is not managed by this role. Port access should be controlled via cloud provider security groups or an external firewall role.
 
 ## Testing
 
