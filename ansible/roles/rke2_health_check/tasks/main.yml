@@ -70,8 +70,8 @@
         selectattr('status', 'equalto', 'True') |
         list |
         length == (nodes_json.stdout | from_json)['items'] | length
-      retries: 10
-      delay: 10
+      retries: "{{ (rke2_health_check_timeout / rke2_health_check_retry_delay) | int }}"
+      delay: "{{ rke2_health_check_retry_delay }}"
       run_once: true
 
     - name: Parse node status

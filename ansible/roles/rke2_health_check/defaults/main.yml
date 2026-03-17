@@ -16,8 +16,10 @@ rke2_check_api_server: true
 # Whether to check etcd health
 rke2_check_etcd_health: true
 
-# Timeout for health checks (seconds)
-rke2_health_check_timeout: 60
+# Timeout for health checks (seconds) — retries = timeout / retry_delay
+rke2_health_check_timeout: 300
+# Delay between retries (seconds)
+rke2_health_check_retry_delay: 10
 
 # Whether to fail playbook if health checks fail
 rke2_health_check_fail_on_error: true
