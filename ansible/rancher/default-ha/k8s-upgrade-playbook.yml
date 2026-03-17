@@ -14,13 +14,46 @@
     - name: Upgrade downstream cluster k8s version
       when: k8s_upgrade_mode | bool
       block:
+        - name: Get downstream clusters
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_file }}"
+            api_version: provisioning.cattle.io/v1
+            kind: Cluster
+            namespace: "{{ downstream_cluster_namespace }}"
+          register: downstream_clusters_info
+
+        - name: Collect downstream cluster names
+          ansible.builtin.set_fact:
+            downstream_cluster_names: >-
+              {{
+                downstream_clusters_info.resources
+                | map(attribute='metadata.name')
+                | sort
+                | list
+              }}
+
+        - name: Resolve downstream cluster name
+          ansible.builtin.set_fact:
+            resolved_downstream_cluster_name: >-
+              {{
+                (
+                  k8s_downstream_cluster_name | trim
+                  if k8s_downstream_cluster_name is defined and k8s_downstream_cluster_name | trim | length > 0
+                  else downstream_cluster_names[0]
+                )
+              }}
+
+        - name: Show resolved downstream cluster name
+          ansible.builtin.debug:
+            msg: "Using downstream cluster {{ resolved_downstream_cluster_name }}"
+
         - name: Wait for downstream cluster to be active before upgrading
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig_file }}"
             api_version: provisioning.cattle.io/v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
-            name: "{{ k8s_downstream_cluster_name }}"
+            name: "{{ resolved_downstream_cluster_name }}"
             wait: yes
             wait_sleep: 30
             wait_timeout: 1800
@@ -33,7 +66,7 @@
             api_version: provisioning.cattle.io/v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
-            name: "{{ k8s_downstream_cluster_name }}"
+            name: "{{ resolved_downstream_cluster_name }}"
             patch:
               - op: replace
                 path: /spec/kubernetesVersion
@@ -45,7 +78,7 @@
             api_version: provisioning.cattle.io/v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
-            name: "{{ k8s_downstream_cluster_name }}"
+            name: "{{ resolved_downstream_cluster_name }}"
             wait: yes
             wait_sleep: 60
             wait_timeout: 1800

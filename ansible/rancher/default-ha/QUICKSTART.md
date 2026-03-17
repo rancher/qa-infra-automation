@@ -52,8 +52,18 @@ The playbook reads `vars.yaml` from the same directory. At minimum it must defin
 
 ```yaml
 kubeconfig_file: /absolute/path/to/kubeconfig.yaml
+```
+
+You can optionally define:
+
+```yaml
 k8s_downstream_cluster_name: "my-cluster"
 ```
+
+If `k8s_downstream_cluster_name` is set, it must exactly match the Rancher
+downstream cluster resource name. If it is omitted, the playbook auto-detects
+the cluster name by selecting the first downstream cluster name in sorted order
+from `fleet-default`.
 
 ### Step 2. Run the k8s upgrade playbook
 

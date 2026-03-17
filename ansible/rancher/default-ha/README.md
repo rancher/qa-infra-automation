@@ -56,7 +56,10 @@ ansible-playbook "ansible/rancher/default-ha/k8s-upgrade-playbook.yml" \
   -e "@$VARS_FILE"
 ```
 
-Replace `v1.31.0` with the target Kubernetes version. The `k8s_downstream_cluster_name` variable must be set in `vars.yaml`.
+Replace `v1.31.0` with the target Kubernetes version. If `k8s_downstream_cluster_name`
+is set in `vars.yaml`, it must exactly match the Rancher downstream cluster
+resource name. If it is omitted, the playbook auto-detects the cluster name by
+selecting the first downstream cluster name in sorted order from `fleet-default`.
 
 ## Outputs
 
