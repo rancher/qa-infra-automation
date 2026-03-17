@@ -9,10 +9,9 @@ This role performs comprehensive health checks on a deployed RKE2 cluster to ver
 ## Requirements
 
 - Ansible 2.10 or higher
-- Root/sudo access on target nodes
 - RKE2 cluster already formed (via rke2_cluster role)
-- kubectl available at `/var/lib/rancher/rke2/bin/kubectl`
-- Kubeconfig available at `/etc/rancher/rke2/rke2.yaml`
+- `kubectl` available on the **Ansible control node** (localhost) — the role runs on `localhost`, not on cluster nodes
+- Kubeconfig fetched locally (default: `{{ playbook_dir }}/kubeconfig.yaml`, written by the `rke2_cluster` role)
 
 ## Role Variables
 
@@ -20,12 +19,13 @@ Variables defined in `defaults/main.yml`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `rke2_kubeconfig_path` | `/etc/rancher/rke2/rke2.yaml` | Path to kubeconfig file |
+| `rke2_kubeconfig_path` | `{{ playbook_dir }}/kubeconfig.yaml` | Path to kubeconfig on the control node |
 | `rke2_check_nodes_ready` | `true` | Check if all nodes are Ready |
 | `rke2_check_system_pods` | `true` | Check if all system pods are Running |
 | `rke2_check_api_server` | `true` | Check if API server is responsive |
 | `rke2_check_etcd_health` | `true` | Check etcd cluster health |
-| `rke2_health_check_timeout` | `60` | Timeout for health checks (seconds) |
+| `rke2_health_check_timeout` | `300` | Timeout for node-ready wait (seconds); retries = timeout / retry_delay |
+| `rke2_health_check_retry_delay` | `10` | Delay between retries (seconds) |
 | `rke2_health_check_fail_on_error` | `true` | Whether to fail playbook if health checks fail |
 | `rke2_expected_node_count` | `0` | Minimum number of expected nodes (0 = don't check) |
 | `rke2_system_namespaces` | `[kube-system, kube-public, kube-node-lease]` | System namespaces to check for pod health |
@@ -51,15 +51,17 @@ Required roles must run before this role:
 
 ```yaml
 ---
+# ... cluster deployment plays (rke2_setup, rke2_config, rke2_install, rke2_cluster) ...
+
+# Health check runs on the control node using the local kubeconfig
 - name: Validate RKE2 cluster health
-  hosts: all
-  become: true
+  hosts: localhost
+  connection: local
+  gather_facts: false
   roles:
-    - rke2_setup
-    - rke2_config
-    - rke2_install
-    - rke2_cluster
-    - rke2_health_check
+    - role: rke2_health_check
+      vars:
+        rke2_kubeconfig_path: "{{ playbook_dir }}/kubeconfig.yaml"
 ```
 
 ### Custom Health Checks
@@ -67,15 +69,13 @@ Required roles must run before this role:
 ```yaml
 ---
 - name: Validate RKE2 cluster health with custom settings
-  hosts: all
-  become: true
+  hosts: localhost
+  connection: local
+  gather_facts: false
   roles:
-    - rke2_setup
-    - rke2_config
-    - rke2_install
-    - rke2_cluster
     - role: rke2_health_check
       vars:
+        rke2_kubeconfig_path: "{{ playbook_dir }}/kubeconfig.yaml"
         rke2_expected_node_count: 5
         rke2_health_check_fail_on_error: false  # Warnings only
         rke2_check_etcd_health: true
@@ -86,15 +86,13 @@ Required roles must run before this role:
 ```yaml
 ---
 - name: Basic health check (skip etcd)
-  hosts: all
-  become: true
+  hosts: localhost
+  connection: local
+  gather_facts: false
   roles:
-    - rke2_setup
-    - rke2_config
-    - rke2_install
-    - rke2_cluster
     - role: rke2_health_check
       vars:
+        rke2_kubeconfig_path: "{{ playbook_dir }}/kubeconfig.yaml"
         rke2_check_etcd_health: false  # Skip etcd check
         rke2_check_system_pods: false  # Skip pod check
 ```
@@ -110,7 +108,9 @@ Required roles must run before this role:
 
 **How it works:**
 ```bash
-/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml version --short
+# Runs on the Ansible control node (localhost)
+kubectl --kubeconfig ./kubeconfig.yaml cluster-info
+kubectl --kubeconfig ./kubeconfig.yaml version -o json
 ```
 
 **Success criteria:**
@@ -313,21 +313,22 @@ To skip a check that's consistently failing:
 ### Manual Health Verification
 
 ```bash
-# Check from master node
-ssh master-node
+# Run from the Ansible control node (localhost), using the local kubeconfig
+KUBECONFIG=./kubeconfig.yaml
 
 # Verify API server
-/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml version
+kubectl --kubeconfig "$KUBECONFIG" version
 
 # Check nodes
-/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get nodes -o wide
+kubectl --kubeconfig "$KUBECONFIG" get nodes -o wide
 
 # Check system pods
-/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get pods -A
+kubectl --kubeconfig "$KUBECONFIG" get pods -A
 
-# Check etcd health (from master/server node)
-/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml \
-  exec -n kube-system etcd-$(hostname) -- \
+# Check etcd health (via kubectl exec into the etcd pod on a master node)
+MASTER_NODE=$(kubectl --kubeconfig "$KUBECONFIG" get nodes -l node-role.kubernetes.io/etcd=true -o name | head -1 | cut -d/ -f2)
+kubectl --kubeconfig "$KUBECONFIG" \
+  exec -n kube-system etcd-"${MASTER_NODE}" -- \
   etcdctl --endpoints=https://127.0.0.1:2379 \
   --cacert=/var/lib/rancher/rke2/server/tls/etcd/server-ca.crt \
   --cert=/var/lib/rancher/rke2/server/tls/etcd/server-client.crt \
@@ -520,9 +521,9 @@ roles:
 ## Security Considerations
 
 **Kubeconfig Access:**
-- Health check requires cluster-admin kubeconfig
-- Kubeconfig has 0600 permissions (root only)
-- Never expose kubeconfig to non-root users
+- Health check requires a cluster-admin kubeconfig on the Ansible control node
+- Default path: `{{ playbook_dir }}/kubeconfig.yaml` (fetched by the `rke2_cluster` role)
+- Restrict file permissions to the user running Ansible (`chmod 600 kubeconfig.yaml`)
 
 **etcd TLS Certificates:**
 - Health check uses etcd client certificates
