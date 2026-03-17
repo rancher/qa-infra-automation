@@ -6,9 +6,9 @@ This playbook deploys an RKE2 Kubernetes cluster using a **role-based architectu
 
 The playbook is organized into **5 sequential roles** that handle distinct phases of cluster deployment:
 
-1. **rke2_setup** - Prepares nodes by discovering Python interpreters and configuring NetworkManager
+1. **rke2_setup** - Prepares nodes by installing required OS packages (zypper/yum/apt depending on OS family)
 2. **rke2_config** - Generates RKE2 configuration files for server and agent nodes
-3. **rke2_install** - Installs RKE2 binaries using tar or RPM installation methods
+3. **rke2_install** - Installs RKE2 binaries using online (script) or airgap (tarball) installation methods
 4. **rke2_cluster** - Forms the cluster by starting services in sequence (master → servers → agents) with token distribution
 5. **rke2_health_check** - Validates cluster health, pod readiness, and ingress controller availability
 
@@ -17,11 +17,11 @@ Each role can be executed independently using Ansible tags, enabling selective e
 ## Roles
 
 ### rke2_setup
-**Purpose:** Node preparation and environment configuration
+**Purpose:** Node preparation — install required OS packages
 **Tasks:**
-- Discovers available Python interpreters on target nodes
-- Configures NetworkManager to ignore CNI interfaces (calico/canal)
+- Installs required packages via the appropriate package manager (zypper on SLES/openSUSE, yum on RHEL/CentOS, apt on Debian/Ubuntu)
 - Ensures nodes are ready for RKE2 installation
+- Note: firewall configuration is managed externally (e.g., cloud provider security groups)
 
 **Tags:** `setup`, `rke2`
 
@@ -45,14 +45,17 @@ Each role can be executed independently using Ansible tags, enabling selective e
 ### rke2_install
 **Purpose:** Install RKE2 binaries
 **Tasks:**
-- Downloads RKE2 installation script or RPM packages
-- Installs RKE2 based on specified version and method (tar/rpm)
-- Configures systemd services
+- **online** (default): Downloads and runs the RKE2 install script from `https://get.rke2.io`
+- **airgap**: Extracts a pre-downloaded RKE2 tarball and runs a local install script (requires `rke2_airgap_tarball` and `rke2_airgap_install_script`)
+- Enables the appropriate systemd service (`rke2-server` or `rke2-agent`) but does not start it — service startup is handled by `rke2_cluster`
 
 **Variables:**
-- `rke2_kubernetes_version` (from `kubernetes_version`)
+- `rke2_version` (from `kubernetes_version`, default: `""` — installs latest stable)
 - `rke2_channel` (from `channel`, default: `stable`)
-- `rke2_install_method` (from `install_method`, default: `tar`)
+- `rke2_install_method` (default: `online`; options: `online`, `airgap`)
+- `rke2_airgap_tarball` (required for airgap, path to RKE2 tarball on remote host)
+- `rke2_airgap_images_tarball` (optional, path to RKE2 images tarball)
+- `rke2_airgap_install_script` (required for airgap, path to install script on remote host)
 
 **Tags:** `install`, `rke2`
 
@@ -144,7 +147,7 @@ Before running the playbook, you may need to set the `ANSIBLE_CONFIG` environmen
     The role-based architecture supports selective execution using Ansible tags. This is useful for re-running specific phases, skipping phases, or debugging individual components.
 
     **Available Tags:**
-    - `setup` - Node preparation (Python, NetworkManager)
+    - `setup` - Node preparation (OS package installation)
     - `config` - RKE2 configuration file generation
     - `install` - RKE2 binary installation
     - `cluster` - Cluster formation and token distribution
@@ -188,7 +191,7 @@ cni: 'calico'                           # Used by: rke2_config (CNI plugin: cali
 
 # Optional Variables
 channel: 'stable'                       # Used by: rke2_install (RKE2 channel: stable, latest, testing)
-install_method: 'tar'                   # Used by: rke2_install (installation method: tar, rpm)
+install_method: 'online'               # Used by: rke2_install (installation method: online, airgap)
 
 # Advanced Configuration (Optional)
 # server_flags: '--disable=traefik'    # Used by: rke2_config (additional server flags)
