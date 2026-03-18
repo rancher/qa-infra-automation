@@ -36,7 +36,7 @@ resource "local_file" "ansible_inventory" {
     aws_ssh_user = var.aws_ssh_user
   })
 
-  filename = "${path.module}/../../../../ansible/rke2/airgap/inventory/inventory.yml"
+  filename = var.inventory_output_path != "" ? var.inventory_output_path : "${path.module}/../../../../ansible/rke2/airgap/inventory/inventory.yml"
 
   depends_on = [
     module.bastion,

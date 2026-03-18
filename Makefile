@@ -23,21 +23,20 @@ TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
 REGISTRY_TARGET  :=
+INVENTORY        := $(ANSIBLE_DIR)/inventory.yml
 else ifeq ($(ENV),airgap)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
 RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  := registry
+INVENTORY        := $(ANSIBLE_DIR)/inventory/inventory.yml
 else
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
 RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  :=
+INVENTORY        := $(ANSIBLE_DIR)/inventory.yml
 endif
-
-# Inventory always lives in the ansible directory.
-# infra-up passes this path to Tofu so it writes there directly.
-INVENTORY := $(ANSIBLE_DIR)/inventory.yml
 
 # Kubeconfig written by the cluster role; rancher needs to know where it is.
 KUBECONFIG_FILE := $(CURDIR)/$(ANSIBLE_DIR)/kubeconfig.yaml

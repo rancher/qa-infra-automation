@@ -6,11 +6,13 @@
   vars:
     rancher_private_hostname: "{{ rancher_hostname | default(internal_lb_hostname) }}" # Keeping rancher_hostname to not break previous runs.
     rancher_public_hostname: "{{ public_hostname | default(external_lb_hostname) | default('') }}"
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    repo_root: "{{ playbook_dir | dirname | dirname | dirname | dirname | dirname }}"
 
   pre_tasks:
     - name: Check if kubectl is available
       ansible.builtin.stat:
-        path: "/home/{{ ansible_user }}/.kube/config"
+        path: "{{ kubeconfig_path }}"
       register: kubectl_config
 
     - name: Fail if kubectl is not configured
@@ -29,7 +31,7 @@
       delay: 10
       changed_when: false
       environment:
-        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+        KUBECONFIG: "{{ kubeconfig_path }}"
 
     - name: Display cluster nodes
       ansible.builtin.debug:
@@ -84,7 +86,7 @@
         namespace: "{{ rancher_namespace }}"
         label_selectors:
           - app=rancher
-        kubeconfig: "/home/{{ ansible_user }}/.kube/config"
+        kubeconfig: "{{ kubeconfig_path }}"
         wait_condition:
           type: Ready
           status: "True"
@@ -97,7 +99,7 @@
         namespace: "{{ rancher_namespace }}"
         label_selectors:
           - app=rancher
-        kubeconfig: "/home/{{ ansible_user }}/.kube/config"
+        kubeconfig: "{{ kubeconfig_path }}"
       register: rancher_pods
 
     - name: Display Rancher pod information
@@ -157,8 +159,60 @@
         kind: Service
         name: rancher
         namespace: "{{ rancher_namespace }}"
-        kubeconfig: "/home/{{ ansible_user }}/.kube/config"
+        kubeconfig: "{{ kubeconfig_path }}"
       register: rancher_service_info
+
+    - name: Final deployment verification
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: rancher
+        namespace: "{{ rancher_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: rancher_deployment_status
+
+    - name: Verify deployment is ready
+      ansible.builtin.assert:
+        that:
+          - rancher_deployment_status.resources[0].status.readyReplicas | default(0) > 0
+        fail_msg: "Rancher deployment is not ready"
+        success_msg: "Rancher deployment is ready and functional"
+
+    # --- Admin setup ---
+
+    - name: Ensure tmp directory exists
+      ansible.builtin.file:
+        path: "{{ repo_root }}/tmp"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+
+    - name: Configure Rancher admin user and generate API token
+      ansible.builtin.include_role:
+        name: rancher_auth
+      vars:
+        rancher_url: "https://{{ rancher_private_hostname }}"
+        rancher_token_password: "{{ rancher_bootstrap_password }}"
+        rancher_permanent_password: "{{ rancher_admin_password }}"
+        rancher_token_output_file: "{{ repo_root }}/tmp/rancher-admin-token.json"
+        rancher_token_output_format: "json"
+
+    - name: Set Rancher server URL
+      ansible.builtin.uri:
+        url: "https://{{ rancher_private_hostname }}/v3/settings/server-url"
+        method: PUT
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ rancher_generated_token }}"
+        body:
+          name: "server-url"
+          value: "https://{{ rancher_private_hostname }}"
+        body_format: json
+        validate_certs: false
+        status_code: 200
+      retries: 5
+      delay: 10
 
     - name: Create Rancher configuration summary
       ansible.builtin.copy:
@@ -169,14 +223,17 @@
           Hostname: {{ rancher_private_hostname }}
           Public Hostname: {{ rancher_public_hostname }}
           Namespace: {{ rancher_namespace }}
-          Bootstrap Password: {{ rancher_bootstrap_password }}
           TLS Source: {{ rancher_tls_source }}
+
+          Admin Credentials:
+          - Username: admin
+          - Password: {{ rancher_admin_password }}
+          - API Token: {{ rancher_generated_token }}
 
           Access Instructions:
           1. Configure DNS or add to /etc/hosts: {{ rancher_public_hostname }} -> <LoadBalancer-IP or Node-IP>
           2. Navigate to: https://{{ rancher_public_hostname }}
-          3. Login with bootstrap password: {{ rancher_bootstrap_password }}
-          4. Follow the setup wizard to complete Rancher configuration
+          3. Login with admin / {{ rancher_admin_password }}
 
           Troubleshooting:
           - Check pods: kubectl get pods -n {{ rancher_namespace }}
@@ -186,35 +243,7 @@
         dest: "/home/{{ ansible_user }}/rancher-deployment-summary.txt"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-        mode: "0644"
-
-    - name: Final deployment verification
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: rancher
-        namespace: "{{ rancher_namespace }}"
-        kubeconfig: "/home/{{ ansible_user }}/.kube/config"
-      register: rancher_deployment_status
-
-    - name: Verify deployment is ready
-      ansible.builtin.assert:
-        that:
-          - rancher_deployment_status.resources[0].status.readyReplicas | default(0) > 0
-        fail_msg: "Rancher deployment is not ready"
-        success_msg: "Rancher deployment is ready and functional"
-
-    - name: Wait for Rancher API to be responsive
-      ansible.builtin.uri:
-        url: "https://{{ rancher_private_hostname }}/ping"
-        method: GET
-        validate_certs: false
-        status_code: 200
-      register: rancher_api_check
-      until: rancher_api_check.status == 200
-      retries: 30
-      delay: 10
-      failed_when: false
+        mode: "0600"
 
     - name: Display Rancher access information
       ansible.builtin.debug:
@@ -226,7 +255,9 @@
           ║  Internal URL:      https://{{ rancher_private_hostname }}
           ║  Namespace:         {{ rancher_namespace }}
           ╠════════════════════════════════════════════════════════════════╣
-          ║  Bootstrap Password: {{ rancher_bootstrap_password }}
+          ║  Admin Username:    admin
+          ║  Admin Password:    {{ rancher_admin_password }}
+          ║  API Token:         {{ rancher_generated_token }}
           ╠════════════════════════════════════════════════════════════════╣
           ║  Service Type: {{ rancher_service_info.resources[0].spec.type }}
           {% if rancher_service_info.resources[0].spec.type == 'LoadBalancer' %}
@@ -234,7 +265,7 @@
           {% elif rancher_service_info.resources[0].spec.type == 'NodePort' %}
           ║  NodePort: {{ rancher_service_info.resources[0].spec.ports[0].nodePort }}
           {% endif %}
-          ║  API Status: {{ 'HEALTHY' if rancher_api_check.status == 200 else 'CHECK CONNECTIVITY' }}
           ╠════════════════════════════════════════════════════════════════╣
+          ║  Token file: {{ repo_root }}/tmp/rancher-admin-token.json
           ║  Summary file: /home/{{ ansible_user }}/rancher-deployment-summary.txt
           ╚════════════════════════════════════════════════════════════════╝
