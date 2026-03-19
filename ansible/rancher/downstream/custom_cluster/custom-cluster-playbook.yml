@@ -85,7 +85,7 @@
   gather_facts: false
   vars:
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
-    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_path: "tofu/rancher/custom_cluster"
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     cluster_name: "{{ lookup('cloud.terraform.tf_output', 'cluster_name', state_file=terraform_state_file) }}"
     rancher_url: "{{ lookup('env', 'RANCHER_URL') | mandatory}}"
