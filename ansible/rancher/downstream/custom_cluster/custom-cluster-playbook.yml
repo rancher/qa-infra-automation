@@ -73,12 +73,54 @@
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
-    - name: Wait for Node Registration to Complete
-      script: ./wait-to-complete.sh
-      register: script_result
-      when: '"cp" in ansible_role or "etcd" in ansible_role'
+    - name: Wait for 30 seconds
+      ansible.builtin.wait_for:
+        timeout: 30
 
-    - name: Display script output (stdout)
-      debug:
-        var: script_result.stdout_lines
-      when: '"cp" in ansible_role or "etcd" in ansible_role'
+# Wait for Rancher to fully reconcile the cluster (Ready=true, Updated=True condition).
+# This blocks until the cluster is genuinely settled so that Go-side watch/poll logic
+# does not race against an already-completed reconciliation.
+- hosts: "localhost"
+  connection: local
+  gather_facts: false
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
+    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    cluster_name: "{{ lookup('cloud.terraform.tf_output', 'cluster_name', state_file=terraform_state_file) }}"
+    rancher_url: "{{ lookup('env', 'RANCHER_URL') | mandatory}}"
+    rancher_token: "{{ lookup('env', 'RANCHER_TOKEN') | mandatory}}"
+    # following naming from rancher/tests
+    rancher_insecure: "{{ lookup('env', 'RANCHER_INSECURE') | default('false') | bool }}"
+  tasks:
+    - name: Wait for Rancher cluster to reach Ready=true and Updated=True
+      uri:
+        url: "{{ rancher_url }}/apis/provisioning.cattle.io/v1/namespaces/fleet-default/clusters/{{ cluster_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ rancher_token }}"
+        validate_certs: "{{ not rancher_insecure }}"
+        return_content: true
+        status_code: 200
+      register: cluster_status
+      until: >
+        (cluster_status.json.status.ready | default(false)) and
+        (cluster_status.json.status.conditions | default([]) |
+          selectattr('type', 'equalto', 'Updated') |
+          selectattr('status', 'equalto', 'True') |
+          list | length > 0)
+      retries: 20
+      delay: 20
+
+- hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
+    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  tasks:
+    - name: Wait for 30 seconds
+      ansible.builtin.wait_for:
+        timeout: 30
