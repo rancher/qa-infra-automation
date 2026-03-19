@@ -85,11 +85,12 @@
   gather_facts: false
   vars:
     terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
-    terraform_state_path: "{{ 'tofu/rancher/custom_cluster' }}"
+    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
     terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
     cluster_name: "{{ lookup('cloud.terraform.tf_output', 'cluster_name', state_file=terraform_state_file) }}"
-    rancher_url: "{{ lookup('env', 'RANCHER_URL') }}"
-    rancher_token: "{{ lookup('env', 'RANCHER_TOKEN') }}"
+    rancher_url: "{{ lookup('env', 'RANCHER_URL') | mandatory}}"
+    rancher_token: "{{ lookup('env', 'RANCHER_TOKEN') | mandatory}}"
+    # following naming from rancher/tests
     rancher_insecure: "{{ lookup('env', 'RANCHER_INSECURE') | default('false') | bool }}"
   tasks:
     - name: Wait for Rancher cluster to reach Ready=true and Updated=True
@@ -110,8 +111,6 @@
           list | length > 0)
       retries: 20
       delay: 20
-      failed_when: false
-
 
 - hosts: all
   become: true
