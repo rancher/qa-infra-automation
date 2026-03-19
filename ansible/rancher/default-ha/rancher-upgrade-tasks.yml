@@ -3,7 +3,7 @@
   kubernetes.core.helm_repository:
     kubeconfig: "{{ kubeconfig_file }}"
     name: "{{ rancher_chart_repo_final }}"
-    repo_url: "{{ rancher_chart_repo_url_final }}"
+    repo_url: "{{ rancher_chart_upgrade_repo_url }}"
 
 - name: Install helm-diff plugin (required by kubernetes.core.helm reuse_values)
   ansible.builtin.command: helm plugin install https://github.com/databus23/helm-diff
