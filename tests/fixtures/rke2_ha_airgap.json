@@ -1,0 +1,13 @@
+{
+  "type": "airgap",
+  "bastion_host": "ec2-1-2-3-4.compute.amazonaws.com",
+  "registry_host": "ec2-1-2-3-5.compute.amazonaws.com",
+  "ssh_key": "~/.ssh/id_rsa",
+  "ssh_user": "ubuntu",
+  "external_lb_hostname": "my-cluster.example.com",
+  "internal_lb_hostname": "internal-my-cluster.example.com",
+  "node_groups": {
+    "server": ["10.0.1.1", "10.0.1.2", "10.0.1.3"],
+    "worker": ["10.0.1.4", "10.0.1.5", "10.0.1.6"]
+  }
+}
