@@ -81,8 +81,10 @@ help: ## Show this help message
 	@echo "  infra-init          Initialize Tofu (downloads providers)"
 	@echo "  infra-plan          Plan infrastructure changes"
 	@echo "  infra-up            Create infrastructure (generates inventory)"
-	@echo "  infra-down          Destroy infrastructure"
+	@echo "  infra-down          Destroy infrastructure for current DISTRO/ENV/PROVIDER"
 	@echo "  infra-output        Show Tofu outputs"
+	@echo "  infra-ls            List ALL active infrastructure across every module/workspace"
+	@echo "  infra-nuke          Destroy ALL active infrastructure (end-of-day cleanup)"
 	@echo ""
 	@echo "CLUSTER (Ansible):"
 	@echo "  cluster             Install Kubernetes cluster"
@@ -211,6 +213,75 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 .PHONY: infra-output
 infra-output: ## Show Tofu outputs
 	cd $(TOFU_DIR) && tofu output
+
+.PHONY: infra-ls
+infra-ls: ## List all modules with active Tofu state across all providers/envs/distros
+	@echo "Scanning for active infrastructure..."
+	@echo ""
+	@found=0; \
+	while IFS= read -r state_file; do \
+		resources=$$(python3 -c "import json; \
+			d=json.load(open('$$state_file')); \
+			print(len([r for r in d.get('resources',[]) if r.get('mode')=='managed']))" 2>/dev/null || echo 0); \
+		if [ "$$resources" -gt 0 ]; then \
+			if echo "$$state_file" | grep -q 'terraform.tfstate.d'; then \
+				ws=$$(echo "$$state_file" | sed 's|.*/terraform.tfstate.d/\([^/]*\)/.*|\1|'); \
+				module=$$(echo "$$state_file" | sed 's|/terraform.tfstate.d/.*||'); \
+			else \
+				ws="default"; \
+				module=$$(dirname "$$state_file"); \
+			fi; \
+			printf "  ACTIVE  %-50s  [%s]  (%s resources)\n" "$$module" "$$ws" "$$resources"; \
+			found=1; \
+		fi; \
+	done < <(find tofu -name "terraform.tfstate" 2>/dev/null | sort); \
+	echo ""; \
+	if [ "$$found" -eq 0 ]; then \
+		echo "  No active infrastructure found."; \
+	else \
+		echo "Run 'make infra-nuke' to destroy all, or 'make infra-down' for selective destroy."; \
+	fi
+
+.PHONY: infra-nuke
+infra-nuke: ## Destroy ALL active infrastructure across all modules (end-of-day cleanup)
+	@echo "WARNING: This will destroy ALL active Tofu-managed infrastructure."
+	@echo ""
+	@$(MAKE) --no-print-directory infra-ls
+	@echo ""
+	@read -p "Destroy all listed infrastructure? [y/N] " confirm && [ "$$confirm" = "y" ] || { echo "Aborted."; exit 1; }
+	@echo ""
+	@errors=0; \
+	while IFS= read -r state_file; do \
+		resources=$$(python3 -c "import json; \
+			d=json.load(open('$$state_file')); \
+			print(len([r for r in d.get('resources',[]) if r.get('mode')=='managed']))" 2>/dev/null || echo 0); \
+		if [ "$$resources" -gt 0 ]; then \
+			if echo "$$state_file" | grep -q 'terraform.tfstate.d'; then \
+				ws=$$(echo "$$state_file" | sed 's|.*/terraform.tfstate.d/\([^/]*\)/.*|\1|'); \
+				module=$$(echo "$$state_file" | sed 's|/terraform.tfstate.d/.*||'); \
+			else \
+				ws="default"; \
+				module=$$(dirname "$$state_file"); \
+			fi; \
+			if [ ! -f "$$module/terraform.tfvars" ]; then \
+				echo "  SKIP  $$module [$$ws] — terraform.tfvars not found, destroy manually"; \
+				continue; \
+			fi; \
+			echo "Destroying $$module [$$ws]..."; \
+			if [ "$$ws" = "default" ]; then \
+				(cd "$$module" && tofu destroy -var-file=terraform.tfvars -auto-approve) || errors=$$((errors+1)); \
+			else \
+				(cd "$$module" && tofu workspace select "$$ws" 2>/dev/null && tofu destroy -var-file=terraform.tfvars -auto-approve) || errors=$$((errors+1)); \
+			fi; \
+		fi; \
+	done < <(find tofu -name "terraform.tfstate" 2>/dev/null | sort); \
+	echo ""; \
+	if [ "$$errors" -gt 0 ]; then \
+		echo "WARNING: $$errors module(s) failed to destroy. Check output above."; \
+		exit 1; \
+	else \
+		echo "All infrastructure destroyed."; \
+	fi
 
 # ============================================================================
 # CLUSTER DEPLOYMENT (ANSIBLE)
