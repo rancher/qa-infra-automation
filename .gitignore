@@ -1,6 +1,11 @@
 .DS_Store
 tmp/
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 *.tfvars
 *.tfstate
 *.tfstate.backup
