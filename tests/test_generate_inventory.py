@@ -120,6 +120,40 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         self.assertNotIn("worker-0", master_hosts)
         self.assertNotIn("worker-1", master_hosts)
 
+    def test_rke2_node_role_master_for_master_group_node(self):
+        data = load_fixture("rke2_single_master.json")
+        cfg = self.schema["rke2"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        self.assertEqual(result["all"]["hosts"]["master"]["rke2_node_role"], "master")
+
+    def test_rke2_node_role_agent_for_worker_nodes(self):
+        data = load_fixture("rke2_single_master.json")
+        cfg = self.schema["rke2"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        self.assertEqual(result["all"]["hosts"]["worker-0"]["rke2_node_role"], "agent")
+        self.assertEqual(result["all"]["hosts"]["worker-1"]["rke2_node_role"], "agent")
+
+    def test_rke2_node_role_server_for_cp_node_outside_master_group(self):
+        # A node with cp/etcd roles that isn't picked as the master group node
+        # should get rke2_node_role == 'server'
+        data = load_fixture("rke2_single_master.json")
+        data["nodes"].insert(1, {
+            "name": "server-1",
+            "roles": ["cp", "etcd"],
+            "public_ip": "1.2.3.7",
+            "private_ip": "10.0.1.4",
+        })
+        cfg = self.schema["rke2"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        self.assertEqual(result["all"]["hosts"]["server-1"]["rke2_node_role"], "server")
+
+    def test_node_roles_is_list_not_string(self):
+        data = load_fixture("rke2_single_master.json")
+        cfg = self.schema["rke2"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        for host_vars in result["all"]["hosts"].values():
+            self.assertIsInstance(host_vars["node_roles"], list)
+
 
 class TestGenerateAirgapInventory(unittest.TestCase):
     def test_bastion_group_present(self):

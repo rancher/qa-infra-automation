@@ -3,7 +3,7 @@
 # Node: {{ inventory_hostname }}
 # Role: {{ rke2_node_role }}
 
-{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}
+{% if rke2_node_role == 'master' or 'cp' in node_roles or 'etcd' in node_roles %}
 # Server node configuration
 {% for key, value in rke2_server_config.items() %}
 {% if value is string %}
