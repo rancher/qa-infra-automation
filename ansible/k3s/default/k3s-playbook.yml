@@ -176,7 +176,9 @@
         k3s_node_type: agent
         role_server_flags: "{{ server_flags | default('') }}"
         role_worker_flags: "{{ worker_flags | default('') }}"
-      when: inventory_hostname in groups.get('workers', [])
+      when:
+        - inventory_hostname in groups.get('workers', [])
+        - inventory_hostname not in groups.get('master', [])
 
     - name: Validate required variables for agent installation
       assert:
@@ -184,7 +186,9 @@
           - kube_api_host | default('') | length > 0
           - node_token    | default('') | length > 0
         fail_msg: "Required variables missing: kube_api_host='{{ kube_api_host | default('UNDEFINED') }}', node_token='{{ node_token | default('UNDEFINED') }}'"
-      when: inventory_hostname in groups.get('workers', [])
+      when:
+        - inventory_hostname in groups.get('workers', [])
+        - inventory_hostname not in groups.get('master', [])
 
     - name: Install K3s on agent nodes
       include_role:
@@ -197,7 +201,9 @@
         public_ip: "{{ ansible_host }}"
         k3s_worker_flags: "{{ worker_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
-      when: inventory_hostname in groups.get('workers', [])
+      when:
+        - inventory_hostname in groups.get('workers', [])
+        - inventory_hostname not in groups.get('master', [])
 
 - hosts: localhost
   connection: local
