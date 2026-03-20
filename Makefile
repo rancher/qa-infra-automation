@@ -128,6 +128,7 @@ check-prereqs: ## Check all prerequisites are installed
 	@command -v tofu >/dev/null 2>&1 || { echo "Error: tofu is not installed"; exit 1; }
 	@command -v ansible >/dev/null 2>&1 || { echo "Error: ansible is not installed"; exit 1; }
 	@command -v ansible-playbook >/dev/null 2>&1 || { echo "Error: ansible-playbook is not installed"; exit 1; }
+	@python3 -c "import yaml" 2>/dev/null || { echo "Installing required Python dependency: pyyaml..."; pip3 install --user pyyaml; }
 	@echo "All prerequisites found"
 
 .PHONY: check-config
