@@ -146,11 +146,14 @@ check-config: ## Validate configuration parameters
 	@echo "Configuration valid"
 
 .PHONY: check-inventory
-check-inventory:
+check-inventory: ## Verify inventory exists and is not stale
 	@if [ ! -f "$(INVENTORY)" ]; then \
 		echo "Error: Inventory file not found at $(INVENTORY)"; \
 		echo "Run 'make infra-up' first to generate inventory"; \
 		exit 1; \
+	fi
+	@if [ -f "$(ANSIBLE_DIR)/inventory/.inventory-manifest.json" ]; then \
+		python3 scripts/verify_inventory.py --manifest $(ANSIBLE_DIR)/inventory/.inventory-manifest.json; \
 	fi
 
 .PHONY: check-tofu-dir
@@ -180,13 +183,25 @@ infra-plan: infra-init ## Plan infrastructure changes
 	cd $(TOFU_DIR) && tofu plan -var-file=terraform.tfvars
 
 .PHONY: infra-up
-infra-up: infra-init ## Create infrastructure
+infra-up: infra-init ## Create infrastructure (generates Ansible inventory automatically)
 	@echo "Creating $(PROVIDER) infrastructure for $(ENV) environment..."
-	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars \
-		-var="inventory_output_path=$(CURDIR)/$(INVENTORY)" \
-		-auto-approve
-	@echo ""
-	@echo "Infrastructure created. Inventory generated at $(INVENTORY)"
+	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars -auto-approve
+	@echo "Generating Ansible inventory..."
+	@if cd $(TOFU_DIR) && tofu output -raw airgap_inventory_json > /tmp/tofu-nodes-$(DISTRO)-$(ENV).json 2>/dev/null; then \
+		echo "Using airgap inventory output"; \
+	elif cd $(TOFU_DIR) && tofu output -raw cluster_nodes_json > /tmp/tofu-nodes-$(DISTRO)-$(ENV).json 2>/dev/null; then \
+		echo "Using cluster_nodes inventory output"; \
+	else \
+		echo "Warning: No inventory JSON output found in Tofu module. Create inventory manually."; \
+		exit 0; \
+	fi
+	python3 scripts/generate_inventory.py \
+		--input /tmp/tofu-nodes-$(DISTRO)-$(ENV).json \
+		--distro $(DISTRO) \
+		--env $(ENV) \
+		--schema ansible/_inventory-schema.yaml \
+		--output-dir $(ANSIBLE_DIR)/inventory
+	@[ -f "$(INVENTORY)" ] && echo "" && echo "Infrastructure created. Inventory generated at $(INVENTORY)" || (echo "Error: Inventory generation failed" && exit 1)
 
 .PHONY: infra-down
 infra-down: check-tofu-dir ## Destroy infrastructure

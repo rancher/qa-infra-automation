@@ -5,13 +5,5 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 3.0"
     }
-    ansible = {
-      source  = "ansible/ansible"
-      version = "1.3.0"
-    }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.0"
-    }
-  }
+}
 }

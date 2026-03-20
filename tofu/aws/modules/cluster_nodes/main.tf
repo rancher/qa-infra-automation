@@ -68,18 +68,6 @@ resource "aws_instance" "node" {
   }
 }
 
-resource "ansible_host" "node" {
-  for_each = { for node in local.node_names : node.name => node }
-  name = each.value.name
-  variables = {
-    # Connection vars.
-    ansible_user = var.aws_ssh_user
-    ansible_host = aws_instance.node[each.key].public_ip
-    ansible_role = join(",", each.value.role)
-  }
-  depends_on = [aws_instance.node]
-}
-
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
   for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_80[0].arn
