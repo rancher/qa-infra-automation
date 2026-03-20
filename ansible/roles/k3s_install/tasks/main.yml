@@ -112,14 +112,6 @@
       systemd:
         name: "{{ 'k3s' if k3s_node_type != 'agent' else 'k3s-agent' }}"
       register: service_status
-      
-    - name: Wait for node readiness
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig_path }}"
-        api_version: v1
-        kind: Node
-        name: "{{ inventory_hostname }}"
-      until: node_status.resources[0].status.conditions[0].type == "Ready"
 
     - name: Get service logs
       shell: journalctl -u {{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }} --no-pager -n 50
