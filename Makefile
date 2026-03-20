@@ -16,6 +16,7 @@ PROVIDER ?= aws
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
 GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
+INVENTORY   := $(ANSIBLE_DIR)/inventory/inventory.yml
 
 # Environment-specific paths
 ifeq ($(ENV),default)
@@ -23,19 +24,16 @@ TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
 REGISTRY_TARGET  :=
-INVENTORY        := $(ANSIBLE_DIR)/inventory/inventory.yml
 else ifeq ($(ENV),airgap)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
 RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  := registry
-INVENTORY        := $(ANSIBLE_DIR)/inventory/inventory.yml
 else
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
 RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  :=
-INVENTORY        := $(ANSIBLE_DIR)/inventory/inventory.yml
 endif
 
 # Kubeconfig written by the cluster role; rancher needs to know where it is.
@@ -268,13 +266,23 @@ test-ssh: check-inventory ## Test SSH connectivity to all nodes
 status: check-inventory ## Show cluster status
 	@echo "Cluster Status ($(DISTRO)/$(ENV)):"
 	@echo ""
-	@echo "=== Nodes ==="
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible -i $(INVENTORY) bastion -m shell -a "kubectl get nodes -o wide" 2>/dev/null || echo "Could not get cluster status"
-	@echo ""
-	@echo "=== Rancher Pods ==="
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible -i $(INVENTORY) bastion -m shell -a "kubectl get pods -n cattle-system 2>/dev/null || echo 'Rancher not deployed'" 2>/dev/null || true
+	@if [ "$(ENV)" = "airgap" ]; then \
+		echo "=== Nodes ==="; \
+		export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible -i $(INVENTORY) bastion -m shell -a "kubectl get nodes -o wide" 2>/dev/null || echo "Could not get cluster status"; \
+		echo ""; \
+		echo "=== Rancher Pods ==="; \
+		ansible -i $(INVENTORY) bastion -m shell -a "kubectl get pods -n cattle-system 2>/dev/null || echo 'Rancher not deployed'" 2>/dev/null || true; \
+	elif [ -f "$(KUBECONFIG_FILE)" ]; then \
+		echo "=== Nodes ==="; \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get nodes -o wide || echo "Could not get cluster status"; \
+		echo ""; \
+		echo "=== Rancher Pods ==="; \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -n cattle-system 2>/dev/null || echo "Rancher not deployed"; \
+	else \
+		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
+		echo "Run 'make cluster' first to deploy the cluster."; \
+	fi
 
 .PHONY: ssh-bastion
 ssh-bastion: check-inventory ## SSH to bastion host

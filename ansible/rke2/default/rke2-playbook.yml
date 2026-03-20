@@ -2,7 +2,7 @@
 - hosts: all
   name: Setup nodes - Python and NetworkManager
   become: true
-  gather_facts: true
+  gather_facts: false
   vars_files:
     - vars.yaml
   vars:
@@ -13,6 +13,8 @@
         delay: 10
         timeout: 300
       become: false
+    - name: Gather facts
+      ansible.builtin.setup:
     - name: Validate required variables
       assert:
         that:

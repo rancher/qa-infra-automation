@@ -26,11 +26,6 @@ variable "aws_subnet_bastion" {
   type        = string
 }
 variable "instance_type" {}
-variable "inventory_output_path" {
-  description = "Absolute path where the generated Ansible inventory file will be written."
-  type        = string
-  default     = ""
-}
 variable "provision_registry" {
   description = "Set to false to not provision a registry instance."
   type        = bool
