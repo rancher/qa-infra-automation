@@ -106,11 +106,26 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         }
     }
 
+    # Map each node to its primary group (first match wins)
+    node_to_group: dict[str, str] = {}
+    for group_name, group_nodes in groups.items():
+        for n in group_nodes:
+            node_to_group.setdefault(n["name"], group_name)
+
     # Add all nodes to the 'all' hosts section
     for node in nodes:
+        node_roles = node["roles"]
+        group = node_to_group.get(node["name"])
+        if group == "master":
+            rke2_node_role = "master"
+        elif any(r in node_roles for r in ("cp", "etcd")):
+            rke2_node_role = "server"
+        else:
+            rke2_node_role = "agent"
         inventory["all"]["hosts"][node["name"]] = {
             "ansible_host": node[ip_field],
-            "node_roles": node["roles"],
+            "node_roles": node_roles,
+            "rke2_node_role": rke2_node_role,
         }
 
     # Add named groups

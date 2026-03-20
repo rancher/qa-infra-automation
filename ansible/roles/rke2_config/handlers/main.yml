@@ -3,7 +3,7 @@
 
 - name: restart rke2
   ansible.builtin.systemd:
-    name: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}rke2-server{% else %}rke2-agent{% endif %}"
+    name: "{% if rke2_node_role == 'master' or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"
     state: restarted
   become: true
   when: rke2_installed is defined and rke2_installed
