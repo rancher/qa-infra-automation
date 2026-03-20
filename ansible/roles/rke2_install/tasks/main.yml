@@ -1,0 +1,132 @@
+---
+# Main tasks for rke2_install role
+# Installs RKE2 binary and container images
+
+- name: Display installation method
+  ansible.builtin.debug:
+    msg: "Installing RKE2 using {{ rke2_install_method }} method{% if rke2_version != '' %} (version: {{ rke2_version }}){% endif %}"
+
+- name: Check if RKE2 is already installed
+  ansible.builtin.stat:
+    path: "{{ rke2_bin_dir }}/rke2"
+  register: rke2_binary
+
+- name: Get installed RKE2 version
+  ansible.builtin.command: "{{ rke2_bin_dir }}/rke2 --version"
+  register: rke2_installed_version
+  changed_when: false
+  failed_when: false
+  when: rke2_binary.stat.exists
+
+- name: Display installed version
+  ansible.builtin.debug:
+    msg: "RKE2 already installed: {{ rke2_installed_version.stdout_lines[0] }}"
+  when: rke2_binary.stat.exists
+
+# Online installation tasks
+- name: Online installation
+  when: rke2_install_method == "online"
+  block:
+    - name: Download RKE2 install script
+      ansible.builtin.get_url:
+        url: "{{ rke2_install_script_url }}"
+        dest: /tmp/rke2-install.sh
+        mode: '0755'
+      become: true
+      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+
+    - name: Run RKE2 install script
+      ansible.builtin.command:
+        cmd: /tmp/rke2-install.sh
+      environment:
+        INSTALL_RKE2_VERSION: "{{ rke2_version | default(omit) }}"
+        INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
+        INSTALL_RKE2_TYPE: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}server{% else %}agent{% endif %}"
+      become: true
+      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      register: rke2_install_result
+      changed_when: rke2_install_result.rc == 0
+
+    - name: Remove install script
+      ansible.builtin.file:
+        path: /tmp/rke2-install.sh
+        state: absent
+      become: true
+
+# Airgap installation tasks
+- name: Airgap installation
+  when: rke2_install_method == "airgap"
+  block:
+    - name: Verify airgap tarball paths are provided
+      ansible.builtin.assert:
+        that:
+          - rke2_airgap_tarball != ""
+          - rke2_airgap_install_script != ""
+        fail_msg: "For airgap installation, rke2_airgap_tarball and rke2_airgap_install_script must be provided"
+
+    - name: Create RKE2 data directory
+      ansible.builtin.file:
+        path: "{{ rke2_data_dir }}/agent/images"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      become: true
+
+    - name: Extract RKE2 tarball
+      ansible.builtin.unarchive:
+        src: "{{ rke2_airgap_tarball }}"
+        dest: /usr/local
+        remote_src: true
+      become: true
+      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+
+    - name: Copy RKE2 images tarball
+      ansible.builtin.copy:
+        src: "{{ rke2_airgap_images_tarball }}"
+        dest: "{{ rke2_data_dir }}/agent/images/"
+        remote_src: true
+        mode: '0644'
+      become: true
+      when: rke2_airgap_images_tarball != ""
+
+    - name: Copy and run airgap install script
+      ansible.builtin.copy:
+        src: "{{ rke2_airgap_install_script }}"
+        dest: /tmp/rke2-install.sh
+        mode: '0755'
+        remote_src: true
+      become: true
+      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+
+    - name: Run RKE2 airgap install script
+      ansible.builtin.command:
+        cmd: /tmp/rke2-install.sh
+      environment:
+        INSTALL_RKE2_TYPE: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}server{% else %}agent{% endif %}"
+      become: true
+      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      register: rke2_airgap_install_result
+      changed_when: rke2_airgap_install_result.rc == 0
+
+- name: Enable RKE2 service
+  ansible.builtin.systemd:
+    name: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}rke2-server{% else %}rke2-agent{% endif %}"
+    enabled: "{{ rke2_start_on_boot }}"
+    daemon_reload: true
+  become: true
+
+- name: Start RKE2 service (if configured)
+  ansible.builtin.systemd:
+    name: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}rke2-server{% else %}rke2-agent{% endif %}"
+    state: started
+  become: true
+  when: rke2_start_after_install
+
+- name: Set fact that RKE2 is installed
+  ansible.builtin.set_fact:
+    rke2_installed: true
+
+- name: Display installation completion
+  ansible.builtin.debug:
+    msg: "RKE2 installation complete. Service enabled but not started (will be started by rke2_cluster role)."

@@ -1,0 +1,8 @@
+---
+# Default variables for rke2_setup role
+
+# Required packages for RKE2 installation
+rke2_required_packages:
+  - tar
+  - curl
+  - wget

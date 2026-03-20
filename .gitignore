@@ -1,4 +1,5 @@
 .DS_Store
+tmp/
 
 *.tfvars
 *.tfstate
@@ -21,7 +22,9 @@ values.yml
 ansible/chaos/experiments/*.yml
 ansible/rke2/airgap/inventory/inventory.yml
 ansible/rke2/airgap/inventory/group_vars/all.yml
+ansible/**/inventory.yml
 ansible/rke2/airgap/playbooks/debug/*.txt
 ansible/rke2/airgap/playbooks/*.txt
 terraform-inventory*.yml
 .lock
+tofu/aws/modules/cluster_nodes/inventory.yml

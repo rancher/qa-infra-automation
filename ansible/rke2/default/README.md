@@ -1,6 +1,99 @@
 # RKE2 Cluster Ansible Playbook
 
-This playbook deploys an RKE2 Kubernetes cluster.
+This playbook deploys an RKE2 Kubernetes cluster using a **role-based architecture** for maintainability and modularity.
+
+## Architecture
+
+The playbook is organized into **5 sequential roles** that handle distinct phases of cluster deployment:
+
+1. **rke2_setup** - Prepares nodes by installing required OS packages (zypper/yum/apt depending on OS family)
+2. **rke2_config** - Generates RKE2 configuration files for server and agent nodes
+3. **rke2_install** - Installs RKE2 binaries using online (script) or airgap (tarball) installation methods
+4. **rke2_cluster** - Forms the cluster by starting services in sequence (master → servers → agents) with token distribution
+5. **rke2_health_check** - Validates cluster health, pod readiness, and ingress controller availability
+
+Each role can be executed independently using Ansible tags, enabling selective execution, debugging, and re-running specific phases without redeploying the entire cluster.
+
+## Roles
+
+### rke2_setup
+**Purpose:** Node preparation — install required OS packages
+**Tasks:**
+- Installs required packages via the appropriate package manager (zypper on SLES/openSUSE, yum on RHEL/CentOS, apt on Debian/Ubuntu)
+- Ensures nodes are ready for RKE2 installation
+- Note: firewall configuration is managed externally (e.g., cloud provider security groups)
+
+**Tags:** `setup`, `rke2`
+
+### rke2_config
+**Purpose:** Generate RKE2 configuration files
+**Tasks:**
+- Creates `/etc/rancher/rke2/config.yaml` for server nodes
+- Creates `/etc/rancher/rke2/config.yaml` for agent nodes
+- Configures CNI, TLS SANs, node taints, and labels
+- Sets up cluster-specific parameters (API host, FQDN)
+
+**Variables:**
+- `rke2_kubernetes_version` (from `kubernetes_version`)
+- `rke2_kube_api_host` (from `kube_api_host`)
+- `rke2_fqdn` (from `fqdn`)
+- `rke2_cni` (from `cni`)
+- `rke2_server_flags`, `rke2_worker_flags` (optional)
+
+**Tags:** `config`, `rke2`
+
+### rke2_install
+**Purpose:** Install RKE2 binaries
+**Tasks:**
+- **online** (default): Downloads and runs the RKE2 install script from `https://get.rke2.io`
+- **airgap**: Extracts a pre-downloaded RKE2 tarball and runs a local install script (requires `rke2_airgap_tarball` and `rke2_airgap_install_script`)
+- Enables the appropriate systemd service (`rke2-server` or `rke2-agent`) but does not start it — service startup is handled by `rke2_cluster`
+
+**Variables:**
+- `rke2_version` (from `kubernetes_version`, default: `""` — installs latest stable)
+- `rke2_channel` (from `channel`, default: `stable`)
+- `rke2_install_method` (default: `online`; options: `online`, `airgap`)
+- `rke2_airgap_tarball` (required for airgap, path to RKE2 tarball on remote host)
+- `rke2_airgap_images_tarball` (optional, path to RKE2 images tarball)
+- `rke2_airgap_install_script` (required for airgap, path to install script on remote host)
+
+**Tags:** `install`, `rke2`
+
+### rke2_cluster
+**Purpose:** Form the Kubernetes cluster
+**Tasks:**
+- Starts RKE2 on master node first
+- Retrieves and distributes node token to other nodes
+- Starts RKE2 on server nodes (control plane)
+- Starts RKE2 on agent nodes (workers)
+- Downloads kubeconfig file to local machine
+- Validates all nodes have joined the cluster
+
+**Variables:**
+- `rke2_node_role` (from `ansible_role` in inventory)
+- `rke2_kube_api_host` (from `kube_api_host`)
+- `rke2_kubeconfig_file` (from `kubeconfig_file`)
+- `rke2_node_token_file` (default: `/tmp/node_token.txt`)
+
+**Tags:** `cluster`, `rke2`
+
+### rke2_health_check
+**Purpose:** Validate cluster health
+**Tasks:**
+- Waits for all nodes to reach Ready state
+- Checks that all pods in kube-system namespace are Running
+- Detects ingress controller type (nginx-ingress or traefik)
+- Validates ingress controller pods are ready
+- Reports cluster health status
+
+**Variables:**
+- `rke2_kubeconfig_file` (from `kubeconfig_file`)
+- `rke2_server_flags` (optional, for ingress controller detection)
+
+**Requirements:**
+- Ansible `community.general` collection (for `json_query` filter used in pod status parsing)
+
+**Tags:** `health`, `rke2`
 
 ## Prerequisites
 
@@ -9,10 +102,20 @@ Before running the playbook, ensure you have the following in addition to the [g
 * SSH access to the target nodes
 * A valid inventory file (e.g., `{your-inventory-name}-inventory.yml`)
 * A `vars.yaml` file with necessary variables
+* Ansible `community.general` collection (for `json_query` filter in health checks):
+  ```bash
+  ansible-galaxy collection install community.general
+  ```
 
-## Optional
+## Optional Prerequisites
 
-* `ansible-inventory-terraform` installed
+**For Terraform/OpenTofu Integration:**
+* `cloud.terraform` Ansible collection (only needed if using Terraform state file):
+  ```bash
+  ansible-galaxy collection install cloud.terraform
+  ```
+
+If you're not using Terraform to provision infrastructure, the playbook will automatically fall back to environment variables or values from `vars.yaml`.
 
 ## Usage
 
@@ -39,6 +142,34 @@ Before running the playbook, you may need to set the `ANSIBLE_CONFIG` environmen
 
     The `-vvvv` flag provides very verbose output, which is helpful for debugging. The `--extra-vars "@vars.yaml"` flag loads variables from the `vars.yaml` file.
 
+3. **Run Specific Phases Using Tags (Optional):**
+
+    The role-based architecture supports selective execution using Ansible tags. This is useful for re-running specific phases, skipping phases, or debugging individual components.
+
+    **Available Tags:**
+    - `setup` - Node preparation (OS package installation)
+    - `config` - RKE2 configuration file generation
+    - `install` - RKE2 binary installation
+    - `cluster` - Cluster formation and token distribution
+    - `health` - Health checks and validation
+    - `rke2` - All RKE2-related tasks (shorthand for all above)
+
+    **Examples:**
+
+    ```bash
+    # Run only health checks (useful after cluster is already deployed)
+    ansible-playbook -i {your-inventory-name}-inventory.yml rke2-playbook.yml --tags health
+
+    # Run only setup and config (skip installation and cluster formation)
+    ansible-playbook -i {your-inventory-name}-inventory.yml rke2-playbook.yml --tags setup,config
+
+    # Skip setup phase (if nodes already prepared)
+    ansible-playbook -i {your-inventory-name}-inventory.yml rke2-playbook.yml --skip-tags setup
+
+    # Run full deployment with verbose output
+    ansible-playbook -i {your-inventory-name}-inventory.yml rke2-playbook.yml -vvv
+    ```
+
 ## Inventory
 
 The inventory file should contain the target nodes' IP addresses and SSH connection details. The `{your-inventory-name}-inventory.yml` file dynamically generates this inventory from Terraform outputs or from the inventory file you provided.
@@ -46,5 +177,22 @@ The inventory file should contain the target nodes' IP addresses and SSH connect
 ## Sample `vars.yaml`
 
 ```yaml
-kubernetes_version: 'v1.28.15+rke2r1'
-kubeconfig_file: './kubeconfig.yaml'
+# Required Variables
+kubernetes_version: 'v1.28.15+rke2r1'  # Used by: rke2_config, rke2_install
+kubeconfig_file: './kubeconfig.yaml'   # Used by: rke2_cluster, rke2_health_check
+
+# Network Configuration (Required)
+cni: 'calico'                           # Used by: rke2_config (CNI plugin: calico, canal, cilium)
+
+# Infrastructure Variables (Required if not using Terraform)
+# These are automatically loaded from Terraform state if available
+# kube_api_host: '1.2.3.4'             # Used by: rke2_config, rke2_cluster (initial node IP)
+# fqdn: '1.2.3.4.sslip.io'             # Used by: rke2_config (cluster FQDN for TLS SANs)
+
+# Optional Variables
+channel: 'stable'                       # Used by: rke2_install (RKE2 channel: stable, latest, testing)
+install_method: 'online'               # Used by: rke2_install (installation method: online, airgap)
+
+# Advanced Configuration (Optional)
+# server_flags: '--disable=traefik'    # Used by: rke2_config (additional server flags)
+# worker_flags: '--node-label=type=worker'  # Used by: rke2_config (additional worker flags)
