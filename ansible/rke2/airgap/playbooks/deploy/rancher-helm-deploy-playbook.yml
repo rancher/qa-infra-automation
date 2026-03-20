@@ -247,25 +247,18 @@
 
     - name: Display Rancher access information
       ansible.builtin.debug:
-        msg: |
-          ╔════════════════════════════════════════════════════════════════╗
-          ║              RANCHER DEPLOYMENT COMPLETE                       ║
-          ╠════════════════════════════════════════════════════════════════╣
-          ║  Access URL:        https://{{ rancher_public_hostname }}
-          ║  Internal URL:      https://{{ rancher_private_hostname }}
-          ║  Namespace:         {{ rancher_namespace }}
-          ╠════════════════════════════════════════════════════════════════╣
-          ║  Admin Username:    admin
-          ║  Admin Password:    {{ rancher_admin_password }}
-          ║  API Token:         {{ rancher_generated_token }}
-          ╠════════════════════════════════════════════════════════════════╣
-          ║  Service Type: {{ rancher_service_info.resources[0].spec.type }}
-          {% if rancher_service_info.resources[0].spec.type == 'LoadBalancer' %}
-          ║  LoadBalancer IP: {{ rancher_service_info.resources[0].status.loadBalancer.ingress[0].ip | default('Pending') }}
-          {% elif rancher_service_info.resources[0].spec.type == 'NodePort' %}
-          ║  NodePort: {{ rancher_service_info.resources[0].spec.ports[0].nodePort }}
-          {% endif %}
-          ╠════════════════════════════════════════════════════════════════╣
-          ║  Token file: {{ repo_root }}/tmp/rancher-admin-token.json
-          ║  Summary file: /home/{{ ansible_user }}/rancher-deployment-summary.txt
-          ╚════════════════════════════════════════════════════════════════╝
+        msg:
+          - "RANCHER DEPLOYMENT COMPLETE"
+          - ""
+          - "  Access URL:     https://{{ rancher_public_hostname }}"
+          - "  Internal URL:   https://{{ rancher_private_hostname }}"
+          - "  Namespace:      {{ rancher_namespace }}"
+          - ""
+          - "  Admin Username: admin"
+          - "  Admin Password: {{ rancher_admin_password }}"
+          - "  API Token:      {{ rancher_generated_token }}"
+          - ""
+          - "  Service Type:   {{ rancher_service_info.resources[0].spec.type }}"
+          - ""
+          - "  Token file:     {{ repo_root }}/tmp/rancher-admin-token.json"
+          - "  Summary file:   /home/{{ ansible_user }}/rancher-deployment-summary.txt"
