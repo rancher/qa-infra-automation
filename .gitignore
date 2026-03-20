@@ -25,6 +25,7 @@ values.yml
 .kube/
 *.pem
 ansible/chaos/experiments/*.yml
+.inventory-manifest.json
 ansible/rke2/airgap/inventory/inventory.yml
 ansible/rke2/airgap/inventory/group_vars/all.yml
 ansible/**/inventory.yml
