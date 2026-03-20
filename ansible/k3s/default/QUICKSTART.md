@@ -15,30 +15,33 @@ This playbook deploys K3s clusters using a static Ansible inventory. The invento
 
 Before running the playbook, verify that your inventory file is correctly populated with the relevant data. Do one of the two steps below:
 
-- **If you brought up infrastructure from Tofu via `make infra-up`**, the inventory file is automatically generated at `ansible/k3s/default/inventory.yml` and includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `server`, `worker`, `etcd`, `cp`).
+- **If you brought up infrastructure from Tofu via `make infra-up`**, the inventory file is automatically generated at `ansible/k3s/default/inventory/inventory.yml` and includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `servers`, `workers`).
 
 - **If bringing your own nodes or filling in manually**, create an inventory file with this structure:
 
   ```yaml
-  # inventory.yml
+  # ansible/k3s/default/inventory/inventory.yml
   all:
     vars:
       ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      ansible_user: "ec2-user"
       fqdn: your-cluster.example.com
       kube_api_host: 1.2.3.4
     children:
       master:
         hosts:
-          master:                            # First node must be named "master"
-            ansible_host: "1.2.3.4"         # node public IP
-            ansible_user: "ec2-user"        # SSH user
-            ansible_role: "etcd,cp,worker"  # Must include etcd for first node
-      worker:
+          master:                        # First control-plane node; must be named "master"
+            ansible_host: "1.2.3.4"
+      servers:
         hosts:
+          master:
+            ansible_host: "1.2.3.4"
           node2:
-            ansible_host: "5.6.7.8"
-            ansible_user: "ec2-user"
-            ansible_role: "worker"
+            ansible_host: "5.6.7.8"    # Additional control-plane nodes
+      workers:
+        hosts:
+          node3:
+            ansible_host: "9.10.11.12"
   ```
 
 Once you have your inventory file, verify it has the correct data:

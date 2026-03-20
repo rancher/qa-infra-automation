@@ -48,7 +48,7 @@
         mode: '0700'
       loop:
         - /var/lib/rancher/k3s/server/manifests
-      when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+      when: inventory_hostname in groups.get('servers', [])
 
     - name: Apply K3s hardening on initial cluster node if enabled
       include_role:
@@ -65,7 +65,6 @@
         k3s_node_type: cluster-init
         k3s_api_host: "{{ kube_api_host }}"
         k3s_fqdn: "{{ fqdn | default(kube_api_host) }}"
-        k3s_node_roles: "{{ ansible_role }}"
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
@@ -142,7 +141,7 @@
         mode: '0700'
       loop:
         - /var/lib/rancher/k3s/server/manifests
-      when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+      when: inventory_hostname in groups.get('servers', [])
 
     - name: Apply K3s hardening on server nodes if enabled (before installation)
       include_role:
@@ -153,7 +152,7 @@
         kubernetes_version: "{{ kubernetes_version }}"
       when:
         - inventory_hostname != 'master'
-        - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+        - inventory_hostname in groups.get('servers', [])
 
     - name: Install K3s on server nodes
       include_role:
@@ -163,13 +162,12 @@
         k3s_api_host: "{{ kube_api_host }}"
         k3s_fqdn: "{{ fqdn | default(kube_api_host) }}"
         k3s_token: "{{ node_token }}"
-        k3s_node_roles: "{{ ansible_role }}"
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
       when:
         - inventory_hostname != 'master'
-        - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+        - inventory_hostname in groups.get('servers', [])
 
     - name: Apply K3s hardening on agent nodes if enabled
       include_role:
@@ -178,7 +176,7 @@
         k3s_node_type: agent
         role_server_flags: "{{ server_flags | default('') }}"
         role_worker_flags: "{{ worker_flags | default('') }}"
-      when: ansible_role is defined and ansible_role == 'worker'
+      when: inventory_hostname in groups.get('workers', [])
 
     - name: Validate required variables for agent installation
       assert:
@@ -186,7 +184,7 @@
           - kube_api_host | default('') | length > 0
           - node_token    | default('') | length > 0
         fail_msg: "Required variables missing: kube_api_host='{{ kube_api_host | default('UNDEFINED') }}', node_token='{{ node_token | default('UNDEFINED') }}'"
-      when: ansible_role is defined and ansible_role == 'worker'
+      when: inventory_hostname in groups.get('workers', [])
 
     - name: Install K3s on agent nodes
       include_role:
@@ -199,7 +197,7 @@
         public_ip: "{{ ansible_host }}"
         k3s_worker_flags: "{{ worker_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
-      when: ansible_role is defined and ansible_role == 'worker'
+      when: inventory_hostname in groups.get('workers', [])
 
 - hosts: localhost
   connection: local
