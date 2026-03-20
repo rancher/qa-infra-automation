@@ -23,7 +23,7 @@ TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
 REGISTRY_TARGET  :=
-INVENTORY        := $(ANSIBLE_DIR)/inventory.yml
+INVENTORY        := $(ANSIBLE_DIR)/inventory/inventory.yml
 else ifeq ($(ENV),airgap)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
@@ -35,7 +35,7 @@ TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
 RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  :=
-INVENTORY        := $(ANSIBLE_DIR)/inventory.yml
+INVENTORY        := $(ANSIBLE_DIR)/inventory/inventory.yml
 endif
 
 # Kubeconfig written by the cluster role; rancher needs to know where it is.
@@ -188,15 +188,15 @@ infra-up: infra-init ## Create infrastructure (generates Ansible inventory autom
 	@echo "Creating $(PROVIDER) infrastructure for $(ENV) environment..."
 	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars -auto-approve
 	@echo "Generating Ansible inventory..."
-	@if cd $(TOFU_DIR) && tofu output -raw airgap_inventory_json > /tmp/tofu-nodes-$(DISTRO)-$(ENV).json 2>/dev/null; then \
+	@if cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw airgap_inventory_json > /tmp/tofu-nodes-$(DISTRO)-$(ENV).json 2>/dev/null; then \
 		echo "Using airgap inventory output"; \
-	elif cd $(TOFU_DIR) && tofu output -raw cluster_nodes_json > /tmp/tofu-nodes-$(DISTRO)-$(ENV).json 2>/dev/null; then \
+	elif cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw cluster_nodes_json > /tmp/tofu-nodes-$(DISTRO)-$(ENV).json 2>/dev/null; then \
 		echo "Using cluster_nodes inventory output"; \
 	else \
-		echo "Warning: No inventory JSON output found in Tofu module. Create inventory manually."; \
-		exit 0; \
+		echo "Error: No inventory JSON output found in Tofu module $(TOFU_DIR). Has 'make infra-up' been run?"; \
+		exit 1; \
 	fi
-	python3 scripts/generate_inventory.py \
+	@python3 scripts/generate_inventory.py \
 		--input /tmp/tofu-nodes-$(DISTRO)-$(ENV).json \
 		--distro $(DISTRO) \
 		--env $(ENV) \
