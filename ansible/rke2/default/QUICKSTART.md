@@ -23,7 +23,7 @@ Each role can be executed independently using Ansible tags.
 
 Before running the playbook, verify that your inventory file is correctly populated with the relevant data. Do one of the two steps below:
 
-- **If you brought up infrastructure from Tofu via `make infra-up`**, the inventory file is automatically generated at `ansible/rke2/default/inventory.yml` and includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `server`, `worker`, `etcd`, `cp`).
+- **If you brought up infrastructure from Tofu via `make infra-up`**, the inventory file is automatically generated at `ansible/rke2/default/inventory/inventory.yml` and includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `server`, `worker`, `etcd`, `cp`).
 
 - **If bringing your own nodes or filling in manually**, create an inventory file with this structure:
 
@@ -54,7 +54,7 @@ Before running the playbook, verify that your inventory file is correctly popula
 Once you have your inventory file, verify it has the correct data:
 
 ```sh
-ansible-inventory -i ansible/rke2/default/inventory.yml --list
+ansible-inventory -i ansible/rke2/default/inventory/inventory.yml --list
 ```
 
 ### Step 2: Define Ansible Variables
@@ -90,7 +90,7 @@ make cluster
 **Manually** — run from the repository root:
 
 ```sh
-ansible-playbook -i ansible/rke2/default/inventory.yml ansible/rke2/default/rke2-playbook.yml
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml
 ```
 
 #### Optional: Run Specific Phases Using Tags
@@ -112,16 +112,16 @@ The role-based architecture supports selective execution using Ansible tags. Thi
 
 ```sh
 # Run only health checks (useful after cluster is already deployed)
-ansible-playbook -i inventory.yml ansible/rke2/default/rke2-playbook.yml --tags health
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --tags health
 
 # Run only setup and config (skip installation and cluster formation)
-ansible-playbook -i inventory.yml ansible/rke2/default/rke2-playbook.yml --tags setup,config
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --tags setup,config
 
 # Skip setup phase (if nodes already prepared)
-ansible-playbook -i inventory.yml ansible/rke2/default/rke2-playbook.yml --skip-tags setup
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --skip-tags setup
 
 # Run full deployment with verbose output
-ansible-playbook -i inventory.yml ansible/rke2/default/rke2-playbook.yml -vvv
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml -vvv
 ```
 
 ### Step 4: Verify RKE2 Installation
