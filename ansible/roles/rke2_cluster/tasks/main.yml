@@ -75,7 +75,7 @@
 - name: Start RKE2 on server nodes
   when:
     - rke2_node_role != 'master'
-    - "'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',')"
+    - "'cp' in node_roles or 'etcd' in node_roles"
   block:
     - name: Start rke2-server service on server nodes
       ansible.builtin.systemd:
@@ -144,8 +144,8 @@
 - name: Start RKE2 on agent nodes
   when:
     - rke2_node_role != 'master'
-    - "'worker' in node_roles.split(',')"
-    - "'cp' not in node_roles.split(',') and 'etcd' not in node_roles.split(',')"
+    - "'worker' in node_roles"
+    - "'cp' not in node_roles and 'etcd' not in node_roles"
   block:
     - name: Start rke2-agent service on worker nodes
       ansible.builtin.systemd:
