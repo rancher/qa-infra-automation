@@ -32,6 +32,16 @@ server: https://{{ kube_api_host }}:9345
 token: {{ rke2_token }}
 {% endif %}
 
+{% if 'cp' in node_roles and 'etcd' not in node_roles %}
+# CP-only node: disable embedded etcd
+disable-etcd: true
+{% elif 'etcd' in node_roles and 'cp' not in node_roles and rke2_node_role != 'master' %}
+# Etcd-only non-master node: disable control plane components
+disable-apiserver: true
+disable-controller-manager: true
+disable-scheduler: true
+{% endif %}
+
 {% else %}
 # Agent node configuration
 {% for key, value in rke2_agent_config.items() %}
