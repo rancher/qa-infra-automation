@@ -19,6 +19,10 @@ rke2:
       master:
         roles: [etcd]
         first_only: true
+      servers:
+        roles: [cp]
+      workers:
+        roles: [worker]
       # 'all' is implicit in Ansible and includes every host
 
   airgap:

@@ -49,12 +49,16 @@
       delay: "{{ rke2_check_interval }}"
       changed_when: false
       become: true
-      when: rke2_wait_for_ready
+      when:
+        - rke2_wait_for_ready
+        - "'cp' in node_roles"
 
     - name: Display ready nodes
       ansible.builtin.debug:
         msg: "Ready node(s): {{ ready_nodes.stdout }}"
-      when: rke2_wait_for_ready
+      when:
+        - rke2_wait_for_ready
+        - "'cp' in node_roles"
 
 # Distribute token to other nodes
 - name: Set cluster token on all nodes
@@ -121,7 +125,7 @@
       changed_when: false
       become: true
       when: rke2_wait_for_ready
-      delegate_to: "{{ groups['master'][0] }}"
+      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
       run_once: true
 
     - name: Display all ready nodes
@@ -131,7 +135,7 @@
       register: all_nodes
       changed_when: false
       become: true
-      delegate_to: "{{ groups['master'][0] }}"
+      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
       run_once: true
 
     - name: Show cluster nodes
@@ -169,7 +173,7 @@
       changed_when: false
       become: true
       when: rke2_wait_for_ready
-      delegate_to: "{{ groups['master'][0] }}"
+      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
       run_once: true
 
     - name: Display all nodes after workers joined
@@ -179,7 +183,7 @@
       register: final_nodes
       changed_when: false
       become: true
-      delegate_to: "{{ groups['master'][0] }}"
+      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
       run_once: true
       when: rke2_wait_for_ready
 
@@ -198,14 +202,14 @@
         dest: "{{ rke2_kubeconfig_dest }}"
         flat: true
       become: true
-      delegate_to: "{{ groups['master'][0] }}"
+      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
       run_once: true
 
     - name: Replace localhost with master IP in kubeconfig
       ansible.builtin.replace:
         path: "{{ rke2_kubeconfig_dest }}"
         regexp: '127\.0\.0\.1'
-        replace: "{{ hostvars[groups['master'][0]]['ansible_host'] }}"
+        replace: "{{ hostvars[(groups.get('servers', []) + groups['master'])[0]]['ansible_host'] }}"
       delegate_to: localhost
       run_once: true
       become: false
