@@ -35,8 +35,8 @@ token: {{ rke2_token }}
 {% if 'cp' in node_roles and 'etcd' not in node_roles %}
 # CP-only node: disable embedded etcd
 disable-etcd: true
-{% elif 'etcd' in node_roles and 'cp' not in node_roles and rke2_node_role != 'master' %}
-# Etcd-only non-master node: disable control plane components
+{% elif 'etcd' in node_roles and 'cp' not in node_roles %}
+# Etcd-only node: disable control plane components
 disable-apiserver: true
 disable-controller-manager: true
 disable-scheduler: true
