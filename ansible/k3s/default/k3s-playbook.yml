@@ -56,7 +56,6 @@
       vars:
         k3s_node_type: cluster-init
         role_server_flags: "{{ server_flags | default('') }}"
-      when: inventory_hostname == 'master'
 
     - name: Install K3s on initial cluster node
       include_role:
@@ -68,7 +67,6 @@
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
-      when: inventory_hostname == 'master'
 
     - name: Get node-token from master
       slurp:
@@ -151,7 +149,7 @@
         role_server_flags: "{{ server_flags | default('') }}"
         kubernetes_version: "{{ kubernetes_version }}"
       when:
-        - inventory_hostname != 'master'
+        - inventory_hostname not in groups.get('master', [])
         - inventory_hostname in groups.get('servers', [])
 
     - name: Install K3s on server nodes
@@ -166,7 +164,7 @@
         role_server_flags: "{{ server_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
       when:
-        - inventory_hostname != 'master'
+        - inventory_hostname not in groups.get('master', [])
         - inventory_hostname in groups.get('servers', [])
 
     - name: Apply K3s hardening on agent nodes if enabled
