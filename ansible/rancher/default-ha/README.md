@@ -104,7 +104,8 @@ ansible-playbook ansible/rancher/downstream/downstream-upgrade-playbook.yml \
   -e "kubernetes_version_upgrade=v1.31.0"
 ```
 
-Replace `v1.31.0` with the target Kubernetes version.
+Replace `v1.31.0` with the target Kubernetes version. The playbook updates both the
+selected downstream cluster and Rancher's local cluster to the same Kubernetes version.
 
 If `k8s_downstream_cluster_name` is set in `vars.yaml`, it must exactly match the
 Rancher downstream cluster resource name. If it is omitted, the playbook auto-detects
