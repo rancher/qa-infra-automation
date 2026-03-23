@@ -76,7 +76,7 @@ What the upgrade tasks do:
 
 ## Upgrading the Downstream Cluster Kubernetes Version
 
-To upgrade the Kubernetes version of a downstream cluster managed by Rancher, use `k8s-upgrade-playbook.yml`.
+To upgrade the Kubernetes version of a downstream cluster managed by Rancher, use `downstream-upgrade-playbook.yml`.
 
 ### Step 1. Ensure `vars.yaml` exists
 
@@ -102,7 +102,7 @@ from `fleet-default`.
 Run this from the **repository root**:
 
 ```sh
-ansible-playbook ansible/rancher/default-ha/k8s-upgrade-playbook.yml \
+ansible-playbook ansible/rancher/downstream/downstream-upgrade-playbook.yml \
   -e "k8s_upgrade_mode=true" \
   -e "kubernetes_version_upgrade=v1.31.0"
 ```

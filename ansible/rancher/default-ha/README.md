@@ -12,7 +12,7 @@ Before running the playbooks, ensure you have the [general Ansible prerequisites
   the `helm-diff` plugin automatically because `kubernetes.core.helm` uses
   `reuse_values: true`.
 - A `vars.yaml` file in this directory. Both `rancher-playbook.yml` and
-  `k8s-upgrade-playbook.yml` load it automatically.
+  `downstream-upgrade-playbook.yml` load it automatically.
 
 ## Configuration
 
@@ -99,7 +99,7 @@ used to select the target chart repository, chart version, and optional image ta
 To upgrade the Kubernetes version of a downstream cluster managed by Rancher:
 
 ```bash
-ansible-playbook ansible/rancher/default-ha/k8s-upgrade-playbook.yml \
+ansible-playbook ansible/rancher/downstream/downstream-upgrade-playbook.yml \
   -e "k8s_upgrade_mode=true" \
   -e "kubernetes_version_upgrade=v1.31.0"
 ```
