@@ -2,13 +2,15 @@
 
 ## Prerequisites
 
-1. Kubernetes Cluster: You must have a k3s or rke2 cluster.
+1. Kubernetes cluster: You must have a reachable K3s, RKE2, or other supported Kubernetes cluster.
+2. Kubeconfig: You need a kubeconfig file that gives Ansible access to that cluster.
+3. Helm: The Rancher upgrade flow installs the `helm-diff` plugin locally, so `helm` must be available where you run Ansible.
 
 ## Steps
 
 ### Step 1. Create Config
 
-Create `vars.yaml` in this folder with your desired settings, including the FQDN for your rancher UI. This can resolve to a load balanced endpoint, or you can use a wildcard dns with one of your node's public IPs.
+Create `vars.yaml` in this folder with your desired settings, including the FQDN for your Rancher UI. The FQDN can resolve to a load-balanced endpoint, or you can use wildcard DNS with one of your node public IPs.
 
 ```yaml
 # Version information
@@ -26,6 +28,15 @@ bootstrap_password: ""
 password: ""
 ```
 
+If you plan to upgrade Rancher later, add these upgrade-specific variables now or before running the upgrade flow:
+
+```yaml
+rancher_chart_repo_upgrade: rancher-latest
+rancher_chart_upgrade_repo_url: https://releases.rancher.com/server-charts/latest
+rancher_version_upgrade: "v2.13.0"
+rancher_image_tag_upgrade: latest # Optional
+```
+
 ### Step 2. Run Playbook
 
 > **Important:** All `ansible-playbook` commands must be run from the **repository root**, not from inside the `ansible/` subdirectory.
@@ -39,6 +50,27 @@ ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
 Open your browser and navigate to `https://<fqdn>`.
 
 Log in with the username `admin` and the `password` you defined.
+
+### Step 4. Upgrade Rancher (optional)
+
+The Rancher upgrade logic lives in `rancher-upgrade-tasks.yml` and is executed through `rancher-playbook.yml` when `upgrade_mode=true`.
+
+```sh
+ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml \
+  -e "upgrade_mode=true"
+```
+
+What the upgrade tasks do:
+
+- add the target Rancher Helm repository
+- install the `helm-diff` plugin if needed
+- upgrade the existing `rancher` Helm release in place with `reuse_values: true`
+- wait for the `cattle-system/rancher` deployment to become ready
+- wait for `https://<fqdn>` to return HTTP 200
+- log in with the permanent `password`
+- print a fresh Rancher API token and write it to `generated.tfvars`
+
+> The upgrade flow uses `password`, not `bootstrap_password`, because the bootstrap password is only valid during the first-time setup.
 
 ---
 
