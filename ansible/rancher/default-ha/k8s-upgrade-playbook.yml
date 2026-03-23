@@ -32,6 +32,11 @@
                 | list
               }}
 
+        - name: Assert at least one downstream cluster exists
+          ansible.builtin.assert:
+            that: downstream_cluster_names | length > 0
+            fail_msg: "No downstream clusters found in {{ downstream_cluster_namespace }}"
+
         - name: Resolve downstream cluster name
           ansible.builtin.set_fact:
             resolved_downstream_cluster_name: >-
@@ -60,6 +65,11 @@
             wait_condition:
               type: Ready
 
+        - name: Assert kubernetes_version_upgrade is set
+          ansible.builtin.assert:
+            that: kubernetes_version_upgrade | length > 0
+            fail_msg: "kubernetes_version_upgrade must be set (e.g. v1.31.0)"
+            
         - name: Upgrade downstream cluster kubernetesVersion
           kubernetes.core.k8s_json_patch:
             kubeconfig: "{{ kubeconfig_file }}"
