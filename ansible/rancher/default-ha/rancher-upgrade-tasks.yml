@@ -19,12 +19,17 @@
     release_namespace: cattle-system
     chart_version: "{{ '' if rancher_version_upgrade == 'latest' else rancher_version_upgrade }}"
     reuse_values: true
-    wait: true
-    wait_timeout: "800s"
+    timeout: 800s
     values:
       rancherImageTag: "{{ 'head' if rancher_image_tag_upgrade == 'latest' else rancher_image_tag_upgrade | default(omit) }}"
-  retries: 6
-  delay: 120
+  register: rancher_upgrade_result
+  retries: 3
+  delay: 300
+  until: >
+    rancher_upgrade_result is succeeded and
+    rancher_upgrade_result.status is defined and
+    rancher_upgrade_result.status.status is defined and
+    (rancher_upgrade_result.status.status | upper) == 'DEPLOYED'
 
 - name: Wait for Rancher deployment to be ready after upgrade
   kubernetes.core.k8s_info:
