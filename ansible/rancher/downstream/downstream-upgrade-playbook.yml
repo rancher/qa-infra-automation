@@ -7,7 +7,6 @@
   vars:
     kubernetes_version_upgrade: ""
     downstream_cluster_namespace: fleet-default
-    local_cluster_name: local
     # Set to true via -e "k8s_upgrade_mode=true" to execute the upgrade tasks.
     k8s_upgrade_mode: false
 
@@ -18,7 +17,7 @@
         - name: Get downstream clusters
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig_file }}"
-            api_version: provisioning.cattle.io/v1
+            api_version: v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
           register: downstream_clusters_info
@@ -56,7 +55,7 @@
         - name: Wait for downstream cluster to be active before upgrading
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig_file }}"
-            api_version: provisioning.cattle.io/v1
+            api_version: v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
             name: "{{ resolved_downstream_cluster_name }}"
@@ -70,11 +69,11 @@
           ansible.builtin.assert:
             that: kubernetes_version_upgrade | length > 0
             fail_msg: "kubernetes_version_upgrade must be set (e.g. v1.31.0)"
-            
+
         - name: Upgrade downstream cluster kubernetesVersion
           kubernetes.core.k8s_json_patch:
             kubeconfig: "{{ kubeconfig_file }}"
-            api_version: provisioning.cattle.io/v1
+            api_version: v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
             name: "{{ resolved_downstream_cluster_name }}"
@@ -82,23 +81,11 @@
               - op: replace
                 path: /spec/kubernetesVersion
                 value: "{{ kubernetes_version_upgrade }}"
-
-        - name: Upgrade local cluster kubernetesVersion
-          kubernetes.core.k8s_json_patch:
-            kubeconfig: "{{ kubeconfig_file }}"
-            api_version: provisioning.cattle.io/v1
-            kind: Cluster
-            namespace: "fleet-local"
-            name: "{{ local_cluster_name }}"
-            patch:
-              - op: replace
-                path: /spec/kubernetesVersion
-                value: "{{ kubernetes_version_upgrade }}"
-
+                
         - name: Wait for downstream cluster to finish k8s upgrade
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig_file }}"
-            api_version: provisioning.cattle.io/v1
+            api_version: v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
             name: "{{ resolved_downstream_cluster_name }}"
@@ -106,17 +93,4 @@
             wait_sleep: 60
             wait_timeout: 1800
             wait_condition:
-              type: Ready
-
-        - name: Wait for local cluster to finish k8s upgrade
-          kubernetes.core.k8s_info:
-            kubeconfig: "{{ kubeconfig_file }}"
-            api_version: provisioning.cattle.io/v1
-            kind: Cluster
-            namespace: "fleet-local"
-            name: "{{ local_cluster_name }}"
-            wait: yes
-            wait_sleep: 60
-            wait_timeout: 1800
-            wait_condition:
-              type: Ready
+              type: Updated

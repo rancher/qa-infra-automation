@@ -7,7 +7,8 @@
 
 - name: Install helm-diff plugin (required by kubernetes.core.helm reuse_values)
   ansible.builtin.command: helm plugin install https://github.com/databus23/helm-diff
-  failed_when: false
+  register: helm_diff_result
+  failed_when: helm_diff_result.rc != 0 and 'already installed' not in helm_diff_result.stderr
 
 - name: Upgrade Rancher in-place
   # reuse_values preserves all values from the current release (hostname, replicas, etc.)
@@ -20,9 +21,9 @@
     chart_version: "{{ '' if rancher_version_upgrade == 'latest' else rancher_version_upgrade }}"
     reuse_values: true
     wait: true
-    wait_timeout: 800s
+    wait_timeout: "800s"
     values:
-      rancherImageTag: "{{ 'head' if rancher_image_tag_upgrade == 'latest' else rancher_image_tag_upgrade | default(omit) }}"
+      rancherImageTag: "{{ 'head' if (rancher_image_tag_upgrade | default('')) == 'latest' else rancher_image_tag_upgrade | default(omit) }}"
   retries: 6
   delay: 120
 
