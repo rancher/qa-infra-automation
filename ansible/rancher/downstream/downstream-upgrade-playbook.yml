@@ -3,7 +3,7 @@
   connection: local
   gather_facts: false
   vars_files:
-    - vars.yaml
+    - ../default-ha/vars.yaml
   vars:
     kubernetes_version_upgrade: ""
     downstream_cluster_namespace: fleet-default
