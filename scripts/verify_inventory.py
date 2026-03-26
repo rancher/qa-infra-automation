@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Verify that a generated inventory is not stale.
 
-Reads the .inventory-manifest.json written by generate-inventory.py
+Reads the .inventory-manifest.json written by generate_inventory.py
 and compares checksums to detect drift.
 
 Usage:
-    python3 scripts/verify-inventory.py \\
+    python3 scripts/verify_inventory.py \\
         --manifest ansible/rke2/airgap/inventory/.inventory-manifest.json
 
 Exits 0 if inventory is fresh, non-zero if stale or manifest is missing.
@@ -19,8 +19,8 @@ import sys
 
 
 def file_checksum(path: str) -> str:
-    with open(path) as f:
-        return hashlib.sha256(f.read().encode()).hexdigest()
+    with open(path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
 
 def main() -> None:

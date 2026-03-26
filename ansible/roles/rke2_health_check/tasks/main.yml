@@ -219,10 +219,10 @@
   ansible.builtin.debug:
     msg:
       - "=== RKE2 Cluster Health Check Summary ==="
-      - "API Server: {{ 'Healthy' if api_version.rc == 0 else 'Unhealthy' }}"
-      - "Nodes: {{ ready_nodes }}/{{ total_nodes }} Ready"
+      - "API Server: {{ 'Healthy' if (api_version is defined and api_version.rc == 0) else 'Unhealthy' }}"
+      - "Nodes: {{ ready_nodes | default('N/A') }}/{{ total_nodes | default('N/A') }} Ready"
       - "System Pods: {{ total_failed | default(0) }} Failed, {{ total_pending | default(0) }} Pending"
-      - "etcd: {{ etcd_pods['items'] | selectattr('status.phase', 'equalto', 'Running') | list | length }}/{{ etcd_pods['items'] | length }} Running"
+      - "etcd: {{ (etcd_pods['items'] | selectattr('status.phase', 'equalto', 'Running') | list | length) if etcd_pods is defined else 'N/A' }}/{{ etcd_pods['items'] | length if etcd_pods is defined else 'N/A' }} Running"
       - "========================================"
   run_once: true
 
@@ -230,7 +230,10 @@
   ansible.builtin.debug:
     msg: "RKE2 cluster health checks complete - All systems operational!"
   when:
+    - api_version is defined
     - api_version.rc == 0
+    - ready_nodes is defined
+    - total_nodes is defined
     - ready_nodes | int == total_nodes | int
     - total_failed | default(0) | int == 0
   run_once: true
@@ -239,7 +242,7 @@
   ansible.builtin.debug:
     msg: "RKE2 cluster health checks complete - Some issues detected (see above)"
   when: >
-    api_version.rc != 0 or
-    ready_nodes | int != total_nodes | int or
+    (api_version is defined and api_version.rc != 0) or
+    (ready_nodes is defined and total_nodes is defined and ready_nodes | int != total_nodes | int) or
     total_failed | default(0) | int > 0
   run_once: true
