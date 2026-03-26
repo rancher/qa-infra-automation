@@ -17,7 +17,7 @@
         - name: Get downstream clusters
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig_file }}"
-            api_version: v1
+            api_version: provisioning.cattle.io/v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
           register: downstream_clusters_info
@@ -55,7 +55,7 @@
         - name: Wait for downstream cluster to be active before upgrading
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig_file }}"
-            api_version: v1
+            api_version: provisioning.cattle.io/v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
             name: "{{ resolved_downstream_cluster_name }}"
@@ -73,7 +73,7 @@
         - name: Upgrade downstream cluster kubernetesVersion
           kubernetes.core.k8s_json_patch:
             kubeconfig: "{{ kubeconfig_file }}"
-            api_version: v1
+            api_version: provisioning.cattle.io/v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
             name: "{{ resolved_downstream_cluster_name }}"
@@ -85,7 +85,7 @@
         - name: Wait for downstream cluster to finish k8s upgrade
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig_file }}"
-            api_version: v1
+            api_version: provisioning.cattle.io/v1
             kind: Cluster
             namespace: "{{ downstream_cluster_namespace }}"
             name: "{{ resolved_downstream_cluster_name }}"
