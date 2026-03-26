@@ -119,7 +119,7 @@
       register: node_status
       until: >
         node_status.stdout_lines | select('search', 'True') | list | length >=
-        (groups['master'] | length + groups['server'] | default([]) | length)
+        (groups['master'] | length + groups.get('servers', []) | length)
       retries: "{{ (rke2_wait_timeout / rke2_check_interval) | int }}"
       delay: "{{ rke2_check_interval }}"
       changed_when: false
@@ -167,7 +167,7 @@
         /var/lib/rancher/rke2/bin/kubectl --kubeconfig {{ rke2_kubeconfig_source }}
         get nodes --no-headers
       register: all_nodes_check
-      until: all_nodes_check.stdout_lines | length >= (groups['master'] | length + groups['server'] | default([]) | length + groups['worker'] | default([]) | length)
+      until: all_nodes_check.stdout_lines | length >= (groups['master'] | length + groups.get('servers', []) | length + groups.get('workers', []) | length)
       retries: "{{ (rke2_wait_timeout / rke2_check_interval) | int }}"
       delay: "{{ rke2_check_interval }}"
       changed_when: false

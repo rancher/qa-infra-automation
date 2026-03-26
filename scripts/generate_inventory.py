@@ -4,20 +4,20 @@
 Usage:
     # From live Tofu output:
     tofu -chdir=<module_dir> output -raw cluster_nodes_json > /tmp/nodes.json
-    python3 scripts/generate-inventory.py \\
+    python3 scripts/generate_inventory.py \\
         --input /tmp/nodes.json \\
         --distro rke2 --env default \\
         --output-dir ansible/rke2/default/inventory
 
     # From live airgap Tofu output:
     tofu -chdir=tofu/aws/modules/airgap output -raw airgap_inventory_json > /tmp/airgap.json
-    python3 scripts/generate-inventory.py \\
+    python3 scripts/generate_inventory.py \\
         --input /tmp/airgap.json \\
         --distro rke2 --env airgap \\
         --output-dir ansible/rke2/airgap/inventory
 
     # Standalone with fixture (no Tofu needed):
-    python3 scripts/generate-inventory.py \\
+    python3 scripts/generate_inventory.py \\
         --input tests/fixtures/rke2_single_master.json \\
         --distro rke2 --env default \\
         --output-dir /tmp/test-inventory

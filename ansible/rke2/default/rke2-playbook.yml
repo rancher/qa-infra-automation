@@ -1,6 +1,6 @@
 ---
 - hosts: all
-  name: Setup nodes - Python and NetworkManager
+  name: Setup nodes - RKE2 prerequisites
   become: true
   gather_facts: false
   vars_files:
@@ -40,13 +40,6 @@
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   roles:
     - role: rke2_config
-      vars:
-        rke2_kubernetes_version: "{{ kubernetes_version }}"
-        rke2_kube_api_host: "{{ kube_api_host }}"
-        rke2_fqdn: "{{ fqdn | default(kube_api_host) }}"
-        rke2_cni: "{{ cni }}"
-        rke2_server_flags: "{{ server_flags | default('') }}"
-        rke2_worker_flags: "{{ worker_flags | default('') }}"
       tags: ['config', 'rke2']
 
 - hosts: all
@@ -77,9 +70,7 @@
   roles:
     - role: rke2_cluster
       vars:
-        rke2_kube_api_host: "{{ kube_api_host }}"
         rke2_kubeconfig_dest: "{{ playbook_dir }}/kubeconfig.yaml"
-        rke2_node_token_file: "{{ node_token_file }}"
       tags: ['cluster', 'rke2']
 
 - hosts: localhost

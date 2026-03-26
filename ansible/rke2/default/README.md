@@ -10,7 +10,7 @@ The playbook is organized into **5 sequential roles** that handle distinct phase
 2. **rke2_config** - Generates RKE2 configuration files for server and agent nodes
 3. **rke2_install** - Installs RKE2 binaries using online (script) or airgap (tarball) installation methods
 4. **rke2_cluster** - Forms the cluster by starting services in sequence (master → servers → agents) with token distribution
-5. **rke2_health_check** - Validates cluster health, pod readiness, and ingress controller availability
+5. **rke2_health_check** - Validates cluster health including API server, etcd, node status, and pod readiness
 
 Each role can be executed independently using Ansible tags, enabling selective execution, debugging, and re-running specific phases without redeploying the entire cluster.
 
@@ -34,11 +34,10 @@ Each role can be executed independently using Ansible tags, enabling selective e
 - Sets up cluster-specific parameters (API host, FQDN)
 
 **Variables:**
-- `rke2_kubernetes_version` (from `kubernetes_version`)
-- `rke2_kube_api_host` (from `kube_api_host`)
-- `rke2_fqdn` (from `fqdn`)
-- `rke2_cni` (from `cni`)
-- `rke2_server_flags`, `rke2_worker_flags` (optional)
+- `kubernetes_version`
+- `kube_api_host`
+- `fqdn`
+- `cni`
 
 **Tags:** `config`, `rke2`
 

@@ -4,11 +4,11 @@
 
 This playbook uses a **role-based architecture** to deploy RKE2 clusters. The deployment is broken into 5 distinct roles that execute sequentially:
 
-1. **rke2_setup** - Python interpreter discovery and NetworkManager configuration
+1. **rke2_setup** - Perform initial host preparation and base configuration
 2. **rke2_config** - Generate RKE2 configuration files for servers/agents
-3. **rke2_install** - Install RKE2 binaries via tar or RPM
+3. **rke2_install** - Install RKE2 using RPM packages
 4. **rke2_cluster** - Form cluster (master → servers → agents with token distribution)
-5. **rke2_health_check** - Validate cluster health and ingress controller readiness
+5. **rke2_health_check** - Validate overall RKE2 cluster health
 
 Each role can be executed independently using Ansible tags.
 
@@ -23,7 +23,7 @@ Each role can be executed independently using Ansible tags.
 
 Before running the playbook, verify that your inventory file is correctly populated with the relevant data. Do one of the two steps below:
 
-- **If you brought up infrastructure from Tofu via `make infra-up`**, the inventory file is automatically generated at `ansible/rke2/default/inventory/inventory.yml` and includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `server`, `worker`, `etcd`, `cp`).
+- **If you brought up infrastructure from Tofu via `make infra-up`**, the inventory file is automatically generated at `ansible/rke2/default/inventory/inventory.yml` and includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `servers`, `workers`).
 
 - **If bringing your own nodes or filling in manually**, create an inventory file with this structure:
 
@@ -41,14 +41,26 @@ Before running the playbook, verify that your inventory file is correctly popula
             ansible_host: "1.2.3.4"    # node public IP
             ansible_user: "ec2-user"   # SSH user
             rke2_node_role: master
-            node_roles: "etcd,cp,worker"  # Must include etcd for first node
-      worker:
+            node_roles:                # Must include etcd for first node
+              - etcd
+              - cp
+              - worker
+      servers:
         hosts:
           node2:
             ansible_host: "5.6.7.8"
             ansible_user: "ec2-user"
-            rke2_node_role: worker
-            node_roles: "worker"
+            rke2_node_role: server
+            node_roles:
+              - cp
+      workers:
+        hosts:
+          node3:
+            ansible_host: "9.10.11.12"
+            ansible_user: "ec2-user"
+            rke2_node_role: agent
+            node_roles:
+              - worker
   ```
 
 Once you have your inventory file, verify it has the correct data:
