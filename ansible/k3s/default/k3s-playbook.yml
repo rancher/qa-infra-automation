@@ -1,42 +1,17 @@
 ---
-- hosts: localhost
-  connection: local
+- hosts: all
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  strategy: linear
+  become: true
   gather_facts: false
   vars_files: [vars.yaml]
-  vars:
-    # terraform integration (optional).
-    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('', true) }}"
-    terraform_module_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
-    terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
-    terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  tasks:
-    - name: Set variables based on tofu or environment
-      when: kube_api_host is not defined or fqdn is not defined 
-      block: 
-      - name: Check if using tfstate file
-        ansible.builtin.stat:
-          path: "{{ terraform_state_file }}"
-        register: tfstate_file_stat
-
-      - name: Set fqdn and kube_api_host content from tfstate file if it exists
-        ansible.builtin.set_fact:
-          kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
-          fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
-          use_terraform: true
-        when: tfstate_file_stat.stat.exists
-
-      - name: Set kube_api_host content from env or vars when not using terraform
-        ansible.builtin.set_fact:
-          kube_api_host: "{{ lookup('env', 'KUBE_API_HOST') | default(kube_api_host, true) }}"
-          use_terraform: false
-        when: not tfstate_file_stat.stat.exists
-
-      - name: Set fqdn content from env or vars when not using terraform
-        ansible.builtin.set_fact:
-          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn | default(kube_api_host, true), true) }}"
-        when: not tfstate_file_stat.stat.exists
-
+  pre_tasks:
+    - name: Wait for SSH to become available
+      ansible.builtin.wait_for_connection:
+        delay: 10
+        timeout: 300
+      become: false
     - name: Validate required variables
       assert:
         that:
@@ -44,15 +19,8 @@
           - kubernetes_version | length > 0
           - kube_api_host is defined
           - kube_api_host | length > 0
-        fail_msg: "Required variables not defined. Please ensure kubernetes_version and kube_api_host are set in vars.yaml or environment variables"
-
-- hosts: all
-  vars:
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  strategy: linear
-  become: true
-  gather_facts: false
-  pre_tasks:
+        fail_msg: "Required variables not defined. Set kubernetes_version and kube_api_host in vars.yaml or inventory all.vars"
+      run_once: true
     - include_role:
         name: setup
     - name: Gather facts
@@ -80,7 +48,7 @@
         mode: '0700'
       loop:
         - /var/lib/rancher/k3s/server/manifests
-      when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+      when: inventory_hostname in groups.get('servers', [])
 
     - name: Apply K3s hardening on initial cluster node if enabled
       include_role:
@@ -88,20 +56,17 @@
       vars:
         k3s_node_type: cluster-init
         role_server_flags: "{{ server_flags | default('') }}"
-      when: inventory_hostname == 'master'
 
     - name: Install K3s on initial cluster node
       include_role:
         name: k3s_install
       vars:
         k3s_node_type: cluster-init
-        k3s_api_host: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
-        k3s_fqdn: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
-        k3s_node_roles: "{{ ansible_role }}"
+        k3s_api_host: "{{ kube_api_host }}"
+        k3s_fqdn: "{{ fqdn | default(kube_api_host) }}"
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
-      when: inventory_hostname == 'master'
 
     - name: Get node-token from master
       slurp:
@@ -133,7 +98,7 @@
       lineinfile:
         path: "{{ kubeconfig_file }}"
         regexp: '^\s+server:\s+https://127\.0\.0\.1:6443'
-        line: "    server: https://{{ hostvars['localhost'].fqdn | default(fqdn, true) }}:6443"
+        line: "    server: https://{{ fqdn | default(kube_api_host) }}:6443"
       delegate_to: localhost
       run_once: true
       become: false
@@ -174,7 +139,7 @@
         mode: '0700'
       loop:
         - /var/lib/rancher/k3s/server/manifests
-      when: ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+      when: inventory_hostname in groups.get('servers', [])
 
     - name: Apply K3s hardening on server nodes if enabled (before installation)
       include_role:
@@ -184,24 +149,23 @@
         role_server_flags: "{{ server_flags | default('') }}"
         kubernetes_version: "{{ kubernetes_version }}"
       when:
-        - inventory_hostname != 'master'
-        - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+        - inventory_hostname not in groups.get('master', [])
+        - inventory_hostname in groups.get('servers', [])
 
     - name: Install K3s on server nodes
       include_role:
         name: k3s_install
       vars:
         k3s_node_type: server
-        k3s_api_host: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
-        k3s_fqdn: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
+        k3s_api_host: "{{ kube_api_host }}"
+        k3s_fqdn: "{{ fqdn | default(kube_api_host) }}"
         k3s_token: "{{ node_token }}"
-        k3s_node_roles: "{{ ansible_role }}"
         public_ip: "{{ ansible_host }}"
         role_server_flags: "{{ server_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
       when:
-        - inventory_hostname != 'master'
-        - ansible_role is defined and ('cp' in ansible_role or 'etcd' in ansible_role)
+        - inventory_hostname not in groups.get('master', [])
+        - inventory_hostname in groups.get('servers', [])
 
     - name: Apply K3s hardening on agent nodes if enabled
       include_role:
@@ -210,7 +174,9 @@
         k3s_node_type: agent
         role_server_flags: "{{ server_flags | default('') }}"
         role_worker_flags: "{{ worker_flags | default('') }}"
-      when: ansible_role is defined and ansible_role == 'worker'
+      when:
+        - inventory_hostname in groups.get('workers', [])
+        - inventory_hostname not in groups.get('master', [])
 
     - name: Validate required variables for agent installation
       assert:
@@ -218,20 +184,24 @@
           - kube_api_host | default('') | length > 0
           - node_token    | default('') | length > 0
         fail_msg: "Required variables missing: kube_api_host='{{ kube_api_host | default('UNDEFINED') }}', node_token='{{ node_token | default('UNDEFINED') }}'"
-      when: ansible_role is defined and ansible_role == 'worker'
+      when:
+        - inventory_hostname in groups.get('workers', [])
+        - inventory_hostname not in groups.get('master', [])
 
     - name: Install K3s on agent nodes
       include_role:
         name: k3s_install
       vars:
         k3s_node_type: agent
-        k3s_api_host: "{{ hostvars['localhost'].kube_api_host | default(kube_api_host, true) }}"
-        k3s_fqdn: "{{ hostvars['localhost'].fqdn | default(fqdn, true) }}"
+        k3s_api_host: "{{ kube_api_host }}"
+        k3s_fqdn: "{{ fqdn | default(kube_api_host) }}"
         k3s_token: "{{ node_token }}"
         public_ip: "{{ ansible_host }}"
         k3s_worker_flags: "{{ worker_flags | default('') }}"
         k3s_channel: "{{ channel | default('latest') }}"
-      when: ansible_role is defined and ansible_role == 'worker'
+      when:
+        - inventory_hostname in groups.get('workers', [])
+        - inventory_hostname not in groups.get('master', [])
 
 - hosts: localhost
   connection: local

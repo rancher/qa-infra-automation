@@ -272,7 +272,7 @@
             - Disk Usage: {{ hostvars[node]['disk_usage_percent'] | default('unknown') }}%
             - Memory Usage: {{ hostvars[node]['memory_usage']['stdout'] | default('unknown') }}
           {% endfor %}
-        dest: "./rke2-upgrade-readiness-{{ ansible_date_time.epoch | default(ansible_date_time.iso8601 | default('unknown')) }}.txt"
+        dest: "./rke2-upgrade-readiness-{{ now(utc=true, fmt='%s') }}.txt"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0644"

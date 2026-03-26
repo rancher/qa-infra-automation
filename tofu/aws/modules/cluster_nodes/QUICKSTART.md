@@ -30,6 +30,7 @@ proxy_setup           = false
 aws_volume_size       = 40
 aws_volume_type       = "gp3"
 public_ssh_key        = "/path/to/.ssh/id_rsa.pub" # Fill in path to your public key
+private_ssh_key       = "/path/to/.ssh/id_rsa" # Fill in path to your private key (for Ansible)
 nodes = [
   # {
   #   count = 3

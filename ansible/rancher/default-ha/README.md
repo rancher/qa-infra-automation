@@ -1,48 +1,64 @@
-# Running the Rancher Playbook
+# Rancher Deployment Playbook
 
-This README provides instructions on how to run the Ansible playbook for deploying Rancher.
+Deploys Rancher (via Helm) onto an existing Kubernetes cluster using cert-manager for TLS.
 
 ## Prerequisites
 
-Before running the playbook, ensure you have the following in addition to the [general ansible prereqs](../../README.md):
-*   **Kubernetes Cluster:** A running Kubernetes cluster (e.g., RKE2, K3s, or a managed Kubernetes service).  The playbook assumes you have a `kubeconfig` file that allows access to this cluster.
-*   **Environment Variables:**  You'll need to set the following environment variables:
-    *   `RANCHER_PLAYBOOK_PATH`:  The full path to your `rancher-playbook.yml` file.
-    *   `VARS_FILE`: The full path to your variables file (e.g., `vars.yaml`).
+- A running Kubernetes cluster (RKE2, K3s, or other) with a valid kubeconfig
+- `ansible` and `kubectl` installed locally
+- Ansible `kubernetes.core` collection:
+  ```bash
+  ansible-galaxy collection install kubernetes.core
+  ```
 
+## Usage
 
+### Via Makefile (recommended)
+
+From the repository root, with an existing cluster:
+
+```bash
+make rancher ENV=default DISTRO=rke2 PROVIDER=aws
+```
+
+### Manually
+
+1. Create `vars.yaml` in this directory (see [QUICKSTART.md](./QUICKSTART.md) for the template).
+
+2. Run from the repository root:
+
+```bash
+ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
+```
 
 ## Configuration
 
-1.  **Set environment variables:**
+All configuration is in `vars.yaml`. Key variables:
 
-    Before running the playbook, set the necessary environment variables. Since the playbook is run from the root of the repository, the paths are relative to that location. For example:
-
-    ```bash
-    export VARS_FILE="/path/to/vars.yaml"
-    ```
-
-    Replace `/path/to/rancher-playbook.yml` and `/path/to/vars.yaml` with the actual paths to your files.
-
-2.  **Customize variables (optional):**
-
-    Review and modify the variables in your `vars.yaml` file to match your desired Rancher configuration.  Key variables include:
-
-    *   `rancher_version`: The Rancher version to install (e.g., "v2.10.3").
-    *   `rancher_image_tag`: The Rancher image tag (e.g., "head").  If not specified, the latest stable release will be used.
-    *   `cert_manager_version`: The cert-manager version to install (e.g., "1.11.0").
-    *   `kubeconfig_file`: The path to your `kubeconfig` file.  **Ensure this path is accessible from the environment where Ansible is running (e.g., within a Docker container if applicable).**
-    *   `bootstrap_password`: The initial password for the Rancher admin user.
-    *   `password`: The password for the Rancher admin user.
-
-## Running the Playbook
-
-To run the playbook, use the following command:
-
-```bash
-ansible-playbook "ansible/rancher/rancher-playbook.yml" -vvvv -e "@$VARS_FILE"
-```
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `rancher_version` | Yes | Rancher version to install (e.g. `v2.13.0`) |
+| `cert_manager_version` | Yes | cert-manager version, without `v` prefix (e.g. `1.19.1`) |
+| `fqdn` | Yes | FQDN for the Rancher UI (e.g. `1.2.3.4.sslip.io`) |
+| `bootstrap_password` | Yes | Initial admin bootstrap password |
+| `password` | Yes | Admin password after first login |
+| `kubeconfig_file` | No | Path to kubeconfig. Set automatically via `KUBECONFIG_FILE` env var when using `make rancher`; only needed when running manually |
+| `rancher_chart_repo` | No | Helm repo name (default: `rancher-latest`) |
+| `rancher_chart_repo_url` | No | Helm repo URL (default: latest releases) |
 
 ## Outputs
 
-The API key will be output in the debug logs of this playbook.
+On completion:
+
+- `generated.tfvars` is written to the playbook directory containing the Rancher URL and API token:
+  ```hcl
+  fqdn    = "https://<fqdn>"
+  api_key = "<token>"
+  ```
+- The API token is printed in the playbook debug output.
+- A persistent (non-expiring) API token is created via the `rancher_auth` role and the temporary login token is cleaned up automatically.
+
+## Related
+
+- [QUICKSTART.md](./QUICKSTART.md) — step-by-step guide
+- [RKE2 default playbook](../../rke2/default/README.md) — deploy the cluster first

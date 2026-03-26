@@ -1,5 +1,17 @@
 # Quickstart
 
+## Overview
+
+This playbook uses a **role-based architecture** to deploy RKE2 clusters. The deployment is broken into 5 distinct roles that execute sequentially:
+
+1. **rke2_setup** - Perform initial host preparation and base configuration
+2. **rke2_config** - Generate RKE2 configuration files for servers/agents
+3. **rke2_install** - Install RKE2 using RPM packages
+4. **rke2_cluster** - Form cluster (master → servers → agents with token distribution)
+5. **rke2_health_check** - Validate overall RKE2 cluster health
+
+Each role can be executed independently using Ansible tags.
+
 ## Prerequisites
 
 1. Infrastructure Deployed: You must have nodes to install rke2 on, either by running `tofu apply` successfully or bringing your own. [Example tofu module](../../../tofu/aws/modules/cluster_nodes/QUICKSTART.md).
@@ -11,44 +23,57 @@
 
 Before running the playbook, verify that your inventory file is correctly populated with the relevant data. Do one of the two steps below:
 
-- If you brought up infrastructure from Tofu, you can generate the file:
-  1. From the root of the repo, tell the automation scripts the relative directory where your terraform.tfstate file lives. For example:
+- **If you brought up infrastructure from Tofu via `make infra-up`**, the inventory file is automatically generated at `ansible/rke2/default/inventory/inventory.yml` and includes global variables (`fqdn`, `kube_api_host`) and host groups (`master`, `servers`, `workers`).
 
-      ```sh
-      export TERRAFORM_NODE_SOURCE="tofu/aws/modules/cluster_nodes"
-      ```
-  2. From the root of the repo, use `envsubst` to generate the Ansible inventory file. 
-
-      ```sh
-      envsubst < ansible/rke2/default/inventory-template.yml > ansible/rke2/default/terraform-inventory.yml
-      ```
-
-- If wanting to fill in manually, or bringing your own nodes, see below example for what the file should look like. Note that the amount of hosts you have will directly correspond with the nodes in the resulting cluster:
+- **If bringing your own nodes or filling in manually**, create an inventory file with this structure:
 
   ```yaml
-  # ./terraform-inventory.yml
-  nodes:
-    hosts:
-      master: # One host must be named "master" -- this is the node that rke2 will be installed on first and other nodes will join to
-        ansible_host: "1.2.3.4"         # node public ip
-        ansible_role: "etcd,cp,worker"  # node role(s). Must include etcd for the first node.
-        ansible_user: "ec2-user"        # ssh user
-      node2:                            # This can be named whatever you want.
-        ansible_host: "5.6.7.8" # node public ip
-        ansible_role: "worker" # node role(s). Can be any combination of 'etcd', 'cp', and 'worker'.
-        ansible_user: "ec2-user" # ssh user
+  # inventory.yml
+  all:
+    vars:
+      ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      fqdn: your-cluster.example.com
+      kube_api_host: 1.2.3.4
+    children:
+      master:
+        hosts:
+          master:                       # First node must be named "master"
+            ansible_host: "1.2.3.4"    # node public IP
+            ansible_user: "ec2-user"   # SSH user
+            rke2_node_role: master
+            node_roles:                # Must include etcd for first node
+              - etcd
+              - cp
+              - worker
+      servers:
+        hosts:
+          node2:
+            ansible_host: "5.6.7.8"
+            ansible_user: "ec2-user"
+            rke2_node_role: server
+            node_roles:
+              - cp
+      workers:
+        hosts:
+          node3:
+            ansible_host: "9.10.11.12"
+            ansible_user: "ec2-user"
+            rke2_node_role: agent
+            node_roles:
+              - worker
   ```
 
-Once you have your file populated, verify it has the correct data. Ensure you see your nodes listed in the JSON output - the IPs, ssh users, and node roles.
+Once you have your inventory file, verify it has the correct data:
 
 ```sh
-# From the repository root
-ansible-inventory -i ansible/rke2/default/terraform-inventory.yml --list
+ansible-inventory -i ansible/rke2/default/inventory/inventory.yml --list
 ```
 
 ### Step 2: Define Ansible Variables
 
-You must tell Ansible which version of RKE2 to install and configure other deployment specifics. Create a file named `vars.yaml` in the `ansible/rke2/default/` directory. Note that `fqdn` and `kube_api_host` are not required *if using infrastructure from Tofu*.
+You must tell Ansible which version of RKE2 to install and configure other deployment specifics. Create a file named `vars.yaml` in the `ansible/rke2/default/` directory.
+
+**Note:** If using Tofu-generated infrastructure, `fqdn` and `kube_api_host` are automatically included in the inventory file and do not need to be specified here.
 
 `vars.yaml` Template:
 
@@ -56,22 +81,59 @@ You must tell Ansible which version of RKE2 to install and configure other deplo
 # rke2 version
 kubernetes_version: 'v1.34.2+rke2r1'
 
-# where to store the kubeconfig file
-kubeconfig_file: './kubeconfig.yaml'
-
 # network configuration
 cni: "calico"
-fqdn: a.b.c.d.sslip.io # Your FQDN, or a wildcard DNS like sslip.io with your IP
-kube_api_host: a.b.c.d # Your initial node IP
+
+# Only required if using manual inventory (not Tofu-generated):
+# fqdn: a.b.c.d.sslip.io # Your FQDN, or a wildcard DNS like sslip.io with your IP
+# kube_api_host: a.b.c.d # Your initial node IP
 ```
+
+The kubeconfig is written to `ansible/rke2/default/kubeconfig.yaml` on completion.
 
 ### Step 3: Run the Playbook
 
-Run the playbook targeting the inventory file located in the root directory.
+**Via Makefile (recommended)** — run from the repository root:
 
 ```sh
-# Syntax: ansible-playbook -i <inventory_path> <playbook_path>
-ansible-playbook -i ansible/rke2/default/terraform-inventory.yml ansible/rke2/default/rke2-playbook.yml
+make cluster
+```
+
+**Manually** — run from the repository root:
+
+```sh
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml
+```
+
+#### Optional: Run Specific Phases Using Tags
+
+The role-based architecture supports selective execution using Ansible tags. This is useful for:
+- Re-running specific phases (e.g., just health checks)
+- Skipping phases (e.g., skip setup on already-configured nodes)
+- Debugging individual components
+
+**Available Tags:**
+- `setup` - Node preparation (Python, NetworkManager)
+- `config` - RKE2 configuration file generation
+- `install` - RKE2 binary installation
+- `cluster` - Cluster formation and token distribution
+- `health` - Health checks and validation
+- `rke2` - All RKE2-related tasks (shorthand for all above)
+
+**Examples:**
+
+```sh
+# Run only health checks (useful after cluster is already deployed)
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --tags health
+
+# Run only setup and config (skip installation and cluster formation)
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --tags setup,config
+
+# Skip setup phase (if nodes already prepared)
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --skip-tags setup
+
+# Run full deployment with verbose output
+ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml -vvv
 ```
 
 ### Step 4: Verify RKE2 Installation

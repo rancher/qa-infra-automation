@@ -1,0 +1,248 @@
+---
+# Main tasks for rke2_health_check role
+# Validates cluster health after formation
+
+- name: Display health check start
+  ansible.builtin.debug:
+    msg: "Starting RKE2 cluster health checks..."
+  run_once: true
+
+- name: Set kubectl command path for local kubeconfig
+  ansible.builtin.set_fact:
+    kubectl_cmd: "kubectl --kubeconfig {{ rke2_kubeconfig_path }}"
+  run_once: true
+
+# API Server Health Check
+- name: Check API server health
+  when: rke2_check_api_server
+  block:
+    - name: Test API server responsiveness
+      ansible.builtin.command: "{{ kubectl_cmd }} cluster-info"
+      register: api_version
+      changed_when: false
+      failed_when: false
+      run_once: true
+
+    - name: Display cluster info
+      ansible.builtin.debug:
+        msg: "API server is responsive: {{ api_version.stdout_lines }}"
+      when: api_version.rc == 0
+      run_once: true
+
+    - name: Get API server version
+      ansible.builtin.command: "{{ kubectl_cmd }} version -o json"
+      register: api_version_info
+      changed_when: false
+      failed_when: false
+      run_once: true
+      when: api_version.rc == 0
+
+    - name: Display API server version
+      ansible.builtin.debug:
+        msg: "Server version: {{ (api_version_info.stdout | from_json).serverVersion.gitVersion }}"
+      when:
+        - api_version.rc == 0
+        - api_version_info.rc == 0
+      run_once: true
+
+    - name: Fail if API server not responsive
+      ansible.builtin.fail:
+        msg: "API server is not responsive: {{ api_version.stderr | default('Unknown error') }}"
+      when:
+        - api_version.rc != 0
+        - rke2_health_check_fail_on_error
+      run_once: true
+
+# Node Health Check
+- name: Check node health
+  when: rke2_check_nodes_ready
+  block:
+    - name: Wait for all nodes to be ready
+      ansible.builtin.command: "{{ kubectl_cmd }} get nodes -o json"
+      register: nodes_json
+      changed_when: false
+      until: >
+        (nodes_json.stdout | from_json)['items'] |
+        selectattr('status.conditions', 'defined') |
+        map(attribute='status.conditions') |
+        flatten |
+        selectattr('type', 'equalto', 'Ready') |
+        selectattr('status', 'equalto', 'True') |
+        list |
+        length == (nodes_json.stdout | from_json)['items'] | length
+      retries: "{{ (rke2_health_check_timeout / rke2_health_check_retry_delay) | int }}"
+      delay: "{{ rke2_health_check_retry_delay }}"
+      run_once: true
+
+    - name: Parse node status
+      ansible.builtin.set_fact:
+        nodes_data: "{{ nodes_json.stdout | from_json }}"
+      run_once: true
+
+    - name: Count nodes by status
+      ansible.builtin.set_fact:
+        total_nodes: "{{ nodes_data['items'] | length }}"
+        ready_nodes: "{{ nodes_data['items'] | selectattr('status.conditions', 'defined') | map(attribute='status.conditions') | flatten | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length }}"
+      run_once: true
+
+    - name: Display node status summary
+      ansible.builtin.debug:
+        msg: "Node Status: {{ ready_nodes }}/{{ total_nodes }} nodes Ready"
+      run_once: true
+
+    - name: Check expected node count
+      ansible.builtin.assert:
+        that: total_nodes | int >= rke2_expected_node_count | int
+        fail_msg: "Expected at least {{ rke2_expected_node_count }} nodes, but found {{ total_nodes }}"
+        success_msg: "Node count meets minimum requirement ({{ total_nodes }} >= {{ rke2_expected_node_count }})"
+      when:
+        - rke2_expected_node_count | int > 0
+        - rke2_health_check_fail_on_error
+      run_once: true
+
+    - name: Fail if not all nodes are Ready
+      ansible.builtin.fail:
+        msg: "Not all nodes are Ready: {{ ready_nodes }}/{{ total_nodes }}"
+      when:
+        - ready_nodes | int != total_nodes | int
+        - rke2_health_check_fail_on_error
+      run_once: true
+
+    - name: Display detailed node status
+      ansible.builtin.command: "{{ kubectl_cmd }} get nodes -o wide"
+      register: nodes_detail
+      changed_when: false
+      
+      run_once: true
+
+    - name: Show node details
+      ansible.builtin.debug:
+        msg: "{{ nodes_detail.stdout_lines }}"
+      run_once: true
+
+# System Pods Health Check
+- name: Check system pods health
+  when: rke2_check_system_pods
+  block:
+    - name: Get system pods status
+      ansible.builtin.command: "{{ kubectl_cmd }} get pods -n {{ item }} -o json"
+      register: system_pods_json
+      changed_when: false
+      loop: "{{ rke2_system_namespaces }}"
+      run_once: true
+      no_log: true
+
+    - name: Parse and check pod status
+      ansible.builtin.set_fact:
+        pod_status_summary: "{{ pod_status_summary | default([]) + [{
+          'namespace': item.item,
+          'total': item.stdout | from_json | json_query('items | length(@)'),
+          'running': item.stdout | from_json | json_query('items[?status.phase==`Running`] | length(@)'),
+          'pending': item.stdout | from_json | json_query('items[?status.phase==`Pending`] | length(@)'),
+          'failed': item.stdout | from_json | json_query('items[?status.phase==`Failed`] | length(@)')
+        }] }}"
+      loop: "{{ system_pods_json.results }}"
+      run_once: true
+      no_log: true
+
+    - name: Check for failed or pending pods
+      ansible.builtin.set_fact:
+        total_failed: "{{ pod_status_summary | map(attribute='failed') | map('int') | sum }}"
+        total_pending: "{{ pod_status_summary | map(attribute='pending') | map('int') | sum }}"
+      run_once: true
+
+    - name: Display pod health summary
+      ansible.builtin.debug:
+        msg: |
+          System Pods Health Check:
+          {% for ns in pod_status_summary %}
+          - {{ ns.namespace }}: {{ ns.running }}/{{ ns.total }} Running{% if ns.pending | int > 0 %}, {{ ns.pending }} Pending{% endif %}{% if ns.failed | int > 0 %}, {{ ns.failed }} Failed{% endif %}
+          {% endfor %}
+          Total: {{ pod_status_summary | map(attribute='total') | map('int') | sum }} pods, {{ total_failed }} failed, {{ total_pending }} pending
+      run_once: true
+
+    - name: Fail if there are failed pods
+      ansible.builtin.fail:
+        msg: "Found {{ total_failed }} failed pods in system namespaces"
+      when:
+        - total_failed | int > 0
+        - rke2_health_check_fail_on_error
+      run_once: true
+
+    - name: Get detailed pod status (only if issues found)
+      ansible.builtin.command: "{{ kubectl_cmd }} get pods -A -o wide"
+      register: pods_detail
+      changed_when: false
+      run_once: true
+      when: (total_failed | int > 0) or (total_pending | int > 0)
+
+    - name: Show pod details (only if issues found)
+      ansible.builtin.debug:
+        msg: "{{ pods_detail.stdout_lines }}"
+      run_once: true
+      when: (total_failed | int > 0) or (total_pending | int > 0)
+
+# etcd Health Check
+- name: Check etcd health
+  when: rke2_check_etcd_health
+  block:
+    - name: Check etcd pods status
+      ansible.builtin.command: "{{ kubectl_cmd }} get pods -n kube-system -l component=etcd -o json"
+      register: etcd_pods_json
+      changed_when: false
+      run_once: true
+      no_log: true
+
+    - name: Parse etcd pod status
+      ansible.builtin.set_fact:
+        etcd_pods: "{{ etcd_pods_json.stdout | from_json }}"
+      run_once: true
+
+    - name: Display etcd health summary
+      ansible.builtin.debug:
+        msg: |
+          etcd Health Check:
+          - Total etcd pods: {{ etcd_pods['items'] | length }}
+          - Running etcd pods: {{ etcd_pods['items'] | selectattr('status.phase', 'equalto', 'Running') | list | length }}
+      run_once: true
+
+    - name: Fail if etcd pods are not running
+      ansible.builtin.fail:
+        msg: "etcd cluster is unhealthy - not all pods are running"
+      when:
+        - etcd_pods['items'] | length == 0 or (etcd_pods['items'] | selectattr('status.phase', 'equalto', 'Running') | list | length) < (etcd_pods['items'] | length)
+        - rke2_health_check_fail_on_error
+      run_once: true
+
+# Final Summary
+- name: Display health check summary
+  ansible.builtin.debug:
+    msg:
+      - "=== RKE2 Cluster Health Check Summary ==="
+      - "API Server: {{ 'Healthy' if (api_version is defined and api_version.rc == 0) else 'Unhealthy' }}"
+      - "Nodes: {{ ready_nodes | default('N/A') }}/{{ total_nodes | default('N/A') }} Ready"
+      - "System Pods: {{ total_failed | default(0) }} Failed, {{ total_pending | default(0) }} Pending"
+      - "etcd: {{ (etcd_pods['items'] | selectattr('status.phase', 'equalto', 'Running') | list | length) if etcd_pods is defined else 'N/A' }}/{{ etcd_pods['items'] | length if etcd_pods is defined else 'N/A' }} Running"
+      - "========================================"
+  run_once: true
+
+- name: Display health check complete
+  ansible.builtin.debug:
+    msg: "RKE2 cluster health checks complete - All systems operational!"
+  when:
+    - api_version is defined
+    - api_version.rc == 0
+    - ready_nodes is defined
+    - total_nodes is defined
+    - ready_nodes | int == total_nodes | int
+    - total_failed | default(0) | int == 0
+  run_once: true
+
+- name: Display health check warnings
+  ansible.builtin.debug:
+    msg: "RKE2 cluster health checks complete - Some issues detected (see above)"
+  when: >
+    (api_version is defined and api_version.rc != 0) or
+    (ready_nodes is defined and total_nodes is defined and ready_nodes | int != total_nodes | int) or
+    total_failed | default(0) | int > 0
+  run_once: true
