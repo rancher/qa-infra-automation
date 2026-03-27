@@ -52,7 +52,6 @@
   retries: 15
   delay: 120
   until: webpage_result_upgrade.status is defined and webpage_result_upgrade.status == 200
-  failed_when: false
 
 # The bootstrap password is no longer valid after the initial install changed it,
 # so authenticate with the permanent password to get a fresh API token.
@@ -75,10 +74,6 @@
 - name: Extract Rancher Token after upgrade
   ansible.builtin.set_fact:
     API_KEY: "{{ rancherjson.json.token }}"
-
-- name: Print Token
-  ansible.builtin.debug:
-    msg: "RANCHER_API_KEY: {{ API_KEY }}"
 
 - name: Write updated token to generated.tfvars
   ansible.builtin.copy:
