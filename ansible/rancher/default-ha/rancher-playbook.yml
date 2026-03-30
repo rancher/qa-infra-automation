@@ -15,6 +15,10 @@
     rancher_chart_repo_final: "{{ rancher_chart_repo | default('rancher-latest') }}"
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default('https://releases.rancher.com/server-charts/latest') }}"
 
+    # Set to true via -e "upgrade_mode=true" to skip the initial install/first-boot
+    # tasks and run rancher-upgrade-tasks.yml instead (helm upgrade --reuse-values).
+    upgrade_mode: false
+
   tasks:
     - name: Set variables based on tofu or environment
       when: fqdn is not defined 
@@ -229,3 +233,7 @@
       ansible.builtin.debug:
         msg: "RANCHER_API_KEY: {{ rancher_generated_token }}"
       when: rancher_version != ""
+
+    - name: Upgrade Rancher
+      ansible.builtin.include_tasks: rancher-upgrade-tasks.yml
+      when: upgrade_mode | bool
