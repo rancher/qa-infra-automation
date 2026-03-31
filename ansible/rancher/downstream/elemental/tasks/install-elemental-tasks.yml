@@ -58,7 +58,7 @@
         namespace: fleet-default
         kubeconfig: "{{ kubeconfig_file }}"
         wait: yes
-        wait_timeout: 180
+        wait_timeout: 300
         validate_certs: false
         wait_condition:
           type: Ready
