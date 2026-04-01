@@ -35,6 +35,18 @@
         state: present
         update_cache: yes
 
+    - name: Install libvirt-daemon-system
+      ansible.builtin.apt:
+        name: libvirt-daemon-system
+        state: present
+        update_cache: yes
+
+    - name: Install libvirt-clients
+      ansible.builtin.apt:
+        name: libvirt-clients
+        state: present
+        update_cache: yes
+
     - name: Creating Elemental VM
       ansible.builtin.shell: | 
         sudo virt-install \
