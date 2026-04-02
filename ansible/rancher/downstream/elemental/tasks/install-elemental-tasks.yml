@@ -25,6 +25,7 @@
         create_namespace: true
         wait: true
         wait_timeout: "60s"
+        chart_version: "1.9.1"
         validate_certs: false
       retries: 3
       delay: 60
@@ -38,6 +39,7 @@
         create_namespace: true
         wait: true
         wait_timeout: "60s"
+        chart_version: "1.9.1"
         validate_certs: false
       retries: 3
       delay: 60

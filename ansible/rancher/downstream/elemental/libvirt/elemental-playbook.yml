@@ -29,21 +29,12 @@
         - hostvars['localhost'].download_url.stdout | length > 0
       retries: 3
 
-    - name: Install virt-manager
+    - name: Install libvirt packages
       ansible.builtin.apt:
-        name: virt-manager
-        state: present
-        update_cache: yes
-
-    - name: Install libvirt-daemon-system
-      ansible.builtin.apt:
-        name: libvirt-daemon-system
-        state: present
-        update_cache: yes
-
-    - name: Install libvirt-clients
-      ansible.builtin.apt:
-        name: libvirt-clients
+        name:
+          - virt-manager
+          - libvirt-daemon-system
+          - libvirt-clients
         state: present
         update_cache: yes
 
