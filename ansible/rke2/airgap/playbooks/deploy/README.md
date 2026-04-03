@@ -1,5 +1,7 @@
 # Airgap Deploy Playbooks
 
+**Recommended:** Use `make rancher` from the repository root for the full airgap workflow (infra + deploy). See the root [Makefile](../../../../..) for available targets.
+
 Playbooks for deploying Rancher and related components onto an airgap RKE2 cluster via a bastion host.
 
 ## rancher-helm-deploy-playbook.yml

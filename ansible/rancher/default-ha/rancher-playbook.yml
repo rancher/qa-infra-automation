@@ -122,7 +122,6 @@
     - name: Update Helm repository cache
       ansible.builtin.command: helm repo update
       changed_when: false
-      when: rancher_version != ""
 
     - name: Set chart version (strip 'v' prefix if present)
       ansible.builtin.set_fact:

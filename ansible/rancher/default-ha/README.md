@@ -114,16 +114,6 @@ the cluster name by selecting the first downstream cluster name in sorted order 
 
 ## Outputs
 
-On completion:
-
-- `generated.tfvars` is written to the playbook directory containing the Rancher URL and API token:
-  ```hcl
-  fqdn    = "https://<fqdn>"
-  api_key = "<token>"
-  ```
-- The API token is printed in the playbook debug output.
-- A persistent (non-expiring) API token is created via the `rancher_auth` role and the temporary login token is cleaned up automatically.
-
 Both the install flow and the Rancher upgrade flow print a Rancher API token in the
 debug output and write `generated.tfvars` containing:
 

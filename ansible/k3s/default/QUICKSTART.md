@@ -60,9 +60,9 @@ Create a file named `vars.yaml` in the `ansible/k3s/default/` directory.
 
 ```yaml
 # k3s version
-kubernetes_version: 'v1.32.1+k3s1'
+kubernetes_version: 'v1.35.2+k3s1'
 
-# Optional channel for K3s installation (stable, testing, latest)
+# Optional channel for K3s installation (default: stable)
 channel: "stable"
 
 # Only required if using manual inventory (not Tofu-generated):

@@ -35,7 +35,12 @@ import yaml
 
 def load_json(path: str) -> dict:
     with open(path) as f:
-        return json.load(f)
+        content = f.read().strip()
+    if not content:
+        print(f"Error: {path} is empty. Did 'tofu apply' complete successfully?", file=sys.stderr)
+        print("Ensure the Tofu module defines the required output (cluster_nodes_json or airgap_inventory_json).", file=sys.stderr)
+        sys.exit(1)
+    return json.loads(content)
 
 
 def load_schema(path: str) -> dict:
