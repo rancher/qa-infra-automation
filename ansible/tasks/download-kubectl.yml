@@ -5,7 +5,7 @@
 #   kubectl_dest    - destination path (default: /usr/local/bin/kubectl)
 #
 # Usage:
-#   - include_tasks: "{{ playbook_dir }}/../../../tasks/download-kubectl.yml"
+#   - include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
 #   or:
 #   - include_tasks: "{{ role_path }}/../../tasks/download-kubectl.yml"
 

@@ -379,7 +379,7 @@
             expected_k8s_version: "{{ rke2_version | regex_replace('^v([0-9]+\\.[0-9]+\\.[0-9]+).*', 'v\\1') }}"
 
         - name: Download matching kubectl version with SHA256 verification
-          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../tasks/download-kubectl.yml"
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
           vars:
             kubectl_version: "{{ expected_k8s_version }}"
 
