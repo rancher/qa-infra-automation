@@ -14,16 +14,10 @@
       ansible.builtin.debug:
         msg: "Installing kubectl version {{ k8s_version }} to match RKE2 {{ rke2_version }}"
 
-    - name: Download kubectl binary matching RKE2 Kubernetes version
-      ansible.builtin.get_url:
-        url: "https://dl.k8s.io/release/{{ k8s_version }}/bin/linux/amd64/kubectl"
-        dest: /usr/local/bin/kubectl
-        mode: "0755"
-        owner: root
-        group: root
-      register: kubectl_download
-      retries: 3
-      delay: 5
+    - name: Download kubectl binary with SHA256 verification
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../tasks/download-kubectl.yml"
+      vars:
+        kubectl_version: "{{ k8s_version }}"
 
     - name: Verify kubectl installation
       ansible.builtin.command: kubectl version --client

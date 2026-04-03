@@ -65,20 +65,41 @@
       debug:
         msg: "Connected! Found {{ ns_info.resources | length }} namespaces."
 
+    - name: Download cert-manager CRDs with SHA256 verification
+      include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml"
+        dv_checksum_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/checksums.txt"
+        dv_dest: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
+        dv_checksum_format: "github_sha256sum"
+        dv_github_artifact_name: "cert-manager.crds.yaml"
+      when: cert_manager_version != ""
+
     - name: Install cert-manager CRDs
-      no_log: true
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
+        src: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
         state: present
       retries: 5
       delay: 30
       when: cert_manager_version != ""
 
+    - name: Download cert-manager manifest with SHA256 verification
+      include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml"
+        dv_checksum_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/checksums.txt"
+        dv_dest: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
+        dv_checksum_format: "github_sha256sum"
+        dv_github_artifact_name: "cert-manager.yaml"
+      when: cert_manager_version != ""
+
     - name: Install cert-manager
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml
+        src: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
         state: present
         wait: true
         wait_timeout: 300
@@ -128,21 +149,44 @@
         rancher_chart_version: "{{ rancher_version | regex_replace('^v', '') if rancher_version != 'latest' else '' }}"
       when: rancher_version != ""
 
-    - name: Install Rancher
-      kubernetes.core.helm:
-        kubeconfig: "{{ kubeconfig_file }}"
-        name: rancher
-        chart_ref: "{{ rancher_chart_repo_final }}/rancher"
-        release_namespace: cattle-system
-        create_namespace: true
-        chart_version: "{{ rancher_chart_version }}"
-        wait: true
-        wait_timeout: "800s"
-        values:
-          hostname: "{{ fqdn }}"
-          bootstrapPassword: "{{ bootstrap_password }}"
-          rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
-          replicas: "{{ node_info.resources | length }}"
+    - name: Install Rancher (verify signed chart)
+      block:
+        - name: Install Rancher with chart verification
+          kubernetes.core.helm:
+            kubeconfig: "{{ kubeconfig_file }}"
+            name: rancher
+            chart_ref: "{{ rancher_chart_repo_final }}/rancher"
+            release_namespace: cattle-system
+            create_namespace: true
+            chart_version: "{{ rancher_chart_version }}"
+            wait: true
+            wait_timeout: "800s"
+            values:
+              hostname: "{{ fqdn }}"
+              bootstrapPassword: "{{ bootstrap_password }}"
+              rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
+              replicas: "{{ node_info.resources | length }}"
+            verify: true
+      rescue:
+        - name: Warn about unsigned Rancher chart
+          ansible.builtin.debug:
+            msg: "WARNING: Rancher chart has no signed provenance file. Installing without verification."
+
+        - name: Install Rancher (unsigned fallback)
+          kubernetes.core.helm:
+            kubeconfig: "{{ kubeconfig_file }}"
+            name: rancher
+            chart_ref: "{{ rancher_chart_repo_final }}/rancher"
+            release_namespace: cattle-system
+            create_namespace: true
+            chart_version: "{{ rancher_chart_version }}"
+            wait: true
+            wait_timeout: "800s"
+            values:
+              hostname: "{{ fqdn }}"
+              bootstrapPassword: "{{ bootstrap_password }}"
+              rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
+              replicas: "{{ node_info.resources | length }}"
       when: rancher_version != ""
       retries: 6
       delay: 120

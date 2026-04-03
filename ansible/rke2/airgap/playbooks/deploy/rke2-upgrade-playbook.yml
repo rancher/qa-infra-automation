@@ -378,16 +378,10 @@
           ansible.builtin.set_fact:
             expected_k8s_version: "{{ rke2_version | regex_replace('^v([0-9]+\\.[0-9]+\\.[0-9]+).*', 'v\\1') }}"
 
-        - name: Download matching kubectl version
-          ansible.builtin.get_url:
-            url: "https://dl.k8s.io/release/{{ expected_k8s_version }}/bin/linux/amd64/kubectl"
-            dest: /usr/local/bin/kubectl
-            mode: "0755"
-            owner: root
-            group: root
-            backup: true
-          register: kubectl_update
-          notify: Verify kubectl update
+        - name: Download matching kubectl version with SHA256 verification
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../tasks/download-kubectl.yml"
+          vars:
+            kubectl_version: "{{ expected_k8s_version }}"
 
         - name: Display kubectl update status
           ansible.builtin.debug:
@@ -395,10 +389,7 @@
               kubectl Update Status:
               - Expected Kubernetes Version: {{ expected_k8s_version }}
               - Cluster Kubernetes Version: {{ k8s_version.stdout | default('Unable to determine from cluster') }}
-              - kubectl Updated: {{ kubectl_update is changed }}
-              {% if kubectl_update is changed %}
-              - New kubectl Version: {{ kubectl_version_check.stdout }}
-              {% endif %}
+              - kubectl downloaded with SHA256 verification
 
       rescue:
         - name: Kubectl update failed

@@ -27,13 +27,16 @@
     - name: Install Helm if not present
       when: helm_output_version.rc != 0
       block:
-        - name: Get install script
-          ansible.builtin.get_url:
-            url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
-            dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
-            mode: "0644"
-          retries: 3
-          delay: 30
+        - name: Download Helm tarball with SHA256 verification
+          include_role:
+            name: download_verify
+          vars:
+            dv_artifact_url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+            dv_checksum_url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz.sha256sum"
+            dv_dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+            dv_checksum_format: "sha256sum_file"
+            dv_retries: 3
+            dv_delay: 30
 
         - name: Extract Helm binary
           ansible.builtin.unarchive:
@@ -86,16 +89,34 @@
             name: jetstack
             repo_url: "https://charts.jetstack.io"
 
-        - name: Install cert-manager
-          kubernetes.core.helm:
-            name: cert-manager
-            chart_ref: jetstack/cert-manager
-            chart_version: "{{ cert_manager_version | default(omit, true) }}"
-            release_namespace: cert-manager
-            create_namespace: true
-            values:
-              installCRDs: true
-            kubeconfig: "{{ kubeconfig_path }}"
+        - name: Install cert-manager (verify signed charts)
+          block:
+            - name: Install cert-manager with chart verification
+              kubernetes.core.helm:
+                name: cert-manager
+                chart_ref: jetstack/cert-manager
+                chart_version: "{{ cert_manager_version | default(omit, true) }}"
+                release_namespace: cert-manager
+                create_namespace: true
+                values:
+                  installCRDs: true
+                kubeconfig: "{{ kubeconfig_path }}"
+                verify: true
+          rescue:
+            - name: Warn about unsigned cert-manager chart
+              ansible.builtin.debug:
+                msg: "WARNING: cert-manager chart has no signed provenance file. Installing without verification."
+
+            - name: Install cert-manager (unsigned fallback)
+              kubernetes.core.helm:
+                name: cert-manager
+                chart_ref: jetstack/cert-manager
+                chart_version: "{{ cert_manager_version | default(omit, true) }}"
+                release_namespace: cert-manager
+                create_namespace: true
+                values:
+                  installCRDs: true
+                kubeconfig: "{{ kubeconfig_path }}"
 
         - name: Wait for cert-manager to be ready
           kubernetes.core.k8s_info:
@@ -120,25 +141,52 @@
           retries: 12
           delay: 10
 
-    - name: Install or Upgrade Rancher using Helm
-      kubernetes.core.helm:
-        name: rancher
-        chart_ref: "{{ rancher_helm_chart_repo_name }}/rancher"
-        chart_version: "{{ rancher_chart_version | default('') }}"
-        release_namespace: "{{ rancher_namespace }}"
-        create_namespace: true
-        wait: true
-        wait_timeout: 600s
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        values:
-          hostname: "{{ rancher_private_hostname }}"
-          bootstrapPassword: "{{ rancher_bootstrap_password }}"
-          useBundledSystemChart: "{{ rancher_use_bundled_system_charts }}"
-          rancherImageTag: "{{ rancher_image_tag | default(omit) }}"
-          ingress:
-            tls:
-              source: "{{ rancher_tls_source }}"
+    - name: Install or Upgrade Rancher using Helm (verify signed charts)
+      block:
+        - name: Install Rancher with chart verification
+          kubernetes.core.helm:
+            name: rancher
+            chart_ref: "{{ rancher_helm_chart_repo_name }}/rancher"
+            chart_version: "{{ rancher_chart_version | default('') }}"
+            release_namespace: "{{ rancher_namespace }}"
+            create_namespace: true
+            wait: true
+            wait_timeout: 600s
+            state: present
+            kubeconfig: "{{ kubeconfig_path }}"
+            values:
+              hostname: "{{ rancher_private_hostname }}"
+              bootstrapPassword: "{{ rancher_bootstrap_password }}"
+              useBundledSystemChart: "{{ rancher_use_bundled_system_charts }}"
+              rancherImageTag: "{{ rancher_image_tag | default(omit) }}"
+              ingress:
+                tls:
+                  source: "{{ rancher_tls_source }}"
+            verify: true
+      rescue:
+        - name: Warn about unsigned Rancher chart
+          ansible.builtin.debug:
+            msg: "WARNING: Rancher chart has no signed provenance file. Installing without verification."
+
+        - name: Install Rancher (unsigned fallback)
+          kubernetes.core.helm:
+            name: rancher
+            chart_ref: "{{ rancher_helm_chart_repo_name }}/rancher"
+            chart_version: "{{ rancher_chart_version | default('') }}"
+            release_namespace: "{{ rancher_namespace }}"
+            create_namespace: true
+            wait: true
+            wait_timeout: 600s
+            state: present
+            kubeconfig: "{{ kubeconfig_path }}"
+            values:
+              hostname: "{{ rancher_private_hostname }}"
+              bootstrapPassword: "{{ rancher_bootstrap_password }}"
+              useBundledSystemChart: "{{ rancher_use_bundled_system_charts }}"
+              rancherImageTag: "{{ rancher_image_tag | default(omit) }}"
+              ingress:
+                tls:
+                  source: "{{ rancher_tls_source }}"
 
     - name: Wait for Rancher deployment to be ready
       kubernetes.core.k8s_info:

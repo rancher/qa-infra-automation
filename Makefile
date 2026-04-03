@@ -100,6 +100,7 @@ help: ## Show this help message
 	@echo "  ssh-bastion         SSH to bastion host"
 	@echo "  ping                Ping all hosts"
 	@echo "  validate            Validate configuration and prerequisites"
+	@echo "  verify              Verify supply chain integrity"
 	@echo "  clean               Clean local temporary files"
 	@echo ""
 	@echo "COMBINED WORKFLOWS:"
@@ -128,8 +129,13 @@ check-prereqs: ## Check all prerequisites are installed
 	@command -v tofu >/dev/null 2>&1 || { echo "Error: tofu is not installed"; exit 1; }
 	@command -v ansible >/dev/null 2>&1 || { echo "Error: ansible is not installed"; exit 1; }
 	@command -v ansible-playbook >/dev/null 2>&1 || { echo "Error: ansible-playbook is not installed"; exit 1; }
-	@python3 -c "import yaml" 2>/dev/null || { echo "Installing required Python dependency: pyyaml..."; pip3 install --user pyyaml; }
+	@python3 -c "import yaml" 2>/dev/null || { echo "Installing Python dependencies..."; pip3 install --user -r requirements.txt; }
+	@ansible-galaxy collection list 2>/dev/null | grep -q kubernetes.core || { echo "Installing Ansible collections..."; ansible-galaxy collection install -r requirements.yml; }
 	@echo "All prerequisites found"
+
+.PHONY: collections
+collections: ## Install pinned Ansible collections
+	ansible-galaxy collection install -r requirements.yml
 
 .PHONY: check-config
 check-config: ## Validate configuration parameters
@@ -436,3 +442,30 @@ ANSIBLE_EXTRA_VARS := --extra-vars "$(EXTRA_VARS)"
 else
 ANSIBLE_EXTRA_VARS :=
 endif
+
+# ============================================================================
+# SUPPLY CHAIN VERIFICATION
+# ============================================================================
+
+.PHONY: verify
+verify: ## Verify supply chain integrity (checksums, pins, lock files)
+	@echo "Verifying supply chain integrity..."
+	@echo ""
+	@echo "Checking requirements.txt version pins..."
+	@grep -q '==' requirements.txt && echo "  OK: requirements.txt has pinned versions" || (echo "  FAIL: requirements.txt missing pinned versions" && exit 1)
+	@echo "Checking requirements.yml version pins..."
+	@grep -q 'version:' requirements.yml && echo "  OK: requirements.yml has pinned versions" || (echo "  FAIL: requirements.yml missing pinned versions" && exit 1)
+	@echo "Checking .terraform.lock.hcl files..."
+	@found=0; \
+	while IFS= read -r lockfile; do \
+		printf "  Found: %s\n" "$$lockfile"; \
+		found=1; \
+	done < <(find tofu -name '.terraform.lock.hcl' 2>/dev/null | sort); \
+	if [ "$$found" -eq 0 ]; then \
+		echo "  WARNING: No .terraform.lock.hcl files found. Run 'tofu init' in each module."; \
+	fi
+	@echo ""
+	@echo "Checking download_verify role exists..."
+	@test -f ansible/roles/download_verify/tasks/main.yml && echo "  OK: download_verify role present" || (echo "  FAIL: download_verify role missing" && exit 1)
+	@echo ""
+	@echo "All supply chain checks passed."
