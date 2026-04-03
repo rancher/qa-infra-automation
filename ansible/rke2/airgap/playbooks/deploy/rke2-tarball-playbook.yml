@@ -265,7 +265,7 @@
         msg: "Installing kubectl version {{ k8s_version }} to match RKE2 {{ rke2_version }}"
 
     - name: Download kubectl binary with SHA256 verification
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../tasks/download-kubectl.yml"
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
       vars:
         kubectl_version: "{{ k8s_version }}"
 
