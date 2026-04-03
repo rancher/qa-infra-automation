@@ -6,11 +6,44 @@
     repo_url: "{{ rancher_chart_upgrade_repo_url }}"
 
 - name: Install helm-diff plugin (required by kubernetes.core.helm reuse_values)
-  ansible.builtin.command: helm plugin install https://github.com/databus23/helm-diff
+  ansible.builtin.command: helm plugin install https://github.com/databus23/helm-diff --version v{{ helm_diff_version | default('3.9.12') }}
   register: helm_diff_result
   failed_when: helm_diff_result.rc != 0 and 'already installed' not in helm_diff_result.stderr
 
-- name: Upgrade Rancher in-place
+- name: Upgrade Rancher in-place (verify signed chart)
+  block:
+    - name: Upgrade Rancher with chart verification
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_file }}"
+        name: rancher
+        chart_ref: "{{ rancher_chart_repo_upgrade }}/rancher"
+        release_namespace: cattle-system
+        chart_version: "{{ '' if rancher_version_upgrade == 'latest' else rancher_version_upgrade }}"
+        reuse_values: true
+        wait: true
+        wait_timeout: "800s"
+        values:
+          rancherImageTag: "{{ 'head' if (rancher_image_tag_upgrade | default('')) == 'latest' else rancher_image_tag_upgrade | default(omit) }}"
+        verify: true
+  rescue:
+    - name: Warn about unsigned Rancher upgrade chart
+      ansible.builtin.debug:
+        msg: "WARNING: Rancher upgrade chart has no signed provenance file. Installing without verification."
+
+    - name: Upgrade Rancher (unsigned fallback)
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_file }}"
+        name: rancher
+        chart_ref: "{{ rancher_chart_repo_upgrade }}/rancher"
+        release_namespace: cattle-system
+        chart_version: "{{ '' if rancher_version_upgrade == 'latest' else rancher_version_upgrade }}"
+        reuse_values: true
+        wait: true
+        wait_timeout: "800s"
+        values:
+          rancherImageTag: "{{ 'head' if (rancher_image_tag_upgrade | default('')) == 'latest' else rancher_image_tag_upgrade | default(omit) }}"
+  retries: 6
+  delay: 120
   # reuse_values preserves all values from the current release (hostname, replicas, etc.)
   # so only the chart version and rancherImageTag are changed.
   kubernetes.core.helm:

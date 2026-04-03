@@ -27,9 +27,13 @@
 - name: Online installation
   when: rke2_install_method == "online"
   block:
+    - name: Select install script URL (version-pinned when available)
+      ansible.builtin.set_fact:
+        _rke2_script_url: "{{ (rke2_version != '') | ternary(rke2_install_script_versioned_url, rke2_install_script_url) }}"
+
     - name: Download RKE2 install script
       ansible.builtin.get_url:
-        url: "{{ rke2_install_script_url }}"
+        url: "{{ _rke2_script_url }}"
         dest: /tmp/rke2-install.sh
         mode: '0755'
       become: true

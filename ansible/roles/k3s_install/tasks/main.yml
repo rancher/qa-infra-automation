@@ -51,38 +51,83 @@
     dest: /etc/rancher/k3s/registries.yaml
   when: registry_file.stat.exists
 
-- name: Download and install K3s
-  shell: |
-    # Skip installation if K3s is already installed
-    if [ -f /usr/local/bin/k3s ]; then
-      echo "K3s already installed, skipping"
-      exit 0
-    fi
-    
-    # Set installation variables - detect if version is a commit hash or version tag
-    VERSION="{{ kubernetes_version }}"
-    if [[ "$VERSION" =~ ^[0-9a-f]{40}$ ]]; then
-      echo "Installing K3s from commit: $VERSION"
-      export INSTALL_K3S_COMMIT="$VERSION"
-    else
-      echo "Installing K3s version: $VERSION"
-      export INSTALL_K3S_VERSION="$VERSION"
-    fi
-    
-    {% if k3s_channel is defined and k3s_channel != '' %}
-    export INSTALL_K3S_CHANNEL="{{ k3s_channel }}"
-    {% endif %}
-    {% if k3s_node_type == 'agent' %}
-    export INSTALL_K3S_EXEC="agent"
-    {% endif %}
-    export INSTALL_K3S_SKIP_START="true"
-    
-    # Download and install K3s
-    curl -sfL https://get.k3s.io | sh -
-  register: k3s_install_result
-  changed_when: "'K3s already installed' not in k3s_install_result.stdout"
-  args:
-    executable: bash
+- name: Detect if version is a commit hash
+  ansible.builtin.set_fact:
+    _k3s_is_commit: "{{ kubernetes_version is match('^[0-9a-f]{40}$') }}"
+
+# --- Version tag: verified binary download (B1 pattern) ---
+- name: Install K3s from version tag with checksum verification
+  when: not _k3s_is_commit
+  block:
+    - name: Download K3s binary with SHA256 verification
+      include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "{{ k3s_github_release_url }}/{{ kubernetes_version }}/k3s"
+        dv_checksum_url: "{{ k3s_github_release_url }}/{{ kubernetes_version }}/sha256sum-amd64.txt"
+        dv_dest: "{{ k3s_bin_dir }}/k3s"
+        dv_checksum_format: "github_sha256sum"
+        dv_github_artifact_name: "k3s"
+        dv_mode: "0755"
+
+    - name: Create k3s utility symlinks
+      ansible.builtin.file:
+        src: "{{ k3s_bin_dir }}/k3s"
+        dest: "{{ k3s_bin_dir }}/{{ item }}"
+        state: link
+        force: true
+      loop:
+        - kubectl
+        - crictl
+        - ctr
+
+# --- Commit hash: fallback to install script (requires GITHUB_TOKEN) ---
+- name: Check if k3s binary already exists
+  when: _k3s_is_commit
+  ansible.builtin.stat:
+    path: "{{ k3s_bin_dir }}/k3s"
+  register: _k3s_binary
+
+- name: Install K3s from commit hash via install script
+  when:
+    - _k3s_is_commit
+    - not _k3s_binary.stat.exists
+  block:
+    - name: Warn about commit hash install security
+      ansible.builtin.debug:
+        msg: >-
+          Commit hash installs use the upstream install script (requires GITHUB_TOKEN).
+          For full checksum verification, prefer a version tag instead.
+
+    - name: Install K3s via install script
+      ansible.builtin.shell: |
+        export INSTALL_K3S_COMMIT="{{ kubernetes_version }}"
+        export INSTALL_K3S_SKIP_START="true"
+        {% if k3s_node_type == 'agent' %}
+        export INSTALL_K3S_EXEC="agent"
+        {% endif %}
+        curl -sfL https://get.k3s.io | sh -
+      register: _k3s_commit_install_result
+      changed_when: true
+
+# --- Systemd service (always render for idempotent updates) ---
+- name: Render K3s server systemd service
+  ansible.builtin.template:
+    src: k3s.service.j2
+    dest: "{{ k3s_systemd_dir }}/k3s.service"
+    mode: "0644"
+  when: k3s_node_type != 'agent'
+
+- name: Render K3s agent systemd service
+  ansible.builtin.template:
+    src: k3s-agent.service.j2
+    dest: "{{ k3s_systemd_dir }}/k3s-agent.service"
+    mode: "0644"
+  when: k3s_node_type == 'agent'
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
 
 - name: Enable and start K3s service
   block:
@@ -155,7 +200,7 @@
     - k3s_pki_dir.stat.exists | default(false)
 
 - name: Check K3s installation
-  command: /usr/local/bin/k3s --version
+  command: "{{ k3s_bin_dir }}/k3s --version"
   register: k3s_version_output
   changed_when: false
   failed_when: k3s_version_output.rc != 0
