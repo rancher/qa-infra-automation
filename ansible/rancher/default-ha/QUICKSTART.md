@@ -25,13 +25,6 @@ bootstrap_password: ""
 password: ""
 ```
 
-When running via `make rancher`, the kubeconfig path is set automatically from the cluster step. If running manually, you can override it:
-
-```yaml
-# Only needed when running manually (not via make):
-kubeconfig_file: "/absolute/path/to/kubeconfig.yaml"
-```
-
 If you plan to upgrade Rancher later, add these upgrade-specific variables now or before running the upgrade flow:
 
 ```yaml
@@ -44,6 +37,12 @@ rancher_image_tag_upgrade: latest # Optional
 ### Step 2. Run Playbook
 
 > **Important:** All `ansible-playbook` commands must be run from the **repository root**, not from inside the `ansible/` subdirectory.
+
+When running via `make rancher`, the kubeconfig path is set automatically from the cluster step. If running manually, set `kubeconfig_file` in `vars.yaml`:
+
+```yaml
+kubeconfig_file: "/absolute/path/to/kubeconfig.yaml"
+```
 
 **Via Makefile (recommended)** — run from the repository root:
 

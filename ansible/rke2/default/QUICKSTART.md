@@ -1,17 +1,5 @@
 # Quickstart
 
-## Overview
-
-This playbook uses a **role-based architecture** to deploy RKE2 clusters. The deployment is broken into 5 distinct roles that execute sequentially:
-
-1. **rke2_setup** - Perform initial host preparation and base configuration
-2. **rke2_config** - Generate RKE2 configuration files for servers/agents
-3. **rke2_install** - Install RKE2 using RPM packages
-4. **rke2_cluster** - Form cluster (master → servers → agents with token distribution)
-5. **rke2_health_check** - Validate overall RKE2 cluster health
-
-Each role can be executed independently using Ansible tags.
-
 ## Prerequisites
 
 1. Infrastructure Deployed: You must have nodes to install rke2 on, either by running `tofu apply` successfully or bringing your own. [Example tofu module](../../../tofu/aws/modules/cluster_nodes/QUICKSTART.md).

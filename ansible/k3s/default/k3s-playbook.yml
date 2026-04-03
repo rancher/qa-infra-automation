@@ -19,7 +19,7 @@
           - kubernetes_version | length > 0
           - kube_api_host is defined
           - kube_api_host | length > 0
-        fail_msg: "Required variables not defined. Set kubernetes_version and kube_api_host in vars.yaml or inventory all.vars"
+        fail_msg: "Required variables not defined. Set kubernetes_version and kube_api_host in vars.yaml or under all.vars on the inventory file"
       run_once: true
     - include_role:
         name: setup
@@ -48,8 +48,6 @@
         mode: '0700'
       loop:
         - /var/lib/rancher/k3s/server/manifests
-      when: inventory_hostname in groups.get('servers', [])
-
     - name: Apply K3s hardening on initial cluster node if enabled
       include_role:
         name: k3s_hardening

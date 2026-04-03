@@ -1,5 +1,4 @@
 variable "public_ssh_key" {} // The corrals public key.  This should be installed on every node.
-variable "private_ssh_key" {} // Path to private SSH key for Ansible connections
 variable "aws_access_key" {}
 variable "aws_secret_key" {}
 variable "aws_region" {}
