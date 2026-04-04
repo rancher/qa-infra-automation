@@ -23,29 +23,23 @@
   delay: "{{ dv_delay }}"
   when: dv_checksum_format != 'sha256sum_inline'
 
-- name: Extract expected checksum (github_sha256sum format)
+- name: Extract expected checksum from file
   ansible.builtin.shell: |
+    {% if dv_checksum_format == 'github_sha256sum' %}
     grep "{{ dv_github_artifact_name }}" "{{ _dv_checksum_file }}" | head -1 | awk '{print $1}'
+    {% else %}
+    head -1 "{{ _dv_checksum_file }}" | awk '{print $1}'
+    {% endif %}
   register: _dv_checksum_extract
   changed_when: false
-  when: dv_checksum_format == 'github_sha256sum'
-
-- name: Extract expected checksum (sha256sum_file format)
-  ansible.builtin.shell: |
-    head -1 "{{ _dv_checksum_file }}" | awk '{print $1}'
-  register: _dv_checksum_file_extract
-  changed_when: false
-  when: dv_checksum_format == 'sha256sum_file'
+  when: dv_checksum_format != 'sha256sum_inline'
 
 - name: Set expected checksum fact
   ansible.builtin.set_fact:
     _dv_expected_checksum: >-
       {{ (dv_checksum_format == 'sha256sum_inline') | ternary(
           dv_checksum_inline_value,
-          (dv_checksum_format == 'github_sha256sum') | ternary(
-            _dv_checksum_extract.stdout | trim,
-            _dv_checksum_file_extract.stdout | trim
-          )
+          _dv_checksum_extract.stdout | default('') | trim
         ) }}
 
 - name: Download artifact with checksum verification
