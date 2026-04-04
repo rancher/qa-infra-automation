@@ -1,0 +1,23 @@
+aws_access_key      = "{{ aws_access_key_id }}"
+aws_secret_key      = "{{ aws_secret_access_key }}"
+aws_region          = "{{ aws_region }}"
+aws_ami             = "{{ aws_ami }}"
+aws_hostname_prefix = "{{ hostname_prefix }}"
+aws_route53_zone    = "{{ aws_route53_zone }}"
+aws_ssh_user        = "{{ aws_ssh_user }}"
+aws_security_group  = ["{{ aws_security_group }}"]
+aws_vpc             = "{{ aws_vpc }}"
+aws_subnet          = "{{ aws_subnet }}"
+aws_volume_size     = {{ aws_volume_size }}
+aws_volume_type     = "{{ aws_volume_type }}"
+instance_type       = "{{ instance_type }}"
+public_ssh_key      = "{{ ssh_key }}.pub"
+airgap_setup        = false
+proxy_setup         = false
+
+nodes = [
+  {
+    count = {{ node_count }}
+    role  = {{ vm_roles }}
+  }
+]

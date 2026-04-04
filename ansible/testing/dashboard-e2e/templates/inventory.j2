@@ -1,0 +1,23 @@
+master:
+  hosts:
+    master:
+      ansible_host: {{ master_ip }}
+      ansible_role: etcd,cp,worker
+{% if all_ips | length > 1 %}
+
+servers:
+  hosts:
+{% for ip in all_ips %}
+{% if ip != master_ip %}
+    server{{ loop.index }}:
+      ansible_host: {{ ip }}
+      ansible_role: etcd,cp,worker
+{% endif %}
+{% endfor %}
+{% endif %}
+
+all:
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    ansible_user: {{ aws_ssh_user }}
+    ansible_ssh_private_key_file: {{ ssh_key }}

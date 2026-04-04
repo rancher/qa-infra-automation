@@ -10,6 +10,7 @@
 **/terraform.tfstate.d/*
 vars.yaml
 *.env
+.creds.yml
 kubeconfig.yaml
 local.yaml
 values.yml

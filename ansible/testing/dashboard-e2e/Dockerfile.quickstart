@@ -1,0 +1,72 @@
+# Containerised runner for the dashboard-e2e playbook.
+# Includes ansible, tofu, helm, kubectl and all required collections
+# so users only need Docker (or Podman) on the host.
+#
+# Build:  docker build -f Dockerfile.quickstart -t dashboard-e2e-runner .
+# Run:    see run.sh
+
+# renovate: datasource=docker depName=python
+FROM python:3.12-alpine3.23@sha256:1d132f2d802114876d114b0918e01998bf0c07af8332f776c3c4cb8e388c9a5f
+
+# renovate: datasource=github-release-attachments depName=opentofu/opentofu
+ARG TOFU_VERSION=1.11.5
+# renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=1.11.5
+ARG TOFU_SUM=901121681e751574d739de5208cad059eddf9bd739b575745cf9e3c961b28a13
+
+# renovate: datasource=github-release-attachments depName=helm/helm
+ARG HELM_VERSION=3.17.3
+# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=3.17.3
+ARG HELM_SUM=ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd
+
+# renovate: datasource=github-release-attachments depName=kubernetes/kubernetes
+ARG KUBECTL_VERSION=v1.33.10
+# renovate: datasource=github-release-attachments depName=kubernetes/kubernetes digestVersion=v1.33.10
+ARG KUBECTL_SUM=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db524e3f5
+
+# renovate: datasource=github-release-attachments depName=astral-sh/uv
+ARG UV_VERSION=0.11.3
+# renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.11.3
+ARG UV_SUM=8b40cf16b849634b81a530a3d0a0bcae5f24996ef9ae782976fd69b6266d3b8e
+
+RUN apk add --no-cache \
+      git curl unzip xxd openssh-client docker-cli
+
+RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
+      -o /tmp/uv.tar.gz \
+    && echo "${UV_SUM}  /tmp/uv.tar.gz" | sha256sum -c - \
+    && tar -xz --strip-components=1 -C /usr/local/bin uv-x86_64-unknown-linux-musl/uv < /tmp/uv.tar.gz \
+    && rm /tmp/uv.tar.gz
+
+RUN uv pip install --system --no-cache \
+      "ansible-core<2.17" ansible kubernetes docker
+
+RUN ansible-galaxy collection install \
+      cloud.terraform kubernetes.core \
+      "community.docker:<5" "community.crypto:<3" --upgrade
+
+# OpenTofu
+RUN curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.zip" \
+      -o /tmp/tofu.zip \
+    && echo "${TOFU_SUM}  /tmp/tofu.zip" | sha256sum -c - \
+    && unzip -o /tmp/tofu.zip -d /usr/local/bin tofu \
+    && rm /tmp/tofu.zip \
+    && chmod +x /usr/local/bin/tofu \
+    && ln -sf /usr/local/bin/tofu /usr/local/bin/terraform
+
+# Helm
+RUN curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
+      -o /tmp/helm.tar.gz \
+    && echo "${HELM_SUM}  /tmp/helm.tar.gz" | sha256sum -c - \
+    && tar -xz --strip-components=1 -C /usr/local/bin linux-amd64/helm < /tmp/helm.tar.gz \
+    && rm /tmp/helm.tar.gz
+
+# kubectl
+RUN curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+      -o /usr/local/bin/kubectl \
+    && echo "${KUBECTL_SUM}  /usr/local/bin/kubectl" | sha256sum -c - \
+    && chmod +x /usr/local/bin/kubectl
+
+WORKDIR /playbook
+COPY . .
+
+ENTRYPOINT ["ansible-playbook", "dashboard-e2e-playbook.yml"]

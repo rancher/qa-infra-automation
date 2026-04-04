@@ -1,0 +1,235 @@
+# Prepare the test environment: clone dashboard, copy CI files from the
+# playbook's files/ directory, overlay dependency files from master onto
+# release branches, create Rancher users, encode SSH keys for Cypress,
+# build the Docker image, and generate the .env file.
+
+- name: Wait for Dashboard UI
+  ansible.builtin.uri:
+    url: "https://{{ rancher_host }}/dashboard/auth/login"
+    validate_certs: false
+    status_code: 200
+  register: dashboard_check
+  until: dashboard_check.status == 200
+  retries: 30
+  delay: 10
+
+- name: Detect dashboard target branch
+  ansible.builtin.set_fact:
+    target_branch: >-
+      {%- if rancher_image_tag == 'head' -%}
+        master
+      {%- elif rancher_image_tag is match('^v(\d+\.\d+)') -%}
+        release-{{ rancher_image_tag | regex_replace('^v(\d+\.\d+).*$', '\1') }}
+      {%- else -%}
+        {{ dashboard_branch | default('master') }}
+      {%- endif -%}
+
+- name: Show detected branch
+  ansible.builtin.debug:
+    msg: "rancher_image_tag={{ rancher_image_tag }} → target_branch={{ target_branch }}"
+
+- name: Remove old dashboard checkout
+  ansible.builtin.file:
+    path: "{{ dashboard_dir }}"
+    state: absent
+
+- name: Show clone target
+  ansible.builtin.debug:
+    msg: "Cloning {{ dashboard_repo }} @ {{ target_branch }}"
+
+- name: Clone dashboard repo
+  ansible.builtin.git:
+    repo: "https://github.com/{{ dashboard_repo | regex_replace('\\.git$', '') }}.git"
+    dest: "{{ dashboard_dir }}"
+    version: "{{ target_branch }}"
+    depth: 1
+  retries: 3
+  delay: 10
+  register: _git_clone
+  until: _git_clone is success
+
+- name: Copy CI files from playbook into dashboard checkout
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ dashboard_dir }}/{{ item.dest }}"
+    mode: "{{ item.mode | default('0644') }}"
+  loop:
+    - { src: "{{ playbook_dir }}/files/Dockerfile.ci", dest: "cypress/jenkins/Dockerfile.ci" }
+    - { src: "{{ playbook_dir }}/files/cypress.sh", dest: "cypress/jenkins/cypress.sh", mode: "0755" }
+    - { src: "{{ playbook_dir }}/files/utils.sh", dest: "cypress/jenkins/utils.sh", mode: "0755" }
+    - { src: "{{ playbook_dir }}/files/grep-filter.ts", dest: "cypress/jenkins/grep-filter.ts" }
+    - { src: "{{ playbook_dir }}/files/cypress.config.jenkins.ts", dest: "cypress/jenkins/cypress.config.jenkins.ts" }
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: Overlay dependency files from dashboard master onto release branches
+  ansible.builtin.shell: |
+    set -e
+    cd {{ dashboard_dir }}
+    OVERLAY_BRANCH="{{ dashboard_overlay_branch | default(dashboard_branch, true) | default('master', true) }}"
+    echo "[overlay] target_branch={{ target_branch }}, overlay_from=${OVERLAY_BRANCH}"
+    git fetch --depth=1 origin "${OVERLAY_BRANCH}" || {
+      echo "[overlay] ERROR: git fetch origin ${OVERLAY_BRANCH} failed"
+      exit 1
+    }
+    # Required dependency files — fail if missing
+    git checkout FETCH_HEAD -- cypress/package.json cypress/yarn.lock package.json yarn.lock cypress.config.ts || {
+      echo "[overlay] ERROR: required dependency files missing on ${OVERLAY_BRANCH}"
+      exit 1
+    }
+    # Optional files — may not exist on all branches
+    git checkout FETCH_HEAD -- cypress/support/qase.ts 2>/dev/null || \
+      echo "[overlay] NOTICE: cypress/support/qase.ts not found on ${OVERLAY_BRANCH}, skipping"
+    echo "[overlay] OK — overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
+  when: target_branch != (dashboard_overlay_branch | default(dashboard_branch, true) | default('master', true))
+  changed_when: true
+
+- name: Configure Rancher users and role bindings
+  ansible.builtin.include_role:
+    name: rancher_user_setup
+  vars:
+    rancher_admin_password: "{{ rancher_password }}"
+    # Fail fast if tests need standard_user but login failed; warn-only otherwise
+    rancher_user_on_error: "{{ 'fail' if '@standardUser' in cypress_tags else 'warn' }}"
+    rancher_users:
+      - username: standard_user
+        password: "{{ rancher_password }}"
+        global_roles:
+          - user
+        project_roles:
+          - role: project-member
+            project: Default
+            cluster: local
+
+- name: Handle imported kubeconfig from provision
+  when: create_initial_clusters | bool
+  block:
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ outputs_dir }}/kubeconfig-import.yaml"
+      register: _kubeconfig_file
+
+    - name: Encode import kubeconfig to base64
+      ansible.builtin.slurp:
+        src: "{{ outputs_dir }}/kubeconfig-import.yaml"
+      register: import_kubeconfig_b64
+      when: _kubeconfig_file.stat.exists
+
+    - name: Set kubeconfig variables
+      ansible.builtin.set_fact:
+        imported_kubeconfig: "{{ import_kubeconfig_b64.content }}"
+      when: _kubeconfig_file.stat.exists
+
+    - name: Write imported_config for Docker
+      ansible.builtin.copy:
+        content: "{{ import_kubeconfig_b64.content | b64decode }}"
+        dest: "{{ dashboard_dir }}/imported_config"
+        mode: "0600"
+      when: _kubeconfig_file.stat.exists
+
+    - name: Warn if kubeconfig missing
+      ansible.builtin.debug:
+        msg: >-
+          kubeconfig-import.yaml not found — import cluster tests will be
+          skipped. Run with --tags provision to create import clusters.
+      when: not _kubeconfig_file.stat.exists
+
+- name: Remove kubeconfig lines when no import cluster
+  when: not (create_initial_clusters | bool) or (_kubeconfig_file is defined and not _kubeconfig_file.stat.exists)
+  block:
+    - name: Strip kubectl from cypress.sh
+      ansible.builtin.lineinfile:
+        path: "{{ dashboard_dir }}/cypress/jenkins/cypress.sh"
+        regexp: "kubectl"
+        state: absent
+
+    - name: Strip imported_config from Dockerfile.ci
+      ansible.builtin.lineinfile:
+        path: "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"
+        regexp: "imported_config"
+        state: absent
+
+- name: Set custom node key from SSH key file
+  when:
+    - create_initial_clusters | bool
+    - custom_node_key is not defined
+    - ssh_key is defined
+  block:
+    - name: Read and base64-encode SSH private key
+      ansible.builtin.slurp:
+        src: "{{ ssh_key }}"
+      register: ssh_key_content
+
+    - name: Set custom_node_key fact
+      ansible.builtin.set_fact:
+        custom_node_key: "{{ ssh_key_content.content }}"
+
+- name: Substitute CYPRESSTAGS placeholder in cypress.sh
+  ansible.builtin.replace:
+    path: "{{ dashboard_dir }}/cypress/jenkins/cypress.sh"
+    regexp: "CYPRESSTAGS"
+    replace: "{{ cypress_tags }}"
+
+- name: Verify overlay files exist before Docker build
+  ansible.builtin.shell: |
+    set -e
+    cd {{ dashboard_dir }}
+    missing=""
+    for f in cypress/package.json cypress/yarn.lock cypress/jenkins/cypress.sh cypress/jenkins/Dockerfile.ci cypress/jenkins/grep-filter.ts; do
+      [ -f "$f" ] || missing="${missing} ${f}"
+    done
+    if [ -n "${missing}" ]; then
+      echo "[verify] ERROR: Missing files after overlay:${missing}"
+      exit 1
+    fi
+    echo "[verify] OK — key files present, CYPRESSTAGS=$(grep -c 'CYPRESSTAGS' cypress/jenkins/cypress.sh || echo 'replaced')"
+  changed_when: false
+
+- name: Show Docker build args
+  ansible.builtin.debug:
+    msg: >-
+      Building dashboard-test image —
+      Cypress={{ cypress_version }}, Node={{ nodejs_version }},
+      Chrome={{ chrome_version }}
+
+- name: Build dashboard-test Docker image
+  ansible.builtin.shell: |
+    set -e
+    docker build \
+      -t dashboard-test:{{ executor_tag }} \
+      -f "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci" \
+      --build-arg YARN_VERSION="{{ yarn_version }}" \
+      --build-arg NODE_VERSION="{{ nodejs_version }}" \
+      --build-arg CYPRESS_VERSION="{{ cypress_version }}" \
+      --build-arg CHROME_VERSION="{{ chrome_version }}" \
+      "{{ dashboard_dir }}"
+  changed_when: true
+
+- name: Generate .env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ workspace_dir }}/.env"
+    mode: "0600"
+
+- name: Warn — qase_enabled is true but QASE_TOKEN is not set
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: qase_enabled is true but QASE_TOKEN is not set.
+      Test results will NOT be reported to Qase.
+      Export QASE_TOKEN in your environment before running (do not put the token in vars.yaml).
+  when: (qase_enabled | default(false)) and (qase_token | default('') | length == 0)
+
+- name: Notice — percy_enabled but @percy not in cypress_tags, skipping Percy
+  ansible.builtin.debug:
+    msg: >-
+      NOTICE: percy_enabled is true but '@percy' is not in cypress_tags ('{{ cypress_tags }}').
+      Percy will be skipped for this run. Add '@percy' to cypress_tags to enable Percy snapshots.
+  when: (percy_enabled | default(false)) and ("@percy" not in cypress_tags)
+
+- name: Warn — percy_enabled and qase_enabled together risk Percy build failure
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: percy_enabled and qase_enabled are both true.
+      A Qase API failure in before:run will silently abort Percy snapshot collection
+      and fail the Percy build. Disable one or ensure QASE_TOKEN is valid before running.
+  when: (percy_enabled | default(false)) and (qase_enabled | default(false))

@@ -1,0 +1,44 @@
+---
+# Rancher User Setup Role - Main Tasks
+#
+# Creates local Rancher users with global and project role bindings.
+# Loops over the `rancher_users` list; each item is processed by
+# _create_user.yml which handles creation, role binding, and verification.
+#
+# Idempotent: existing users (409/422) are silently skipped.
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - rancher_host | length > 0
+      - rancher_admin_password | length > 0
+      - rancher_users | length > 0
+    fail_msg: >-
+      rancher_host, rancher_admin_password, and rancher_users are all required.
+      See defaults/main.yml for the expected format.
+
+- name: Login as admin
+  ansible.builtin.uri:
+    url: "https://{{ rancher_host }}/v3-public/localProviders/local?action=login"
+    method: POST
+    body_format: json
+    body:
+      username: admin
+      password: "{{ rancher_admin_password }}"
+    validate_certs: "{{ rancher_validate_certs }}"
+    status_code: [200, 201]
+  register: _rancher_admin_login
+  no_log: true
+  retries: 3
+  delay: 5
+  until: _rancher_admin_login.status | default(0) in [200, 201]
+
+- name: Set admin token
+  ansible.builtin.set_fact:
+    _rancher_admin_token: "{{ _rancher_admin_login.json.token }}"
+
+- name: Create users
+  ansible.builtin.include_tasks: _create_user.yml
+  loop: "{{ rancher_users }}"
+  loop_control:
+    loop_var: _user

@@ -1,0 +1,273 @@
+---
+# Main orchestrator — see README.md for usage and configuration.
+#
+# Stages (controlled via --tags / --skip-tags):
+#   provision  →  EC2 + DNS + K3s + Rancher
+#   setup      →  clone dashboard, copy CI files, build Docker image
+#   test       →  run Cypress inside Docker container (no streaming)
+#   cleanup    →  destroy tofu workspaces (requires --tags cleanup)
+#
+# Jenkins uses --skip-tags test and runs Docker directly via init.sh
+# for real-time streaming and color output.
+#
+# Examples:
+#   Full pipeline:   ansible-playbook playbook.yml --tags provision,setup,test
+#   Infra only:      ansible-playbook playbook.yml --tags provision
+#   Re-run tests:    ansible-playbook playbook.yml --tags setup,test
+#   Destroy:         ansible-playbook playbook.yml --tags cleanup
+- name: Dashboard E2E Pipeline
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars_files:
+    - vars.yaml
+
+  vars:
+    # Paths
+    qa_infra_dir: "{{ lookup('env', 'QA_INFRA_DIR') | default(playbook_dir | dirname | dirname | dirname, true) }}"
+    outputs_dir: "{{ workspace_dir }}/outputs"
+    dashboard_dir: "{{ workspace_dir }}/dashboard"
+    host_dashboard_dir: "{{ lookup('env', 'HOST_DASHBOARD_DIR') | default(dashboard_dir, true) }}"
+    workspace_dir: "{{ lookup('env', 'WORKSPACE') | default(playbook_dir, true) }}"
+    tofu_module: "{{ qa_infra_dir }}/tofu/aws/modules/cluster_nodes"
+    prefix: "{{ lookup('env', 'PREFIX') | default(lookup('pipe', 'head -c 4 /dev/urandom | xxd -p'), true) }}"
+
+    # Inherit from env (Jenkins sets these)
+    aws_access_key_id: "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
+    aws_secret_access_key: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
+    aws_ami: "{{ lookup('env', 'AWS_AMI') }}"
+    aws_route53_zone: "{{ lookup('env', 'AWS_ROUTE53_ZONE') }}"
+    aws_vpc: "{{ lookup('env', 'AWS_VPC') }}"
+    aws_subnet: "{{ lookup('env', 'AWS_SUBNET') }}"
+    aws_security_group: "{{ lookup('env', 'AWS_SECURITY_GROUP') }}"
+
+    # Ansible verbosity passthrough (sub-playbooks get one level less to reduce async output noise)
+    ansible_verbose_flag: "{{ '-' + 'v' * ((ansible_verbosity | int) - 1) if (ansible_verbosity | default(0) | int) > 1 else '' }}"
+
+    # Executor-scoped image tag (prevents concurrent Jenkins builds from clobbering each other)
+    executor_tag: "{{ lookup('env', 'EXECUTOR_NUMBER') | default('0', true) }}"
+
+  pre_tasks:
+    - name: Create outputs directory
+      ansible.builtin.file:
+        path: "{{ outputs_dir }}"
+        state: directory
+        mode: "0755"
+      tags: [always]
+
+    - name: Validate required AWS variables
+      ansible.builtin.assert:
+        that:
+          - aws_access_key_id | length > 0
+          - aws_secret_access_key | length > 0
+          - aws_ami | length > 0
+          - aws_route53_zone | length > 0
+          - aws_vpc | length > 0
+          - aws_subnet | length > 0
+          - aws_security_group | length > 0
+        fail_msg: "Required AWS environment variables are missing. Set them in env or vars.yaml."
+      when: job_type == 'recurring'
+      tags: [always]
+
+    - name: Recover rancher_host from tofu state
+      when:
+        - job_type == 'recurring'
+        - rancher_host is not defined or rancher_host | length == 0
+        - "'cleanup' not in ansible_run_tags"
+      tags: [always]
+      block:
+        - name: Check for saved rancher-vars.yaml
+          ansible.builtin.stat:
+            path: "{{ outputs_dir }}/rancher-vars.yaml"
+          register: _rancher_vars_file
+
+        - name: Load rancher-vars.yaml
+          ansible.builtin.include_vars:
+            file: "{{ outputs_dir }}/rancher-vars.yaml"
+            name: _saved_rancher_vars
+          when: _rancher_vars_file.stat.exists
+
+        - name: Set rancher_host from saved state
+          ansible.builtin.set_fact:
+            rancher_host: "{{ _saved_rancher_vars.fqdn }}"
+          when:
+            - _rancher_vars_file.stat.exists
+            - _saved_rancher_vars.fqdn is defined
+
+    - name: Recover ssh_key path from outputs
+      ansible.builtin.set_fact:
+        ssh_key: "{{ outputs_dir }}/id_rsa"
+      when:
+        - job_type == 'recurring'
+        - ssh_key is not defined
+        - "'cleanup' not in ansible_run_tags"
+      tags: [always]
+
+    - name: Validate rancher_host for existing job type
+      ansible.builtin.assert:
+        that:
+          - rancher_host is defined
+          - rancher_host | length > 0
+        fail_msg: "rancher_host is required when job_type=existing. Set it in vars.yaml."
+      when: job_type == 'existing' and 'cleanup' not in ansible_run_tags
+      tags: [always]
+
+    - name: Validate rancher_host is available
+      ansible.builtin.assert:
+        that:
+          - rancher_host is defined
+          - rancher_host | length > 0
+        fail_msg: >-
+          rancher_host could not be determined. Either run with --tags provision
+          or set rancher_host in vars.yaml / -e rancher_host=...
+      when: >-
+        ('setup' in ansible_run_tags or 'test' in ansible_run_tags)
+        and 'provision' not in ansible_run_tags
+        and 'all' not in ansible_run_tags
+      tags: [always]
+
+    - name: Display pipeline info
+      ansible.builtin.debug:
+        msg: "Dashboard E2E Pipeline — job_type={{ job_type }}, image_tag={{ rancher_image_tag }}, prefix={{ prefix }}"
+      tags: [always]
+
+    - name: Set phase flags
+      ansible.builtin.set_fact:
+        _is_setup_or_test: "{{ 'setup' in ansible_run_tags or 'test' in ansible_run_tags or 'all' in ansible_run_tags }}"
+      tags: [always]
+
+    - name: Adjust Cypress tags
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          TAGS="{{ cypress_tags | default('@adminUser') }}"
+          REPO="{{ rancher_helm_repo }}"
+          case "${TAGS}" in
+            *@bypass*)
+              TAGS=$(echo "${TAGS}" | sed 's/@bypass//g' | tr -s '+' | sed 's/^+//;s/+$//;s/+-$//')
+              ;;
+            *)
+              case "${REPO}" in
+                rancher-prime|rancher-latest|rancher-alpha)
+                  case "${TAGS}" in *@noPrime*) ;; *) TAGS="${TAGS}+-@noPrime" ;; esac
+                  ;;
+                *)
+                  case "${TAGS}" in *@prime*) ;; *) TAGS="${TAGS}+-@prime" ;; esac
+                  ;;
+              esac
+              case "${TAGS}" in *@noVai*) ;; *) TAGS="${TAGS}+-@noVai" ;; esac
+              ;;
+          esac
+          echo "${TAGS}"
+      register: adjusted_tags
+      changed_when: false
+      tags: [always]
+      when: _is_setup_or_test
+
+    - name: Set adjusted Cypress tags
+      ansible.builtin.set_fact:
+        cypress_tags: "{{ adjusted_tags.stdout | trim }}"
+      tags: [always]
+      when: _is_setup_or_test
+
+    - name: Show adjusted Cypress tags
+      ansible.builtin.debug:
+        msg: "cypress_tags={{ cypress_tags }}"
+      tags: [always]
+      when: _is_setup_or_test
+
+    - name: Update Cypress tags in .env
+      ansible.builtin.lineinfile:
+        path: "{{ workspace_dir }}/.env"
+        regexp: "^CYPRESS_grepTags="
+        line: "CYPRESS_grepTags={{ cypress_tags }}"
+      tags: [always]
+      when: _is_setup_or_test
+      failed_when: false
+
+    - name: Update TEST_USERNAME for @standardUser
+      ansible.builtin.lineinfile:
+        path: "{{ workspace_dir }}/.env"
+        regexp: "^TEST_USERNAME="
+        line: "TEST_USERNAME={{ 'standard_user' if '@standardUser' in cypress_tags else rancher_username | default('admin') }}"
+      tags: [always]
+      when: _is_setup_or_test
+      failed_when: false
+
+  tasks:
+    - name: Provision infrastructure
+      ansible.builtin.include_tasks:
+        file: tasks/provision.yml
+        apply:
+          tags: [provision]
+      when: job_type == 'recurring' or (create_initial_clusters | bool)
+      tags: [provision]
+
+    - name: Resolve Rancher helm version
+      ansible.builtin.include_tasks:
+        file: tasks/resolve-helm-version.yml
+        apply:
+          tags: [provision, setup]
+      tags: [provision, setup]
+
+    - name: Install K3s and deploy Rancher
+      ansible.builtin.include_tasks:
+        file: tasks/install-k3s-rancher.yml
+        apply:
+          tags: [provision]
+      when: job_type == 'recurring' or (create_initial_clusters | bool)
+      tags: [provision]
+
+    - name: Setup test environment and build Docker image
+      ansible.builtin.include_tasks:
+        file: tasks/setup-test-env.yml
+        apply:
+          tags: [setup]
+      tags: [setup]
+
+    - name: Run Cypress tests
+      ansible.builtin.include_tasks:
+        file: tasks/run-tests.yml
+        apply:
+          tags: [test]
+      tags: [test]
+
+    - name: Write notification values
+      ansible.builtin.copy:
+        content: |
+          RANCHER_VERSION={{ rancher_version | default('') }}
+          RANCHER_IMAGE_TAG={{ rancher_image_tag_resolved | default(rancher_image_tag) }}
+          RANCHER_CHART_URL={{ rancher_chart_url | default('') }}
+          RANCHER_HELM_REPO={{ rancher_helm_repo }}
+          CYPRESS_TAGS={{ cypress_tags }}
+        dest: "{{ workspace_dir }}/notification_values.txt"
+        mode: "0644"
+      tags: [always]
+      when: _is_setup_or_test
+
+    - name: Cleanup infrastructure
+      ansible.builtin.include_tasks:
+        file: tasks/cleanup.yml
+        apply:
+          tags: [cleanup, never]
+      tags: [cleanup, never]
+
+  post_tasks:
+    - name: Final status
+      ansible.builtin.debug:
+        msg: >-
+          {%- if 'cleanup' in ansible_run_tags -%}
+            Cleanup complete.
+          {%- elif cypress_exit_code is defined -%}
+            Pipeline complete. Tests {{ 'PASSED' if (cypress_exit_code | int) == 0 else 'FAILED (exit=' + (cypress_exit_code | string) + ')' }}.
+          {%- else -%}
+            Setup complete. Run tests with --tags test or via init.sh (streaming).
+          {%- endif -%}
+      tags: [always]
+
+    - name: Fail if tests failed
+      ansible.builtin.fail:
+        msg: "Cypress tests failed with exit code {{ cypress_exit_code }}"
+      when: cypress_exit_code is defined and (cypress_exit_code | int) != 0 and 'cleanup' not in ansible_run_tags
+      tags: [always]

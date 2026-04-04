@@ -1,0 +1,3 @@
+skip_list:
+  - role-name  # This is a playbook directory, not a role
+  - risky-shell-pipe  # POSIX shell tasks — pipefail is a bash-ism

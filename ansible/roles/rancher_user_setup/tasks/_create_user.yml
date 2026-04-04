@@ -1,0 +1,104 @@
+---
+# Creates a single Rancher user, binds global/project roles, and verifies login.
+# Called by main.yml in a loop — receives `_user` dict via loop_var.
+
+- name: "Create user: {{ _user.username }}"
+  ansible.builtin.uri:
+    url: "https://{{ rancher_host }}/v3/users"
+    method: POST
+    body_format: json
+    body:
+      enabled: "{{ _user.enabled | default(true) }}"
+      mustChangePassword: false
+      password: "{{ _user.password }}"
+      username: "{{ _user.username }}"
+    headers:
+      Authorization: "Bearer {{ _rancher_admin_token }}"
+    validate_certs: "{{ rancher_validate_certs }}"
+    status_code: [200, 201, 409, 422]
+  register: _create_result
+  no_log: true
+
+- name: "Look up user ID for: {{ _user.username }}"
+  ansible.builtin.uri:
+    url: "https://{{ rancher_host }}/v3/users?username={{ _user.username }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _rancher_admin_token }}"
+    validate_certs: "{{ rancher_validate_certs }}"
+  register: _user_lookup
+  retries: 3
+  delay: 5
+  until: _user_lookup.status | default(0) == 200
+
+- name: "Set user ID for: {{ _user.username }}"
+  ansible.builtin.set_fact:
+    _current_user_id: "{{ _user_lookup.json.data[0].id }}"
+  when: _user_lookup.json.data | length > 0
+
+# --- Global role bindings ---
+
+- name: "Bind global roles for: {{ _user.username }}"
+  ansible.builtin.uri:
+    url: "https://{{ rancher_host }}/v3/globalrolebindings"
+    method: POST
+    body_format: json
+    body:
+      globalRoleId: "{{ _role }}"
+      type: globalRoleBinding
+      userId: "{{ _current_user_id }}"
+    headers:
+      Authorization: "Bearer {{ _rancher_admin_token }}"
+    validate_certs: "{{ rancher_validate_certs }}"
+    status_code: [200, 201, 409, 422]
+  loop: "{{ _user.global_roles | default([]) }}"
+  loop_control:
+    loop_var: _role
+  when: _current_user_id is defined
+
+# --- Project role bindings ---
+
+- name: "Bind project roles for: {{ _user.username }}"
+  ansible.builtin.include_tasks: _bind_project_role.yml
+  loop: "{{ _user.project_roles | default([]) }}"
+  loop_control:
+    loop_var: _project_role
+  when: _current_user_id is defined
+
+# --- Login verification ---
+
+- name: "Verify login for: {{ _user.username }}"
+  ansible.builtin.uri:
+    url: "https://{{ rancher_host }}/v3-public/localProviders/local?action=login"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ _user.username }}"
+      password: "{{ _user.password }}"
+    validate_certs: "{{ rancher_validate_certs }}"
+    status_code: [200, 201]
+  register: _verify_login
+  no_log: true
+  failed_when: false
+  when: _user.verify_login | default(true) | bool
+
+- name: "Fail - user verification failed: {{ _user.username }}"
+  ansible.builtin.fail:
+    msg: >-
+      User '{{ _user.username }}' login verification failed
+      (status={{ _verify_login.status | default('skipped') }}).
+  when:
+    - _user.verify_login | default(true) | bool
+    - _verify_login.status | default(0) not in [200, 201]
+    - rancher_user_on_error == 'fail'
+
+- name: "Warn - user verification failed: {{ _user.username }}"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: User '{{ _user.username }}' login verification failed
+      (status={{ _verify_login.status | default('skipped') }}).
+      Tests requiring this user will fail.
+  when:
+    - _user.verify_login | default(true) | bool
+    - _verify_login.status | default(0) not in [200, 201]
+    - rancher_user_on_error == 'warn'
