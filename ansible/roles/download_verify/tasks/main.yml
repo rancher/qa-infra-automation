@@ -48,8 +48,6 @@
     dest: "{{ dv_dest }}"
     checksum: "sha256:{{ _dv_expected_checksum }}"
     mode: "{{ dv_mode }}"
-    owner: "{{ dv_owner }}"
-    group: "{{ dv_group }}"
     timeout: "{{ dv_timeout }}"
   retries: "{{ dv_retries }}"
   delay: "{{ dv_delay }}"

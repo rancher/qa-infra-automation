@@ -23,5 +23,3 @@
     dv_dest: "{{ _kubectl_dest }}"
     dv_checksum_format: "sha256sum_file"
     dv_mode: "0755"
-    dv_owner: "root"
-    dv_group: "root"
