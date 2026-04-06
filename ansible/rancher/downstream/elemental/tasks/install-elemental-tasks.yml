@@ -5,6 +5,9 @@
   vars_files:
     - vars.yaml
 
+  vars:
+    elemental_chart_version: ""
+
   tasks:
     - name: Check if kubeconfig file exists
       stat:
@@ -25,7 +28,7 @@
         create_namespace: true
         wait: true
         wait_timeout: "60s"
-        chart_version: "1.7.3"
+        chart_version: "{{ elemental_chart_version }}"
         validate_certs: false
       retries: 3
       delay: 60
@@ -39,7 +42,7 @@
         create_namespace: true
         wait: true
         wait_timeout: "60s"
-        chart_version: "1.7.3"
+        chart_version: "{{ elemental_chart_version }}"
         validate_certs: false
       retries: 3
       delay: 60
@@ -58,7 +61,7 @@
         namespace: fleet-default
         kubeconfig: "{{ kubeconfig_file }}"
         wait: yes
-        wait_timeout: 180
+        wait_timeout: 300
         validate_certs: false
         wait_condition:
           type: Ready
