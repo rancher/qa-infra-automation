@@ -32,9 +32,9 @@
     - name: Install libvirt packages
       ansible.builtin.apt:
         name:
-          - virt-manager
-          - libvirt-daemon-system
-          - libvirt-clients
+          - virt-manager=1:4.0.0-1
+          - libvirt-daemon-system=8.0.0-1ubuntu7.15
+          - libvirt-clients=8.0.0-1ubuntu7.15
         state: present
         update_cache: yes
 
