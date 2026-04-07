@@ -38,7 +38,7 @@ All configuration is in `vars.yaml`. Key variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `rancher_version` | Yes | Rancher version to install (e.g. `v2.13.0`) |
+| `rancher_version` | Yes | Rancher version to install (e.g. `latest` for HEAD, or `v2.13.0`) |
 | `cert_manager_version` | Yes | cert-manager version, without `v` prefix (e.g. `1.19.1`) |
 | `fqdn` | Yes | FQDN for the Rancher UI (e.g. `1.2.3.4.sslip.io`) |
 | `bootstrap_password` | Yes | Initial admin bootstrap password |
@@ -46,7 +46,7 @@ All configuration is in `vars.yaml`. Key variables:
 | `kubeconfig_file` | No | Path to kubeconfig. Set automatically via `KUBECONFIG_FILE` env var when using `make rancher`; only needed when running manually |
 | `rancher_chart_repo` | No | Helm repo name (default: `rancher-latest`) |
 | `rancher_chart_repo_url` | No | Helm repo URL (default: latest releases) |
-| `rancher_image_tag` | No | Image tag (default: `latest`) |
+| `rancher_image_tag` | No | Image tag (default: `latest`; use `head` for dev/HEAD builds) |
 
 ### Upgrade variables
 
@@ -56,7 +56,7 @@ When running with `-e "upgrade_mode=true"`, the upgrade tasks expect:
 |----------|-------------|
 | `rancher_chart_repo_upgrade` | Helm repo name for upgrade (default: `rancher-latest`) |
 | `rancher_chart_upgrade_repo_url` | Helm repo URL for upgrade |
-| `rancher_version_upgrade` | Target Rancher version (e.g. `v2.13.0`) |
+| `rancher_version_upgrade` | Target Rancher version (e.g. `latest` for HEAD, or `v2.13.0`) |
 | `rancher_image_tag_upgrade` | Optional image tag override |
 
 The install flow:

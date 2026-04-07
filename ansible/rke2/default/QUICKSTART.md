@@ -95,34 +95,7 @@ ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/de
 
 #### Optional: Run Specific Phases Using Tags
 
-The role-based architecture supports selective execution using Ansible tags. This is useful for:
-- Re-running specific phases (e.g., just health checks)
-- Skipping phases (e.g., skip setup on already-configured nodes)
-- Debugging individual components
-
-**Available Tags:**
-- `setup` - Node preparation (Python, NetworkManager)
-- `config` - RKE2 configuration file generation
-- `install` - RKE2 binary installation
-- `cluster` - Cluster formation and token distribution
-- `health` - Health checks and validation
-- `rke2` - All RKE2-related tasks (shorthand for all above)
-
-**Examples:**
-
-```sh
-# Run only health checks (useful after cluster is already deployed)
-ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --tags health
-
-# Run only setup and config (skip installation and cluster formation)
-ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --tags setup,config
-
-# Skip setup phase (if nodes already prepared)
-ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml --skip-tags setup
-
-# Run full deployment with verbose output
-ansible-playbook -i ansible/rke2/default/inventory/inventory.yml ansible/rke2/default/rke2-playbook.yml -vvv
-```
+The role-based architecture supports selective execution using Ansible tags. See [README.md](./README.md) for the full list of available tags and examples.
 
 ### Step 4: Verify RKE2 Installation
 

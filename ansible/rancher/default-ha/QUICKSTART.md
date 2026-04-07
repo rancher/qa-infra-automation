@@ -14,7 +14,8 @@ Create `vars.yaml` in this folder with your desired settings, including the FQDN
 
 ```yaml
 # Version information
-rancher_version: "v2.13.0"
+rancher_version: "latest"         # Use "latest" for HEAD builds, or a specific version like "v2.13.0"
+rancher_image_tag: "head"         # HEAD dev image tag (use "latest" for stable releases)
 cert_manager_version: "1.19.1" # Without the 'v' prefix
 
 # Must match the DNS/IP used for your K8s cluster Load Balancer
@@ -30,8 +31,8 @@ If you plan to upgrade Rancher later, add these upgrade-specific variables now o
 ```yaml
 rancher_chart_repo_upgrade: rancher-latest
 rancher_chart_upgrade_repo_url: https://releases.rancher.com/server-charts/latest
-rancher_version_upgrade: "v2.13.0"
-rancher_image_tag_upgrade: latest # Optional
+rancher_version_upgrade: "latest"
+rancher_image_tag_upgrade: head # Optional
 ```
 
 ### Step 2. Run Playbook

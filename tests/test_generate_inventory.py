@@ -1,4 +1,4 @@
-"""Unit tests for scripts/generate-inventory.py"""
+"""Unit tests for scripts/generate_inventory.py"""
 
 import hashlib
 import json
