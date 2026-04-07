@@ -2,7 +2,6 @@
 - hosts: all
   vars:
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  strategy: linear
   become: true
   gather_facts: false
   vars_files: [vars.yaml]

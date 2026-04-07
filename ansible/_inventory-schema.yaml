@@ -1,5 +1,5 @@
 # Inventory schema: maps generic Tofu node roles to distro-specific Ansible groups.
-# Used by scripts/generate-inventory.py to generate static inventory files.
+# Used by scripts/generate_inventory.py to generate static inventory files.
 #
 # Schema structure:
 #   <distro>:

@@ -46,7 +46,7 @@ All configuration is in `vars.yaml`. Key variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `rancher_version` | Yes | Rancher version to install (e.g. `v2.13.0`) |
+| `rancher_version` | Yes | Rancher version to install (e.g. `latest` for HEAD, or `v2.13.0`) |
 | `cert_manager_version` | Yes | cert-manager version, without `v` prefix (e.g. `1.19.1`) |
 | `kubeconfig_file` | No | Path to kubeconfig. Set automatically via `KUBECONFIG_FILE` env var when using `make rancher`; only needed when running manually |
 | `fqdn` | Yes | FQDN for the Rancher UI (e.g. `1.2.3.4.sslip.io`) |
@@ -54,19 +54,19 @@ All configuration is in `vars.yaml`. Key variables:
 | `password` | Yes | Admin password after first login |
 | `rancher_chart_repo` | No | Helm repo name (default: `rancher-latest`) |
 | `rancher_chart_repo_url` | No | Helm repo URL (default: latest releases) |
-| `rancher_image_tag` | No | Rancher image tag (default: `latest`) |
+| `rancher_image_tag` | No | Image tag (default: `latest`; use `head` for dev/HEAD builds) |
 
 ### Additional variables for Rancher upgrades
 
 `rancher-upgrade-tasks.yml` is included by `rancher-playbook.yml` when you run the
 playbook with `-e "upgrade_mode=true"`. The upgrade tasks expect:
 
-```yaml
-rancher_chart_repo_upgrade: rancher-latest
-rancher_chart_upgrade_repo_url: https://releases.rancher.com/server-charts/latest
-rancher_version_upgrade: "v2.13.0"   # use "latest" to let Helm resolve the newest chart
-rancher_image_tag_upgrade: latest    # optional; use "latest" to map to the "head" image tag
-```
+| Variable | Description |
+|----------|-------------|
+| `rancher_chart_repo_upgrade` | Helm repo name for upgrade (default: `rancher-latest`) |
+| `rancher_chart_upgrade_repo_url` | Helm repo URL for upgrade |
+| `rancher_version_upgrade` | Target Rancher version (e.g. `latest` for HEAD, or `v2.13.0`) |
+| `rancher_image_tag_upgrade` | Optional image tag override |
 
 The upgrade tasks authenticate to Rancher with the permanent `password`, not
 `bootstrap_password`, because the bootstrap password is no longer valid after the
