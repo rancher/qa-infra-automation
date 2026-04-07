@@ -4,8 +4,8 @@
   gather_facts: true
 
   vars:
-    rancher_private_hostname: "{{ rancher_hostname | default(internal_lb_hostname, true) }}" # Keeping rancher_hostname to not break previous runs.
-    rancher_public_hostname: "{{ public_hostname | default(external_lb_hostname) | default('') }}"
+    rancher_private_hostname: "{{ internal_lb_hostname }}"
+    rancher_public_hostname: "{{ external_lb_hostname | default(rancher_hostname) }}"
     kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
     repo_root: "{{ playbook_dir | dirname | dirname | dirname | dirname | dirname }}"
 
