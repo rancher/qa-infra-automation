@@ -300,6 +300,7 @@ rancher_image_tag: "head"
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `cypress_tags` | `@adminUser` | Cypress grep tags to run (e.g. `@userMenu`, `@adminUser+@components`) |
+| `allow_filtered_catalog_skip` | `true` | When `true`, chart tests may skip if the chart is filtered out of the UI catalog. Set to `false` to fail instead. |
 | `job_type` | `recurring` | `recurring` provisions new infra; `existing` skips provisioning |
 | `create_initial_clusters` | `true` | Whether to create import cluster and custom node. In `existing` mode, provisions only these resources (not the Rancher server) |
 | `dashboard_repo` | `rancher/dashboard` | Dashboard GitHub repo to clone |
