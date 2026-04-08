@@ -1,0 +1,14 @@
+# Allow <details>/<summary> for collapsible sections
+MD033:
+  allowed_elements:
+    - details
+    - summary
+    - strong
+
+# Don't enforce line length in tables or code blocks
+MD013:
+  tables: false
+  code_blocks: false
+
+# Tables use compact separators — consistent with GitHub rendering
+MD060: false

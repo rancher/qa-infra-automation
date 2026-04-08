@@ -1,0 +1,60 @@
+---
+# Rancher User Setup Role - Default Variables
+#
+# Creates Rancher local users with global and project role bindings.
+# Idempotent — skips gracefully if resources already exist (409/422).
+#
+# See README.md for complete documentation and usage examples.
+
+# ---------------------------------------------------------------------------
+# Rancher connection
+# ---------------------------------------------------------------------------
+
+# FQDN of the Rancher server (without https:// prefix)
+rancher_host: ""
+
+# Admin password used to authenticate API calls
+rancher_admin_password: ""
+
+# Validate TLS certificates when calling the Rancher API
+rancher_validate_certs: false
+
+# ---------------------------------------------------------------------------
+# Users to create
+# ---------------------------------------------------------------------------
+#
+# Each entry defines a local Rancher user and its role bindings.
+#
+#   username:       (required)  Login name for the new user
+#   password:       (required)  Password for the new user
+#   enabled:        (optional)  Whether the user is enabled        (default: true)
+#   global_roles:   (optional)  List of global role IDs to bind    (e.g. user, admin)
+#   project_roles:  (optional)  List of project role binding dicts:
+#     - role:       (required)  Role template ID                   (e.g. project-member)
+#       project:    (optional)  Project name                       (default: Default)
+#       cluster:    (optional)  Cluster ID                         (default: local)
+#   verify_login:   (optional)  Verify the user can log in         (default: true)
+#
+# Example:
+#
+#   rancher_users:
+#     - username: standard_user
+#       password: "{{ rancher_admin_password }}"
+#       global_roles:
+#         - user
+#       project_roles:
+#         - role: project-member
+#           project: Default
+#           cluster: local
+#       verify_login: true
+#
+rancher_users: []
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+# What to do when a user cannot be created or verified.
+#   fail  — abort the playbook
+#   warn  — log a warning and continue
+rancher_user_on_error: warn

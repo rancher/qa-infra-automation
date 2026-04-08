@@ -1,0 +1,141 @@
+# Install K3s on clusters and deploy Rancher via Helm.
+# K3s installs run in parallel (rancher-server + importcluster).
+# Rancher is deployed after K3s is ready using the rancher-ha playbook.
+
+- name: Write k3s vars for rancher server
+  ansible.builtin.copy:
+    content: |
+      kubernetes_version: '{{ k3s_kubernetes_version }}'
+      kubeconfig_file: '{{ outputs_dir }}/kubeconfig-rancher.yaml'
+      node_token_file: '/tmp/node_token_rancher.txt'
+      channel: "stable"
+    dest: "{{ outputs_dir }}/rancher-server-k3s-vars.yaml"
+    mode: "0644"
+  when: job_type == 'recurring'
+
+- name: Install k3s on rancher server cluster (async)
+  ansible.builtin.command:
+    cmd: >-
+      ansible-playbook
+      -i {{ outputs_dir }}/rancher-server-inventory.yml
+      {{ qa_infra_dir }}/ansible/k3s/default/k3s-playbook.yml
+      --extra-vars @{{ outputs_dir }}/rancher-server-k3s-vars.yaml
+      {{ ansible_verbose_flag }}
+    chdir: "{{ qa_infra_dir }}"
+  environment:
+    ANSIBLE_CONFIG: "{{ qa_infra_dir }}/ansible/k3s/default/ansible.cfg"
+    TF_WORKSPACE: "rancher-server"
+    TERRAFORM_NODE_SOURCE: "tofu/aws/modules/cluster_nodes"
+  async: 600
+  poll: 0
+  register: k3s_rancher_job
+  changed_when: true
+  when: job_type == 'recurring'
+
+- name: Write k3s vars for import cluster
+  ansible.builtin.copy:
+    content: |
+      kubernetes_version: '{{ k3s_kubernetes_version }}'
+      kubeconfig_file: '{{ outputs_dir }}/kubeconfig-import.yaml'
+      node_token_file: '/tmp/node_token_import.txt'
+      channel: "stable"
+    dest: "{{ outputs_dir }}/import-k3s-vars.yaml"
+    mode: "0644"
+  when: create_initial_clusters | bool
+
+- name: Install k3s on import cluster (async)
+  ansible.builtin.command:
+    cmd: >-
+      ansible-playbook
+      -i {{ outputs_dir }}/import-inventory.yml
+      {{ qa_infra_dir }}/ansible/k3s/default/k3s-playbook.yml
+      --extra-vars @{{ outputs_dir }}/import-k3s-vars.yaml
+      {{ ansible_verbose_flag }}
+    chdir: "{{ qa_infra_dir }}"
+  environment:
+    ANSIBLE_CONFIG: "{{ qa_infra_dir }}/ansible/k3s/default/ansible.cfg"
+    TF_WORKSPACE: "importcluster"
+    TERRAFORM_NODE_SOURCE: "tofu/aws/modules/cluster_nodes"
+  when: create_initial_clusters | bool
+  async: 600
+  poll: 0
+  register: k3s_import_job
+  changed_when: true
+
+- name: Wait for import cluster k3s install
+  ansible.builtin.async_status:
+    jid: "{{ k3s_import_job.ansible_job_id }}"
+  register: k3s_import_result
+  until: k3s_import_result.finished | bool
+  retries: 60
+  delay: 10
+  failed_when: k3s_import_result.finished | bool and k3s_import_result.rc | default(1) != 0
+  when: create_initial_clusters | bool
+
+- name: Wait for rancher server k3s install
+  ansible.builtin.async_status:
+    jid: "{{ k3s_rancher_job.ansible_job_id }}"
+  register: k3s_rancher_result
+  until: k3s_rancher_result.finished | bool
+  retries: 60
+  delay: 10
+  failed_when: k3s_rancher_result.finished | bool and k3s_rancher_result.rc | default(1) != 0
+  when: job_type == 'recurring'
+
+- name: Verify rancher kubeconfig exists
+  ansible.builtin.stat:
+    path: "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+  register: rancher_kubeconfig
+  failed_when: not rancher_kubeconfig.stat.exists
+  when: job_type == 'recurring'
+
+- name: Verify import kubeconfig exists
+  ansible.builtin.stat:
+    path: "{{ outputs_dir }}/kubeconfig-import.yaml"
+  register: import_kubeconfig
+  failed_when: not import_kubeconfig.stat.exists
+  when: create_initial_clusters | bool
+
+- name: Write rancher vars
+  ansible.builtin.copy:
+    content: |
+      rancher_version: '{{ rancher_version }}'
+      rancher_image_tag: '{{ rancher_image_tag_resolved | default(rancher_image_tag) }}'
+      rancher_image: '{{ rancher_image | default("") }}'
+      cert_manager_version: '{{ cert_manager_version }}'
+      kubeconfig_file: '{{ outputs_dir }}/kubeconfig-rancher.yaml'
+      fqdn: '{{ rancher_host }}'
+      bootstrap_password: '{{ bootstrap_password }}'
+      password: '{{ rancher_password }}'
+      rancher_chart_repo: '{{ rancher_helm_repo }}'
+      rancher_chart_repo_url: '{{ rancher_chart_url }}'
+    dest: "{{ outputs_dir }}/rancher-vars.yaml"
+    mode: "0644"
+  when: job_type == 'recurring'
+
+- name: Deploy Rancher
+  ansible.builtin.command:
+    cmd: >-
+      ansible-playbook
+      {{ qa_infra_dir }}/ansible/rancher/default-ha/rancher-playbook.yml
+      --extra-vars @{{ outputs_dir }}/rancher-vars.yaml
+      {{ ansible_verbose_flag }}
+    chdir: "{{ qa_infra_dir }}"
+  environment:
+    ANSIBLE_CONFIG: "{{ qa_infra_dir }}/ansible/k3s/default/ansible.cfg"
+    TF_WORKSPACE: "rancher-server"
+    TERRAFORM_NODE_SOURCE: "tofu/aws/modules/cluster_nodes"
+  async: 1200
+  poll: 30
+  changed_when: true
+  when: job_type == 'recurring'
+
+- name: Wait for import cluster API
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig {{ outputs_dir }}/kubeconfig-import.yaml get nodes
+  register: import_api_check
+  until: import_api_check.rc == 0
+  retries: 12
+  delay: 10
+  changed_when: false
+  when: create_initial_clusters | bool

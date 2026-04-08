@@ -1,0 +1,55 @@
+# =============================================================================
+# Dashboard E2E Test Pipeline — Variable Configuration
+# =============================================================================
+# Copy to vars.yaml and adjust values for your environment.
+# Jenkins sets most of these via environment variables; the playbook falls back
+# to these defaults when running manually.
+# =============================================================================
+
+# --- AWS infrastructure ---
+aws_region: "us-west-1"
+aws_ssh_user: "ubuntu"
+aws_instance_type: "t3a.xlarge"
+aws_volume_size: 60
+aws_volume_type: "gp3"
+aws_ami: "ami-xxxxxxxxxxxxxxxxx"
+aws_security_group: "sg-xxxxxxxxxxxxxxxxx"
+aws_subnet: "subnet-xxxxxxxxxxxxxxxxx"
+aws_vpc: "vpc-xxxxxxxxxxxxxxxxx"
+aws_route53_zone: "example.your-domain.com"
+
+# --- K3s ---
+k3s_kubernetes_version: "v1.30.0+k3s1"
+server_count: 3
+
+# --- Rancher ---
+rancher_helm_repo: "rancher-com-rc"
+rancher_image_tag: "v2.14-head"
+cert_manager_version: "1.11.0"
+bootstrap_password: "password"
+rancher_password: "password1234"
+rancher_username: "admin"
+
+# --- Test-runner pinned versions ---
+# Keep in sync with: https://github.com/cypress-io/cypress-docker-images/blob/master/factory/.env
+cypress_version: "11.1.0"
+nodejs_version: "24.14.0"
+yarn_version: "1.22.22"
+chrome_version: "146.0.7680.164-1"
+
+# --- Dashboard repo ---
+dashboard_repo: "rancher/dashboard"
+dashboard_branch: "master"
+# dashboard_overlay_branch: "master"
+
+# --- Cypress ---
+cypress_tags: "@adminUser"
+job_type: "recurring"              # recurring | existing
+create_initial_clusters: true
+# rancher_host: ""                 # Required for job_type=existing
+
+# --- Reporting ---
+percy_enabled: false
+qase_enabled: false
+qase_project: "RM"
+# qase_debug: false

@@ -1,0 +1,129 @@
+# Resolve which Helm chart version and container image to deploy.
+# Each repo is self-contained — chart and image come from the same source.
+# Matches upstream cypress/jenkins/init.sh configure_rancher_helm().
+# See README.md "Helm Repos and Image Resolution" for details.
+
+- name: Map helm repo to chart and image configuration
+  vars:
+    _helm_repos:
+      rancher-prime:
+        url: https://charts.rancher.com/server-charts/prime
+        image: registry.suse.com/rancher/rancher
+      rancher-latest:
+        url: https://charts.optimus.rancher.io/server-charts/latest
+        image: stgregistry.suse.com/rancher/rancher
+      rancher-alpha:
+        url: https://charts.optimus.rancher.io/server-charts/alpha
+        image: stgregistry.suse.com/rancher/rancher
+      rancher-community:
+        url: https://releases.rancher.com/server-charts/stable
+        image: ""
+      rancher-com-rc:
+        url: https://releases.rancher.com/server-charts/latest
+        image: ""
+      rancher-com-alpha:
+        url: https://releases.rancher.com/server-charts/alpha
+        image: ""
+    _repo: "{{ _helm_repos[rancher_helm_repo] | default(_helm_repos['rancher-com-rc']) }}"
+  block:
+    - name: Validate helm repo name
+      ansible.builtin.assert:
+        that:
+          - rancher_helm_repo in _helm_repos
+        fail_msg: >-
+          Unknown rancher_helm_repo '{{ rancher_helm_repo }}'.
+          Valid repos: {{ _helm_repos.keys() | list | join(', ') }}
+
+    - name: Set helm chart URL and image
+      ansible.builtin.set_fact:
+        rancher_chart_url: "{{ _repo.url }}"
+        rancher_image: "{{ _repo.image }}"
+
+- name: Add helm repo
+  ansible.builtin.command:
+    cmd: "helm repo add {{ rancher_helm_repo }} {{ rancher_chart_url }}"
+  changed_when: false
+  failed_when: false
+  retries: 3
+  delay: 5
+  register: _helm_add
+  until: _helm_add.rc == 0
+
+- name: Update helm repos
+  ansible.builtin.command:
+    cmd: helm repo update
+  changed_when: false
+  retries: 3
+  delay: 5
+  register: _helm_update
+  until: _helm_update.rc == 0
+
+- name: Extract version string from image tag
+  ansible.builtin.set_fact:
+    version_string: "{{ rancher_image_tag | regex_replace('-.*$', '') }}"
+
+- name: Resolve Rancher chart version
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      TAG="{{ rancher_image_tag }}"
+      REPO="{{ rancher_helm_repo }}"
+      VS="{{ version_string }}"
+      SEARCH=$(helm search repo "${REPO}" --devel --versions)
+
+      case "${TAG}" in
+        head)
+          echo "${SEARCH}" | sed -n '1!p' | head -1 \
+            | awk '{print $2}' | tr -d '[:space:]'
+          ;;
+        *)
+          case "{{ rancher_helm_repo }}" in
+            rancher-alpha)
+              echo "${SEARCH}" | grep "^${REPO}/rancher[[:space:]]" \
+                | grep "${VS}" | grep -- "-alpha" \
+                | awk '{print $2}' | sort -V | tail -1 | tr -d '[:space:]'
+              ;;
+            rancher-latest)
+              echo "${SEARCH}" | grep "^${REPO}/rancher[[:space:]]" \
+                | grep "${VS}" | grep -- "-rc" \
+                | awk '{print $2}' | sort -V | tail -1 | tr -d '[:space:]'
+              ;;
+            *)
+              echo "${SEARCH}" | grep "${VS}" \
+                | awk '{print $2}' | sort -V | tail -1 | tr -d '[:space:]'
+              ;;
+          esac
+          ;;
+      esac
+  register: helm_version_result
+  changed_when: false
+  failed_when: helm_version_result.stdout | trim == ''
+
+- name: Set rancher_version
+  ansible.builtin.set_fact:
+    rancher_version: "{{ helm_version_result.stdout | trim }}"
+
+- name: Set resolved image tag
+  ansible.builtin.set_fact:
+    rancher_image_tag_resolved: >-
+      {%- if rancher_image | length > 0 -%}
+        v{{ rancher_version }}
+      {%- else -%}
+        {{ rancher_image_tag }}
+      {%- endif -%}
+
+- name: Adjust Node.js version for older Rancher
+  ansible.builtin.set_fact:
+    nodejs_version: "22.14.0"
+  when:
+    - rancher_image_tag != 'head'
+    - rancher_version is defined
+    - rancher_version | length > 0
+    - rancher_version is version('2.14', '<')
+
+- name: Report resolved versions
+  ansible.builtin.debug:
+    msg: >-
+      Rancher {{ rancher_version }},
+      image_tag={{ rancher_image_tag_resolved }},
+      helm_repo={{ rancher_helm_repo }}
