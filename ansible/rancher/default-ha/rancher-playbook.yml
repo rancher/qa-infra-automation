@@ -70,10 +70,11 @@
         name: download_verify
       vars:
         dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml"
-        dv_checksum_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/checksums.txt"
         dv_dest: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
-        dv_checksum_format: "github_sha256sum"
-        dv_github_artifact_name: "cert-manager.crds.yaml"
+        dv_checksum_format: "github_release"
+        dv_github_repo: "cert-manager/cert-manager"
+        dv_github_release_asset_name: "cert-manager.crds.yaml"
+        dv_github_release_tag: "v{{ cert_manager_version }}"
       when: cert_manager_version != ""
 
     - name: Install cert-manager CRDs
@@ -90,10 +91,11 @@
         name: download_verify
       vars:
         dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml"
-        dv_checksum_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/checksums.txt"
         dv_dest: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
-        dv_checksum_format: "github_sha256sum"
-        dv_github_artifact_name: "cert-manager.yaml"
+        dv_checksum_format: "github_release"
+        dv_github_repo: "cert-manager/cert-manager"
+        dv_github_release_asset_name: "cert-manager.yaml"
+        dv_github_release_tag: "v{{ cert_manager_version }}"
       when: cert_manager_version != ""
 
     - name: Install cert-manager
@@ -167,6 +169,8 @@
               rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
               replicas: "{{ node_info.resources | length }}"
             verify: true
+          retries: 6
+          delay: 120
       rescue:
         - name: Warn about unsigned Rancher chart
           ansible.builtin.debug:
@@ -187,9 +191,9 @@
               bootstrapPassword: "{{ bootstrap_password }}"
               rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
               replicas: "{{ node_info.resources | length }}"
+          retries: 6
+          delay: 120
       when: rancher_version != ""
-      retries: 6
-      delay: 120
 
     - name: Wait for Rancher to be ready
       kubernetes.core.k8s_info:

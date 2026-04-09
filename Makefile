@@ -129,7 +129,7 @@ check-prereqs: ## Check all prerequisites are installed
 	@command -v tofu >/dev/null 2>&1 || { echo "Error: tofu is not installed"; exit 1; }
 	@command -v ansible >/dev/null 2>&1 || { echo "Error: ansible is not installed"; exit 1; }
 	@command -v ansible-playbook >/dev/null 2>&1 || { echo "Error: ansible-playbook is not installed"; exit 1; }
-	@python3 -c "import yaml" 2>/dev/null || { echo "Installing Python dependencies..."; pip3 install --user -r requirements.txt; }
+	@python3 -c "import yaml" 2>/dev/null || { echo "Installing Python dependencies..."; if [ -n "$$VIRTUAL_ENV" ]; then pip3 install -r requirements.txt; else pip3 install --user -r requirements.txt; fi; }
 	@ansible-galaxy collection list 2>/dev/null | grep -q kubernetes.core || { echo "Installing Ansible collections..."; ansible-galaxy collection install -r requirements.yml; }
 	@echo "All prerequisites found"
 
