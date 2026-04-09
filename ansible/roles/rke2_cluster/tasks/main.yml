@@ -24,14 +24,14 @@
 
     - name: Wait for RKE2 to generate token
       ansible.builtin.wait_for:
-        path: /var/lib/rancher/rke2/server/token
+        path: /var/lib/rancher/rke2/server/node-token
         state: present
         timeout: "{{ rke2_wait_timeout }}"
       become: true
 
     - name: Read cluster token from master
       ansible.builtin.slurp:
-        src: "/var/lib/rancher/rke2/server/token"
+        src: "/var/lib/rancher/rke2/server/node-token"
       become: true
       register: master_token_content
 
