@@ -130,7 +130,6 @@ variable "nodes" {
 
 variable "ssh_user"   {}  # OS user for Ansible (e.g. "ubuntu", "ec2-user")
 variable "public_ssh_key"  {}  # Path to public key installed on nodes
-variable "private_ssh_key" {}  # Path to private key used by Ansible
 
 # Provider-specific variables
 variable "region"        {}

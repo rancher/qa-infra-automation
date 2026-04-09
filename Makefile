@@ -194,9 +194,11 @@ infra-up: infra-init ## Create infrastructure (generates Ansible inventory autom
 	@echo "Creating $(PROVIDER) infrastructure for $(ENV) environment..."
 	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars -auto-approve
 	@echo "Generating Ansible inventory..."
-	@if cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw airgap_inventory_json > /tmp/tofu-nodes-$(DISTRO)-$(ENV).json 2>/dev/null; then \
+	@if cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw airgap_inventory_json > /tmp/tofu-nodes-airgap-$(DISTRO)-$(ENV).json 2>/dev/null && [ -s /tmp/tofu-nodes-airgap-$(DISTRO)-$(ENV).json ]; then \
+		cp /tmp/tofu-nodes-airgap-$(DISTRO)-$(ENV).json /tmp/tofu-nodes-$(DISTRO)-$(ENV).json; \
 		echo "Using airgap inventory output"; \
-	elif cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw cluster_nodes_json > /tmp/tofu-nodes-$(DISTRO)-$(ENV).json 2>/dev/null; then \
+	elif cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw cluster_nodes_json > /tmp/tofu-nodes-cluster-$(DISTRO)-$(ENV).json 2>/dev/null && [ -s /tmp/tofu-nodes-cluster-$(DISTRO)-$(ENV).json ]; then \
+		cp /tmp/tofu-nodes-cluster-$(DISTRO)-$(ENV).json /tmp/tofu-nodes-$(DISTRO)-$(ENV).json; \
 		echo "Using cluster_nodes inventory output"; \
 	else \
 		echo "Error: No inventory JSON output found in Tofu module $(TOFU_DIR). Has 'make infra-up' been run?"; \
