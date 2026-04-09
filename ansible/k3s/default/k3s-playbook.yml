@@ -18,7 +18,7 @@
           - kubernetes_version | length > 0
           - kube_api_host is defined
           - kube_api_host | length > 0
-        fail_msg: "Required variables not defined. Set kubernetes_version and kube_api_host in vars.yaml or under all.vars on the inventory file"
+        fail_msg: "Required variables not defined. Set kubernetes_version and kube_api_host in vars.yaml or under all.vars on the inventory file. kube_api_host should point to a control-plane node."
       run_once: true
     - include_role:
         name: setup

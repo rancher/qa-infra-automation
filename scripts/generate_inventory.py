@@ -40,7 +40,14 @@ def load_json(path: str) -> dict:
         print(f"Error: {path} is empty. Did 'tofu apply' complete successfully?", file=sys.stderr)
         print("Ensure the Tofu module defines the required output (cluster_nodes_json or airgap_inventory_json).", file=sys.stderr)
         sys.exit(1)
-    return json.loads(content)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        print(f"Error: Failed to parse JSON from {path}: {e}", file=sys.stderr)
+        print(f"  File content (first 200 chars): {content[:200]}", file=sys.stderr)
+        print("This usually means 'tofu output' returned an error or no data.", file=sys.stderr)
+        print("Run 'tofu apply' first, then retry.", file=sys.stderr)
+        sys.exit(1)
 
 
 def load_schema(path: str) -> dict:

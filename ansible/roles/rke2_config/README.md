@@ -195,10 +195,6 @@ ansible-playbook -i inventory.yml playbook.yml
 ansible all -i inventory.yml -m shell -a "cat /etc/rancher/rke2/config.yaml"
 ```
 
-## Author
-
-SUSE Rancher QA Team (@rancher/qa-pit-crew)
-
 ## License
 
 Apache 2.0

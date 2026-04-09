@@ -444,10 +444,6 @@ watch kubectl --kubeconfig kubeconfig.yaml get nodes
 
 Ensure firewall rules are properly configured (via rke2_setup role).
 
-## Author
-
-SUSE Rancher QA Team (@rancher/qa-pit-crew)
-
 ## License
 
 Apache 2.0

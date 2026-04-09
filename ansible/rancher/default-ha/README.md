@@ -59,14 +59,7 @@ When running with `-e "upgrade_mode=true"`, the upgrade tasks expect:
 | `rancher_version_upgrade` | Target Rancher version (e.g. `latest` for HEAD, or `v2.13.0`) |
 | `rancher_image_tag_upgrade` | Optional image tag override |
 
-The install flow:
-
-- validates `kubeconfig_file` and `fqdn`
-- installs cert-manager when `cert_manager_version` is set
-- installs Rancher with Helm
-- waits for the Rancher and Fleet deployments to become ready
-- logs in with `bootstrap_password`, sets the permanent admin `password`, and sets `server-url`
-- writes `generated.tfvars` with the Rancher URL and API token
+See [QUICKSTART.md](./QUICKSTART.md) for step-by-step usage.
 
 ## Running the Rancher upgrade flow
 

@@ -26,7 +26,9 @@ bootstrap_password: ""
 password: ""
 ```
 
-If you plan to upgrade Rancher later, add these upgrade-specific variables now or before running the upgrade flow:
+### Step 2. Run Playbook
+
+If you plan to upgrade Rancher later, add these upgrade-specific variables to `vars.yaml`:
 
 ```yaml
 rancher_chart_repo_upgrade: rancher-latest
@@ -34,8 +36,6 @@ rancher_chart_upgrade_repo_url: https://releases.rancher.com/server-charts/lates
 rancher_version_upgrade: "latest"
 rancher_image_tag_upgrade: head # Optional
 ```
-
-### Step 2. Run Playbook
 
 When running via `make rancher`, the kubeconfig path is set automatically from the cluster step. If running manually, set `kubeconfig_file` in `vars.yaml`:
 

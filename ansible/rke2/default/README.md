@@ -10,7 +10,7 @@ The playbook is organized into **5 sequential roles** that handle distinct phase
 2. **rke2_config** - Generates RKE2 configuration files for server and agent nodes
 3. **rke2_install** - Installs RKE2 binaries using online (script) or airgap (tarball) installation methods
 4. **rke2_cluster** - Forms the cluster by starting services in sequence (master → servers → agents) with token distribution
-5. **rke2_health_check** - Validates cluster health including API server, etcd, node status, and pod readiness
+5. **rke2_health_check** - Validates cluster health: API server responsiveness, node readiness, system pod status, and etcd health
 
 Each role can be executed independently using Ansible tags, enabling selective execution, debugging, and re-running specific phases without redeploying the entire cluster.
 
@@ -69,10 +69,7 @@ Each role can be executed independently using Ansible tags, enabling selective e
 - Validates all nodes have joined the cluster
 
 **Variables:**
-- `rke2_node_role` (from `ansible_role` in inventory)
-- `rke2_kube_api_host` (from `kube_api_host`)
-- `rke2_kubeconfig_file` (from `kubeconfig_file`)
-- `rke2_node_token_file` (default: `/tmp/node_token.txt`)
+- `rke2_kubeconfig_dest` (default: `{{ playbook_dir }}/kubeconfig.yaml`)
 
 **Tags:** `cluster`, `rke2`
 
@@ -81,13 +78,12 @@ Each role can be executed independently using Ansible tags, enabling selective e
 **Tasks:**
 - Waits for all nodes to reach Ready state
 - Checks that all pods in kube-system namespace are Running
-- Detects ingress controller type (nginx-ingress or traefik)
-- Validates ingress controller pods are ready
+- Checks etcd cluster health
 - Reports cluster health status
 
 **Variables:**
-- `rke2_kubeconfig_file` (from `kubeconfig_file`)
-- `rke2_server_flags` (optional, for ingress controller detection)
+- `rke2_kubeconfig_path` (path to kubeconfig file on localhost)
+- `rke2_server_flags` (optional, passed through from playbook)
 
 **Requirements:**
 - Ansible `community.general` collection (for `json_query` filter used in pod status parsing)
