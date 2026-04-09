@@ -42,7 +42,7 @@ Before running the playbook, verify that your inventory file is correctly popula
 Once you have your inventory file, verify it has the correct data:
 
 ```sh
-ansible-inventory -i ansible/k3s/default/inventory.yml --list
+ansible-inventory -i ansible/k3s/default/inventory/inventory.yml --list
 ```
 
 ### Step 2: Define Ansible Variables
@@ -79,7 +79,7 @@ make cluster DISTRO=k3s
 **Manually** — run from the repository root:
 
 ```sh
-ansible-playbook -i ansible/k3s/default/inventory.yml ansible/k3s/default/k3s-playbook.yml
+ansible-playbook -i ansible/k3s/default/inventory/inventory.yml ansible/k3s/default/k3s-playbook.yml
 ```
 
 ### Step 4: Verify K3s Installation
