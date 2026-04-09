@@ -1,9 +1,5 @@
 # Quickstart
 
-## Overview
-
-This playbook deploys K3s clusters using a static Ansible inventory. The inventory is generated automatically when provisioning infrastructure with Tofu via `make infra-up`.
-
 ## Prerequisites
 
 1. Infrastructure Deployed: You must have nodes to install K3s on, either by running `tofu apply` successfully or bringing your own. [Example tofu module](../../../tofu/aws/modules/cluster_nodes/QUICKSTART.md).
@@ -60,7 +56,7 @@ Create a file named `vars.yaml` in the `ansible/k3s/default/` directory.
 
 ```yaml
 # k3s version
-kubernetes_version: 'v1.35.2+k3s1'
+kubernetes_version: 'v1.35.2+k3s1'  # Update to latest K3s version as needed
 
 # Optional channel for K3s installation (default: latest)
 # Options: stable, latest, testing

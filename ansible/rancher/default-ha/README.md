@@ -81,6 +81,8 @@ The install flow:
 - logs in with `bootstrap_password`, sets the permanent admin `password`, and sets `server-url`
 - writes `generated.tfvars` with the Rancher URL and API token
 
+See [QUICKSTART.md](./QUICKSTART.md) for step-by-step usage.
+
 ## Running the Rancher upgrade flow
 
 The Rancher upgrade logic is implemented in `rancher-upgrade-tasks.yml` and is invoked

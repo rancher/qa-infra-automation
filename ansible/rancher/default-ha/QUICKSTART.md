@@ -26,7 +26,9 @@ bootstrap_password: ""
 password: ""
 ```
 
-If you plan to upgrade Rancher later, add these upgrade-specific variables now or before running the upgrade flow:
+### Step 2. Run Playbook
+
+If you plan to upgrade Rancher later, add these upgrade-specific variables to `vars.yaml`:
 
 ```yaml
 rancher_chart_repo_upgrade: rancher-latest

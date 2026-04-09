@@ -81,10 +81,6 @@ ansible-playbook --check -i inventory.yml playbook.yml
 ansible-playbook -i inventory.yml playbook.yml
 ```
 
-## Author
-
-SUSE Rancher QA Team (@rancher/qa-pit-crew)
-
 ## License
 
 Apache 2.0

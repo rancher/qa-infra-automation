@@ -220,10 +220,6 @@ ansible all -i inventory.yml -m shell -a "ls -lh /var/lib/rancher/rke2/agent/ima
 **Problem:** Version mismatch after installation
 **Solution:** Ensure `rke2_version` matches desired version format (e.g., `v1.28.5+rke2r1` not `v1.28.5`)
 
-## Author
-
-SUSE Rancher QA Team (@rancher/qa-pit-crew)
-
 ## License
 
 Apache 2.0

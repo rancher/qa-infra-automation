@@ -570,10 +570,6 @@ vars:
   rke2_check_etcd_health: true  # Verify data layer
 ```
 
-## Author
-
-SUSE Rancher QA Team (@rancher/qa-pit-crew)
-
 ## License
 
 Apache 2.0
