@@ -8,13 +8,14 @@ dv_artifact_url: ""
 # Required: Local destination path for the artifact
 dv_dest: ""
 
-# URL of the checksum file (not needed for sha256sum_inline format)
+# URL of the checksum file (not needed for sha256sum_inline or github_release format)
 dv_checksum_url: ""
 
-# How to extract the expected checksum:
-#   github_sha256sum - grep for dv_github_artifact_name in a GitHub sha256sum-<arch>.txt file
-#   sha256sum_file   - single-line checksum file (first field)
-#   sha256sum_inline - use dv_checksum_inline_value directly
+# How to obtain the expected checksum:
+#   github_sha256sum  - grep for dv_github_artifact_name in a GitHub sha256sum-<arch>.txt file
+#   sha256sum_file    - single-line checksum file (first field)
+#   sha256sum_inline  - use dv_checksum_inline_value directly
+#   github_release    - look up SHA256 from GitHub release API (requires dv_github_repo)
 dv_checksum_format: "github_sha256sum"
 
 # For github_sha256sum format: the filename to grep for in the checksum file
@@ -22,6 +23,19 @@ dv_github_artifact_name: ""
 
 # For sha256sum_inline format: the checksum value itself
 dv_checksum_inline_value: ""
+
+# For github_release format: the GitHub repo in owner/repo form (e.g. cert-manager/cert-manager)
+dv_github_repo: ""
+
+# For github_release format: the asset filename to look up in the release (e.g. cert-manager.crds.yaml)
+# Defaults to dv_dest basename if not set
+dv_github_release_asset_name: ""
+
+# For github_release format: the release tag (e.g. v1.15.5). Defaults to extracting from dv_artifact_url
+dv_github_release_tag: ""
+
+# Directory to cache verified checksums (avoids repeated API calls for the same version)
+dv_checksum_cache_dir: "/tmp/download_verify_cache"
 
 # Download settings
 dv_mode: "0644"
