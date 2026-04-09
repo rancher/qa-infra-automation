@@ -19,7 +19,6 @@ Before running the playbook, verify that your inventory file is correctly popula
   # ansible/k3s/default/inventory/inventory.yml
   all:
     vars:
-      ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
       ansible_user: "ec2-user"
       fqdn: your-cluster.example.com
       kube_api_host: 1.2.3.4
