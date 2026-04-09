@@ -225,15 +225,15 @@ def generate_airgap_inventory(data: dict) -> str:
 
 
 def write_manifest(output_dir: str, input_path: str, inventory_path: str) -> None:
-    with open(input_path) as f:
-        input_content = f.read()
-    with open(inventory_path) as f:
-        inventory_content = f.read()
+    with open(input_path, "rb") as f:
+        input_bytes = f.read()
+    with open(inventory_path, "rb") as f:
+        inventory_bytes = f.read()
 
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "input_checksum": hashlib.sha256(input_content.encode()).hexdigest(),
-        "inventory_checksum": hashlib.sha256(inventory_content.encode()).hexdigest(),
+        "input_checksum": hashlib.sha256(input_bytes).hexdigest(),
+        "inventory_checksum": hashlib.sha256(inventory_bytes).hexdigest(),
         "input_file": os.path.abspath(input_path),
         "inventory_file": os.path.abspath(inventory_path),
     }
