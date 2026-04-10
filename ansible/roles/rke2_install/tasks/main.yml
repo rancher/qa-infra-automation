@@ -21,15 +21,22 @@
 - name: Display installed version
   ansible.builtin.debug:
     msg: "RKE2 already installed: {{ rke2_installed_version.stdout_lines[0] }}"
-  when: rke2_binary.stat.exists
+  when:
+    - rke2_binary.stat.exists
+    - rke2_installed_version.rc is defined
+    - rke2_installed_version.rc == 0
 
 # Online installation tasks
 - name: Online installation
   when: rke2_install_method == "online"
   block:
+    - name: Select install script URL (version-pinned when available)
+      ansible.builtin.set_fact:
+        _rke2_script_url: "{{ (rke2_version != '') | ternary(rke2_install_script_versioned_url, rke2_install_script_url) }}"
+
     - name: Download RKE2 install script
       ansible.builtin.get_url:
-        url: "{{ rke2_install_script_url }}"
+        url: "{{ _rke2_script_url }}"
         dest: /tmp/rke2-install.sh
         mode: '0755'
       become: true
@@ -39,9 +46,9 @@
       ansible.builtin.command:
         cmd: /tmp/rke2-install.sh
       environment:
-        INSTALL_RKE2_VERSION: "{{ rke2_version | default(omit) }}"
+        INSTALL_RKE2_VERSION: "{{ rke2_version if rke2_version != '' else omit }}"
         INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
-        INSTALL_RKE2_TYPE: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}server{% else %}agent{% endif %}"
+        INSTALL_RKE2_TYPE: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
       become: true
       when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_install_result
@@ -103,7 +110,7 @@
       ansible.builtin.command:
         cmd: /tmp/rke2-install.sh
       environment:
-        INSTALL_RKE2_TYPE: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}server{% else %}agent{% endif %}"
+        INSTALL_RKE2_TYPE: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
       become: true
       when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_airgap_install_result
@@ -111,14 +118,14 @@
 
 - name: Enable RKE2 service
   ansible.builtin.systemd:
-    name: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}rke2-server{% else %}rke2-agent{% endif %}"
+    name: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"
     enabled: "{{ rke2_start_on_boot }}"
     daemon_reload: true
   become: true
 
 - name: Start RKE2 service (if configured)
   ansible.builtin.systemd:
-    name: "{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}rke2-server{% else %}rke2-agent{% endif %}"
+    name: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"
     state: started
   become: true
   when: rke2_start_after_install

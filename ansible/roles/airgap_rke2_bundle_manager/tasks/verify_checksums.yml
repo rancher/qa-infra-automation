@@ -1,36 +1,17 @@
 ---
-# Verify RKE2 artifact checksums
+# Verify RKE2 artifact checksums against upstream sha256sum file
 
-- name: Extract expected tarball checksum
+- name: Verify RKE2 tarball checksum
   ansible.builtin.shell: |
     set -o pipefail
-    grep "rke2.linux-{{ rke2_arch }}.tar.gz" {{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt | awk '{print $1}'
-  register: expected_tarball_checksum
-  changed_when: false
-  become: false
-  args:
-    executable: /bin/bash
-
-- name: Extract expected images checksum
-  ansible.builtin.shell: |
-    set -o pipefail
-    grep "rke2-images.linux-{{ rke2_arch }}.tar.gz" {{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt | awk '{print $1}'
-  register: expected_images_checksum
-  changed_when: false
-  become: false
-  args:
-    executable: /bin/bash
-
-- name: Verify downloaded tarball checksum
-  ansible.builtin.shell: |
-    set -o pipefail
-    actual_checksum=$(sha256sum {{ rke2_temp_dir }}/rke2.linux-{{ rke2_arch }}.tar.gz | awk '{print $1}')
-    expected_checksum="{{ expected_tarball_checksum.stdout }}"
-    if [ "$actual_checksum" = "$expected_checksum" ]; then
+    cd {{ rke2_temp_dir }}
+    expected=$(grep "rke2.linux-{{ rke2_arch }}.tar.gz" sha256sum-{{ rke2_arch }}.txt | awk '{print $1}')
+    actual=$(sha256sum rke2.linux-{{ rke2_arch }}.tar.gz | awk '{print $1}')
+    if [ "$actual" = "$expected" ]; then
       echo "OK"
       exit 0
     else
-      echo "FAILED: Expected $expected_checksum, got $actual_checksum"
+      echo "FAILED: Expected $expected, got $actual"
       exit 1
     fi
   register: tarball_checksum_verify
@@ -40,19 +21,60 @@
   args:
     executable: /bin/bash
 
-- name: Verify downloaded images checksum
+- name: Verify RKE2 core images checksum
   ansible.builtin.shell: |
     set -o pipefail
-    actual_checksum=$(sha256sum {{ rke2_temp_dir }}/rke2-images.tar.gz | awk '{print $1}')
-    expected_checksum="{{ expected_images_checksum.stdout }}"
-    if [ "$actual_checksum" = "$expected_checksum" ]; then
+    cd {{ rke2_temp_dir }}
+    expected=$(grep "rke2-images-core.linux-{{ rke2_arch }}.tar.gz" sha256sum-{{ rke2_arch }}.txt | awk '{print $1}')
+    actual=$(sha256sum rke2-images-core.tar.gz | awk '{print $1}')
+    if [ "$actual" = "$expected" ]; then
       echo "OK"
       exit 0
     else
-      echo "FAILED: Expected $expected_checksum, got $actual_checksum"
+      echo "FAILED: Expected $expected, got $actual"
       exit 1
     fi
-  register: images_checksum_verify
+  register: core_images_checksum_verify
+  changed_when: false
+  become: false
+  failed_when: false
+  args:
+    executable: /bin/bash
+
+- name: Verify RKE2 CNI images checksum
+  ansible.builtin.shell: |
+    set -o pipefail
+    cd {{ rke2_temp_dir }}
+    expected=$(grep "rke2-images-{{ cni | default('canal') }}.linux-{{ rke2_arch }}.tar.gz" sha256sum-{{ rke2_arch }}.txt | awk '{print $1}')
+    actual=$(sha256sum rke2-images-cni.tar.gz | awk '{print $1}')
+    if [ "$actual" = "$expected" ]; then
+      echo "OK"
+      exit 0
+    else
+      echo "FAILED: Expected $expected, got $actual"
+      exit 1
+    fi
+  register: cni_images_checksum_verify
+  changed_when: false
+  become: false
+  failed_when: false
+  args:
+    executable: /bin/bash
+
+- name: Verify RKE2 Traefik images checksum
+  ansible.builtin.shell: |
+    set -o pipefail
+    cd {{ rke2_temp_dir }}
+    expected=$(grep "rke2-images-traefik.linux-{{ rke2_arch }}.tar.gz" sha256sum-{{ rke2_arch }}.txt | awk '{print $1}')
+    actual=$(sha256sum rke2-images-traefik.tar.gz | awk '{print $1}')
+    if [ "$actual" = "$expected" ]; then
+      echo "OK"
+      exit 0
+    else
+      echo "FAILED: Expected $expected, got $actual"
+      exit 1
+    fi
+  register: traefik_images_checksum_verify
   changed_when: false
   become: false
   failed_when: false
@@ -64,40 +86,31 @@
     msg: |
       Checksum Verification Results:
       - RKE2 Tarball: {{ tarball_checksum_verify.stdout }}
-      - RKE2 Images: {{ images_checksum_verify.stdout }}
+      - Core Images: {{ core_images_checksum_verify.stdout }}
+      - CNI Images: {{ cni_images_checksum_verify.stdout }}
+      - Traefik Images: {{ traefik_images_checksum_verify.stdout }}
 
 - name: Handle checksum verification failure
-  when: tarball_checksum_verify.rc != 0 or images_checksum_verify.rc != 0
+  when: >-
+    tarball_checksum_verify.rc != 0 or
+    core_images_checksum_verify.rc != 0 or
+    cni_images_checksum_verify.rc != 0 or
+    traefik_images_checksum_verify.rc != 0
   block:
-    - name: Regenerate checksum file with actual values
-      ansible.builtin.shell: |
-        cd {{ rke2_temp_dir }}
-        sha256sum rke2.linux-{{ rke2_arch }}.tar.gz > sha256sum-{{ rke2_arch }}.txt
-        sha256sum rke2-images.tar.gz >> sha256sum-{{ rke2_arch }}.txt
-        echo "Generated new checksum file with actual file hashes"
-      when: rke2_regenerate_checksums_on_failure | bool
-      register: checksum_regen
-      changed_when: true
-      become: false
-
-    - name: Display regeneration notice
-      ansible.builtin.debug:
-        msg: |
-          WARNING: Checksum verification failed, but regenerated checksums from actual files.
-          This may indicate a version mismatch or corrupted download.
-          Proceeding with actual file checksums.
-      when: rke2_regenerate_checksums_on_failure | bool
-
     - name: Fail on checksum mismatch
       ansible.builtin.fail:
         msg: |
-          Checksum verification failed!
+          Checksum verification failed! Files may be corrupted or tampered with.
           RKE2 Tarball: {{ tarball_checksum_verify.stdout }}
-          RKE2 Images: {{ images_checksum_verify.stdout }}
-          Set rke2_regenerate_checksums_on_failure: true to continue with actual checksums.
-      when: not (rke2_regenerate_checksums_on_failure | bool)
+          Core Images: {{ core_images_checksum_verify.stdout }}
+          CNI Images: {{ cni_images_checksum_verify.stdout }}
+          Traefik Images: {{ traefik_images_checksum_verify.stdout }}
 
 - name: Confirm successful verification
   ansible.builtin.debug:
     msg: "All checksums verified successfully"
-  when: tarball_checksum_verify.rc == 0 and images_checksum_verify.rc == 0
+  when: >-
+    tarball_checksum_verify.rc == 0 and
+    core_images_checksum_verify.rc == 0 and
+    cni_images_checksum_verify.rc == 0 and
+    traefik_images_checksum_verify.rc == 0

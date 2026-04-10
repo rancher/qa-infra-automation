@@ -1,0 +1,77 @@
+---
+# Download and verify an artifact with SHA256 checksum
+# Supports three checksum formats: github_sha256sum, sha256sum_file, sha256sum_inline
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - dv_artifact_url | length > 0
+      - dv_dest | length > 0
+    fail_msg: "download_verify: dv_artifact_url and dv_dest are required"
+
+- name: Set checksum file path
+  ansible.builtin.set_fact:
+    _dv_checksum_file: "{{ dv_temp_dir }}/{{ dv_dest | basename }}.sha256sum"
+
+- name: Download checksum file
+  ansible.builtin.get_url:
+    url: "{{ dv_checksum_url }}"
+    dest: "{{ _dv_checksum_file }}"
+    mode: "0644"
+    timeout: "{{ dv_timeout }}"
+  retries: "{{ dv_retries }}"
+  delay: "{{ dv_delay }}"
+  when: dv_checksum_format != 'sha256sum_inline'
+
+- name: Extract expected checksum from file
+  ansible.builtin.shell: |
+    {% if dv_checksum_format == 'github_sha256sum' %}
+    grep "{{ dv_github_artifact_name }}" "{{ _dv_checksum_file }}" | head -1 | awk '{print $1}'
+    {% else %}
+    head -1 "{{ _dv_checksum_file }}" | awk '{print $1}'
+    {% endif %}
+  register: _dv_checksum_extract
+  changed_when: false
+  when: dv_checksum_format != 'sha256sum_inline'
+
+- name: Set expected checksum fact
+  ansible.builtin.set_fact:
+    _dv_expected_checksum: >-
+      {{ (dv_checksum_format == 'sha256sum_inline') | ternary(
+          dv_checksum_inline_value,
+          _dv_checksum_extract.stdout | default('') | trim
+        ) }}
+
+- name: Download artifact with checksum verification
+  ansible.builtin.get_url:
+    url: "{{ dv_artifact_url }}"
+    dest: "{{ dv_dest }}"
+    checksum: "sha256:{{ _dv_expected_checksum }}"
+    mode: "{{ dv_mode }}"
+    timeout: "{{ dv_timeout }}"
+  retries: "{{ dv_retries }}"
+  delay: "{{ dv_delay }}"
+  register: _dv_download_result
+
+- name: Post-download SHA256 verification
+  ansible.builtin.stat:
+    path: "{{ dv_dest }}"
+    checksum_algorithm: sha256
+  register: _dv_stat_result
+
+- name: Verify checksum matches
+  ansible.builtin.assert:
+    that:
+      - _dv_stat_result.stat.checksum == _dv_expected_checksum
+    fail_msg: >-
+      Checksum mismatch for {{ dv_dest }}:
+      expected={{ _dv_expected_checksum }}
+      actual={{ _dv_stat_result.stat.checksum }}
+    success_msg: >-
+      Checksum verified: {{ dv_dest | basename }} ({{ _dv_expected_checksum }})
+
+- name: Clean up checksum file
+  ansible.builtin.file:
+    path: "{{ _dv_checksum_file }}"
+    state: absent
+  when: dv_checksum_format != 'sha256sum_inline'

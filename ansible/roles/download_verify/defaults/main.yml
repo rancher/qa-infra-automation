@@ -1,0 +1,33 @@
+---
+# Defaults for download_verify role
+# Downloads an artifact with SHA256 checksum verification
+
+# Required: URL of the artifact to download
+dv_artifact_url: ""
+
+# Required: Local destination path for the artifact
+dv_dest: ""
+
+# URL of the checksum file (not needed for sha256sum_inline format)
+dv_checksum_url: ""
+
+# How to extract the expected checksum:
+#   github_sha256sum - grep for dv_github_artifact_name in a GitHub sha256sum-<arch>.txt file
+#   sha256sum_file   - single-line checksum file (first field)
+#   sha256sum_inline - use dv_checksum_inline_value directly
+dv_checksum_format: "github_sha256sum"
+
+# For github_sha256sum format: the filename to grep for in the checksum file
+dv_github_artifact_name: ""
+
+# For sha256sum_inline format: the checksum value itself
+dv_checksum_inline_value: ""
+
+# Download settings
+dv_mode: "0644"
+dv_timeout: 300
+dv_retries: 3
+dv_delay: 10
+
+# Temporary directory for checksum file download
+dv_temp_dir: "/tmp"

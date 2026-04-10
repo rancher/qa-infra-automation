@@ -7,8 +7,12 @@ rke2_version: ""
 # Installation method: online or airgap
 rke2_install_method: online
 
-# RKE2 install script URL
+# RKE2 install script URL (floating redirect, used when rke2_version is empty)
 rke2_install_script_url: https://get.rke2.io
+
+# Version-pinned install script URL template (used when rke2_version is set)
+# This fetches install.sh from a specific git tag instead of the floating redirect
+rke2_install_script_versioned_url: "https://raw.githubusercontent.com/rancher/rke2/{{ rke2_version }}/install.sh"
 
 # RKE2 channel (stable, latest, testing)
 rke2_channel: stable

@@ -3,7 +3,7 @@
 # Node: {{ inventory_hostname }}
 # Role: {{ rke2_node_role }}
 
-{% if rke2_node_role == 'master' or 'cp' in node_roles.split(',') or 'etcd' in node_roles.split(',') %}
+{% if rke2_node_role == 'master' or 'cp' in node_roles or 'etcd' in node_roles %}
 # Server node configuration
 {% for key, value in rke2_server_config.items() %}
 {% if value is string %}
@@ -13,6 +13,14 @@
 {% for item in value %}
   - {{ item }}
 {% endfor %}
+{% if key == 'tls-san' %}
+  - {{ ansible_host }}
+{% if rke2_node_role == 'master' %}
+{% for host in groups.get('servers', []) %}
+  - {{ hostvars[host]['ansible_host'] }}
+{% endfor %}
+{% endif %}
+{% endif %}
 {% elif value is mapping %}
 {{ key }}:
 {% for subkey, subvalue in value.items() %}
@@ -30,6 +38,16 @@ server: https://{{ kube_api_host }}:9345
 
 {% if rke2_token is defined and rke2_token != '' %}
 token: {{ rke2_token }}
+{% endif %}
+
+{% if 'cp' in node_roles and 'etcd' not in node_roles %}
+# CP-only node: disable embedded etcd
+disable-etcd: true
+{% elif 'etcd' in node_roles and 'cp' not in node_roles %}
+# Etcd-only node: disable control plane components
+disable-apiserver: true
+disable-controller-manager: true
+disable-scheduler: true
 {% endif %}
 
 {% else %}
