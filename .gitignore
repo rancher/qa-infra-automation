@@ -14,6 +14,7 @@ vars.yaml
 kubeconfig.yaml
 local.yaml
 values.yml
+all.yml
 
 .vscode/
 .idea/
@@ -21,7 +22,6 @@ values.yml
 *.pem
 ansible/chaos/experiments/*.yml
 ansible/rke2/airgap/inventory/inventory.yml
-ansible/rke2/airgap/inventory/group_vars/all.yml
 ansible/rke2/airgap/playbooks/debug/*.txt
 ansible/rke2/airgap/playbooks/*.txt
 terraform-inventory*.yml
