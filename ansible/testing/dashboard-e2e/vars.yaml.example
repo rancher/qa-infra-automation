@@ -44,6 +44,7 @@ dashboard_branch: "master"
 
 # --- Cypress ---
 cypress_tags: "@adminUser"
+allow_filtered_catalog_skip: true  # When true (default), chart tests may skip if the chart is filtered out of the UI catalog. Set false to fail instead.
 job_type: "recurring"              # recurring | existing
 create_initial_clusters: true
 # rancher_host: ""                 # Required for job_type=existing

@@ -100,7 +100,9 @@ export default defineConfig({
     customNodeKey:       process.env.CUSTOM_NODE_KEY,
     accessibility:       !!process.env.TEST_A11Y, // Are we running accessibility tests?
     a11yFolder:          path.join('.', 'cypress', 'accessibility'),
-    gkeServiceAccount:   process.env.GKE_SERVICE_ACCOUNT
+    gkeServiceAccount:   process.env.GKE_SERVICE_ACCOUNT,
+    // Skip chart tests when the chart is filtered out of the UI catalog (default). Set to false to fail instead.
+    allowFilteredCatalogSkip: process.env.CYPRESS_ALLOW_FILTERED_CATALOG_SKIP !== 'false',
   },
   // Jenkins reporters configuration jUnit and HTML
   reporter:        'cypress-multi-reporters',

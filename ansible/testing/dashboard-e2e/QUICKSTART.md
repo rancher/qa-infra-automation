@@ -85,7 +85,7 @@ export AWS_SECRET_ACCESS_KEY="..."
 
 </details>
 
-See [`vars.yaml.example`](vars.yaml.example) for all available options.
+See [`vars.yaml.example`](vars.yaml.example) for all available options. Chart-related runs can use `allow_filtered_catalog_skip` (see the Cypress section in the [README](README.md#cypress-test-runner)).
 
 ---
 
@@ -120,6 +120,7 @@ tweak `cypress_tags` or dashboard code.
 | What changed | Command |
 | --- | --- |
 | Only `cypress_tags` in `vars.yaml` | `./run.sh stream test` |
+| `allow_filtered_catalog_skip` or other vars that affect `.env` | `./run.sh stream setup test` |
 | Dashboard source code | `./run.sh stream` |
 | Force-rebuild the runner image | `./run.sh build` then `./run.sh stream test` |
 
