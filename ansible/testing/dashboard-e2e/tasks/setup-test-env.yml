@@ -66,7 +66,7 @@
   ansible.builtin.shell: |
     set -e
     cd {{ dashboard_dir }}
-    OVERLAY_BRANCH="{{ dashboard_overlay_branch | default(dashboard_branch, true) | default('master', true) }}"
+    OVERLAY_BRANCH="{{ dashboard_overlay_branch | default('master', true) }}"
     echo "[overlay] target_branch={{ target_branch }}, overlay_from=${OVERLAY_BRANCH}"
     git fetch --depth=1 origin "${OVERLAY_BRANCH}" || {
       echo "[overlay] ERROR: git fetch origin ${OVERLAY_BRANCH} failed"
@@ -81,7 +81,7 @@
     git checkout FETCH_HEAD -- cypress/support/qase.ts 2>/dev/null || \
       echo "[overlay] NOTICE: cypress/support/qase.ts not found on ${OVERLAY_BRANCH}, skipping"
     echo "[overlay] OK — overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
-  when: target_branch != (dashboard_overlay_branch | default(dashboard_branch, true) | default('master', true))
+  when: target_branch != (dashboard_overlay_branch | default('master', true))
   changed_when: true
 
 - name: Configure Rancher users and role bindings
