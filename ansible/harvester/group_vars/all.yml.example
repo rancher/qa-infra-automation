@@ -1,0 +1,7 @@
+harvester_host: "2.3.4.5" # Hostname or IP to reach Harvester's API.
+harvester_user: "admin" # Harvester user name
+harvester_password: "password" # Harvester user password
+target_version: "v1.8.0" # Version you wish to upgrade to using the upgrade-harvester.yml playbook
+
+# Optional variables
+# skip_tls: false # Skip TLS when interacting with Harvester.
