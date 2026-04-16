@@ -1,4 +1,7 @@
 #!/bin/bash
+# DEPRECATED: This script is not used by any playbook or Makefile target.
+# Use the Ansible playbooks instead (make cluster DISTRO=rke2).
+# This file will be removed in a future cleanup.
 
 config="server: https://${KUBE_API_HOST}:9345
 token: ${NODE_TOKEN}

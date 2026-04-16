@@ -10,14 +10,34 @@ SHELL := /bin/bash
 
 # Configurable parameters (override with: make <target> DISTRO=k3s ENV=default)
 DISTRO   ?= rke2
-ENV      ?= airgap
+ENV      ?= default
 PROVIDER ?= aws
 
 # Derived paths
-TOFU_DIR    := tofu/$(PROVIDER)/modules/$(ENV)
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
-INVENTORY   := $(ANSIBLE_DIR)/inventory/inventory.yml
 GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
+INVENTORY   := $(ANSIBLE_DIR)/inventory/inventory.yml
+
+# Environment-specific paths
+ifeq ($(ENV),default)
+TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
+RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
+REGISTRY_TARGET  :=
+else ifeq ($(ENV),airgap)
+TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
+RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
+REGISTRY_TARGET  := registry
+else
+TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
+RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
+REGISTRY_TARGET  :=
+endif
+
+# Kubeconfig written by the cluster role; rancher needs to know where it is.
+KUBECONFIG_FILE := $(CURDIR)/$(ANSIBLE_DIR)/kubeconfig.yaml
 
 # Ansible settings
 export ANSIBLE_HOST_KEY_CHECKING := False
@@ -43,7 +63,7 @@ help: ## Show this help message
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws"
-	@echo "At the moment this only supports rke2, airgap, and aws"
+	@echo "At the moment this only supports rke2, default/airgap, and aws"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. Configure $(TOFU_DIR)/terraform.tfvars"
@@ -61,8 +81,10 @@ help: ## Show this help message
 	@echo "  infra-init          Initialize Tofu (downloads providers)"
 	@echo "  infra-plan          Plan infrastructure changes"
 	@echo "  infra-up            Create infrastructure (generates inventory)"
-	@echo "  infra-down          Destroy infrastructure"
+	@echo "  infra-down          Destroy infrastructure for current DISTRO/ENV/PROVIDER"
 	@echo "  infra-output        Show Tofu outputs"
+	@echo "  infra-ls            List ALL active infrastructure across every module/workspace"
+	@echo "  infra-nuke          Destroy ALL active infrastructure (end-of-day cleanup)"
 	@echo ""
 	@echo "CLUSTER (Ansible):"
 	@echo "  cluster             Install Kubernetes cluster"
@@ -78,6 +100,7 @@ help: ## Show this help message
 	@echo "  ssh-bastion         SSH to bastion host"
 	@echo "  ping                Ping all hosts"
 	@echo "  validate            Validate configuration and prerequisites"
+	@echo "  verify              Verify supply chain integrity"
 	@echo "  clean               Clean local temporary files"
 	@echo ""
 	@echo "COMBINED WORKFLOWS:"
@@ -85,9 +108,10 @@ help: ## Show this help message
 	@echo "  setup-from-infra    Setup cluster + Rancher (infra already exists)"
 	@echo ""
 	@echo "EXAMPLES:"
-	@echo "  make all                                    # RKE2 airgap on AWS (default)"
-	@echo "  make all DISTRO=k3s ENV=default             # K3s default on AWS"
-	@echo "  make cluster DISTRO=rke2 ENV=airgap         # Just RKE2 airgap cluster"
+	@echo "  make all                                    # RKE2 default on AWS (default)"
+	@echo "  make all ENV=airgap                         # RKE2 airgap on AWS"
+	@echo "  make all DISTRO=k3s                         # K3s default on AWS"
+	@echo "  make cluster ENV=airgap                     # Just RKE2 airgap cluster"
 	@echo "  make status                                 # Check current cluster"
 	@echo ""
 
@@ -105,7 +129,13 @@ check-prereqs: ## Check all prerequisites are installed
 	@command -v tofu >/dev/null 2>&1 || { echo "Error: tofu is not installed"; exit 1; }
 	@command -v ansible >/dev/null 2>&1 || { echo "Error: ansible is not installed"; exit 1; }
 	@command -v ansible-playbook >/dev/null 2>&1 || { echo "Error: ansible-playbook is not installed"; exit 1; }
+	@python3 -c "import yaml" 2>/dev/null || { echo "Installing Python dependencies..."; if [ -n "$$VIRTUAL_ENV" ]; then pip3 install -r requirements.txt; else pip3 install --user -r requirements.txt; fi; }
+	@ansible-galaxy collection list 2>/dev/null | grep -q kubernetes.core || { echo "Installing Ansible collections..."; ansible-galaxy collection install -r requirements.yml; }
 	@echo "All prerequisites found"
+
+.PHONY: collections
+collections: ## Install pinned Ansible collections
+	ansible-galaxy collection install -r requirements.yml
 
 .PHONY: check-config
 check-config: ## Validate configuration parameters
@@ -123,11 +153,14 @@ check-config: ## Validate configuration parameters
 	@echo "Configuration valid"
 
 .PHONY: check-inventory
-check-inventory:
+check-inventory: ## Verify inventory exists and is not stale
 	@if [ ! -f "$(INVENTORY)" ]; then \
 		echo "Error: Inventory file not found at $(INVENTORY)"; \
 		echo "Run 'make infra-up' first to generate inventory"; \
 		exit 1; \
+	fi
+	@if [ -f "$(ANSIBLE_DIR)/inventory/.inventory-manifest.json" ]; then \
+		python3 scripts/verify_inventory.py --manifest $(ANSIBLE_DIR)/inventory/.inventory-manifest.json; \
 	fi
 
 .PHONY: check-tofu-dir
@@ -157,11 +190,27 @@ infra-plan: infra-init ## Plan infrastructure changes
 	cd $(TOFU_DIR) && tofu plan -var-file=terraform.tfvars
 
 .PHONY: infra-up
-infra-up: infra-init ## Create infrastructure
+infra-up: infra-init ## Create infrastructure (generates Ansible inventory automatically)
 	@echo "Creating $(PROVIDER) infrastructure for $(ENV) environment..."
 	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars -auto-approve
-	@echo ""
-	@echo "Infrastructure created. Inventory generated at $(INVENTORY)"
+	@echo "Generating Ansible inventory..."
+	@if cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw airgap_inventory_json > /tmp/tofu-nodes-airgap-$(DISTRO)-$(ENV).json 2>/dev/null && [ -s /tmp/tofu-nodes-airgap-$(DISTRO)-$(ENV).json ]; then \
+		cp /tmp/tofu-nodes-airgap-$(DISTRO)-$(ENV).json /tmp/tofu-nodes-$(DISTRO)-$(ENV).json; \
+		echo "Using airgap inventory output"; \
+	elif cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw cluster_nodes_json > /tmp/tofu-nodes-cluster-$(DISTRO)-$(ENV).json 2>/dev/null && [ -s /tmp/tofu-nodes-cluster-$(DISTRO)-$(ENV).json ]; then \
+		cp /tmp/tofu-nodes-cluster-$(DISTRO)-$(ENV).json /tmp/tofu-nodes-$(DISTRO)-$(ENV).json; \
+		echo "Using cluster_nodes inventory output"; \
+	else \
+		echo "Error: No inventory JSON output found in Tofu module $(TOFU_DIR). Has 'make infra-up' been run?"; \
+		exit 1; \
+	fi
+	@python3 scripts/generate_inventory.py \
+		--input /tmp/tofu-nodes-$(DISTRO)-$(ENV).json \
+		--distro $(DISTRO) \
+		--env $(ENV) \
+		--schema ansible/_inventory-schema.yaml \
+		--output-dir $(ANSIBLE_DIR)/inventory
+	@[ -f "$(INVENTORY)" ] && echo "" && echo "Infrastructure created. Inventory generated at $(INVENTORY)" || (echo "Error: Inventory generation failed" && exit 1)
 
 .PHONY: infra-down
 infra-down: check-tofu-dir ## Destroy infrastructure
@@ -173,6 +222,75 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 infra-output: ## Show Tofu outputs
 	cd $(TOFU_DIR) && tofu output
 
+.PHONY: infra-ls
+infra-ls: ## List all modules with active Tofu state across all providers/envs/distros
+	@echo "Scanning for active infrastructure..."
+	@echo ""
+	@found=0; \
+	while IFS= read -r state_file; do \
+		resources=$$(python3 -c "import json; \
+			d=json.load(open('$$state_file')); \
+			print(len([r for r in d.get('resources',[]) if r.get('mode')=='managed']))" 2>/dev/null || echo 0); \
+		if [ "$$resources" -gt 0 ]; then \
+			if echo "$$state_file" | grep -q 'terraform.tfstate.d'; then \
+				ws=$$(echo "$$state_file" | sed 's|.*/terraform.tfstate.d/\([^/]*\)/.*|\1|'); \
+				module=$$(echo "$$state_file" | sed 's|/terraform.tfstate.d/.*||'); \
+			else \
+				ws="default"; \
+				module=$$(dirname "$$state_file"); \
+			fi; \
+			printf "  ACTIVE  %-50s  [%s]  (%s resources)\n" "$$module" "$$ws" "$$resources"; \
+			found=1; \
+		fi; \
+	done < <(find tofu -name "terraform.tfstate" 2>/dev/null | sort); \
+	echo ""; \
+	if [ "$$found" -eq 0 ]; then \
+		echo "  No active infrastructure found."; \
+	else \
+		echo "Run 'make infra-nuke' to destroy all, or 'make infra-down' for selective destroy."; \
+	fi
+
+.PHONY: infra-nuke
+infra-nuke: ## Destroy ALL active infrastructure across all modules (end-of-day cleanup)
+	@echo "WARNING: This will destroy ALL active Tofu-managed infrastructure."
+	@echo ""
+	@$(MAKE) --no-print-directory infra-ls
+	@echo ""
+	@read -p "Destroy all listed infrastructure? [y/N] " confirm && [ "$$confirm" = "y" ] || { echo "Aborted."; exit 1; }
+	@echo ""
+	@errors=0; \
+	while IFS= read -r state_file; do \
+		resources=$$(python3 -c "import json; \
+			d=json.load(open('$$state_file')); \
+			print(len([r for r in d.get('resources',[]) if r.get('mode')=='managed']))" 2>/dev/null || echo 0); \
+		if [ "$$resources" -gt 0 ]; then \
+			if echo "$$state_file" | grep -q 'terraform.tfstate.d'; then \
+				ws=$$(echo "$$state_file" | sed 's|.*/terraform.tfstate.d/\([^/]*\)/.*|\1|'); \
+				module=$$(echo "$$state_file" | sed 's|/terraform.tfstate.d/.*||'); \
+			else \
+				ws="default"; \
+				module=$$(dirname "$$state_file"); \
+			fi; \
+			if [ ! -f "$$module/terraform.tfvars" ]; then \
+				echo "  SKIP  $$module [$$ws] — terraform.tfvars not found, destroy manually"; \
+				continue; \
+			fi; \
+			echo "Destroying $$module [$$ws]..."; \
+			if [ "$$ws" = "default" ]; then \
+				(cd "$$module" && tofu destroy -var-file=terraform.tfvars -auto-approve) || errors=$$((errors+1)); \
+			else \
+				(cd "$$module" && tofu workspace select "$$ws" 2>/dev/null && tofu destroy -var-file=terraform.tfvars -auto-approve) || errors=$$((errors+1)); \
+			fi; \
+		fi; \
+	done < <(find tofu -name "terraform.tfstate" 2>/dev/null | sort); \
+	echo ""; \
+	if [ "$$errors" -gt 0 ]; then \
+		echo "WARNING: $$errors module(s) failed to destroy. Check output above."; \
+		exit 1; \
+	else \
+		echo "All infrastructure destroyed."; \
+	fi
+
 # ============================================================================
 # CLUSTER DEPLOYMENT (ANSIBLE)
 # ============================================================================
@@ -181,11 +299,7 @@ infra-output: ## Show Tofu outputs
 cluster: check-inventory ## Install Kubernetes cluster
 	@echo "Installing $(DISTRO) cluster ($(ENV) environment)..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	if [ "$(ENV)" = "airgap" ]; then \
-		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml -v $(ANSIBLE_EXTRA_VARS); \
-	else \
-		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml -v $(ANSIBLE_EXTRA_VARS); \
-	fi
+	ansible-playbook -i $(INVENTORY) $(CLUSTER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: agents
 agents: check-inventory ## Setup additional agent nodes
@@ -196,8 +310,8 @@ agents: check-inventory ## Setup additional agent nodes
 .PHONY: rancher
 rancher: check-inventory ## Deploy Rancher to cluster
 	@echo "Deploying Rancher..."
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg KUBECONFIG_FILE=$(KUBECONFIG_FILE); \
+	ansible-playbook -i $(INVENTORY) $(RANCHER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: registry
 registry: check-inventory ## Configure private registry on cluster nodes
@@ -231,13 +345,23 @@ test-ssh: check-inventory ## Test SSH connectivity to all nodes
 status: check-inventory ## Show cluster status
 	@echo "Cluster Status ($(DISTRO)/$(ENV)):"
 	@echo ""
-	@echo "=== Nodes ==="
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible -i $(INVENTORY) bastion -m shell -a "kubectl get nodes -o wide" 2>/dev/null || echo "Could not get cluster status"
-	@echo ""
-	@echo "=== Rancher Pods ==="
-	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible -i $(INVENTORY) bastion -m shell -a "kubectl get pods -n cattle-system 2>/dev/null || echo 'Rancher not deployed'" 2>/dev/null || true
+	@if [ "$(ENV)" = "airgap" ]; then \
+		echo "=== Nodes ==="; \
+		export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible -i $(INVENTORY) bastion -m shell -a "kubectl get nodes -o wide" 2>/dev/null || echo "Could not get cluster status"; \
+		echo ""; \
+		echo "=== Rancher Pods ==="; \
+		ansible -i $(INVENTORY) bastion -m shell -a "kubectl get pods -n cattle-system 2>/dev/null || echo 'Rancher not deployed'" 2>/dev/null || true; \
+	elif [ -f "$(KUBECONFIG_FILE)" ]; then \
+		echo "=== Nodes ==="; \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get nodes -o wide || echo "Could not get cluster status"; \
+		echo ""; \
+		echo "=== Rancher Pods ==="; \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -n cattle-system 2>/dev/null || echo "Rancher not deployed"; \
+	else \
+		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
+		echo "Run 'make cluster' first to deploy the cluster."; \
+	fi
 
 .PHONY: ssh-bastion
 ssh-bastion: check-inventory ## SSH to bastion host
@@ -274,14 +398,14 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster registry rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster registry rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) rancher ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""
@@ -299,15 +423,20 @@ debug-vars: ## Show current variable values
 	@echo "  PROVIDER    = $(PROVIDER)"
 	@echo ""
 	@echo "Derived Paths:"
-	@echo "  TOFU_DIR    = $(TOFU_DIR)"
-	@echo "  ANSIBLE_DIR = $(ANSIBLE_DIR)"
-	@echo "  INVENTORY   = $(INVENTORY)"
-	@echo "  GROUP_VARS  = $(GROUP_VARS)"
+	@echo "  TOFU_DIR         = $(TOFU_DIR)"
+	@echo "  ANSIBLE_DIR      = $(ANSIBLE_DIR)"
+	@echo "  INVENTORY        = $(INVENTORY)"
+	@echo "  CLUSTER_PLAYBOOK = $(CLUSTER_PLAYBOOK)"
+	@echo "  RANCHER_PLAYBOOK = $(RANCHER_PLAYBOOK)"
+	@echo "  KUBECONFIG_FILE  = $(KUBECONFIG_FILE)"
+	@echo "  GROUP_VARS       = $(GROUP_VARS)"
 	@echo ""
 	@echo "Directory Status:"
-	@echo "  Tofu dir exists:    $$([ -d "$(TOFU_DIR)" ] && echo "yes" || echo "no")"
-	@echo "  Ansible dir exists: $$([ -d "$(ANSIBLE_DIR)" ] && echo "yes" || echo "no")"
-	@echo "  Inventory exists:   $$([ -f "$(INVENTORY)" ] && echo "yes" || echo "no")"
+	@echo "  Tofu dir exists:       $$([ -d "$(TOFU_DIR)" ] && echo "yes" || echo "no")"
+	@echo "  Ansible dir exists:    $$([ -d "$(ANSIBLE_DIR)" ] && echo "yes" || echo "no")"
+	@echo "  Inventory exists:      $$([ -f "$(INVENTORY)" ] && echo "yes" || echo "no")"
+	@echo "  Cluster playbook exists: $$([ -f "$(CLUSTER_PLAYBOOK)" ] && echo "yes" || echo "no")"
+	@echo "  Rancher playbook exists: $$([ -f "$(RANCHER_PLAYBOOK)" ] && echo "yes" || echo "no")"
 
 # Extra vars support
 ifdef EXTRA_VARS
@@ -315,3 +444,30 @@ ANSIBLE_EXTRA_VARS := --extra-vars "$(EXTRA_VARS)"
 else
 ANSIBLE_EXTRA_VARS :=
 endif
+
+# ============================================================================
+# SUPPLY CHAIN VERIFICATION
+# ============================================================================
+
+.PHONY: verify
+verify: ## Verify supply chain integrity (checksums, pins, lock files)
+	@echo "Verifying supply chain integrity..."
+	@echo ""
+	@echo "Checking requirements.txt version pins..."
+	@grep -q '==' requirements.txt && echo "  OK: requirements.txt has pinned versions" || (echo "  FAIL: requirements.txt missing pinned versions" && exit 1)
+	@echo "Checking requirements.yml version pins..."
+	@grep -q 'version:' requirements.yml && echo "  OK: requirements.yml has pinned versions" || (echo "  FAIL: requirements.yml missing pinned versions" && exit 1)
+	@echo "Checking .terraform.lock.hcl files..."
+	@found=0; \
+	while IFS= read -r lockfile; do \
+		printf "  Found: %s\n" "$$lockfile"; \
+		found=1; \
+	done < <(find tofu -name '.terraform.lock.hcl' 2>/dev/null | sort); \
+	if [ "$$found" -eq 0 ]; then \
+		echo "  WARNING: No .terraform.lock.hcl files found. Run 'tofu init' in each module."; \
+	fi
+	@echo ""
+	@echo "Checking download_verify role exists..."
+	@test -f ansible/roles/download_verify/tasks/main.yml && echo "  OK: download_verify role present" || (echo "  FAIL: download_verify role missing" && exit 1)
+	@echo ""
+	@echo "All supply chain checks passed."

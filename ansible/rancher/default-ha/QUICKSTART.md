@@ -14,11 +14,9 @@ Create `vars.yaml` in this folder with your desired settings, including the FQDN
 
 ```yaml
 # Version information
-rancher_version: "v2.13.0"
+rancher_version: "latest"         # Use "latest" for HEAD builds, or a specific version like "v2.13.0"
+rancher_image_tag: "head"         # HEAD dev image tag (use "latest" for stable releases)
 cert_manager_version: "1.19.1" # Without the 'v' prefix
-
-# Absolute path to kubeconfig file for the cluster to install rancher into
-kubeconfig_file: ../k3s/default/kubeconfig.yaml
 
 # Must match the DNS/IP used for your K8s cluster Load Balancer
 fqdn: "a.b.c.d.sslip.io"
@@ -28,21 +26,33 @@ bootstrap_password: ""
 password: ""
 ```
 
-If you plan to upgrade Rancher later, add these upgrade-specific variables now or before running the upgrade flow:
+### Step 2. Run Playbook
+
+If you plan to upgrade Rancher later, add these upgrade-specific variables to `vars.yaml`:
 
 ```yaml
 rancher_chart_repo_upgrade: rancher-latest
 rancher_chart_upgrade_repo_url: https://releases.rancher.com/server-charts/latest
-rancher_version_upgrade: "v2.13.0"
-rancher_image_tag_upgrade: latest # Optional
+rancher_version_upgrade: "latest"
+rancher_image_tag_upgrade: head # Optional
 ```
 
-### Step 2. Run Playbook
+When running via `make rancher`, the kubeconfig path is set automatically from the cluster step. If running manually, set `kubeconfig_file` in `vars.yaml`:
 
-> **Important:** All `ansible-playbook` commands must be run from the **repository root**, not from inside the `ansible/` subdirectory.
+```yaml
+kubeconfig_file: "/absolute/path/to/kubeconfig.yaml"
+```
+
+**Via Makefile (recommended)** — run from the repository root:
 
 ```sh
-ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
+make rancher
+```
+
+**Manually** — set `KUBECONFIG_FILE` to point to your cluster's kubeconfig, then run from the repository root:
+
+```sh
+KUBECONFIG_FILE=/path/to/kubeconfig.yaml ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml
 ```
 
 ### Step 3. Verify

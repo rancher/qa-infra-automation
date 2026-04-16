@@ -1,0 +1,33 @@
+---
+# Default variables for rke2_install role
+
+# RKE2 version to install (leave empty for latest stable)
+rke2_version: ""
+
+# Installation method: online or airgap
+rke2_install_method: online
+
+# RKE2 install script URL (floating redirect, used when rke2_version is empty)
+rke2_install_script_url: https://get.rke2.io
+
+# Version-pinned install script URL template (used when rke2_version is set)
+# This fetches install.sh from a specific git tag instead of the floating redirect
+rke2_install_script_versioned_url: "https://raw.githubusercontent.com/rancher/rke2/{{ rke2_version }}/install.sh"
+
+# RKE2 channel (stable, latest, testing)
+rke2_channel: stable
+
+# Installation directory
+rke2_bin_dir: /usr/local/bin
+
+# RKE2 data directory
+rke2_data_dir: /var/lib/rancher/rke2
+
+# Airgap installation variables
+rke2_airgap_tarball: ""
+rke2_airgap_images_tarball: ""
+rke2_airgap_install_script: ""
+
+# Whether to start and enable RKE2 service after installation
+rke2_start_on_boot: true
+rke2_start_after_install: false  # Let rke2_cluster role handle starting

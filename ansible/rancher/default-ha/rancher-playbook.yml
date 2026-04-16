@@ -65,20 +65,43 @@
       debug:
         msg: "Connected! Found {{ ns_info.resources | length }} namespaces."
 
+    - name: Download cert-manager CRDs with SHA256 verification
+      include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml"
+        dv_dest: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
+        dv_checksum_format: "github_release"
+        dv_github_repo: "cert-manager/cert-manager"
+        dv_github_release_asset_name: "cert-manager.crds.yaml"
+        dv_github_release_tag: "v{{ cert_manager_version }}"
+      when: cert_manager_version != ""
+
     - name: Install cert-manager CRDs
-      no_log: true
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
+        src: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
         state: present
       retries: 5
       delay: 30
       when: cert_manager_version != ""
 
+    - name: Download cert-manager manifest with SHA256 verification
+      include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml"
+        dv_dest: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
+        dv_checksum_format: "github_release"
+        dv_github_repo: "cert-manager/cert-manager"
+        dv_github_release_asset_name: "cert-manager.yaml"
+        dv_github_release_tag: "v{{ cert_manager_version }}"
+      when: cert_manager_version != ""
+
     - name: Install cert-manager
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml
+        src: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
         state: present
         wait: true
         wait_timeout: 300
@@ -114,25 +137,63 @@
         name: "{{ rancher_chart_repo_final }}"
         repo_url: "{{ rancher_chart_repo_url_final }}"
       when: rancher_version != ""
+      register: add_repo_result
+      failed_when:
+        - add_repo_result.failed
+        - "'already have a repository' not in add_repo_result.msg"
 
-    - name: Install Rancher
-      kubernetes.core.helm:
-        kubeconfig: "{{ kubeconfig_file }}"
-        name: rancher
-        chart_ref: "{{ rancher_chart_repo_final }}/rancher"
-        release_namespace: cattle-system
-        create_namespace: true
-        chart_version: "{{ (rancher_version == 'latest') | ternary('', rancher_version | default(rancher_version)) }}"
-        wait: true
-        wait_timeout: "800s"
-        values:
-          hostname: "{{ fqdn }}"
-          bootstrapPassword: "{{ bootstrap_password }}"
-          rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
-          replicas: "{{ node_info.resources | length }}"
+    - name: Update Helm repository cache
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: Set chart version (strip 'v' prefix if present)
+      ansible.builtin.set_fact:
+        rancher_chart_version: "{{ rancher_version | regex_replace('^v', '') if rancher_version != 'latest' else '' }}"
       when: rancher_version != ""
-      retries: 6
-      delay: 120
+
+    - name: Install Rancher (verify signed chart)
+      block:
+        - name: Install Rancher with chart verification
+          kubernetes.core.helm:
+            kubeconfig: "{{ kubeconfig_file }}"
+            name: rancher
+            chart_ref: "{{ rancher_chart_repo_final }}/rancher"
+            release_namespace: cattle-system
+            create_namespace: true
+            chart_version: "{{ rancher_chart_version }}"
+            wait: true
+            wait_timeout: "800s"
+            values:
+              hostname: "{{ fqdn }}"
+              bootstrapPassword: "{{ bootstrap_password }}"
+              rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
+              replicas: "{{ node_info.resources | length }}"
+            verify: true
+          retries: 6
+          delay: 120
+      rescue:
+        - name: Warn about unsigned Rancher chart
+          ansible.builtin.debug:
+            msg: "WARNING: Rancher chart has no signed provenance file. Installing without verification."
+
+        - name: Install Rancher (unsigned fallback)
+          kubernetes.core.helm:
+            kubeconfig: "{{ kubeconfig_file }}"
+            name: rancher
+            chart_ref: "{{ rancher_chart_repo_final }}/rancher"
+            release_namespace: cattle-system
+            create_namespace: true
+            chart_version: "{{ rancher_chart_version }}"
+            wait: true
+            wait_timeout: "800s"
+            values:
+              hostname: "{{ fqdn }}"
+              bootstrapPassword: "{{ bootstrap_password }}"
+              rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
+              replicas: "{{ node_info.resources | length }}"
+          retries: 6
+          delay: 120
+      when: rancher_version != ""
 
     - name: Wait for Rancher to be ready
       kubernetes.core.k8s_info:
@@ -186,106 +247,39 @@
         msg: "Rancher URL: https://{{ rancher_ingress.resources[0].spec.rules[0].host }}"
       when: rancher_version != "" and rancher_ingress.resources|length > 0 and rancher_ingress.resources[0].spec.rules|length > 0 and rancher_ingress.resources[0].spec.rules[0].host is defined
 
-    - name: Get Rancher Token
-      ansible.builtin.uri:
-        url: "https://{{ fqdn }}/v3-public/localproviders/local?action=login"
-        body:
-          username: admin
-          password: "{{ bootstrap_password }}"
-        method: POST
-        force_basic_auth: true
-        validate_certs: false
-        status_code: 201
-        body_format: json
-      register: rancherjson
-      retries: 5
-      delay: 10
-      until: rancherjson.status == 201
-      when: rancher_version != ""
-  
-    - name: Extract Rancher Token
-      set_fact:
-        API_KEY: "{{ rancherjson.json.token }}"
+    - name: Configure Rancher admin user and generate API token
+      ansible.builtin.include_role:
+        name: rancher_auth
+      vars:
+        rancher_url: "https://{{ fqdn }}"
+        rancher_token_password: "{{ bootstrap_password }}"
+        rancher_permanent_password: "{{ password }}"
+        rancher_token_output_file: "{{ playbook_dir }}/generated.tfvars"
+        rancher_token_output_format: "tfvars"
       when: rancher_version != ""
 
-    - name: Get Rancher UserID
-      ansible.builtin.uri:
-        url: "https://{{ fqdn }}/v3/users?me=true"
-        headers:
-          Accept: "application/json"
-          Content-Type: "application/json"
-          Authorization: "Bearer {{ API_KEY }}"
-        method: GET
-        force_basic_auth: true
-        validate_certs: false
-        status_code: 200
-        body_format: json
-      register: rancherjsonuser
-      retries: 5
-      delay: 10
-      until: rancherjsonuser.status == 200
-      when: rancher_version != ""
-
-    - name: Debug Rancher login response
-      debug:
-        var: rancherjson
-
-    - name: Extract Rancher User
-      set_fact:
-        rancher_user_id: "{{ rancherjsonuser.json.data[0].id }}"
-      when: rancher_version != ""
-
-    - name: Set Rancher Password
-      ansible.builtin.uri:
-        url: "https://{{ fqdn }}/v3/users/{{ rancher_user_id }}?action=setpassword"
-        method: POST
-        headers:
-          Accept: "application/json"
-          Content-Type: "application/json"
-          Authorization: "Bearer {{ API_KEY }}"
-        body: 
-          newPassword: "{{ password }}"
-        body_format: json
-        force_basic_auth: true
-        validate_certs: false
-        status_code: 200
-      register: set_password_result
-      retries: 5
-      delay: 10
-      until: set_password_result.status == 200
-      when: rancher_version != ""
-
-    - name: Set Rancher Server URL
+    - name: Set Rancher server URL
       ansible.builtin.uri:
         url: "https://{{ fqdn }}/v3/settings/server-url"
         method: PUT
         headers:
           Accept: "application/json"
           Content-Type: "application/json"
-          Authorization: "Bearer {{ API_KEY }}"
-        body: 
+          Authorization: "Bearer {{ rancher_generated_token }}"
+        body:
           name: "server-url"
           value: "https://{{ fqdn }}"
         body_format: json
-        force_basic_auth: true
         validate_certs: false
         status_code: 200
-      register: set_server_url_result
       retries: 5
       delay: 10
-      until: set_server_url_result.status == 200
       when: rancher_version != ""
-    
-    - name: Print Token
-      debug:
-        msg: "RANCHER_API_KEY: {{ API_KEY }}"
 
-    - name: Write multiple variables to file
-      copy:
-        dest: generated.tfvars
-        content: |
-          fqdn = "https://{{ fqdn }}"
-          api_key = "{{ API_KEY }}"
+    - name: Print API token
+      ansible.builtin.debug:
+        msg: "RANCHER_API_KEY: {{ rancher_generated_token }}"
+      when: rancher_version != ""
 
     - name: Upgrade Rancher
       ansible.builtin.include_tasks: rancher-upgrade-tasks.yml

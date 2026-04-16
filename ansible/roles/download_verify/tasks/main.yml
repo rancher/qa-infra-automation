@@ -1,0 +1,230 @@
+---
+# Download and verify an artifact with SHA256 checksum
+# Supports four checksum formats: github_sha256sum, sha256sum_file, sha256sum_inline, github_release
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - dv_artifact_url | length > 0
+      - dv_dest | length > 0
+    fail_msg: "download_verify: dv_artifact_url and dv_dest are required"
+
+- name: Set checksum file path
+  ansible.builtin.set_fact:
+    _dv_checksum_file: "{{ dv_temp_dir }}/{{ dv_dest | basename }}.sha256sum"
+
+- name: Download checksum file
+  ansible.builtin.get_url:
+    url: "{{ dv_checksum_url }}"
+    dest: "{{ _dv_checksum_file }}"
+    mode: "0644"
+    timeout: "{{ dv_timeout }}"
+  retries: "{{ dv_retries }}"
+  delay: "{{ dv_delay }}"
+  when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'
+
+- name: Extract expected checksum from file
+  ansible.builtin.shell: |
+    {% if dv_checksum_format == 'github_sha256sum' %}
+    grep "{{ dv_github_artifact_name }}" "{{ _dv_checksum_file }}" | head -1 | awk '{print $1}'
+    {% else %}
+    head -1 "{{ _dv_checksum_file }}" | awk '{print $1}'
+    {% endif %}
+  register: _dv_checksum_extract
+  changed_when: false
+  when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'
+
+- name: Set expected checksum fact (file-based formats)
+  ansible.builtin.set_fact:
+    _dv_expected_checksum: "{{ _dv_checksum_extract.stdout | default('') | trim }}"
+  when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'
+
+- name: Set expected checksum fact (inline format)
+  ansible.builtin.set_fact:
+    _dv_expected_checksum: "{{ dv_checksum_inline_value }}"
+  when: dv_checksum_format == 'sha256sum_inline'
+
+- name: Set default github_release asset name from destination basename
+  ansible.builtin.set_fact:
+    _dv_github_release_asset_name: "{{ dv_github_release_asset_name | default(dv_dest | basename) }}"
+  when: dv_checksum_format == 'github_release'
+
+- name: Set default github_release tag from artifact URL
+  ansible.builtin.set_fact:
+    _dv_github_release_tag: "{{ dv_github_release_tag | default(dv_artifact_url | regex_search('/download/(v?[0-9][^/]+)/', '\\1') | first) }}"
+  when:
+    - dv_checksum_format == 'github_release'
+    - dv_github_release_tag | default('') | length == 0
+
+- name: Set github_release tag fact
+  ansible.builtin.set_fact:
+    _dv_github_release_tag: "{{ dv_github_release_tag }}"
+  when:
+    - dv_checksum_format == 'github_release'
+    - dv_github_release_tag | default('') | length > 0
+
+- name: Set checksum cache file path
+  ansible.builtin.set_fact:
+    _dv_cache_file: "{{ dv_checksum_cache_dir }}/{{ dv_github_repo | replace('/', '_') }}_{{ _dv_github_release_tag }}_{{ _dv_github_release_asset_name }}.sha256"
+  when: dv_checksum_format == 'github_release'
+
+- name: Check if cached checksum exists
+  ansible.builtin.stat:
+    path: "{{ _dv_cache_file }}"
+  register: _dv_cache_stat
+  when: dv_checksum_format == 'github_release'
+
+- name: Read cached checksum
+  ansible.builtin.command: cat {{ _dv_cache_file }}
+  register: _dv_cached_checksum
+  changed_when: false
+  when:
+    - dv_checksum_format == 'github_release'
+    - _dv_cache_stat.stat.exists
+
+- name: Fetch release metadata from GitHub API
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/{{ dv_github_repo }}/releases/tags/{{ _dv_github_release_tag }}"
+    method: GET
+    headers:
+      Accept: "application/vnd.github+json"
+    status_code: 200
+    timeout: "{{ dv_timeout }}"
+    return_content: true
+  register: _dv_github_release
+  retries: "{{ dv_retries }}"
+  delay: "{{ dv_delay }}"
+  when:
+    - dv_checksum_format == 'github_release'
+    - not _dv_cache_stat.stat.exists
+
+- name: Extract asset size and name from GitHub API response
+  ansible.builtin.set_fact:
+    _dv_github_asset: >-
+      {{ _dv_github_release.json.assets | selectattr('name', 'equalto', _dv_github_release_asset_name) | list | first | default({}) }}
+    _dv_github_release_verified: "{{ _dv_github_release.json.author.login is defined }}"
+  when:
+    - dv_checksum_format == 'github_release'
+    - not _dv_cache_stat.stat.exists
+
+- name: Validate asset found in GitHub release
+  ansible.builtin.assert:
+    that:
+      - _dv_github_asset.name is defined
+      - _dv_github_asset.name | length > 0
+    fail_msg: >-
+      Asset '{{ _dv_github_release_asset_name }}' not found in release
+      {{ dv_github_repo }}/{{ _dv_github_release_tag }}.
+      Available: {{ _dv_github_release.json.assets | map(attribute='name') | list | join(', ') }}
+  when:
+    - dv_checksum_format == 'github_release'
+    - not _dv_cache_stat.stat.exists
+
+- name: Download artifact without checksum first (for github_release format)
+  ansible.builtin.get_url:
+    url: "{{ dv_artifact_url }}"
+    dest: "{{ dv_dest }}"
+    mode: "{{ dv_mode }}"
+    timeout: "{{ dv_timeout }}"
+  retries: "{{ dv_retries }}"
+  delay: "{{ dv_delay }}"
+  register: _dv_download_result
+  when: dv_checksum_format == 'github_release'
+
+- name: Compute SHA256 of downloaded artifact
+  ansible.builtin.stat:
+    path: "{{ dv_dest }}"
+    checksum_algorithm: sha256
+  register: _dv_stat_result
+  when: dv_checksum_format == 'github_release'
+
+- name: Verify downloaded file size matches GitHub API metadata
+  ansible.builtin.assert:
+    that:
+      - _dv_stat_result.stat.size == _dv_github_asset.size
+    fail_msg: >-
+      Size mismatch for {{ dv_dest }}:
+      GitHub API={{ _dv_github_asset.size }} bytes
+      actual={{ _dv_stat_result.stat.size }} bytes
+    success_msg: >-
+      Size verified: {{ dv_dest | basename }} ({{ _dv_github_asset.size }} bytes matches GitHub)
+  when:
+    - dv_checksum_format == 'github_release'
+    - not _dv_cache_stat.stat.exists
+
+- name: Ensure checksum cache directory exists
+  ansible.builtin.file:
+    path: "{{ dv_checksum_cache_dir }}"
+    state: directory
+    mode: "0755"
+  when: dv_checksum_format == 'github_release'
+
+- name: Cache the verified checksum
+  ansible.builtin.copy:
+    dest: "{{ _dv_cache_file }}"
+    content: "{{ _dv_stat_result.stat.checksum }}"
+    mode: "0644"
+  when:
+    - dv_checksum_format == 'github_release'
+    - not _dv_cache_stat.stat.exists
+
+- name: Set expected checksum from cache
+  ansible.builtin.set_fact:
+    _dv_expected_checksum: "{{ _dv_cached_checksum.stdout | trim }}"
+  when:
+    - dv_checksum_format == 'github_release'
+    - _dv_cache_stat.stat.exists
+
+- name: Set expected checksum from fresh download
+  ansible.builtin.set_fact:
+    _dv_expected_checksum: "{{ _dv_stat_result.stat.checksum }}"
+  when:
+    - dv_checksum_format == 'github_release'
+    - not _dv_cache_stat.stat.exists
+
+- name: Re-download with checksum verification (github_release)
+  ansible.builtin.get_url:
+    url: "{{ dv_artifact_url }}"
+    dest: "{{ dv_dest }}"
+    checksum: "sha256:{{ _dv_expected_checksum }}"
+    mode: "{{ dv_mode }}"
+    timeout: "{{ dv_timeout }}"
+  retries: "{{ dv_retries }}"
+  delay: "{{ dv_delay }}"
+  register: _dv_download_result
+  when: dv_checksum_format == 'github_release'
+
+- name: Download artifact with checksum verification (non-release formats)
+  ansible.builtin.get_url:
+    url: "{{ dv_artifact_url }}"
+    dest: "{{ dv_dest }}"
+    checksum: "sha256:{{ _dv_expected_checksum }}"
+    mode: "{{ dv_mode }}"
+    timeout: "{{ dv_timeout }}"
+  retries: "{{ dv_retries }}"
+  delay: "{{ dv_delay }}"
+  register: _dv_download_result
+  when: dv_checksum_format != 'github_release'
+
+- name: Post-download SHA256 verification
+  ansible.builtin.stat:
+    path: "{{ dv_dest }}"
+    checksum_algorithm: sha256
+  register: _dv_stat_result
+
+- name: Verify checksum matches
+  ansible.builtin.assert:
+    that:
+      - _dv_stat_result.stat.checksum == _dv_expected_checksum
+    fail_msg: >-
+      Checksum mismatch for {{ dv_dest }}:
+      expected={{ _dv_expected_checksum }}
+      actual={{ _dv_stat_result.stat.checksum }}
+    success_msg: >-
+      Checksum verified: {{ dv_dest | basename }} ({{ _dv_expected_checksum }})
+
+- name: Clean up checksum file
+  ansible.builtin.file:
+    path: "{{ _dv_cache_file }}"
+    state: absent
+  when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'

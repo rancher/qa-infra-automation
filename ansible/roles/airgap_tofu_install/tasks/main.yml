@@ -1,9 +1,14 @@
 ---
-- name: Download the OpenTofu zip file
-  ansible.builtin.get_url:
-    url: "{{ download_url }}"
-    dest: "{{ temp_download_path }}"
-    mode: "0644"
+- name: Download OpenTofu zip with SHA256 verification
+  include_role:
+    name: download_verify
+  vars:
+    dv_artifact_url: "{{ download_url }}"
+    dv_checksum_url: "https://github.com/opentofu/opentofu/releases/download/v{{ tofu_version }}/tofu_{{ tofu_version }}_checksums.txt"
+    dv_dest: "{{ temp_download_path }}"
+    dv_checksum_format: "github_sha256sum"
+    dv_github_artifact_name: "tofu_{{ tofu_version }}_{{ ansible_system | lower }}_{{ tofu_arch }}.zip"
+    dv_mode: "0644"
 
 - name: Unzip binary into install directory
   become: true
