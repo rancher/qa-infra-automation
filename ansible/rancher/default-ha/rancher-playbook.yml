@@ -15,6 +15,23 @@
     rancher_chart_repo_final: "{{ rancher_chart_repo | default('rancher-latest') }}"
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default('https://releases.rancher.com/server-charts/latest') }}"
 
+    # ingress.tls.source: "rancher" (default/self-signed), "letsEncrypt", or "secret".
+    # Set ingress_tls_source in vars.yaml to override.
+    ingress_tls_source: "{{ ingress_tls_source | default('') }}"
+
+    # Let's Encrypt settings — only used when ingress_tls_source == "letsEncrypt".
+    letsencrypt_email: "{{ letsencrypt_email | default('') }}"
+
+    # Custom TLS secret settings — only used when ingress_tls_source == "secret".
+    # Paths to PEM files on the Ansible controller; the playbook creates the
+    # tls-rancher-ingress secret (and optionally tls-ca) on the cluster.
+    tls_cert_path: "{{ tls_cert_path | default('') }}"
+    tls_key_path: "{{ tls_key_path | default('') }}"
+    tls_ca_cert_path: "{{ tls_ca_cert_path | default('') }}"
+
+    # Extra helm values to merge into the Rancher helm install command.
+    extra_helm_values: "{{ extra_helm_values | default({}) }}"
+
     # Set to true via -e "upgrade_mode=true" to skip the initial install/first-boot
     # tasks and run rancher-upgrade-tasks.yml instead (helm upgrade --reuse-values).
     upgrade_mode: false
@@ -99,6 +116,46 @@
       delay: 30
       when: cert_manager_version != ""
 
+    - name: Ensure cattle-system namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: v1
+        kind: Namespace
+        name: cattle-system
+        state: present
+      when: ingress_tls_source == "secret"
+
+    - name: Create tls-rancher-ingress secret
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_file }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: tls-rancher-ingress
+            namespace: cattle-system
+          type: kubernetes.io/tls
+          data:
+            tls.crt: "{{ lookup('file', tls_cert_path) | b64encode }}"
+            tls.key: "{{ lookup('file', tls_key_path) | b64encode }}"
+      when: ingress_tls_source == "secret" and tls_cert_path != "" and tls_key_path != ""
+
+    - name: Create tls-ca secret
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_file }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: tls-ca
+            namespace: cattle-system
+          type: Opaque
+          data:
+            cacerts.pem: "{{ lookup('file', tls_ca_cert_path) | b64encode }}"
+      when: ingress_tls_source == "secret" and tls_ca_cert_path != ""
+
     - name: Get all nodes
       k8s_info:
         api_version: v1
@@ -115,6 +172,34 @@
         repo_url: "{{ rancher_chart_repo_url_final }}"
       when: rancher_version != ""
 
+    - name: Build base Rancher helm values
+      set_fact:
+        rancher_helm_values:
+          hostname: "{{ fqdn }}"
+          bootstrapPassword: "{{ bootstrap_password }}"
+          rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
+          replicas: "{{ node_info.resources | length }}"
+
+    - name: Add ingress.tls.source to helm values
+      set_fact:
+        rancher_helm_values: "{{ rancher_helm_values | combine({'ingress': {'tls': {'source': ingress_tls_source}}}) }}"
+      when: ingress_tls_source != ""
+
+    - name: Add letsEncrypt helm values
+      set_fact:
+        rancher_helm_values: "{{ rancher_helm_values | combine({'letsEncrypt': {'email': letsencrypt_email, 'environment': 'production'}}) }}"
+      when: ingress_tls_source == "letsEncrypt" and letsencrypt_email != ""
+
+    - name: Set privateCA helm value when a CA cert is provided
+      set_fact:
+        rancher_helm_values: "{{ rancher_helm_values | combine({'privateCA': true}) }}"
+      when: ingress_tls_source == "secret" and tls_ca_cert_path != ""
+
+    - name: Merge extra helm values
+      set_fact:
+        rancher_helm_values: "{{ rancher_helm_values | combine(extra_helm_values, recursive=True) }}"
+      when: extra_helm_values | length > 0
+
     - name: Install Rancher
       kubernetes.core.helm:
         kubeconfig: "{{ kubeconfig_file }}"
@@ -125,11 +210,7 @@
         chart_version: "{{ (rancher_version == 'latest') | ternary('', rancher_version | default(rancher_version)) }}"
         wait: true
         wait_timeout: "800s"
-        values:
-          hostname: "{{ fqdn }}"
-          bootstrapPassword: "{{ bootstrap_password }}"
-          rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
-          replicas: "{{ node_info.resources | length }}"
+        values: "{{ rancher_helm_values }}"
       when: rancher_version != ""
       retries: 6
       delay: 120
