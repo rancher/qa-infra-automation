@@ -17,20 +17,20 @@
 
     # ingress.tls.source: "rancher" (default/self-signed), "letsEncrypt", or "secret".
     # Set ingress_tls_source in vars.yaml to override.
-    ingress_tls_source: "{{ ingress_tls_source | default('') }}"
+    ingress_tls_source_final: "{{ ingress_tls_source | default('') }}"
 
     # Let's Encrypt settings — only used when ingress_tls_source == "letsEncrypt".
-    letsencrypt_email: "{{ letsencrypt_email | default('') }}"
+    letsencrypt_email_final: "{{ letsencrypt_email | default('') }}"
 
     # Custom TLS secret settings — only used when ingress_tls_source == "secret".
     # Paths to PEM files on the Ansible controller; the playbook creates the
     # tls-rancher-ingress secret (and optionally tls-ca) on the cluster.
-    tls_cert_path: "{{ tls_cert_path | default('') }}"
-    tls_key_path: "{{ tls_key_path | default('') }}"
-    tls_ca_cert_path: "{{ tls_ca_cert_path | default('') }}"
+    tls_cert_path_final: "{{ tls_cert_path | default('') }}"
+    tls_key_path_final: "{{ tls_key_path | default('') }}"
+    tls_ca_cert_path_final: "{{ tls_ca_cert_path | default('') }}"
 
     # Extra helm values to merge into the Rancher helm install command.
-    extra_helm_values: "{{ extra_helm_values | default({}) }}"
+    extra_helm_values_final: "{{ extra_helm_values | default({}) }}"
 
     # Set to true via -e "upgrade_mode=true" to skip the initial install/first-boot
     # tasks and run rancher-upgrade-tasks.yml instead (helm upgrade --reuse-values).
@@ -82,12 +82,31 @@
       debug:
         msg: "Connected! Found {{ ns_info.resources | length }} namespaces."
 
+    - name: Download cert-manager CRDs manifest
+      ansible.builtin.get_url:
+        url: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
+        dest: /tmp/cert-manager.crds.yaml
+        mode: '0644'
+        force: true
+      retries: 5
+      delay: 30
+      when: cert_manager_version != ""
+
     - name: Install cert-manager CRDs
-      no_log: true
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
+        src: /tmp/cert-manager.crds.yaml
         state: present
+      retries: 5
+      delay: 30
+      when: cert_manager_version != ""
+
+    - name: Download cert-manager manifest
+      ansible.builtin.get_url:
+        url: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml
+        dest: /tmp/cert-manager.yaml
+        mode: '0644'
+        force: true
       retries: 5
       delay: 30
       when: cert_manager_version != ""
@@ -95,7 +114,7 @@
     - name: Install cert-manager
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml
+        src: /tmp/cert-manager.yaml
         state: present
         wait: true
         wait_timeout: 300
@@ -123,7 +142,7 @@
         kind: Namespace
         name: cattle-system
         state: present
-      when: ingress_tls_source == "secret"
+      when: ingress_tls_source_final == "secret"
 
     - name: Create tls-rancher-ingress secret
       kubernetes.core.k8s:
@@ -137,9 +156,9 @@
             namespace: cattle-system
           type: kubernetes.io/tls
           data:
-            tls.crt: "{{ lookup('file', tls_cert_path) | b64encode }}"
-            tls.key: "{{ lookup('file', tls_key_path) | b64encode }}"
-      when: ingress_tls_source == "secret" and tls_cert_path != "" and tls_key_path != ""
+            tls.crt: "{{ lookup('file', tls_cert_path_final) | b64encode }}"
+            tls.key: "{{ lookup('file', tls_key_path_final) | b64encode }}"
+      when: ingress_tls_source_final == "secret" and tls_cert_path_final != "" and tls_key_path_final != ""
 
     - name: Create tls-ca secret
       kubernetes.core.k8s:
@@ -153,8 +172,8 @@
             namespace: cattle-system
           type: Opaque
           data:
-            cacerts.pem: "{{ lookup('file', tls_ca_cert_path) | b64encode }}"
-      when: ingress_tls_source == "secret" and tls_ca_cert_path != ""
+            cacerts.pem: "{{ lookup('file', tls_ca_cert_path_final) | b64encode }}"
+      when: ingress_tls_source_final == "secret" and tls_ca_cert_path_final != ""
 
     - name: Get all nodes
       k8s_info:
@@ -182,23 +201,23 @@
 
     - name: Add ingress.tls.source to helm values
       set_fact:
-        rancher_helm_values: "{{ rancher_helm_values | combine({'ingress': {'tls': {'source': ingress_tls_source}}}) }}"
-      when: ingress_tls_source != ""
+        rancher_helm_values: "{{ rancher_helm_values | combine({'ingress': {'tls': {'source': ingress_tls_source_final}}}) }}"
+      when: ingress_tls_source_final != ""
 
     - name: Add letsEncrypt helm values
       set_fact:
-        rancher_helm_values: "{{ rancher_helm_values | combine({'letsEncrypt': {'email': letsencrypt_email, 'environment': 'production'}}) }}"
-      when: ingress_tls_source == "letsEncrypt" and letsencrypt_email != ""
+        rancher_helm_values: "{{ rancher_helm_values | combine({'letsEncrypt': {'email': letsencrypt_email_final, 'environment': 'production'}}) }}"
+      when: ingress_tls_source_final == "letsEncrypt" and letsencrypt_email_final != ""
 
     - name: Set privateCA helm value when a CA cert is provided
       set_fact:
         rancher_helm_values: "{{ rancher_helm_values | combine({'privateCA': true}) }}"
-      when: ingress_tls_source == "secret" and tls_ca_cert_path != ""
+      when: ingress_tls_source_final == "secret" and tls_ca_cert_path_final != ""
 
     - name: Merge extra helm values
       set_fact:
-        rancher_helm_values: "{{ rancher_helm_values | combine(extra_helm_values, recursive=True) }}"
-      when: extra_helm_values | length > 0
+        rancher_helm_values: "{{ rancher_helm_values | combine(extra_helm_values_final, recursive=True) }}"
+      when: extra_helm_values_final | length > 0
 
     - name: Install Rancher
       kubernetes.core.helm:
