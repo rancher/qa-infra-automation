@@ -293,15 +293,19 @@
           username: admin
           password: "{{ bootstrap_password }}"
         method: POST
-        force_basic_auth: true
         validate_certs: false
-        status_code: 201
+        status_code: [200, 201, 401, 403, 500, 502, 503]
         body_format: json
       register: rancherjson
-      retries: 5
+      retries: 18
       delay: 10
       until: rancherjson.status == 201
       when: rancher_version != ""
+
+    - name: Fail if Rancher login never succeeded
+      ansible.builtin.fail:
+        msg: "Rancher login failed after retries. Last status: {{ rancherjson.status }}, body: {{ rancherjson.json | default('N/A') }}"
+      when: rancher_version != "" and rancherjson.status != 201
   
     - name: Extract Rancher Token
       set_fact:
