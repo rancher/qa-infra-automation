@@ -196,7 +196,7 @@
         rancher_helm_values:
           hostname: "{{ fqdn }}"
           bootstrapPassword: "{{ bootstrap_password }}"
-          rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
+          rancherImageTag: "{{ (rancher_image_tag | default('') == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
           replicas: "{{ node_info.resources | length }}"
 
     - name: Add ingress.tls.source to helm values
