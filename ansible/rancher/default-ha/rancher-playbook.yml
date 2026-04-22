@@ -135,6 +135,21 @@
       delay: 30
       when: cert_manager_version != ""
 
+    - name: Validate TLS secret inputs
+      ansible.builtin.assert:
+        that:
+          - tls_cert_path_final != ""
+          - tls_key_path_final != ""
+        fail_msg: "tlsSource is 'secret' but tlsCertPath or tlsKeyPath is empty"
+      when: ingress_tls_source_final == "secret"
+
+    - name: Validate Let's Encrypt inputs
+      ansible.builtin.assert:
+        that:
+          - letsencrypt_email_final != ""
+        fail_msg: "tlsSource is 'letsEncrypt' but letsEncryptEmail is empty"
+      when: ingress_tls_source_final == "letsEncrypt"
+
     - name: Ensure cattle-system namespace exists
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
@@ -158,6 +173,7 @@
           data:
             tls.crt: "{{ lookup('file', tls_cert_path_final) | b64encode }}"
             tls.key: "{{ lookup('file', tls_key_path_final) | b64encode }}"
+      no_log: true
       when: ingress_tls_source_final == "secret" and tls_cert_path_final != "" and tls_key_path_final != ""
 
     - name: Create tls-ca secret
@@ -294,7 +310,7 @@
           password: "{{ bootstrap_password }}"
         method: POST
         validate_certs: false
-        status_code: [200, 201, 401, 403, 500, 502, 503]
+        status_code: [201, 401, 403, 500, 502, 503]
         body_format: json
       register: rancherjson
       retries: 18
