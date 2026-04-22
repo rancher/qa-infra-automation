@@ -28,13 +28,13 @@
 
       - name: Set kube_api_host content from env or vars when not using terraform
         ansible.builtin.set_fact:
-          kube_api_host: "{{ lookup('env', 'KUBE_API_HOST') | default(kube_api_host | default('', true), true) }}"
+          kube_api_host: "{{ lookup('env', 'KUBE_API_HOST') | default(kube_api_host if kube_api_host is defined else '', true) }}"
           use_terraform: false
         when: not tfstate_file_stat.stat.exists
 
       - name: Set fqdn content from env or vars when not using terraform
         ansible.builtin.set_fact:
-          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn | default(kube_api_host | default('', true), true), true) }}"
+          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn if fqdn is defined else (kube_api_host if kube_api_host is defined else ''), true) }}"
         when: not tfstate_file_stat.stat.exists
 
     - name: Validate required variables
