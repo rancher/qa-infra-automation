@@ -1,0 +1,61 @@
+---
+# Bootstrap Python 3.9 on SLE Micro using pre-built binaries
+- name: Bootstrap Python 3.9 using pre-built binaries
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check if Python 3.9+ exists
+      ansible.builtin.raw: python3.9 --version 2>/dev/null || echo "NEEDS_INSTALL"
+      register: check_python
+      changed_when: false
+      failed_when: false
+
+    - name: Use portable Python binary from manylinux or deadsnakes PPA
+      ansible.builtin.raw: |
+        set -e
+        tmp_dir=$(mktemp -d)
+        cd "$tmp_dir"
+
+        # Download Python 3.9 pre-built binary for Linux
+        # Using manylinux or static build
+        echo "Downloading Python 3.9 static build..."
+
+        # Try multiple sources for pre-built Python
+        # Option 1: Static Python build
+        curl -fsSL https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.9.20+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz -o python.tar.gz || \
+        curl -fsSL https://github.com/indygreg/python-build-standalone/releases/download/20240713/cpython-3.9.19+20240713-x86_64-unknown-linux-gnu-install_only.tar.gz -o python.tar.gz || \
+        curl -fsSL https://github.com/indygreg/python-build-standalone/releases/download/20240505/cpython-3.9.18+20240505-x86_64-unknown-linux-gnu-install_only.tar.gz -o python.tar.gz || {
+          echo "Failed to download Python binary"
+          rm -rf "$tmp_dir"
+          exit 1
+        }
+
+        # Extract to /usr/local
+        echo "Extracting Python..."
+        tar xzf python.tar.gz -C /usr/local --strip-components=1
+
+        # Verify
+        /usr/local/bin/python3 --version
+
+        # Create symlinks (ignore errors if they exist)
+        ln -sf /usr/local/bin/python3 /usr/local/bin/python3.9 2>/dev/null || true
+        ln -sf /usr/local/bin/pip3 /usr/local/bin/pip3.9 2>/dev/null || true
+
+        # Cleanup
+        cd /
+        rm -rf "$tmp_dir"
+
+        echo "Python 3.9 installed successfully via binary"
+      register: install_binary
+      when: "'NEEDS_INSTALL' in check_python.stdout"
+
+    - name: Verify installation
+      ansible.builtin.raw: /usr/local/bin/python3.9 --version || /usr/local/bin/python3 --version || echo "Failed"
+      register: verify
+      changed_when: false
+
+    - name: Show version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ verify.stdout | default('Verification failed') }}"

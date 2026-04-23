@@ -295,8 +295,14 @@ infra-nuke: ## Destroy ALL active infrastructure across all modules (end-of-day 
 # CLUSTER DEPLOYMENT (ANSIBLE)
 # ============================================================================
 
+.PHONY: bootstrap-python
+bootstrap-python: check-inventory ## Bootstrap Python 3.9+ on target nodes
+	@echo "Bootstrapping Python on target nodes..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
+
 .PHONY: cluster
-cluster: check-inventory ## Install Kubernetes cluster
+cluster: check-inventory bootstrap-python ## Install Kubernetes cluster
 	@echo "Installing $(DISTRO) cluster ($(ENV) environment)..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) $(CLUSTER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS)
