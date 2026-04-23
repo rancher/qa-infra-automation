@@ -1,5 +1,7 @@
 # Quickstart
 
+> **📖 Looking for an end-to-end guide?** See [Rancher HA](../../docs/guides/rancher-ha.md) for step-by-step instructions.
+
 ## Prerequisites
 
 1. Kubernetes cluster: You must have a reachable K3s, RKE2, or other supported Kubernetes cluster.

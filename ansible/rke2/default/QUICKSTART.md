@@ -1,5 +1,7 @@
 # Quickstart
 
+> **📖 Looking for an end-to-end guide?** See [RKE2 on AWS](../../../docs/guides/rke2-default-aws.md) or [RKE2 on your own nodes](../../../docs/guides/rke2-default-byo.md) for step-by-step instructions that cover infrastructure through verification.
+
 ## Prerequisites
 
 1. Infrastructure Deployed: You must have nodes to install rke2 on, either by running `tofu apply` successfully or bringing your own. [Example tofu module](../../../tofu/aws/modules/cluster_nodes/QUICKSTART.md).

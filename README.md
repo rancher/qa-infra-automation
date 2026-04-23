@@ -1,56 +1,77 @@
-# Infrastructure Automation Repository
+# QA Infrastructure Automation
 
-This repository contains infrastructure automation scripts using Tofu and Ansible. It is organized into directories for each tool and specific infrastructure components. Below is an overview that highlights the most important things to keep in mind for contributors. See the `docs/` folder for all other documentation related to this repository.
+Deploy Kubernetes clusters (RKE2, K3s) and Rancher across AWS, GCP, Harvester, or your own nodes. This repo combines **OpenTofu** for infrastructure provisioning with **Ansible** for product deployment.
 
-## Getting Started
+## Choose Your Path
 
-All are welcome and encouraged to contribute! Try to keep any changes generalized, easy to understand, and reusable by all. There may be cases, however, where some specifics are required. In these cases, make sure to include yourself or your team in the [CODEOWNERS](./CODEOWNERS) file for the necessary path. Any new ansible playbook or tofu module should have a README that explains usage, including input params, output params, and an example. Please follow best practices for both [Tofu](https://opentofu.org/docs/language/syntax/style/) and [Ansible](https://docs.ansible.com/ansible/latest/tips_tricks/ansible_tips_tricks.html).
+| I want to… | Guide |
+|---|---|
+| Deploy **RKE2** on **AWS** | [rke2-default-aws](docs/guides/rke2-default-aws.md) |
+| Deploy **RKE2** on **my own nodes** (BYO / on-premise) | [rke2-default-byo](docs/guides/rke2-default-byo.md) |
+| Deploy **RKE2** in an **airgap** on AWS | [rke2-airgap-aws](docs/guides/rke2-airgap-aws.md) |
+| Deploy **K3s** on **AWS** | [k3s-default-aws](docs/guides/k3s-default-aws.md) |
+| Deploy **K3s** on **my own nodes** (BYO / on-premise) | [k3s-default-byo](docs/guides/k3s-default-byo.md) |
+| Install **Rancher** on an existing cluster | [rancher-ha](docs/guides/rancher-ha.md) |
+| Add a **new cloud provider** | [adding-a-provider](docs/adding-a-provider.md) |
+| See **all guides** | [docs/guides/](docs/guides/README.md) |
 
-Some contributors may be more familiar with Terraform than Tofu. Tofu is the open-source alternative but is otherwise almost identical. See their docs to learn more about how to [migrate from Terraform to Tofu](https://opentofu.org/docs/intro/migration/). 
+## The Impatient Path
 
-It may be helpful when developing or running the modules and playbooks here to have a file with some default environment variables. For a reference, please see this [example](./vars.example-env).
+Full RKE2 cluster + Rancher on AWS in three commands:
 
-## Quickstart
-
-A Makefile is provided to make it easier to get started. It supports both standard (`default`) and air-gapped (`airgap`) deployments on AWS. See the [Makefile](./Makefile) for all available targets.
-
-To display the help menu:
 ```bash
-make help
+# 1. Configure  tofu/aws/modules/cluster_nodes/terraform.tfvars  (see guide)
+# 2. Configure  ansible/rke2/default/vars.yaml                   (see guide)
+
+make all    # provisions infra → deploys RKE2 → installs Rancher
 ```
 
-**Standard (internet-connected) deployment:**
-```bash
-make all
-```
+For an airgap deployment: `make all ENV=airgap`. For K3s: `make all DISTRO=k3s`.
 
-**Air-gapped deployment:**
-```bash
-make all ENV=airgap
-```
+See [prerequisites](docs/prerequisites.md) first.
 
-Both workflows run: infrastructure provisioning → cluster install → Rancher deploy. The airgap workflow additionally configures the private registry.
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/getting-started.md) | Project overview, supported configurations, where to go next |
+| [Prerequisites](docs/prerequisites.md) | Tools, Python packages, cloud credentials, SSH keys |
+| [Architecture](docs/architecture.md) | How the Tofu and Ansible layers work together |
+| [Makefile Reference](docs/reference/makefile.md) | All `make` targets, variables, and examples |
+| [Inventory Format](docs/reference/inventory-format.md) | Ansible inventory schema for BYO and Tofu-generated inventories |
+| [Variables Reference](docs/reference/variables.md) | All Ansible variables across playbooks and roles |
+| [Troubleshooting](docs/reference/troubleshooting.md) | Common issues and fixes |
+| [FAQ](docs/faq.md) | Frequently asked questions |
 
 ## Directory Structure
 
-See below for a visual representation of the directory structure. In the ansible directory, a product might be "rke2" or "rancher", and a feature might be "airgap." Scripts are there for reusable scripts, for example to run the set of commands required to install an rke2 server node. In the terraform directory, a provider might be "aws" or "harvester", and context might be "airgap".
-
 ```
-├── ansible/
-│   ├── product/
-│   │   └── feature/
-│   │       └── scripts/
-│   └── roles/
-│       
-├── tofu/
-│   ├── provider/
-│   │   ├── modules/
-│   │   │   └── context/
+├── ansible/                    # Product deployment (provider-agnostic)
+│   ├── rke2/                   #   RKE2 playbooks (default, airgap)
+│   ├── k3s/                    #   K3s playbooks (default)
+│   ├── rancher/                #   Rancher playbooks (HA, downstream)
+│   └── roles/                  #   Reusable Ansible roles
+│
+├── tofu/                       # Infrastructure provisioning
+│   ├── aws/modules/            #   AWS (cluster_nodes, airgap, ...)
+│   ├── gcp/modules/            #   GCP (elemental_nodes, ...)
+│   └── harvester/modules/      #   Harvester (vm, loadbalancer, ...)
+│
+├── docs/                       # Documentation
+│   ├── guides/                 #   End-to-end deployment guides
+│   └── reference/              #   Reference material
+│
+└── scripts/                    # Helper scripts (inventory generation, etc.)
 ```
 
-## Standards
-- Ansible playbooks should be provider-agnostic.
-- Tofu should contain modular TF pieces that can work together or on their own.
-- Everything should be as modular as possible.
-- Any collection of tasks that are easily reusable should be a *role* and called from playbooks that need them.
-- If a value may be different in someone else's environment, then use a variable to set it. These variables should also have descriptions so it is clear how to use them, and more information in the associated playbook or module's README if it needs further clarification.
+## Contributing
+
+All are welcome and encouraged to contribute! Please keep changes generalized, easy to understand, and reusable.
+
+- Follow the [OpenTofu style guide](https://opentofu.org/docs/language/syntax/style/) and [Ansible best practices](https://docs.ansible.com/ansible/latest/tips_tricks/ansible_tips_tricks.html)
+- New Ansible playbooks and Tofu modules must include a README with usage, inputs, outputs, and examples
+- Reusable task collections should be Ansible roles
+- Use variables for environment-specific values with descriptions
+- Add yourself to [CODEOWNERS](./CODEOWNERS) for paths you own
+
+If you're familiar with Terraform but not OpenTofu, see [migrating from Terraform to Tofu](https://opentofu.org/docs/intro/migration/) — they are nearly identical.
