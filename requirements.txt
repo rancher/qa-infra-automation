@@ -9,11 +9,14 @@
 #
 # Or, if Ansible is managed with pipx:
 #
-#     pipx inject ansible -r requirements.txt
+#     cd /tmp && pipx inject ansible pyyaml jmespath kubernetes boto3 botocore
+#     cd -  # return to project directory
 #     ansible-galaxy collection install -r requirements.yml
+#
+# Note: Cannot use `-r requirements.txt` if local `ansible/` directory exists.
+# Run from /tmp or elsewhere to avoid path conflict.
 
-# Core control-node runtime
-ansible-core>=2.16,<2.21
+# Core control-node runtime (ansible-core bundled with pipx ansible)
 
 # Used by scripts/generate_inventory.py
 pyyaml==6.0.2
