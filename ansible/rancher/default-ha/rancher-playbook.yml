@@ -22,6 +22,10 @@
     # tasks and run rancher-upgrade-tasks.yml instead (helm upgrade --reuse-values).
     upgrade_mode: false
 
+    # Skip Rancher chart verification (default: true for faster deployment)
+    # Set to false to verify signed charts
+    skip_rancher_chart_verification: true
+
   tasks:
     - name: Set variables based on tofu or environment
       when: fqdn is not defined 
@@ -171,15 +175,15 @@
               bootstrapPassword: "{{ bootstrap_password }}"
               rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
               replicas: "{{ node_info.resources | length }}"
-            verify: true
+            verify: "{{ not skip_rancher_chart_verification | bool }}"
           retries: 6
           delay: 120
       rescue:
-        - name: Warn about unsigned Rancher chart
+        - name: Warn about chart verification failure
           ansible.builtin.debug:
-            msg: "WARNING: Rancher chart has no signed provenance file. Installing without verification."
+            msg: "WARNING: Rancher chart verification failed. Installing without verification."
 
-        - name: Install Rancher (unsigned fallback)
+        - name: Install Rancher (fallback without verification)
           kubernetes.core.helm:
             kubeconfig: "{{ kubeconfig_file }}"
             name: rancher
@@ -194,6 +198,7 @@
               bootstrapPassword: "{{ bootstrap_password }}"
               rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
               replicas: "{{ node_info.resources | length }}"
+            verify: false
           retries: 6
           delay: 120
       when: rancher_version != ""
