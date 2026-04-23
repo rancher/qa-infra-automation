@@ -37,15 +37,24 @@ def load_json(path: str) -> dict:
     with open(path) as f:
         content = f.read().strip()
     if not content:
-        print(f"Error: {path} is empty. Did 'tofu apply' complete successfully?", file=sys.stderr)
-        print("Ensure the Tofu module defines the required output (cluster_nodes_json or airgap_inventory_json).", file=sys.stderr)
+        print(
+            f"Error: {path} is empty. Did 'tofu apply' complete successfully?",
+            file=sys.stderr,
+        )
+        print(
+            "Ensure the Tofu module defines the required output (cluster_nodes_json or airgap_inventory_json).",
+            file=sys.stderr,
+        )
         sys.exit(1)
     try:
         return json.loads(content)
     except json.JSONDecodeError as e:
         print(f"Error: Failed to parse JSON from {path}: {e}", file=sys.stderr)
         print(f"  File content (first 200 chars): {content[:200]}", file=sys.stderr)
-        print("This usually means 'tofu output' returned an error or no data.", file=sys.stderr)
+        print(
+            "This usually means 'tofu output' returned an error or no data.",
+            file=sys.stderr,
+        )
         print("Run 'tofu apply' first, then retry.", file=sys.stderr)
         sys.exit(1)
 
@@ -75,8 +84,14 @@ def validate_cluster_nodes(data: dict) -> None:
 
 
 def validate_airgap(data: dict) -> None:
-    required = {"bastion_host", "ssh_key", "ssh_user", "external_lb_hostname",
-                "internal_lb_hostname", "node_groups"}
+    required = {
+        "bastion_host",
+        "ssh_key",
+        "ssh_user",
+        "external_lb_hostname",
+        "internal_lb_hostname",
+        "node_groups",
+    }
     missing = required - set(data.keys())
     if missing:
         raise ValueError(f"airgap JSON missing fields: {missing}")
@@ -87,6 +102,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     metadata = data["metadata"]
     nodes = data["nodes"]
     ip_field = schema_cfg.get("ip_field", "public_ip")
+    default_key = metadata.get("ssh_private_key")
     groups_cfg = schema_cfg.get("groups", {})
 
     # Build groups: each node is assigned to groups based on its roles
@@ -118,6 +134,9 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         }
     }
 
+    if default_key:
+        inventory["all"]["vars"]["ansible_ssh_private_key_file"] = default_key
+
     # Map each node to its primary group (first match wins)
     node_to_group: dict[str, str] = {}
     for group_name, group_nodes in groups.items():
@@ -134,11 +153,19 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
             rke2_node_role = "server"
         else:
             rke2_node_role = "agent"
-        inventory["all"]["hosts"][node["name"]] = {
+        host_entry = {
             "ansible_host": node[ip_field],
             "node_roles": node_roles,
             "rke2_node_role": rke2_node_role,
         }
+
+        node_key = node.get("ssh_private_key")
+        if node_key:
+            host_entry["ansible_ssh_private_key_file"] = node_key
+        elif default_key:
+            host_entry["ansible_ssh_private_key_file"] = default_key
+
+        inventory["all"]["hosts"][node["name"]] = host_entry
 
     # Add named groups
     for group_name, group_nodes in groups.items():
@@ -146,8 +173,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
             continue
         inventory["all"]["children"][group_name] = {
             "hosts": {
-                node["name"]: {"ansible_host": node[ip_field]}
-                for node in group_nodes
+                node["name"]: {"ansible_host": node[ip_field]} for node in group_nodes
             }
         }
 
@@ -245,25 +271,46 @@ def write_manifest(output_dir: str, input_path: str, inventory_path: str) -> Non
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate Ansible inventory from Tofu JSON output")
+    parser = argparse.ArgumentParser(
+        description="Generate Ansible inventory from Tofu JSON output"
+    )
     parser.add_argument("--input", required=True, help="Path to Tofu JSON output file")
-    parser.add_argument("--distro", required=True, choices=["rke2", "k3s"], help="Kubernetes distro")
-    parser.add_argument("--env", required=True, choices=["airgap", "default", "proxy"], help="Environment type")
-    parser.add_argument("--schema", default="ansible/_inventory-schema.yaml", help="Path to inventory schema YAML")
-    parser.add_argument("--output-dir", required=True, help="Directory to write inventory.yml into")
+    parser.add_argument(
+        "--distro", required=True, choices=["rke2", "k3s"], help="Kubernetes distro"
+    )
+    parser.add_argument(
+        "--env",
+        required=True,
+        choices=["airgap", "default", "proxy"],
+        help="Environment type",
+    )
+    parser.add_argument(
+        "--schema",
+        default="ansible/_inventory-schema.yaml",
+        help="Path to inventory schema YAML",
+    )
+    parser.add_argument(
+        "--output-dir", required=True, help="Directory to write inventory.yml into"
+    )
     args = parser.parse_args()
 
     data = load_json(args.input)
 
     input_type = data.get("type")
     if not input_type:
-        print("Error: JSON input missing 'type' field (expected 'cluster_nodes' or 'airgap')", file=sys.stderr)
+        print(
+            "Error: JSON input missing 'type' field (expected 'cluster_nodes' or 'airgap')",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     schema = load_schema(args.schema)
     distro_schema = schema.get(args.distro, {}).get(args.env)
     if distro_schema is None:
-        print(f"Error: No schema entry for distro='{args.distro}' env='{args.env}'", file=sys.stderr)
+        print(
+            f"Error: No schema entry for distro='{args.distro}' env='{args.env}'",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if input_type == "cluster_nodes":

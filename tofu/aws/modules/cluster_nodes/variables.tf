@@ -6,8 +6,13 @@ variable "aws_ami" {}
 variable "aws_hostname_prefix" {}
 variable "aws_route53_zone" {}
 variable "aws_ssh_user" {}
+variable "private_ssh_key" {
+  description = "Absolute path to the SSH private key file used to connect to cluster nodes."
+  type        = string
+  default     = ""
+}
 variable "aws_security_group" {
-    type = list(string)
+  type = list(string)
 }
 variable "aws_vpc" {}
 variable "aws_volume_size" {}
