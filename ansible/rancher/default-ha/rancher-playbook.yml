@@ -11,6 +11,9 @@
     terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
     terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
 
+    # Kubeconfig location - from env or default to RKE2 playbook output
+    kubeconfig_file: "{{ lookup('env', 'KUBECONFIG_FILE') | default(playbook_dir + '/../rke2/default/kubeconfig.yaml', true) }}"
+
     # Use default values if not defined in vars.yaml
     rancher_chart_repo_final: "{{ rancher_chart_repo | default('rancher-latest') }}"
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default('https://releases.rancher.com/server-charts/latest') }}"
