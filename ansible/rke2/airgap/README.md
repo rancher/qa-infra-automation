@@ -1,5 +1,7 @@
 # RKE2 Airgap Installation with Ansible
 
+> **📖 Looking for an end-to-end guide?** See [RKE2 Airgap on AWS](../../../docs/guides/rke2-airgap-aws.md) for a streamlined walkthrough.
+
 This directory contains Ansible roles and playbooks for installing RKE2 in an airgap environment using the tarball installation method. It provides comprehensive SSH proxy configuration for true airgap deployments with no registry dependency.
 
 ## Prerequisites

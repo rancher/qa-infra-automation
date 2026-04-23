@@ -1,5 +1,7 @@
 # Quickstart
 
+> **📖 Looking for an end-to-end guide?** See [RKE2 on AWS](../../../docs/guides/rke2-default-aws.md) for step-by-step instructions covering infrastructure through cluster verification.
+
 ## Prerequisites
 
 1. OpenTofu: Ensure `tofu` is installed and in your path.

@@ -1,5 +1,7 @@
 # Quickstart
 
+> **📖 Looking for an end-to-end guide?** See [K3s on AWS](../../../docs/guides/k3s-default-aws.md) or [K3s on your own nodes](../../../docs/guides/k3s-default-byo.md) for step-by-step instructions that cover infrastructure through verification.
+
 ## Prerequisites
 
 1. Infrastructure Deployed: You must have nodes to install K3s on, either by running `tofu apply` successfully or bringing your own. [Example tofu module](../../../tofu/aws/modules/cluster_nodes/QUICKSTART.md).
