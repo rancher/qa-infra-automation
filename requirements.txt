@@ -1,1 +1,34 @@
+# Python packages required by the qa-infra-automation tooling.
+#
+# Install into the same interpreter your `ansible` / `ansible-playbook` uses:
+#
+#     python3 -m venv .venv
+#     source .venv/bin/activate
+#     pip install -r requirements.txt
+#     ansible-galaxy collection install -r requirements.yml
+#
+# Or, if Ansible is managed with pipx:
+#
+#     pipx inject ansible -r requirements.txt
+#     ansible-galaxy collection install -r requirements.yml
+
+# Core control-node runtime
+ansible-core>=2.16,<2.21
+
+# Used by scripts/generate_inventory.py
 pyyaml==6.0.2
+
+# Required by community.general.json_query filter
+# (ansible/roles/rke2_health_check/tasks/main.yml)
+jmespath>=1.0.1
+
+# Required by kubernetes.core modules (k8s, k8s_info, helm, helm_repository, ...)
+# used across ansible/rancher, ansible/rke2, ansible/k3s, etc.
+# Note: kubernetes.core.helm also requires the `helm-diff` Helm plugin when
+# reuse_values is used; that is installed by the playbook itself, not via pip.
+kubernetes>=29.0.0
+
+# Required by amazon.aws.s3_object
+# (ansible/rancher/downstream/elemental/harvester/elemental-playbook.yml)
+boto3>=1.34.0
+botocore>=1.34.0
