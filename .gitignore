@@ -31,6 +31,7 @@ ansible/**/inventory.yml
 ansible/rke2/airgap/playbooks/debug/*.txt
 ansible/rke2/airgap/playbooks/*.txt
 terraform-inventory*.yml
+backend.tf
 .lock
 tofu/aws/modules/cluster_nodes/inventory.yml
 plans/

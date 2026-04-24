@@ -346,15 +346,16 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 	@echo "  Workspace: $(WORKSPACE)"
 	@echo ""
 	@echo "Resources to be destroyed:"
-	@cd $(TOFU_DIR) && resources=$$(tofu state list 2>/dev/null | wc -l); \
+	@(cd $(TOFU_DIR); \
+	resources=$$(tofu state list 2>/dev/null | wc -l); \
 	if [ "$$resources" -eq 0 ]; then \
 		echo "  No resources found (workspace is empty)"; \
 		echo ""; \
-		echo "Current workspace: $$(cd $(TOFU_DIR) && tofu workspace show)"; \
+		echo "Current workspace: $$(tofu workspace show)"; \
 		echo ""; \
 		read -p "Continue anyway? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1; \
 	else \
-		cd $(TOFU_DIR) && tofu state list 2>/dev/null | head -10 | sed 's/^/  /'; \
+		tofu state list 2>/dev/null | head -10 | sed 's/^/  /'; \
 		if [ $$resources -gt 10 ]; then \
 			echo "  ... and $$((resources - 10)) more"; \
 		fi; \
@@ -362,7 +363,7 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 		echo "Total: $$resources resource(s)"; \
 		echo ""; \
 		read -p "Destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1; \
-	fi
+	fi)
 	@echo ""
 	@echo "Destroying..."
 	cd $(TOFU_DIR) && tofu destroy -var-file=terraform.tfvars -auto-approve
