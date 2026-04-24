@@ -87,7 +87,7 @@ help: ## Show this help message
 	@echo "WORKSPACE MANAGEMENT:"
 	@echo "  workspace-list      List all workspaces"
 	@echo "  workspace-show      Show current workspace"
-	@echo "  workspace-select    Select workspace (use WORKSPACE=name)"
+	@echo "  workspace-select    Select workspace interactively or use WORKSPACE=name"
 	@echo "  workspace-new       Create new workspace (use WORKSPACE=name)"
 	@echo "  workspace-delete    Delete workspace (use WORKSPACE=name)"
 	@echo ""
@@ -134,6 +134,8 @@ help: ## Show this help message
 	@echo ""
 	@echo "Workspace Examples:"
 	@echo "  make workspace-list                          # List all workspaces"
+	@echo "  make workspace-select                        # Interactive selection menu"
+	@echo "  make workspace-select WORKSPACE=my-test      # Direct selection"
 	@echo "  make workspace-new WORKSPACE=my-test          # Create new workspace"
 	@echo "  make infra-up WORKSPACE=my-test               # Deploy to workspace"
 	@echo "  make infra-down WORKSPACE=my-test             # Destroy workspace resources"
@@ -239,13 +241,13 @@ workspace-show: check-tofu-dir ## Show current workspace
 	cd $(TOFU_DIR) && tofu workspace show
 
 .PHONY: workspace-select
-workspace-select: check-tofu-dir ## Select workspace (use WORKSPACE=name)
-	@if [ -z "$(WORKSPACE)" ]; then \
-		echo "Usage: make workspace-select WORKSPACE=<workspace-name>"; \
-		exit 1; \
+workspace-select: check-tofu-dir ## Select workspace (use WORKSPACE=name or select interactively)
+	@if [ "$(origin WORKSPACE)" = "command line" ]; then \
+		echo "Selecting workspace '$(WORKSPACE)' for $(TOFU_DIR)..."; \
+		cd $(TOFU_DIR) && tofu workspace select $(WORKSPACE); \
+	else \
+		$(CURDIR)/tofu/scripts/select-workspace.sh $(TOFU_DIR); \
 	fi
-	@echo "Selecting workspace '$(WORKSPACE)' for $(TOFU_DIR)..."
-	cd $(TOFU_DIR) && tofu workspace select $(WORKSPACE)
 
 .PHONY: workspace-new
 workspace-new: check-tofu-dir ## Create new workspace (use WORKSPACE=name)
