@@ -175,7 +175,7 @@
               bootstrapPassword: "{{ bootstrap_password }}"
               rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
               replicas: "{{ node_info.resources | length }}"
-            verify: "{{ not skip_rancher_chart_verification | bool }}"
+            verify_ssl: "{{ not skip_rancher_chart_verification | bool }}"
           retries: 6
           delay: 120
       rescue:
@@ -198,7 +198,7 @@
               bootstrapPassword: "{{ bootstrap_password }}"
               rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
               replicas: "{{ node_info.resources | length }}"
-            verify: false
+            verify_ssl: false
           retries: 6
           delay: 120
       when: rancher_version != ""
