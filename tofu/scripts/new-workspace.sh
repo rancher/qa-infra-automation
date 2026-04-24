@@ -52,7 +52,7 @@ if [ "$new_ws" = "default" ]; then
 fi
 
 # Check if workspace already exists
-if tofu workspace list | grep -q "^$new_ws$"; then
+if tofu workspace list | awk '{print $NF}' | grep -q "^$new_ws$"; then
   echo "Error: Workspace '$new_ws' already exists."
   echo "Choose a different name or select it with:"
   echo "  make workspace-select WORKSPACE=$new_ws"

@@ -20,7 +20,7 @@ cd "$TOFU_DIR"
 CURRENT_WS=$(tofu workspace show)
 
 # Get list of workspaces (excluding current)
-WORKSPACES=$(tofu workspace list | grep -v "^\*" | grep -v "^$CURRENT_WS$" | awk '{print $1}')
+WORKSPACES=$(tofu workspace list | grep -v "^\*" | grep -v "^$CURRENT_WS$" | awk '{print $NF}')
 
 # Get module context from directory path
 MODULE_CONTEXT=$(echo "$TOFU_DIR" | sed 's|.*/tofu/||')
@@ -48,7 +48,7 @@ declare -a workspace_array
 for ws in $WORKSPACES; do
   # Temporarily switch to count resources
   if tofu workspace select "$ws" >/dev/null 2>&1; then
-    count=$(tofu state list 2>/dev/null | wc -l || echo "0")
+    count=$(tofu state list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
     # Compact format
     short_name="${ws:0:22}"
     [ ${#ws} -gt 22 ] && short_name="${short_name}.."
@@ -84,7 +84,7 @@ else
 fi
 
 # Validate workspace exists
-if ! tofu workspace list | grep -q "^$workspace$"; then
+if ! tofu workspace list | awk '{print $NF}' | grep -q "^$workspace$"; then
   echo "Error: Workspace '$workspace' not found."
   exit 1
 fi
@@ -99,7 +99,7 @@ fi
 
 # Get resource count before deletion
 tofu workspace select "$workspace" >/dev/null 2>&1
-resource_count=$(tofu state list 2>/dev/null | wc -l || echo "0")
+resource_count=$(tofu state list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
 
 # Switch back to current workspace
 tofu workspace select "$CURRENT_WS" >/dev/null 2>&1
