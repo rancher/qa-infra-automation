@@ -8,10 +8,11 @@
 SHELL := /usr/bin/bash
 .DEFAULT_GOAL := help
 
-# Configurable parameters (override with: make <target> DISTRO=k3s ENV=default)
+# Configurable parameters (override with: make <target> DISTRO=k3s ENV=default WORKSPACE=myworkspace)
 DISTRO   ?= rke2
 ENV      ?= default
 PROVIDER ?= aws
+WORKSPACE ?= default
 
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
@@ -61,8 +62,9 @@ help: ## Show this help message
 	@echo "  DISTRO   = $(DISTRO)      (options: rke2, k3s)"
 	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy)"
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
+	@echo "  WORKSPACE = $(WORKSPACE)    (tofu workspace name)"
 	@echo ""
-	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws"
+	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws WORKSPACE=myworkspace"
 	@echo "At the moment this only supports rke2, default/airgap, and aws"
 	@echo ""
 	@echo "Quick Start:"
@@ -82,11 +84,18 @@ help: ## Show this help message
 	@echo "  backend-local       Configure local backend (optional: PATH=)"
 	@echo "  backend-init        Run tofu init in current module"
 	@echo ""
+	@echo "WORKSPACE MANAGEMENT:"
+	@echo "  workspace-list      List all workspaces"
+	@echo "  workspace-show      Show current workspace"
+	@echo "  workspace-select    Select workspace (use WORKSPACE=name)"
+	@echo "  workspace-new       Create new workspace (use WORKSPACE=name)"
+	@echo "  workspace-delete    Delete workspace (use WORKSPACE=name)"
+	@echo ""
 	@echo "INFRASTRUCTURE (Tofu):"
 	@echo "  infra-init          Initialize Tofu (downloads providers)"
 	@echo "  infra-plan          Plan infrastructure changes"
 	@echo "  infra-up            Create infrastructure (generates inventory)"
-	@echo "  infra-down          Destroy infrastructure for current DISTRO/ENV/PROVIDER"
+	@echo "  infra-down          Destroy infrastructure for current DISTRO/ENV/PROVIDER/WORKSPACE"
 	@echo "  infra-output        Show Tofu outputs"
 	@echo "  infra-ls            List ALL active infrastructure across every module/workspace"
 	@echo "  infra-nuke          Destroy ALL active infrastructure (end-of-day cleanup)"
@@ -122,6 +131,13 @@ help: ## Show this help message
 	@echo "Backend Configuration:"
 	@echo "  make backend-s3 BUCKET=my-bucket KEY=my-key REGION=us-east-1"
 	@echo "  make backend-local PATH=terraform.tfstate"
+	@echo ""
+	@echo "Workspace Examples:"
+	@echo "  make workspace-list                          # List all workspaces"
+	@echo "  make workspace-new WORKSPACE=my-test          # Create new workspace"
+	@echo "  make infra-up WORKSPACE=my-test               # Deploy to workspace"
+	@echo "  make infra-down WORKSPACE=my-test             # Destroy workspace resources"
+	@echo "  make workspace-delete WORKSPACE=my-test       # Delete workspace"
 	@echo ""
 
 # ============================================================================
@@ -209,22 +225,68 @@ backend-init: ## Run tofu init in current module (for manual backend configurati
 	cd $(TOFU_DIR) && tofu init
 
 # ============================================================================
+# WORKSPACE MANAGEMENT
+# ============================================================================
+
+.PHONY: workspace-list
+workspace-list: check-tofu-dir ## List all workspaces
+	@echo "Listing workspaces for $(TOFU_DIR)..."
+	cd $(TOFU_DIR) && tofu workspace list
+
+.PHONY: workspace-show
+workspace-show: check-tofu-dir ## Show current workspace
+	@echo "Current workspace for $(TOFU_DIR):"
+	cd $(TOFU_DIR) && tofu workspace show
+
+.PHONY: workspace-select
+workspace-select: check-tofu-dir ## Select workspace (use WORKSPACE=name)
+	@if [ -z "$(WORKSPACE)" ]; then \
+		echo "Usage: make workspace-select WORKSPACE=<workspace-name>"; \
+		exit 1; \
+	fi
+	@echo "Selecting workspace '$(WORKSPACE)' for $(TOFU_DIR)..."
+	cd $(TOFU_DIR) && tofu workspace select $(WORKSPACE)
+
+.PHONY: workspace-new
+workspace-new: check-tofu-dir ## Create new workspace (use WORKSPACE=name)
+	@if [ -z "$(WORKSPACE)" ] || [ "$(WORKSPACE)" = "default" ]; then \
+		echo "Usage: make workspace-new WORKSPACE=<workspace-name>"; \
+		exit 1; \
+	fi
+	@echo "Creating new workspace '$(WORKSPACE)' for $(TOFU_DIR)..."
+	cd $(TOFU_DIR) && tofu workspace new $(WORKSPACE)
+
+.PHONY: workspace-delete
+workspace-delete: check-tofu-dir ## Delete workspace (use WORKSPACE=name)
+	@if [ -z "$(WORKSPACE)" ] || [ "$(WORKSPACE)" = "default" ]; then \
+		echo "Usage: make workspace-delete WORKSPACE=<workspace-name>"; \
+		echo "Cannot delete 'default' workspace"; \
+		exit 1; \
+	fi
+	@echo "Deleting workspace '$(WORKSPACE)' for $(TOFU_DIR)..."
+	cd $(TOFU_DIR) && tofu workspace delete $(WORKSPACE)
+
+# ============================================================================
 # INFRASTRUCTURE (TOFU)
 # ============================================================================
 
 .PHONY: infra-init
 infra-init: check-prereqs check-tofu-dir ## Initialize Tofu
-	@echo "Initializing Tofu for $(PROVIDER)/$(ENV)..."
+	@echo "Initializing Tofu for $(PROVIDER)/$(ENV)/$(WORKSPACE)..."
 	cd $(TOFU_DIR) && tofu init
+	@if [ "$(WORKSPACE)" != "default" ]; then \
+		echo "Selecting workspace '$(WORKSPACE)'..."; \
+		cd $(TOFU_DIR) && tofu workspace select $(WORKSPACE) || (echo "Workspace '$(WORKSPACE)' not found. Create it with: make workspace-new WORKSPACE=$(WORKSPACE)" && exit 1); \
+	fi
 
 .PHONY: infra-plan
 infra-plan: infra-init ## Plan infrastructure changes
-	@echo "Planning infrastructure..."
+	@echo "Planning infrastructure for workspace '$(WORKSPACE)'..."
 	cd $(TOFU_DIR) && tofu plan -var-file=terraform.tfvars
 
 .PHONY: infra-up
 infra-up: infra-init ## Create infrastructure (generates Ansible inventory automatically)
-	@echo "Creating $(PROVIDER) infrastructure for $(ENV) environment..."
+	@echo "Creating $(PROVIDER) infrastructure for $(ENV)/$(WORKSPACE)..."
 	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars -auto-approve
 	@echo "Generating Ansible inventory..."
 	@if cd $(CURDIR)/$(TOFU_DIR) && tofu output -raw airgap_inventory_json > /tmp/tofu-nodes-airgap-$(DISTRO)-$(ENV).json 2>/dev/null && [ -s /tmp/tofu-nodes-airgap-$(DISTRO)-$(ENV).json ]; then \
@@ -247,12 +309,19 @@ infra-up: infra-init ## Create infrastructure (generates Ansible inventory autom
 
 .PHONY: infra-down
 infra-down: check-tofu-dir ## Destroy infrastructure
-	@echo "Warning: This will destroy all $(PROVIDER)/$(ENV) infrastructure"
+	@echo "Warning: This will destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure"
 	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1
+	@if [ "$(WORKSPACE)" != "default" ]; then \
+		echo "Selecting workspace '$(WORKSPACE)'..."; \
+		cd $(TOFU_DIR) && tofu workspace select $(WORKSPACE); \
+	fi
 	cd $(TOFU_DIR) && tofu destroy -var-file=terraform.tfvars -auto-approve
 
 .PHONY: infra-output
 infra-output: ## Show Tofu outputs
+	@if [ "$(WORKSPACE)" != "default" ]; then \
+		cd $(TOFU_DIR) && tofu workspace select $(WORKSPACE); \
+	fi
 	cd $(TOFU_DIR) && tofu output
 
 .PHONY: infra-ls
