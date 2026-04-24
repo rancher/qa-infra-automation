@@ -1,19 +1,19 @@
 #!/usr/bin/bash
 # Usage:
-#   ./scripts/init-backend.sh s3 --bucket <bucket> --key <key> --region <region> [--dynamodb-table <table>] [--encrypt true|false]
-#   ./scripts/init-backend.sh local [--path <path>]
+#   ./init-backend.sh s3 --bucket <bucket> --key <key> --region <region> [--dynamodb-table <table>] [--encrypt true|false]
+#   ./init-backend.sh local [--path <path>]
 #
 # This script generates ./backend.tf from templates/backend-<type>.tf.tmpl and runs:
 #   tofu init -reconfigure
 #
-# DEPRECATED: Use the centralized script at ../../scripts/init-backend.sh instead
-#
 set -euo pipefail
 
+# Set PATH for basic commands
+export PATH="/usr/bin:/bin:/usr/local/bin"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-# Use centralized script
-exec "$REPO_ROOT/tofu/scripts/init-backend.sh" "$@"
+TEMPLATES_DIR="$(dirname "$SCRIPT_DIR")/templates"
+OUTFILE="backend.tf"
 
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <s3|local> [options]"
@@ -21,6 +21,22 @@ if [ $# -lt 1 ]; then
 fi
 
 backend="$1"; shift
+
+# Handle help flag first
+if [ "$backend" = "--help" ] || [ "$backend" = "-h" ]; then
+  echo "Usage: $0 <s3|local> [options]"
+  echo ""
+  echo "S3 Backend:"
+  echo "  $0 s3 --bucket <bucket> --key <key> --region <region> [--dynamodb-table <table>] [--encrypt true|false]"
+  echo ""
+  echo "Local Backend:"
+  echo "  $0 local [--path <path>]"
+  echo ""
+  echo "Examples:"
+  echo "  $0 s3 --bucket my-bucket --key rke2-default/terraform.tfstate --region us-east-1"
+  echo "  $0 local --path terraform.tfstate"
+  exit 0
+fi
 
 # defaults
 BUCKET=""

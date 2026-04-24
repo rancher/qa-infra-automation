@@ -5,7 +5,7 @@
 # CONFIGURATION
 # ============================================================================
 
-SHELL := /bin/bash
+SHELL := /usr/bin/bash
 .DEFAULT_GOAL := help
 
 # Configurable parameters (override with: make <target> DISTRO=k3s ENV=default)
@@ -77,6 +77,11 @@ help: ## Show this help message
 	@echo "  cp $(ANSIBLE_DIR)/inventory/inventory.yml.template $(INVENTORY)"
 	@echo "  cp $(ANSIBLE_DIR)/inventory/group_vars/all.yml.template $(GROUP_VARS)"
 	@echo ""
+	@echo "BACKEND MANAGEMENT:"
+	@echo "  backend-s3          Configure S3 backend (requires BUCKET= KEY= REGION=)"
+	@echo "  backend-local       Configure local backend (optional: PATH=)"
+	@echo "  backend-init        Run tofu init in current module"
+	@echo ""
 	@echo "INFRASTRUCTURE (Tofu):"
 	@echo "  infra-init          Initialize Tofu (downloads providers)"
 	@echo "  infra-plan          Plan infrastructure changes"
@@ -113,6 +118,10 @@ help: ## Show this help message
 	@echo "  make all DISTRO=k3s                         # K3s default on AWS"
 	@echo "  make cluster ENV=airgap                     # Just RKE2 airgap cluster"
 	@echo "  make status                                 # Check current cluster"
+	@echo ""
+	@echo "Backend Configuration:"
+	@echo "  make backend-s3 BUCKET=my-bucket KEY=my-key REGION=us-east-1"
+	@echo "  make backend-local PATH=terraform.tfstate"
 	@echo ""
 
 # ============================================================================
@@ -174,6 +183,30 @@ check-tofu-dir:
 		echo "Error: terraform.tfvars not found at $(TOFU_DIR)/terraform.tfvars"; \
 		exit 1; \
 	fi
+
+# ============================================================================
+# BACKEND MANAGEMENT
+# ============================================================================
+
+.PHONY: backend-s3
+backend-s3: ## Configure S3 backend for current module (use BUCKET= KEY= REGION=)
+	@if [ -z "$(BUCKET)" ] || [ -z "$(KEY)" ] || [ -z "$(REGION)" ]; then \
+		echo "Error: BUCKET, KEY, and REGION are required"; \
+		echo "Usage: make backend-s3 BUCKET=my-bucket KEY=my-key REGION=us-east-1 [DYNAMODB_TABLE=table] [ENCRYPT=true]"; \
+		exit 1; \
+	fi
+	@echo "Configuring S3 backend for $(TOFU_DIR)..."
+	@(cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh s3 --bucket "$(BUCKET)" --key "$(KEY)" --region "$(REGION)" $(if $(DYNAMODB_TABLE),--dynamodb-table "$(DYNAMODB_TABLE)") $(if $(ENCRYPT),--encrypt "$(ENCRYPT)"))
+
+.PHONY: backend-local
+backend-local: ## Configure local backend for current module (use PATH=terraform.tfstate)
+	@echo "Configuring local backend for $(TOFU_DIR)..."
+	@(cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh local $(if $(PATH),--path "$(PATH)"))
+
+.PHONY: backend-init
+backend-init: ## Run tofu init in current module (for manual backend configuration)
+	@echo "Initializing Tofu for $(TOFU_DIR)..."
+	cd $(TOFU_DIR) && tofu init
 
 # ============================================================================
 # INFRASTRUCTURE (TOFU)

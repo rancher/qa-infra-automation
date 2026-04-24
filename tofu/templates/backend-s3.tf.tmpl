@@ -1,0 +1,11 @@
+terraform {
+  backend "s3" {
+    bucket         = "__BUCKET__"
+    key            = "__KEY__"
+    region         = "__REGION__"
+    encrypt        = __ENCRYPT__
+    # optional - only include if you created a DynamoDB table for locking
+    # if empty string the value will be ignored by Terraform; the script leaves it blank when not supplied
+    dynamodb_table = "__DYNAMODB_TABLE__"
+  }
+}
