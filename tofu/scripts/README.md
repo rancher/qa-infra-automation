@@ -2,6 +2,52 @@
 
 This directory contains centralized utility scripts for OpenTofu/Terraform operations across all modules.
 
+## select-workspace.sh
+
+Interactive workspace selection menu for tofu/terraform modules.
+
+### Usage
+
+```bash
+# From any tofu module directory
+../../scripts/select-workspace.sh [path]
+
+# Or using make (recommended)
+make workspace-select              # Interactive menu
+make workspace-select WORKSPACE=name  # Direct selection
+```
+
+### Features
+
+- Lists all workspaces with current workspace marked with `*`
+- Interactive numbered menu for easy selection
+- Option to create new workspaces if none exist
+- Cancel operation with option 0
+- Shows current workspace after selection
+
+### Examples
+
+```bash
+# Run interactive menu
+make workspace-select
+
+# Output:
+# Available workspaces:
+#
+#   * default (current)
+#
+#     1. dev-environment
+#     2. testing
+#     0. cancel
+#
+# Select workspace (number or name): 1
+#
+# Selecting workspace 'dev-environment'...
+# Switched to workspace "dev-environment"
+#
+# Current workspace: dev-environment
+```
+
 ## init-backend.sh
 
 Centralized backend configuration script that generates `backend.tf` from templates and initializes the working directory.
