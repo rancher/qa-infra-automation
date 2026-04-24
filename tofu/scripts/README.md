@@ -2,6 +2,64 @@
 
 This directory contains centralized utility scripts for OpenTofu/Terraform operations across all modules.
 
+## new-workspace.sh
+
+Interactive workspace creation with validation and naming suggestions.
+
+### Usage
+
+```bash
+# From any tofu module directory
+../../scripts/new-workspace.sh [path]
+
+# Or using make (recommended)
+make workspace-new              # Interactive creation
+make workspace-new WORKSPACE=name  # Direct creation
+```
+
+### Features
+
+- Interactive prompt with workspace naming suggestions
+- Validates workspace name format (alphanumeric, hyphens, underscores)
+- Prevents creation of 'default' (reserved by OpenTofu)
+- Checks for duplicate workspace names
+- Shows next steps after creation
+
+### Examples
+
+```bash
+# Run interactive creation
+make workspace-new
+
+# Output:
+# ╔════════════════════════════════════════════════════════════════╗
+# ║  OpenTofu Workspace Creator                                   ║
+# ║  Module: aws/modules/cluster_nodes                            ║
+# ║  Current: default                                              ║
+# ╚════════════════════════════════════════════════════════════════╝
+#
+# Workspace naming suggestions:
+#   - Environment names: dev, staging, prod, test
+#   - Feature names: feature-x, bugfix-123, experiment-1
+#   - User names: username-workspace, personal-test
+#   - Date-based: 2026-04-24-test, sprint-5
+#
+# Enter new workspace name (or 'cancel' to abort): dev-environment
+#
+# Creating workspace: dev-environment
+# Module: aws/modules/cluster_nodes
+#
+# ✓ Workspace 'dev-environment' created successfully!
+#
+# Next steps:
+#   1. Deploy infrastructure to this workspace:
+#      make infra-up WORKSPACE=dev-environment
+#
+#   2. Or switch to it as your active workspace:
+#      make workspace-select WORKSPACE=dev-environment
+#      make infra-up
+```
+
 ## select-workspace.sh
 
 Interactive workspace selection menu for tofu/terraform modules.
@@ -47,6 +105,76 @@ make workspace-select
 #
 # Current workspace: dev-environment
 ```
+
+## delete-workspace.sh
+
+Interactive workspace deletion with resource counts and safety confirmations.
+
+### Usage
+
+```bash
+# From any tofu module directory
+../../scripts/delete-workspace.sh [path]
+
+# Or using make (recommended)
+make workspace-delete              # Interactive deletion
+make workspace-delete WORKSPACE=name  # Direct deletion
+```
+
+### Features
+
+- Lists all workspaces with resource counts
+- Excludes current workspace from deletion (prevents accidents)
+- Shows resource count before deletion
+- Multi-stage confirmation:
+  - Non-empty workspaces: requires typing 'DELETE'
+  - Empty workspaces: simple 'y/N' confirmation
+- Shows remaining workspaces after deletion
+
+### Examples
+
+```bash
+# Run interactive deletion
+make workspace-delete
+
+# Output:
+# ╔════════════════════════════════════════════════════════════════╗
+# ║  OpenTofu Workspace Deleter                                   ║
+# ║  Module: aws/modules/cluster_nodes                            ║
+# ╚════════════════════════════════════════════════════════════════╝
+#
+# Available workspaces to delete:
+#
+#   Current: default (cannot delete)
+#
+#     1. dev-environment           12 res
+#     2. old-test                   0 res
+#     0. cancel
+#
+# Select workspace to delete (number or name): 1
+#
+# Workspace to delete: dev-environment
+# Resources in workspace: 12
+#
+# ⚠️  WARNING: This workspace contains 12 resource(s).
+#
+# Type 'DELETE' to confirm destruction of 12 resources: DELETE
+#
+# Deleting workspace 'dev-environment'...
+#
+# ✓ Workspace 'dev-environment' deleted successfully.
+#
+# Remaining workspaces:
+#   default
+#   old-test
+```
+
+### Safety Features
+
+- **Cannot delete current workspace**: Must switch first with `make workspace-select`
+- **Resource counts**: Shows how many resources will be destroyed
+- **Type-to-confirm**: Non-empty workspaces require typing 'DELETE'
+- **Empty workspace protection**: Simple confirmation for empty workspaces
 
 ## init-backend.sh
 
