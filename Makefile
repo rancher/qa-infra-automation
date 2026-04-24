@@ -89,8 +89,8 @@ help: ## Show this help message
 	@echo "  workspace-show      Show current workspace"
 	@echo "  workspace-select    Select workspace interactively or use WORKSPACE=name"
 	@echo "  workspace-inspect   Show detailed info about current workspace"
-	@echo "  workspace-new       Create new workspace (use WORKSPACE=name)"
-	@echo "  workspace-delete    Delete workspace (use WORKSPACE=name)"
+	@echo "  workspace-new       Create new workspace interactively or use WORKSPACE=name"
+	@echo "  workspace-delete    Delete workspace interactively or use WORKSPACE=name)"
 	@echo ""
 	@echo "INFRASTRUCTURE (Tofu):"
 	@echo "  infra-init          Initialize Tofu (downloads providers)"
@@ -140,10 +140,12 @@ help: ## Show this help message
 	@echo "  make workspace-select                        # Interactive selection menu"
 	@echo "  make workspace-select WORKSPACE=my-test      # Direct selection"
 	@echo "  make workspace-inspect                       # Show workspace details"
-	@echo "  make workspace-new WORKSPACE=my-test          # Create new workspace"
+	@echo "  make workspace-new                            # Create workspace interactively"
+	@echo "  make workspace-new WORKSPACE=my-test          # Create workspace directly"
 	@echo "  make infra-up WORKSPACE=my-test               # Deploy to workspace"
 	@echo "  make infra-down WORKSPACE=my-test             # Destroy workspace resources"
-	@echo "  make workspace-delete WORKSPACE=my-test       # Delete workspace"
+	@echo "  make workspace-delete                         # Delete workspace interactively"
+	@echo "  make workspace-delete WORKSPACE=my-test       # Delete workspace directly"
 	@echo ""
 	@echo "Infrastructure Discovery:"
 	@echo "  make infra-ls                                # List all active infrastructure"
@@ -258,23 +260,31 @@ workspace-select: check-tofu-dir ## Select workspace (use WORKSPACE=name or sele
 	fi
 
 .PHONY: workspace-new
-workspace-new: check-tofu-dir ## Create new workspace (use WORKSPACE=name)
-	@if [ -z "$(WORKSPACE)" ] || [ "$(WORKSPACE)" = "default" ]; then \
-		echo "Usage: make workspace-new WORKSPACE=<workspace-name>"; \
-		exit 1; \
+workspace-new: check-tofu-dir ## Create new workspace (interactive or use WORKSPACE=name)
+	@if [ "$(origin WORKSPACE)" = "command line" ]; then \
+		if [ "$(WORKSPACE)" = "default" ]; then \
+			echo "Error: 'default' is a reserved workspace name."; \
+			echo "Please choose a different name."; \
+			exit 1; \
+		fi; \
+		echo "Creating new workspace '$(WORKSPACE)' for $(TOFU_DIR)..."; \
+		cd $(TOFU_DIR) && tofu workspace new $(WORKSPACE); \
+	else \
+		$(CURDIR)/tofu/scripts/new-workspace.sh $(TOFU_DIR); \
 	fi
-	@echo "Creating new workspace '$(WORKSPACE)' for $(TOFU_DIR)..."
-	cd $(TOFU_DIR) && tofu workspace new $(WORKSPACE)
 
 .PHONY: workspace-delete
-workspace-delete: check-tofu-dir ## Delete workspace (use WORKSPACE=name)
-	@if [ -z "$(WORKSPACE)" ] || [ "$(WORKSPACE)" = "default" ]; then \
-		echo "Usage: make workspace-delete WORKSPACE=<workspace-name>"; \
-		echo "Cannot delete 'default' workspace"; \
-		exit 1; \
+workspace-delete: check-tofu-dir ## Delete workspace (interactive or use WORKSPACE=name)
+	@if [ "$(origin WORKSPACE)" = "command line" ]; then \
+		if [ "$(WORKSPACE)" = "default" ]; then \
+			echo "Error: Cannot delete 'default' workspace."; \
+			exit 1; \
+		fi; \
+		echo "Deleting workspace '$(WORKSPACE)' for $(TOFU_DIR)..."; \
+		cd $(TOFU_DIR) && tofu workspace delete $(WORKSPACE); \
+	else \
+		$(CURDIR)/tofu/scripts/delete-workspace.sh $(TOFU_DIR); \
 	fi
-	@echo "Deleting workspace '$(WORKSPACE)' for $(TOFU_DIR)..."
-	cd $(TOFU_DIR) && tofu workspace delete $(WORKSPACE)
 
 .PHONY: workspace-inspect
 workspace-inspect: check-tofu-dir ## Show detailed info about current workspace

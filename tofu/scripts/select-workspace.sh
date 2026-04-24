@@ -61,9 +61,12 @@ for ws in $WORKSPACES; do
   # Temporarily switch to count resources
   if tofu workspace select "$ws" >/dev/null 2>&1; then
     count=$(tofu state list 2>/dev/null | wc -l || echo "0")
-    printf "    %d. %-40s [%s resource(s)]\n" "$i" "$ws" "$count"
+    # Compact format
+    short_name="${ws:0:22}"
+    [ ${#ws} -gt 22 ] && short_name="${short_name}.."
+    printf "    %d. %-24s %3s res\n" "$i" "$short_name" "$count"
   else
-    printf "    %d. %-40s [error reading state]\n" "$i" "$ws"
+    printf "    %d. %-24s error\n" "$i" "$ws"
   fi
   i=$((i+1))
 done
