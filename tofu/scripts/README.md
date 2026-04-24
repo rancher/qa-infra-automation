@@ -115,3 +115,49 @@ make backend-local PATH=terraform.tfstate
 
 - OpenTofu (`tofu`) or Terraform (`terraform`) in PATH
 - Appropriate cloud credentials for backend type
+
+## Quick Reference
+
+### Common Workflows
+
+**1. Setup Backend:**
+```bash
+make backend-s3 BUCKET=my-state KEY=terraform.tfstate REGION=us-east-1
+```
+
+**2. Work with Workspaces:**
+```bash
+make workspace-list           # See all workspaces
+make workspace-select         # Interactive menu with resource counts
+make workspace-inspect        # Detailed workspace information
+```
+
+**3. Manage Infrastructure:**
+```bash
+make infra-scan               # See ALL infrastructure across modules
+make infra-up                 # Deploy infrastructure
+make infra-down               # Destroy with detailed confirmation
+```
+
+**4. Discovery:**
+```bash
+# What infrastructure exists?
+make infra-ls                 # Quick list
+make infra-scan              # Detailed view with resources
+
+# What's in my current workspace?
+make workspace-inspect       # Workspace details
+make workspace-show          # Just show workspace name
+```
+
+### Understanding Module Context
+
+The makefile automatically maps ENV variables to tofu modules:
+- `ENV=default` → `tofu/aws/modules/cluster_nodes`
+- `ENV=airgap` → `tofu/aws/modules/airgap`
+
+Always check which module you're operating on:
+```bash
+make workspace-inspect       # Shows module path
+make infra-down               # Shows target before destroying
+```
