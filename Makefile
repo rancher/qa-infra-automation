@@ -88,6 +88,7 @@ help: ## Show this help message
 	@echo "  workspace-list      List all workspaces"
 	@echo "  workspace-show      Show current workspace"
 	@echo "  workspace-select    Select workspace interactively or use WORKSPACE=name"
+	@echo "  workspace-inspect   Show detailed info about current workspace"
 	@echo "  workspace-new       Create new workspace (use WORKSPACE=name)"
 	@echo "  workspace-delete    Delete workspace (use WORKSPACE=name)"
 	@echo ""
@@ -98,6 +99,7 @@ help: ## Show this help message
 	@echo "  infra-down          Destroy infrastructure for current DISTRO/ENV/PROVIDER/WORKSPACE"
 	@echo "  infra-output        Show Tofu outputs"
 	@echo "  infra-ls            List ALL active infrastructure across every module/workspace"
+	@echo "  infra-scan          Detailed scan of all infrastructure with resource counts"
 	@echo "  infra-nuke          Destroy ALL active infrastructure (end-of-day cleanup)"
 	@echo ""
 	@echo "CLUSTER (Ansible):"
@@ -134,12 +136,18 @@ help: ## Show this help message
 	@echo ""
 	@echo "Workspace Examples:"
 	@echo "  make workspace-list                          # List all workspaces"
+	@echo "  make workspace-show                          # Show current workspace"
 	@echo "  make workspace-select                        # Interactive selection menu"
 	@echo "  make workspace-select WORKSPACE=my-test      # Direct selection"
+	@echo "  make workspace-inspect                       # Show workspace details"
 	@echo "  make workspace-new WORKSPACE=my-test          # Create new workspace"
 	@echo "  make infra-up WORKSPACE=my-test               # Deploy to workspace"
 	@echo "  make infra-down WORKSPACE=my-test             # Destroy workspace resources"
 	@echo "  make workspace-delete WORKSPACE=my-test       # Delete workspace"
+	@echo ""
+	@echo "Infrastructure Discovery:"
+	@echo "  make infra-ls                                # List all active infrastructure"
+	@echo "  make infra-scan                              # Detailed scan with resource counts"
 	@echo ""
 
 # ============================================================================
@@ -268,6 +276,18 @@ workspace-delete: check-tofu-dir ## Delete workspace (use WORKSPACE=name)
 	@echo "Deleting workspace '$(WORKSPACE)' for $(TOFU_DIR)..."
 	cd $(TOFU_DIR) && tofu workspace delete $(WORKSPACE)
 
+.PHONY: workspace-inspect
+workspace-inspect: check-tofu-dir ## Show detailed info about current workspace
+	@echo "Workspace Details for $(TOFU_DIR):"
+	@echo ""
+	@cd $(TOFU_DIR) && echo "  Current Workspace: $$(tofu workspace show)"
+	@cd $(TOFU_DIR) && echo "  Module: $(TOFU_DIR)" | sed 's|tofu/||'
+	@cd $(TOFU_DIR) && echo "  Resources: $$(tofu state list 2>/dev/null | wc -l)"
+	@echo ""
+	@echo "  Resources in workspace:"
+	@cd $(TOFU_DIR) && tofu state list 2>/dev/null | head -20 | sed 's/^/    /' || echo "    (empty or error)"
+	@echo ""
+
 # ============================================================================
 # INFRASTRUCTURE (TOFU)
 # ============================================================================
@@ -311,13 +331,43 @@ infra-up: infra-init ## Create infrastructure (generates Ansible inventory autom
 
 .PHONY: infra-down
 infra-down: check-tofu-dir ## Destroy infrastructure
-	@echo "Warning: This will destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure"
-	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  Infrastructure Destroy - $(PROVIDER)/$(ENV)/$(WORKSPACE)"
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo ""
 	@if [ "$(WORKSPACE)" != "default" ]; then \
 		echo "Selecting workspace '$(WORKSPACE)'..."; \
 		cd $(TOFU_DIR) && tofu workspace select $(WORKSPACE); \
 	fi
+	@echo "Target Configuration:"
+	@echo "  Provider:  $(PROVIDER)"
+	@echo "  ENV:      $(ENV)"
+	@echo "  Module:   $(TOFU_DIR)"
+	@echo "  Workspace: $(WORKSPACE)"
+	@echo ""
+	@echo "Resources to be destroyed:"
+	@cd $(TOFU_DIR) && resources=$$(tofu state list 2>/dev/null | wc -l); \
+	if [ "$$resources" -eq 0 ]; then \
+		echo "  No resources found (workspace is empty)"; \
+		echo ""; \
+		echo "Current workspace: $$(cd $(TOFU_DIR) && tofu workspace show)"; \
+		echo ""; \
+		read -p "Continue anyway? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1; \
+	else \
+		cd $(TOFU_DIR) && tofu state list 2>/dev/null | head -10 | sed 's/^/  /'; \
+		if [ $$resources -gt 10 ]; then \
+			echo "  ... and $$((resources - 10)) more"; \
+		fi; \
+		echo ""; \
+		echo "Total: $$resources resource(s)"; \
+		echo ""; \
+		read -p "Destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1; \
+	fi
+	@echo ""
+	@echo "Destroying..."
 	cd $(TOFU_DIR) && tofu destroy -var-file=terraform.tfvars -auto-approve
+	@echo ""
+	@echo "✓ Destroy complete"
 
 .PHONY: infra-output
 infra-output: ## Show Tofu outputs
@@ -351,7 +401,40 @@ infra-ls: ## List all modules with active Tofu state across all providers/envs/d
 	if [ "$$found" -eq 0 ]; then \
 		echo "  No active infrastructure found."; \
 	else \
-		echo "Run 'make infra-nuke' to destroy all, or 'make infra-down' for selective destroy."; \
+		echo "Run 'make infra-scan' for detailed view, 'make infra-nuke' to destroy all."; \
+	fi
+
+.PHONY: infra-scan
+infra-scan: ## Detailed scan of all infrastructure across modules/workspaces
+	@echo "╔════════════════════════════════════════════════════════════════╗"
+	@echo "║  Infrastructure Scanner - All Modules & Workspaces             ║"
+	@echo "╚════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@found=0; \
+	while IFS= read -r state_file; do \
+		resources=$$(python3 -c "import json; \
+			d=json.load(open('$$state_file')); \
+			print(len([r for r in d.get('resources',[]) if r.get('mode')=='managed']))" 2>/dev/null || echo 0); \
+		if [ "$$resources" -gt 0 ]; then \
+			if echo "$$state_file" | grep -q 'terraform.tfstate.d'; then \
+				ws=$$(echo "$$state_file" | sed 's|.*/terraform.tfstate.d/\([^/]*\)/.*|\1|'); \
+				module=$$(echo "$$state_file" | sed 's|/terraform.tfstate.d/.*||'); \
+			else \
+				ws="default"; \
+				module=$$(dirname "$$state_file"); \
+			fi; \
+			module_display=$$(echo "$$module" | sed 's|^tofu/||'); \
+			printf "📍 %s [%s]\n" "$$module_display" "$$ws"; \
+			printf "   Resources: %s\n" "$$resources"; \
+			printf "   State: %s\n" "$$state_file"; \
+			cd "$$module" && tofu workspace select "$$ws" >/dev/null 2>&1 && \
+				tofu state list 2>/dev/null | head -5 | sed 's/^/     /'; \
+			echo ""; \
+			found=1; \
+		fi; \
+	done < <(find tofu -name "terraform.tfstate" 2>/dev/null | sort); \
+	if [ "$$found" -eq 0 ]; then \
+		echo "  No active infrastructure found."; \
 	fi
 
 .PHONY: infra-nuke
