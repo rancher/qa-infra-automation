@@ -1,0 +1,264 @@
+---
+- name: Deploy Rancher to RKE2 Cluster using Helm
+  hosts: bastion
+  gather_facts: true
+
+  vars:
+    rancher_private_hostname: "{{ internal_lb_hostname }}"
+    rancher_public_hostname: "{{ external_lb_hostname | default(rancher_hostname) }}"
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    repo_root: "{{ playbook_dir | dirname | dirname | dirname | dirname | dirname }}"
+
+  pre_tasks:
+    - name: Check if kubectl is available
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubectl_config
+
+    - name: Fail if kubectl is not configured
+      ansible.builtin.fail:
+        msg: |
+          kubectl is not configured on the bastion node.
+          Please run the kubectl setup playbook first:
+          ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access.yml
+      when: not kubectl_config.stat.exists
+
+    - name: Test kubectl connectivity to RKE2 cluster
+      ansible.builtin.command: kubectl get nodes
+      register: kubectl_nodes
+      until: kubectl_nodes.rc == 0
+      retries: 6
+      delay: 10
+      changed_when: false
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Display cluster nodes
+      ansible.builtin.debug:
+        msg: "RKE2 cluster nodes: {{ kubectl_nodes.stdout_lines }}"
+
+    - name: Check if python3-pip is already installed
+      ansible.builtin.command: python3 -m pip --version
+      register: pip_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install pip3 if not present
+      ansible.builtin.package:
+        name: python3-pip
+        state: present
+        update_cache: true
+      when: pip_check.rc != 0
+      become: true
+      ignore_errors: true
+
+    - name: Display pip installation status
+      ansible.builtin.debug:
+        msg: "Python3-pip installation: {{ 'Already installed' if pip_check.rc == 0 else 'Installation attempted (may have failed in airgap environment)' }}"
+
+    - name: Install Ansible and required packages
+      ansible.builtin.package:
+        name:
+          - ansible
+          - python3-kubernetes
+          - python3-yaml
+        state: present
+        update_cache: true
+      become: true
+      ignore_errors: true
+
+    - name: Install Ansible Kubernetes collection if not present
+      ansible.builtin.command: ansible-galaxy collection install kubernetes.core
+      register: collection_install
+      failed_when: collection_install.rc != 0 and 'already satisfied' not in collection_install.stderr
+      changed_when: collection_install.rc == 0 and 'already satisfied' not in collection_install.stderr
+
+  roles:
+    - role: airgap_rancher_helm_deploy
+      tags:
+        - rancher
+
+  post_tasks:
+    - name: Wait for Rancher pods to be ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ rancher_namespace }}"
+        label_selectors:
+          - app=rancher
+        kubeconfig: "{{ kubeconfig_path }}"
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 600
+
+    - name: Get Rancher pod status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ rancher_namespace }}"
+        label_selectors:
+          - app=rancher
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: rancher_pods
+
+    - name: Display Rancher pod information
+      ansible.builtin.debug:
+        msg: |
+          Rancher Pods Status:
+          {% for pod in rancher_pods.resources %}
+          - {{ pod.metadata.name }}: {{ pod.status.phase }}
+          {% endfor %}
+
+    - name: Add internal hostname to ingress
+      when: (rancher_private_hostname is defined or internal_lb_hostname is defined) and (rancher_public_hostname is defined or external_lb_hostname is defined)
+      block:
+        - name: Set fact for new Ingress Rule
+          ansible.builtin.set_fact:
+            ingress_rules:
+              - host: "{{ rancher_private_hostname }}"
+                http:
+                  paths:
+                    - backend:
+                        service:
+                          name: "rancher"
+                          port:
+                            number: 80
+                      path: /
+                      pathType: ImplementationSpecific
+              - host: "{{ rancher_public_hostname }}"
+                http:
+                  paths:
+                    - backend:
+                        service:
+                          name: "rancher"
+                          port:
+                            number: 80
+                      path: /
+                      pathType: ImplementationSpecific
+
+        - name: Patch the Ingress to add the new hostname rule and TLS host
+          kubernetes.core.k8s:
+            state: patched
+            api_version: networking.k8s.io/v1
+            kind: Ingress
+            name: "rancher"
+            namespace: "cattle-system"
+            definition:
+              spec:
+                rules: "{{ ingress_rules }}"
+                tls:
+                  - hosts:
+                      - "{{ rancher_private_hostname }}"
+                      - "{{ rancher_public_hostname }}"
+                    secretName: tls-rancher-ingress
+
+    - name: Get LoadBalancer or NodePort service details
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        name: rancher
+        namespace: "{{ rancher_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: rancher_service_info
+
+    - name: Final deployment verification
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: rancher
+        namespace: "{{ rancher_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: rancher_deployment_status
+
+    - name: Verify deployment is ready
+      ansible.builtin.assert:
+        that:
+          - rancher_deployment_status.resources[0].status.readyReplicas | default(0) > 0
+        fail_msg: "Rancher deployment is not ready"
+        success_msg: "Rancher deployment is ready and functional"
+
+    # --- Admin setup ---
+
+    - name: Ensure tmp directory exists
+      ansible.builtin.file:
+        path: "{{ repo_root }}/tmp"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+
+    - name: Configure Rancher admin user and generate API token
+      ansible.builtin.include_role:
+        name: rancher_auth
+      vars:
+        rancher_url: "https://{{ rancher_private_hostname }}"
+        rancher_token_password: "{{ rancher_bootstrap_password }}"
+        rancher_permanent_password: "{{ rancher_admin_password }}"
+        rancher_token_output_file: "{{ repo_root }}/tmp/rancher-admin-token.json"
+        rancher_token_output_format: "json"
+
+    - name: Set Rancher server URL
+      ansible.builtin.uri:
+        url: "https://{{ rancher_private_hostname }}/v3/settings/server-url"
+        method: PUT
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ rancher_generated_token }}"
+        body:
+          name: "server-url"
+          value: "https://{{ rancher_private_hostname }}"
+        body_format: json
+        validate_certs: false
+        status_code: 200
+      retries: 5
+      delay: 10
+
+    - name: Create Rancher configuration summary
+      ansible.builtin.copy:
+        content: |
+          # Rancher Deployment Summary
+          Deployment Date: {{ ansible_date_time.iso8601 }}
+          Rancher Version: {{ rancher_chart_version | default('latest') }}
+          Hostname: {{ rancher_private_hostname }}
+          Public Hostname: {{ rancher_public_hostname }}
+          Namespace: {{ rancher_namespace }}
+          TLS Source: {{ rancher_tls_source }}
+
+          Admin Credentials:
+          - Username: admin
+          - Password: {{ rancher_admin_password }}
+          - API Token: {{ rancher_generated_token }}
+
+          Access Instructions:
+          1. Configure DNS or add to /etc/hosts: {{ rancher_public_hostname }} -> <LoadBalancer-IP or Node-IP>
+          2. Navigate to: https://{{ rancher_public_hostname }}
+          3. Login with admin / {{ rancher_admin_password }}
+
+          Troubleshooting:
+          - Check pods: kubectl get pods -n {{ rancher_namespace }}
+          - Check services: kubectl get svc -n {{ rancher_namespace }}
+          - Check ingress: kubectl get ingress -n {{ rancher_namespace }}
+          - View logs: kubectl logs -n {{ rancher_namespace }} -l app=rancher
+        dest: "/home/{{ ansible_user }}/rancher-deployment-summary.txt"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+
+    - name: Display Rancher access information
+      ansible.builtin.debug:
+        msg:
+          - "RANCHER DEPLOYMENT COMPLETE"
+          - ""
+          - "  Access URL:     https://{{ rancher_public_hostname }}"
+          - "  Internal URL:   https://{{ rancher_private_hostname }}"
+          - "  Namespace:      {{ rancher_namespace }}"
+          - ""
+          - "  Admin Username: admin"
+          - "  Admin Password: {{ rancher_admin_password }}"
+          - "  API Token:      {{ rancher_generated_token }}"
+          - ""
+          - "  Service Type:   {{ rancher_service_info.resources[0].spec.type }}"
+          - ""
+          - "  Token file:     {{ repo_root }}/tmp/rancher-admin-token.json"
+          - "  Summary file:   /home/{{ ansible_user }}/rancher-deployment-summary.txt"

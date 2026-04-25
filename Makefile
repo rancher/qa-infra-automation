@@ -28,12 +28,12 @@ REGISTRY_TARGET  :=
 else ifeq ($(ENV),airgap)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
-RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
+RANCHER_PLAYBOOK := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  := registry
 else
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
-RANCHER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/rancher-helm-deploy-playbook.yml
+RANCHER_PLAYBOOK := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  :=
 endif
 
@@ -497,7 +497,7 @@ infra-nuke: ## Destroy ALL active infrastructure across all modules (end-of-day 
 bootstrap-python: check-inventory ## Bootstrap Python 3.9+ on target nodes
 	@echo "Bootstrapping Python on target nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: cluster
 cluster: check-inventory bootstrap-python ## Install Kubernetes cluster
@@ -509,7 +509,7 @@ cluster: check-inventory bootstrap-python ## Install Kubernetes cluster
 agents: check-inventory ## Setup additional agent nodes
 	@echo "Setting up agent nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/setup-agent-nodes.yml -v $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-agent-nodes.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: rancher
 rancher: check-inventory ## Deploy Rancher to cluster
@@ -533,7 +533,7 @@ upgrade: check-inventory ## Upgrade Kubernetes cluster
 kubectl-setup: check-inventory ## Setup kubectl access on bastion
 	@echo "Setting up kubectl access..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
 
 # ============================================================================
 # UTILITIES
