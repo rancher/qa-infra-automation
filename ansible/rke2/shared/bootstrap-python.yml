@@ -4,6 +4,9 @@
   hosts: all
   become: true
   gather_facts: false
+  vars:
+    python_url: "https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.9.20+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz"
+    python_local_path: "/tmp/python39.tar.gz"
 
   tasks:
     - name: Check if Python 3.9+ exists
@@ -12,29 +15,31 @@
       changed_when: false
       failed_when: false
 
-    - name: Use portable Python binary from manylinux or deadsnakes PPA
+    - name: Download Python binary on control machine (runs once)
+      ansible.builtin.get_url:
+        url: "{{ python_url }}"
+        dest: "{{ python_local_path }}"
+        mode: '0644'
+      become: false
+      run_once: true
+      delegate_to: localhost
+      register: download_python
+
+    - name: Copy Python binary to target nodes
+      ansible.builtin.copy:
+        src: "{{ python_local_path }}"
+        dest: /tmp/python39.tar.gz
+        mode: '0644'
+      when: "'NEEDS_INSTALL' in check_python.stdout"
+
+    - name: Install Python from local copy
       ansible.builtin.raw: |
         set -e
         tmp_dir=$(mktemp -d)
         cd "$tmp_dir"
 
-        # Download Python 3.9 pre-built binary for Linux
-        # Using manylinux or static build
-        echo "Downloading Python 3.9 static build..."
-
-        # Try multiple sources for pre-built Python
-        # Option 1: Static Python build
-        curl -fsSL https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.9.20+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz -o python.tar.gz || \
-        curl -fsSL https://github.com/indygreg/python-build-standalone/releases/download/20240713/cpython-3.9.19+20240713-x86_64-unknown-linux-gnu-install_only.tar.gz -o python.tar.gz || \
-        curl -fsSL https://github.com/indygreg/python-build-standalone/releases/download/20240505/cpython-3.9.18+20240505-x86_64-unknown-linux-gnu-install_only.tar.gz -o python.tar.gz || {
-          echo "Failed to download Python binary"
-          rm -rf "$tmp_dir"
-          exit 1
-        }
-
-        # Extract to /usr/local
-        echo "Extracting Python..."
-        tar xzf python.tar.gz -C /usr/local --strip-components=1
+        echo "Installing Python from local copy..."
+        tar xzf /tmp/python39.tar.gz -C /usr/local --strip-components=1
 
         # Verify
         /usr/local/bin/python3 --version
@@ -46,6 +51,7 @@
         # Cleanup
         cd /
         rm -rf "$tmp_dir"
+        rm -f /tmp/python39.tar.gz
 
         echo "Python 3.9 installed successfully via binary"
       register: install_binary
@@ -59,3 +65,11 @@
     - name: Show version
       ansible.builtin.debug:
         msg: "{{ inventory_hostname }}: {{ verify.stdout | default('Verification failed') }}"
+
+    - name: Cleanup local copy on control machine
+      ansible.builtin.file:
+        path: "{{ python_local_path }}"
+        state: absent
+      become: false
+      run_once: true
+      delegate_to: localhost

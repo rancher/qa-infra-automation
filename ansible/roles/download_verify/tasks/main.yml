@@ -223,8 +223,11 @@
     success_msg: >-
       Checksum verified: {{ dv_dest | basename }} ({{ _dv_expected_checksum }})
 
-- name: Clean up checksum file
+- name: Clean up checksum cache file
   ansible.builtin.file:
     path: "{{ _dv_cache_file }}"
     state: absent
-  when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'
+  when:
+    - dv_checksum_format == 'github_release'
+    - _dv_cache_file is defined
+    - not dv_keep_checksum_cache | default(false)
