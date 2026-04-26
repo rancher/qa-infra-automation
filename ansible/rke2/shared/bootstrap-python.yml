@@ -7,6 +7,7 @@
   vars:
     python_url: "https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.9.20+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz"
     python_local_path: "/tmp/python39.tar.gz"
+    has_bastion: "{{ bastion_host is defined and bastion_user is defined }}"
 
   tasks:
     - name: Check if Python 3.9+ exists
@@ -25,12 +26,31 @@
       delegate_to: localhost
       register: download_python
 
-    - name: Copy Python binary to target nodes
-      ansible.builtin.copy:
-        src: "{{ python_local_path }}"
-        dest: /tmp/python39.tar.gz
-        mode: '0644'
-      when: "'NEEDS_INSTALL' in check_python.stdout"
+    - name: Copy Python binary from localhost to bastion (airgap)
+      ansible.builtin.shell: |
+        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{{ python_local_path }}" {{ bastion_user }}@{{ bastion_host }}:/tmp/python39.tar.gz
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: has_bastion
+
+    - name: Copy Python binary from bastion to target nodes (airgap)
+      ansible.builtin.shell: |
+        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/python39.tar.gz {{ ansible_user }}@{{ ansible_host }}:/tmp/python39.tar.gz
+      delegate_to: bastion-node
+      become: false
+      when:
+        - has_bastion
+        - "'NEEDS_INSTALL' in check_python.stdout"
+
+    - name: Copy Python binary directly to target nodes (default)
+      ansible.builtin.shell: |
+        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{{ python_local_path }}" {{ ansible_user }}@{{ ansible_host }}:/tmp/python39.tar.gz
+      delegate_to: localhost
+      become: false
+      when:
+        - not has_bastion
+        - "'NEEDS_INSTALL' in check_python.stdout"
 
     - name: Install Python from local copy
       ansible.builtin.raw: |
