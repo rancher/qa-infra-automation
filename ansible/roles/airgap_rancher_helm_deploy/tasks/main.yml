@@ -101,7 +101,7 @@
                 values:
                   installCRDs: true
                 kubeconfig: "{{ kubeconfig_path }}"
-                verify: true
+                verify_ssl: true
           rescue:
             - name: Warn about unsigned cert-manager chart
               ansible.builtin.debug:
@@ -162,7 +162,7 @@
               ingress:
                 tls:
                   source: "{{ rancher_tls_source }}"
-            verify: true
+            verify_ssl: true
       rescue:
         - name: Warn about unsigned Rancher chart
           ansible.builtin.debug:
