@@ -9,10 +9,12 @@ SHELL := /usr/bin/bash
 .DEFAULT_GOAL := help
 
 # Configurable parameters (override with: make <target> DISTRO=k3s ENV=default WORKSPACE=myworkspace)
-DISTRO   ?= rke2
-ENV      ?= default
-PROVIDER ?= aws
-WORKSPACE ?= default
+DISTRO       ?= rke2
+ENV          ?= default
+PROVIDER     ?= aws
+WORKSPACE    ?= default
+# Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
+AUTO_APPROVE ?= no
 
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
@@ -268,7 +270,7 @@ workspace-new: check-tofu-dir ## Create new workspace (interactive or use WORKSP
 			exit 1; \
 		fi; \
 		echo "Creating new workspace '$(WORKSPACE)' for $(TOFU_DIR)..."; \
-		cd $(TOFU_DIR) && tofu workspace new $(WORKSPACE); \
+		cd $(TOFU_DIR) && tofu workspace new $(WORKSPACE) || tofu workspace select $(WORKSPACE); \
 	else \
 		$(CURDIR)/tofu/scripts/new-workspace.sh $(TOFU_DIR); \
 	fi
@@ -363,7 +365,8 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 		echo ""; \
 		echo "Current workspace: $$(tofu workspace show)"; \
 		echo ""; \
-		read -p "Continue anyway? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1; \
+		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; else read -p "Continue anyway? [y/N] " confirm; fi; \
+		[ "$$confirm" = "y" ] || exit 1; \
 	else \
 		tofu state list 2>/dev/null | head -10 | sed 's/^/  /'; \
 		if [ $$resources -gt 10 ]; then \
@@ -372,7 +375,8 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 		echo ""; \
 		echo "Total: $$resources resource(s)"; \
 		echo ""; \
-		read -p "Destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1; \
+		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; else read -p "Destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure? [y/N] " confirm; fi; \
+		[ "$$confirm" = "y" ] || exit 1; \
 	fi)
 	@echo ""
 	@echo "Destroying..."
@@ -454,7 +458,8 @@ infra-nuke: ## Destroy ALL active infrastructure across all modules (end-of-day 
 	@echo ""
 	@$(MAKE) --no-print-directory infra-ls
 	@echo ""
-	@read -p "Destroy all listed infrastructure? [y/N] " confirm && [ "$$confirm" = "y" ] || { echo "Aborted."; exit 1; }
+	@if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; else read -p "Destroy all listed infrastructure? [y/N] " confirm; fi; \
+	[ "$$confirm" = "y" ] || { echo "Aborted."; exit 1; }
 	@echo ""
 	@errors=0; \
 	while IFS= read -r state_file; do \
