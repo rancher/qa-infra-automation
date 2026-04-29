@@ -1,0 +1,111 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+
+  tasks:
+    - name: Check if kubeconfig file exists
+      stat:
+        path: "{{ kubeconfig_file }}"
+      register: kubeconfig_file_stat
+
+    - name: Fail if kubeconfig file does not exist
+      fail:
+        msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
+      when: not kubeconfig_file_stat.stat.exists
+
+    - name: Apply CAPI providers
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        src: "{{ capiconfig_file }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+    
+    - name: Fetch clusterclass-ec2-rke2
+      ansible.builtin.uri:
+        url: "{{ clusterclass_url }}"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: clusterclass
+      when: clusterclass_url is defined and clusterclass_url != ''
+
+    - name: Apply cluster class
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        resource_definition: "{{ clusterclass.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+      when: clusterclass_url is defined and clusterclass_url != ''
+
+    - name: Fetch helm-chart
+      ansible.builtin.uri:
+        url: "{{ helm_chart_url }}"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: helm_chart
+      when: helm_chart_url is defined and helm_chart_url != ''
+
+    - name: Apply helm-chart
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        resource_definition: "{{ helm_chart.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+      when: helm_chart_url is defined and helm_chart_url != ''
+
+    - name: Fetch calico helm-chart
+      ansible.builtin.uri:
+        url: "{{ calico_helm_chart_url }}"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: calico_helm_chart
+      when: calico_helm_chart_url is defined and calico_helm_chart_url != ''
+
+    - name: Apply calico helm-chart
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        resource_definition: "{{ calico_helm_chart.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+      when: calico_helm_chart_url is defined and calico_helm_chart_url != ''
+
+    - name: Fetch ccm helm-chart
+      ansible.builtin.uri:
+        url: "{{ ccm_helm_chart_url }}"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: ccm_helm_chart
+      when: ccm_helm_chart_url is defined and ccm_helm_chart_url != ''
+
+    - name: Apply ccm helm-chart
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        resource_definition: "{{ ccm_helm_chart.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+      when: ccm_helm_chart_url is defined and ccm_helm_chart_url != ''
+
+    - name: Apply CAPI cluster
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        src: "{{ capiclusterconfig_file }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Wait for CAPI cluster be ready
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: MachineDeployment
+        name: "{{ capi_pool_name }}"
+        namespace: fleet-default
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_timeout: 1800
+        wait_condition:
+          type: Ready
