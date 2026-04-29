@@ -68,6 +68,21 @@
           - fqdn | length > 0
         fail_msg: "Required variables not defined. Please ensure kubeconfig_file and fqdn are set in vars.yaml or environment variables."
 
+    - name: Validate TLS secret inputs
+      ansible.builtin.assert:
+        that:
+          - tls_cert_path_final != ""
+          - tls_key_path_final != ""
+        fail_msg: "tlsSource is 'secret' but tlsCertPath or tlsKeyPath is empty"
+      when: ingress_tls_source_final == "secret"
+
+    - name: Validate Let's Encrypt inputs
+      ansible.builtin.assert:
+        that:
+          - letsencrypt_email_final != ""
+        fail_msg: "tlsSource is 'letsEncrypt' but letsEncryptEmail is empty"
+      when: ingress_tls_source_final == "letsEncrypt"
+
     - name: Try to connect to Kubernetes cluster by listing namespaces
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig_file }}"
@@ -134,21 +149,6 @@
       retries: 10
       delay: 30
       when: cert_manager_version != ""
-
-    - name: Validate TLS secret inputs
-      ansible.builtin.assert:
-        that:
-          - tls_cert_path_final != ""
-          - tls_key_path_final != ""
-        fail_msg: "tlsSource is 'secret' but tlsCertPath or tlsKeyPath is empty"
-      when: ingress_tls_source_final == "secret"
-
-    - name: Validate Let's Encrypt inputs
-      ansible.builtin.assert:
-        that:
-          - letsencrypt_email_final != ""
-        fail_msg: "tlsSource is 'letsEncrypt' but letsEncryptEmail is empty"
-      when: ingress_tls_source_final == "letsEncrypt"
 
     - name: Ensure cattle-system namespace exists
       kubernetes.core.k8s:
