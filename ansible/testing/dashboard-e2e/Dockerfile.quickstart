@@ -2,39 +2,55 @@
 # Includes ansible, tofu, helm, kubectl and all required collections
 # so users only need Docker (or Podman) on the host.
 #
+# Multi-arch: builds natively on both amd64 and arm64 (Apple Silicon).
+#
 # Build:  docker build -f Dockerfile.quickstart -t dashboard-e2e-runner .
 # Run:    see run.sh
 
 # renovate: datasource=docker depName=python
-FROM python:3.12-alpine3.23@sha256:1d132f2d802114876d114b0918e01998bf0c07af8332f776c3c4cb8e388c9a5f
+FROM python:3.12-alpine3.23@sha256:236173eb74001afe2f60862de935b74fcbd00adfca247b2c27051a70a6a39a2d
+
+ARG TARGETARCH
 
 # renovate: datasource=github-release-attachments depName=opentofu/opentofu
 ARG TOFU_VERSION=1.11.5
 # renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=1.11.5
-ARG TOFU_SUM=901121681e751574d739de5208cad059eddf9bd739b575745cf9e3c961b28a13
+ARG TOFU_SUM_AMD64=901121681e751574d739de5208cad059eddf9bd739b575745cf9e3c961b28a13
+ARG TOFU_SUM_ARM64=1b79f8fe3cbf7ac0540507bb6bd0ecab1675c78393bbf492867eaabb79840eec
 
 # renovate: datasource=github-release-attachments depName=helm/helm
 ARG HELM_VERSION=3.17.3
 # renovate: datasource=github-release-attachments depName=helm/helm digestVersion=3.17.3
-ARG HELM_SUM=ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd
+ARG HELM_SUM_AMD64=ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd
+ARG HELM_SUM_ARM64=7944e3defd386c76fd92d9e6fec5c2d65a323f6fadc19bfb5e704e3eee10348e
 
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes
 ARG KUBECTL_VERSION=v1.33.10
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes digestVersion=v1.33.10
-ARG KUBECTL_SUM=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db524e3f5
+ARG KUBECTL_SUM_AMD64=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db524e3f5
+ARG KUBECTL_SUM_ARM64=e9494229893ccddc81065275c0e5f21167518ab939f0e95aecb649fb4b41c112
 
 # renovate: datasource=github-release-attachments depName=astral-sh/uv
 ARG UV_VERSION=0.11.3
 # renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.11.3
-ARG UV_SUM=8b40cf16b849634b81a530a3d0a0bcae5f24996ef9ae782976fd69b6266d3b8e
+ARG UV_SUM_AMD64=8b40cf16b849634b81a530a3d0a0bcae5f24996ef9ae782976fd69b6266d3b8e
+ARG UV_SUM_ARM64=8ecec82cb9a744d5fabff6d16d7777218a7730f699d2aa0d2f751c17858e2efa
 
 RUN apk add --no-cache \
-      git curl unzip xxd openssh-client docker-cli
+      git curl unzip xxd openssh-client docker-cli gcompat
 
-RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
-      -o /tmp/uv.tar.gz \
+# uv (uses x86_64/aarch64 naming)
+# Fallback to uname when TARGETARCH is unset (legacy builder without BuildKit)
+RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" \
+    && case "${ARCH}" in \
+         amd64) UV_ARCH="x86_64"; UV_SUM="${UV_SUM_AMD64}" ;; \
+         arm64) UV_ARCH="aarch64"; UV_SUM="${UV_SUM_ARM64}" ;; \
+         *) echo "Unsupported arch: ${ARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_ARCH}-unknown-linux-musl.tar.gz" \
+         -o /tmp/uv.tar.gz \
     && echo "${UV_SUM}  /tmp/uv.tar.gz" | sha256sum -c - \
-    && tar -xz --strip-components=1 -C /usr/local/bin uv-x86_64-unknown-linux-musl/uv < /tmp/uv.tar.gz \
+    && tar -xz --strip-components=1 -C /usr/local/bin "uv-${UV_ARCH}-unknown-linux-musl/uv" < /tmp/uv.tar.gz \
     && rm /tmp/uv.tar.gz
 
 RUN uv pip install --system --no-cache \
@@ -45,8 +61,14 @@ RUN ansible-galaxy collection install \
       "community.docker:<5" "community.crypto:<3" --upgrade
 
 # OpenTofu
-RUN curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.zip" \
-      -o /tmp/tofu.zip \
+RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" \
+    && case "${ARCH}" in \
+         amd64) TOFU_SUM="${TOFU_SUM_AMD64}" ;; \
+         arm64) TOFU_SUM="${TOFU_SUM_ARM64}" ;; \
+         *) echo "Unsupported arch: ${ARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${ARCH}.zip" \
+         -o /tmp/tofu.zip \
     && echo "${TOFU_SUM}  /tmp/tofu.zip" | sha256sum -c - \
     && unzip -o /tmp/tofu.zip -d /usr/local/bin tofu \
     && rm /tmp/tofu.zip \
@@ -54,15 +76,27 @@ RUN curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_V
     && ln -sf /usr/local/bin/tofu /usr/local/bin/terraform
 
 # Helm
-RUN curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
-      -o /tmp/helm.tar.gz \
+RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" \
+    && case "${ARCH}" in \
+         amd64) HELM_SUM="${HELM_SUM_AMD64}" ;; \
+         arm64) HELM_SUM="${HELM_SUM_ARM64}" ;; \
+         *) echo "Unsupported arch: ${ARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz" \
+         -o /tmp/helm.tar.gz \
     && echo "${HELM_SUM}  /tmp/helm.tar.gz" | sha256sum -c - \
-    && tar -xz --strip-components=1 -C /usr/local/bin linux-amd64/helm < /tmp/helm.tar.gz \
+    && tar -xz --strip-components=1 -C /usr/local/bin "linux-${ARCH}/helm" < /tmp/helm.tar.gz \
     && rm /tmp/helm.tar.gz
 
 # kubectl
-RUN curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
-      -o /usr/local/bin/kubectl \
+RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" \
+    && case "${ARCH}" in \
+         amd64) KUBECTL_SUM="${KUBECTL_SUM_AMD64}" ;; \
+         arm64) KUBECTL_SUM="${KUBECTL_SUM_ARM64}" ;; \
+         *) echo "Unsupported arch: ${ARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
+         -o /usr/local/bin/kubectl \
     && echo "${KUBECTL_SUM}  /usr/local/bin/kubectl" | sha256sum -c - \
     && chmod +x /usr/local/bin/kubectl
 
