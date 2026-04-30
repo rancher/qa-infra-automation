@@ -215,9 +215,9 @@
     - name: Validate required variables for agent installation
       assert:
         that:
-          - kube_api_host | default('') | length > 0
+          - hostvars['localhost'].kube_api_host | default(kube_api_host | default('')) | length > 0
           - node_token    | default('') | length > 0
-        fail_msg: "Required variables missing: kube_api_host='{{ kube_api_host | default('UNDEFINED') }}', node_token='{{ node_token | default('UNDEFINED') }}'"
+        fail_msg: "Required variables missing: kube_api_host='{{ hostvars['localhost'].kube_api_host | default(kube_api_host | default('UNDEFINED')) }}', node_token='{{ node_token | default('UNDEFINED') }}'"
       when: ansible_role is defined and ansible_role == 'worker'
 
     - name: Install K3s on agent nodes
