@@ -63,9 +63,9 @@ variable "node_taints" {
 }
 
 variable "machine_global_config" {
-  type        = map(any)
+  type        = string
   default     = null
-  description = "Global machine configuration options (e.g., cni, ingress-controller)"
+  description = "Global machine configuration as JSON string (e.g., jsonencode({cni = "calico"}))"
 }
 
 variable "fleet_namespace" {
