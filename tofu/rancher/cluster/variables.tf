@@ -65,7 +65,7 @@ variable "node_taints" {
 variable "machine_global_config" {
   type        = string
   default     = null
-  description = "Global machine configuration as JSON string (e.g., jsonencode({cni = "calico"}))"
+  description = "Global machine configuration as YAML string (e.g., yamlencode({cni = \"calico\"}))"
 }
 
 variable "fleet_namespace" {
