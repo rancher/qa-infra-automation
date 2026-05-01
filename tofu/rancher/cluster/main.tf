@@ -45,7 +45,7 @@ resource "rancher2_cluster_v2" "rancher2_cluster_v2" {
   default_cluster_role_for_project_members                   = "user"
   
   rke_config {
-    machine_global_config = var.machine_global_config
+    machine_global_config = var.machine_global_config != null ? yamlencode(var.machine_global_config) : null
 
     dynamic "machine_pools" {
       for_each = var.machine_pools
