@@ -88,6 +88,22 @@
             name: _saved_rancher_vars
           when: _rancher_vars_file.stat.exists
 
+        - name: Set prefix from saved state
+          ansible.builtin.set_fact:
+            prefix: "{{ _saved_rancher_vars.prefix }}"
+          when:
+            - _rancher_vars_file.stat.exists
+            - "'prefix' in _saved_rancher_vars"
+            - (_saved_rancher_vars.prefix | default('')) | length > 0
+
+        - name: Set custom_node_ip from saved state
+          ansible.builtin.set_fact:
+            custom_node_ip: "{{ _saved_rancher_vars.custom_node_ip }}"
+          when:
+            - _rancher_vars_file.stat.exists
+            - "'custom_node_ip' in _saved_rancher_vars"
+            - (_saved_rancher_vars.custom_node_ip | default('')) | length > 0
+
         - name: Set rancher_host from saved state
           ansible.builtin.set_fact:
             rancher_host: "{{ _saved_rancher_vars.fqdn }}"
