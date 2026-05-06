@@ -4,11 +4,9 @@
 # Outputs: IPs, FQDNs, inventories, SSH key.
 
 - name: Generate SSH key pair
-  community.crypto.openssh_keypair:
-    path: "{{ outputs_dir }}/id_rsa"
-    type: rsa
-    size: 4096
-    force: false
+  ansible.builtin.command:
+    cmd: ssh-keygen -t rsa -b 4096 -f "{{ outputs_dir }}/id_rsa" -N ""
+    creates: "{{ outputs_dir }}/id_rsa"
 
 - name: Set SSH key path
   ansible.builtin.set_fact:

@@ -64,9 +64,9 @@ fi
 set +e
 
 if [ -n "$PERCY_TOKEN" ]; then
-	percy exec -q -- cypress run --browser chrome --config-file cypress/jenkins/cypress.config.jenkins.ts "${SPEC_ARG[@]}"
+	percy exec -q -- cypress run --browser "${CYPRESS_BROWSER:-chrome}" --config-file cypress/jenkins/cypress.config.jenkins.ts "${SPEC_ARG[@]}"
 else
-	cypress run --browser chrome --config-file cypress/jenkins/cypress.config.jenkins.ts "${SPEC_ARG[@]}"
+	cypress run --browser "${CYPRESS_BROWSER:-chrome}" --config-file cypress/jenkins/cypress.config.jenkins.ts "${SPEC_ARG[@]}"
 fi
 EXIT_CODE=$?
 set -e
