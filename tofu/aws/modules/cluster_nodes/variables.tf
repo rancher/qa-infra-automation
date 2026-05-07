@@ -22,8 +22,9 @@ variable "instance_type" {}
 variable "nodes" {
   description = "Configuration for product nodes."
   type = list(object({
-    count = number
-    role  = list(string) # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
+    count         = number
+    role          = list(string) # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
+    instance_type = optional(string) # Override global instance_type for this node group
   }))
 }
 variable "airgap_setup" {}

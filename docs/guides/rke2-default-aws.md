@@ -31,7 +31,7 @@ aws_route53_zone    = "qa.rancher.space"
 # Instance settings
 aws_ami             = "ami-01de4781572fa1285"   # SLES 15 SP7 in us-east-2
 aws_ssh_user        = "ec2-user"                # Default SSH user for the AMI
-instance_type       = "t3a.medium"              # 2 vCPU, 4 GB RAM
+instance_type       = "t3a.medium"              # Default instance type
 aws_volume_size     = 40
 aws_volume_type     = "gp3"
 aws_hostname_prefix = "yourname"                # Prefix for EC2 Name tags
@@ -53,6 +53,34 @@ proxy_setup  = false
 ```
 
 > **Tip:** For a minimal test cluster, `count = 1` with all three roles works fine. For production-like setups, separate etcd, cp, and worker roles across node groups.
+
+### Split topology with per-role instance types
+
+Give etcd nodes more resources by using the optional `instance_type` field per node group:
+
+```hcl
+# Same AWS credentials, networking, and AMI as above...
+instance_type       = "t3a.medium"              # Default for groups without override
+
+nodes = [
+  {
+    count         = 2
+    role          = ["etcd"]
+    instance_type = "t3a.xlarge"              # 4 vCPU / 16 GB — etcd needs more RAM
+  },
+  {
+    count         = 3
+    role          = ["cp"]
+    instance_type = "t3a.large"               # 2 vCPU / 4 GB
+  },
+  {
+    count = 3
+    role  = ["worker"]                         # Uses global default (t3a.medium)
+  }
+]
+```
+
+> **Note:** Nodes with the same role must be in a single group (e.g., `count = 2` for etcd). Splitting them into multiple groups with `count = 1` causes duplicate hostname conflicts.
 
 ## Step 2: Provision Infrastructure
 

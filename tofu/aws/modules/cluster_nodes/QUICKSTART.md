@@ -33,18 +33,23 @@ aws_volume_size       = 40
 aws_volume_type       = "gp3"
 public_ssh_key        = "/path/to/.ssh/id_rsa.pub" # Fill in path to your public key
 nodes = [
+  # Split topology with per-role instance types:
   # {
-  #   count = 3
-  #   role  = ["etcd"]
+  #   count         = 2
+  #   role          = ["etcd"]
+  #   instance_type = "t3a.xlarge"  # etcd needs more RAM
   # },
   # {
-  #   count = 2
-  #   role  = ["cp"]
+  #   count         = 2
+  #   role          = ["cp"]
+  #   instance_type = "t3a.large"
   # },
   # {
   #   count = 3
   #   role  = ["worker"]
   # }
+
+  # All-in-one (simplest):
   {
     count = 3
     role = ["etcd", "cp", "worker"]

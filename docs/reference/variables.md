@@ -105,15 +105,20 @@ See the [Group Vars Guide](../../ansible/rke2/airgap/docs/configuration/GROUP_VA
 
 ### Node Groups Format
 
+Each node group accepts an optional `instance_type` to override the global `instance_type` variable for that group. This is useful for giving etcd nodes more resources:
+
 ```hcl
+# All nodes use the global instance_type
 nodes = [
-  { count = 3, role = ["etcd", "cp", "worker"] }    # 3 all-in-one nodes
+  { count = 3, role = ["etcd", "cp", "worker"] }
 ]
 
-# Or separated roles:
+# Split topology — etcd nodes need more RAM
 nodes = [
-  { count = 3, role = ["etcd"] },
-  { count = 2, role = ["cp"] },
-  { count = 3, role = ["worker"] }
+  { count = 2, role = ["etcd"],   instance_type = "t3a.xlarge" }  # 4 vCPU / 16 GB
+  { count = 3, role = ["cp"],     instance_type = "t3a.large" }   # 2 vCPU / 4 GB
+  { count = 3, role = ["worker"] }                                # Uses global instance_type
 ]
 ```
+
+> **Note:** Nodes with the same role must be in a single group (e.g., `count = 2` for etcd). Splitting them into multiple groups with `count = 1` causes duplicate hostname conflicts.

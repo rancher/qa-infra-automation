@@ -3,18 +3,20 @@ locals {
   temp_node_names = flatten([
     for node_group in var.nodes : [
       for i in range(node_group.count) : {
-        name = "${join("-", node_group.role)}-${i}"
-        role = node_group.role
-        is_server = false
+        name          = "${join("-", node_group.role)}-${i}"
+        role          = node_group.role
+        is_server     = false
+        instance_type = node_group.instance_type
       }
     ]
   ])
   first_etcd_index = index([for node in local.temp_node_names : contains(node.role, "etcd")], true)
   # Update the is_server attribute for the first etcd node
   node_names = [
-    for node in local.temp_node_names : {
+    for idx, node in local.temp_node_names : {
       name = node.name == local.temp_node_names[local.first_etcd_index].name ? "master" : node.name
       role = node.role
+      instance_type = node.instance_type
     }
   ]
   # Filter for control plane nodes
@@ -49,7 +51,7 @@ resource "aws_key_pair" "ssh_public_key" {
 resource "aws_instance" "node" {
   for_each = { for node in local.node_names : node.name => node }
   ami = var.aws_ami
-  instance_type = var.instance_type
+  instance_type = each.value.instance_type != null ? each.value.instance_type : var.instance_type
   key_name = aws_key_pair.ssh_public_key.key_name
   vpc_security_group_ids = var.aws_security_group
   subnet_id = var.aws_subnet
