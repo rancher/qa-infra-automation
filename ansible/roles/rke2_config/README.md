@@ -110,7 +110,7 @@ With disabled components:
 
 The role automatically detects whether a node should be configured as a server or agent based on:
 - `rke2_node_role` variable (typically `master` for first node)
-- `node_roles` variable containing comma-separated roles (`cp`, `etcd`, `worker`)
+- `node_roles` variable as a YAML list (e.g., `['cp', 'etcd', 'worker']`)
 
 Server configuration is used if:
 - `rke2_node_role == 'master'` OR

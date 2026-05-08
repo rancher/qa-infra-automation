@@ -180,13 +180,13 @@ The role automatically determines service type based on:
 - Runs rke2-server service
 
 **Server nodes** (additional control-plane/etcd):
-- `'cp' in node_roles.split(',')`
-- `'etcd' in node_roles.split(',')`
+- `'cp' in node_roles`
+- `'etcd' in node_roles`
 - Runs rke2-server service
 - Must wait for master to complete first
 
 **Agent nodes** (workers):
-- `'worker' in node_roles.split(',')`
+- `'worker' in node_roles`
 - NOT `cp` or `etcd`
 - Runs rke2-agent service
 - Should wait for server nodes

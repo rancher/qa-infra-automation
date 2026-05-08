@@ -63,6 +63,9 @@ kubernetes_version: 'v1.35.2+k3s1'  # Update to latest K3s version as needed
 # Options: stable, latest, testing
 channel: "stable"
 
+# Kubeconfig output path (relative to playbook directory)
+kubeconfig_file: './kubeconfig.yaml'
+
 # Only required if using manual inventory (not Tofu-generated):
 # fqdn: a.b.c.d.sslip.io
 # kube_api_host: a.b.c.d
