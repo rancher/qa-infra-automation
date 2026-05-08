@@ -65,6 +65,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     cd {{ rke2_temp_dir }}
+    # Checksum file contains arch-specific name, but file is saved without arch suffix
     expected=$(grep "rke2-images-traefik.linux-{{ rke2_arch }}.tar.gz" sha256sum-{{ rke2_arch }}.txt | awk '{print $1}')
     actual=$(sha256sum rke2-images-traefik.tar.gz | awk '{print $1}')
     if [ "$actual" = "$expected" ]; then

@@ -5,7 +5,7 @@
 # CONFIGURATION
 # ============================================================================
 
-SHELL := /usr/bin/bash
+SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 # Configurable parameters (override with: make <target> DISTRO=k3s ENV=default WORKSPACE=myworkspace)
@@ -229,9 +229,9 @@ backend-s3: ## Configure S3 backend for current module (use BUCKET= KEY= REGION=
 	@(cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh s3 --bucket "$(BUCKET)" --key "$(KEY)" --region "$(REGION)" $(if $(DYNAMODB_TABLE),--dynamodb-table "$(DYNAMODB_TABLE)") $(if $(ENCRYPT),--encrypt "$(ENCRYPT)"))
 
 .PHONY: backend-local
-backend-local: ## Configure local backend for current module (use PATH=terraform.tfstate)
+backend-local: ## Configure local backend for current module (use STATE_PATH=terraform.tfstate)
 	@echo "Configuring local backend for $(TOFU_DIR)..."
-	@(cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh local $(if $(PATH),--path "$(PATH)"))
+	@(cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh local $(if $(STATE_PATH),--path "$(STATE_PATH)"))
 
 .PHONY: backend-init
 backend-init: ## Run tofu init in current module (for manual backend configuration)
@@ -442,8 +442,8 @@ infra-scan: ## Detailed scan of all infrastructure across modules/workspaces
 			printf "📍 %s [%s]\n" "$$module_display" "$$ws"; \
 			printf "   Resources: %s\n" "$$resources"; \
 			printf "   State: %s\n" "$$state_file"; \
-			cd "$$module" && tofu workspace select "$$ws" >/dev/null 2>&1 && \
-				tofu state list 2>/dev/null | head -5 | sed 's/^/     /'; \
+			(cd "$$module" && tofu workspace select "$$ws" >/dev/null 2>&1 && \
+				tofu state list 2>/dev/null | head -5 | sed 's/^/     /'); \
 			echo ""; \
 			found=1; \
 		fi; \
