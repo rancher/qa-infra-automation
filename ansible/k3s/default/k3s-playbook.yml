@@ -54,6 +54,8 @@
   gather_facts: false
   pre_tasks:
     - include_role:
+        name: wait_for_ssh
+    - include_role:
         name: setup
     - name: Gather facts
       setup:

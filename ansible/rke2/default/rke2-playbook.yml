@@ -56,6 +56,11 @@
   vars:
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   
+  pre_tasks:
+    - name: Wait for SSH connection
+      include_role:
+        name: wait_for_ssh
+  
   tasks:
     - name: Detect OS family
       raw: |

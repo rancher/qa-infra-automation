@@ -1,0 +1,14 @@
+---
+- name: Wait for SSH connection to be ready
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ wait_for_ssh_timeout | default(300) }}"
+    sleep: "{{ wait_for_ssh_sleep | default(5) }}"
+    connect_timeout: "{{ wait_for_ssh_connect_timeout | default(10) }}"
+  retries: "{{ wait_for_ssh_retries | default(3) }}"
+  delay: "{{ wait_for_ssh_retry_delay | default(10) }}"
+  register: ssh_wait_result
+
+- name: Display SSH connection status
+  ansible.builtin.debug:
+    msg: "SSH connection established to {{ inventory_hostname }}"
+  when: ssh_wait_result is succeeded

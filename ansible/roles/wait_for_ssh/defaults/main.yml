@@ -1,0 +1,15 @@
+---
+# Maximum time to wait for SSH connection (seconds)
+wait_for_ssh_timeout: 300
+
+# Sleep between connection attempts (seconds)
+wait_for_ssh_sleep: 5
+
+# Connection timeout for each attempt (seconds)
+wait_for_ssh_connect_timeout: 10
+
+# Number of retries if connection fails
+wait_for_ssh_retries: 3
+
+# Delay between retry attempts (seconds)
+wait_for_ssh_retry_delay: 10
