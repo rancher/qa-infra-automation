@@ -235,6 +235,7 @@
     - ready_nodes is defined
     - total_nodes is defined
     - ready_nodes | int == total_nodes | int
+    - total_failed is defined or true
     - total_failed | default(0) | int == 0
   run_once: true
 
@@ -244,5 +245,5 @@
   when: >
     (api_version is defined and api_version.rc | default(0) != 0) or
     (ready_nodes is defined and total_nodes is defined and ready_nodes | int != total_nodes | int) or
-    total_failed | default(0) | int > 0
+    (total_failed is defined and total_failed | int > 0)
   run_once: true

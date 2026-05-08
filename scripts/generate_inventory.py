@@ -120,6 +120,18 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         if group_def.get("first_only") and groups[group_name]:
             groups[group_name] = [groups[group_name][0]]
 
+    # Ensure mutual exclusivity: each node belongs to only one group (first match wins)
+    node_to_group: dict[str, str] = {}
+    for group_name, group_nodes in groups.items():
+        for n in group_nodes:
+            node_to_group.setdefault(n["name"], group_name)
+
+    # Rebuild groups with mutually exclusive membership
+    groups = {name: [] for name in groups_cfg}
+    for node_name, group_name in node_to_group.items():
+        node = next(n for n in nodes if n["name"] == node_name)
+        groups[group_name].append(node)
+
     # Build inventory structure
     inventory: dict = {
         "all": {
@@ -137,11 +149,11 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     if default_key:
         inventory["all"]["vars"]["ansible_ssh_private_key_file"] = default_key
 
-    # Map each node to its primary group (first match wins)
+    # Create reverse mapping: node name -> group for role determination
     node_to_group: dict[str, str] = {}
     for group_name, group_nodes in groups.items():
         for n in group_nodes:
-            node_to_group.setdefault(n["name"], group_name)
+            node_to_group[n["name"]] = group_name
 
     # Add all nodes to the 'all' hosts section
     for node in nodes:
