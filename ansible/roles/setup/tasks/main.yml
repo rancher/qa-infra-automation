@@ -1,4 +1,9 @@
 ---
+- name: Wait for SSH to become available
+  wait_for_connection:
+    delay: 10
+    timeout: 300
+
 - name: Check python3 version
   raw: |
     if command -v /usr/bin/python3 >/dev/null 2>&1; then

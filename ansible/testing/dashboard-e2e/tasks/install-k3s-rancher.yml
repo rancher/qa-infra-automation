@@ -105,6 +105,8 @@
       cert_manager_version: '{{ cert_manager_version }}'
       kubeconfig_file: '{{ outputs_dir }}/kubeconfig-rancher.yaml'
       fqdn: '{{ rancher_host }}'
+      prefix: '{{ prefix }}'
+      custom_node_ip: '{{ custom_node_ip | default("") }}'
       bootstrap_password: '{{ bootstrap_password }}'
       password: '{{ rancher_password }}'
       rancher_chart_repo: '{{ rancher_helm_repo }}'

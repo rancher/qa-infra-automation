@@ -19,22 +19,14 @@
       run_once: true
 
 # ensure downstream nodes are fully reachable
-- hosts: "localhost"
-  connection: local
+- hosts: all
   gather_facts: false
   vars:
-    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') }}"
-    terraform_state_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
-    terraform_state_file: "{{ terraform_state_path }}/terraform.tfstate.d/{{ terraform_workspace }}/terraform.tfstate"
-    kube_api_host: "{{ lookup('cloud.terraform.tf_output', 'kube_api_host', state_file=terraform_state_file) }}"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   tasks:
-    - name: Wait for SSH on main node
-      wait_for:
-        host: "{{ kube_api_host }}"
-        port: 22
-        timeout: 120
-        state: started
+    - name: Wait for SSH on all nodes
+      wait_for_connection:
+        timeout: 300
 
 - hosts: all
   become: true
