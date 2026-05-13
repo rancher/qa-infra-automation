@@ -1,0 +1,5 @@
+---
+# RKE2 internal paths — not intended to be overridden
+# These are RKE2 installation conventions, not configuration options.
+rke2_config_dir: /etc/rancher/rke2
+rke2_kubeconfig_source: /etc/rancher/rke2/rke2.yaml

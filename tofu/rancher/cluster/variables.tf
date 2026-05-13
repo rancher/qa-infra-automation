@@ -62,6 +62,12 @@ variable "node_taints" {
   description = "Node taints. For Rancher v2.3.3 or above"
 }
 
+variable "machine_global_config" {
+  type        = any
+  default     = null
+  description = "Global machine configuration as a map (e.g., {cni = \"calico\"}). Will be YAML-encoded for the rancher2_cluster_v2 resource."
+}
+
 variable "fleet_namespace" {
   type        = string
   default     = "fleet-default"

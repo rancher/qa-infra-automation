@@ -1,15 +1,19 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 # Usage:
 #   ./scripts/init-backend.sh s3 --bucket <bucket> --key <key> --region <region> [--dynamodb-table <table>] [--encrypt true|false]
 #   ./scripts/init-backend.sh local [--path <path>]
 #
 # This script generates ./backend.tf from templates/backend-<type>.tf.tmpl and runs:
-#   terraform init -reconfigure
+#   tofu init -reconfigure
+#
+# DEPRECATED: Use the centralized script at ../../scripts/init-backend.sh instead
 #
 set -euo pipefail
 
-TEMPLATES_DIR="$(dirname "$0")/../templates"
-OUTFILE="backend.tf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+# Use centralized script
+exec "$REPO_ROOT/tofu/scripts/init-backend.sh" "$@"
 
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <s3|local> [options]"

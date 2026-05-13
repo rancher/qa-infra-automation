@@ -1,11 +1,14 @@
 ---
-- name: Download Docker binary
-  ansible.builtin.get_url:
-    url: https://download.docker.com/linux/static/stable/{{ ansible_architecture }}/docker-{{ docker_version }}.tgz
-    dest: /tmp
-    mode: "0755"
-    timeout: 60
-    force: true
+- name: Download Docker binary with SHA256 verification
+  include_role:
+    name: download_verify
+  vars:
+    dv_artifact_url: "https://download.docker.com/linux/static/stable/{{ ansible_architecture }}/docker-{{ docker_version }}.tgz"
+    dv_checksum_url: "https://download.docker.com/linux/static/stable/{{ ansible_architecture }}/docker-{{ docker_version }}.tgz.sha256"
+    dv_dest: "/tmp/docker-{{ docker_version }}.tgz"
+    dv_checksum_format: "sha256sum_file"
+    dv_mode: "0644"
+    dv_timeout: 60
 
 - name: Extract binaries
   ansible.builtin.command: tar xzvf /tmp/docker-{{ docker_version }}.tgz --directory=/tmp

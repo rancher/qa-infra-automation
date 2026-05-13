@@ -1,0 +1,44 @@
+# Inventory schema: maps generic Tofu node roles to distro-specific Ansible groups.
+# Used by scripts/generate_inventory.py to generate static inventory files.
+#
+# Schema structure:
+#   <distro>:
+#     <env>:
+#       input_type: cluster_nodes | airgap
+#       ip_field:   public_ip | private_ip  (cluster_nodes only)
+#       groups:
+#         <group_name>:
+#           roles:      [list of roles to include]
+#           first_only: true  (optional, include only the first matching node)
+
+rke2:
+  default:
+    input_type: cluster_nodes
+    ip_field: public_ip
+    groups:
+      master:
+        roles: [etcd]
+        first_only: true
+      servers:
+        roles: [cp]
+      workers:
+        roles: [worker]
+      # 'all' is implicit in Ansible and includes every host
+
+  airgap:
+    # Airgap inventory is generated directly from the airgap_inventory_json output.
+    # Node groups and bastion are defined by the Tofu airgap module.
+    input_type: airgap
+
+k3s:
+  default:
+    input_type: cluster_nodes
+    ip_field: public_ip
+    groups:
+      master:
+        roles: [cp]
+        first_only: true
+      servers:
+        roles: [cp]
+      workers:
+        roles: [worker]
