@@ -462,6 +462,22 @@
           - "============================================================"
       when: rancher_version != ""
 
+    - name: Display Rancher deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================================"
+          - "  RANCHER DEPLOYMENT COMPLETE"
+          - "============================================================"
+          - "  URL:        https://{{ fqdn }}"
+          - "  Username:   admin"
+          - "  Password:   {{ password }}"
+          - "  API Token:  {{ rancher_generated_token }}"
+          - ""
+          - "  Token file: {{ playbook_dir }}/generated.tfvars"
+          - "  K8s version: {{ k8s_cluster_version }}"
+          - "============================================================"
+      when: rancher_version != ""
+
     - name: Upgrade Rancher
       ansible.builtin.include_tasks: rancher-upgrade-tasks.yml
       when: upgrade_mode | bool
