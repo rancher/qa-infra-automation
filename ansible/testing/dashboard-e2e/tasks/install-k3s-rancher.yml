@@ -17,15 +17,13 @@
   ansible.builtin.command:
     cmd: >-
       ansible-playbook
-      -i {{ outputs_dir }}/rancher-server-inventory.yml
+      -i {{ outputs_dir }}/inventory-rancher-server/inventory.yml
       {{ qa_infra_dir }}/ansible/k3s/default/k3s-playbook.yml
       --extra-vars @{{ outputs_dir }}/rancher-server-k3s-vars.yaml
       {{ ansible_verbose_flag }}
     chdir: "{{ qa_infra_dir }}"
   environment:
     ANSIBLE_CONFIG: "{{ qa_infra_dir }}/ansible/k3s/default/ansible.cfg"
-    TF_WORKSPACE: "rancher-server"
-    TERRAFORM_NODE_SOURCE: "tofu/aws/modules/cluster_nodes"
   async: 600
   poll: 0
   register: k3s_rancher_job
@@ -47,15 +45,13 @@
   ansible.builtin.command:
     cmd: >-
       ansible-playbook
-      -i {{ outputs_dir }}/import-inventory.yml
+      -i {{ outputs_dir }}/inventory-importcluster/inventory.yml
       {{ qa_infra_dir }}/ansible/k3s/default/k3s-playbook.yml
       --extra-vars @{{ outputs_dir }}/import-k3s-vars.yaml
       {{ ansible_verbose_flag }}
     chdir: "{{ qa_infra_dir }}"
   environment:
     ANSIBLE_CONFIG: "{{ qa_infra_dir }}/ansible/k3s/default/ansible.cfg"
-    TF_WORKSPACE: "importcluster"
-    TERRAFORM_NODE_SOURCE: "tofu/aws/modules/cluster_nodes"
   when: create_initial_clusters | bool
   async: 600
   poll: 0
@@ -125,8 +121,6 @@
     chdir: "{{ qa_infra_dir }}"
   environment:
     ANSIBLE_CONFIG: "{{ qa_infra_dir }}/ansible/k3s/default/ansible.cfg"
-    TF_WORKSPACE: "rancher-server"
-    TERRAFORM_NODE_SOURCE: "tofu/aws/modules/cluster_nodes"
   async: 1200
   poll: 30
   changed_when: true

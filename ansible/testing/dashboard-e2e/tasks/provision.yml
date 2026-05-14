@@ -1,7 +1,11 @@
 # Provision AWS infrastructure via OpenTofu.
 # Creates up to 3 workspaces in parallel: rancher-server (recurring only),
 # importcluster and customnode (when create_initial_clusters is true).
-# Outputs: IPs, FQDNs, inventories, SSH key.
+# For rancher-server and importcluster, the cluster_nodes_json output is
+# fed to scripts/generate_inventory.py to produce a static Ansible inventory
+# under outputs_dir/inventory-<workspace>/inventory.yml. The bridge script
+# bakes kube_api_host, fqdn and the SSH key into all.vars so the downstream
+# k3s playbook does not need the cloud.terraform tf_output lookup.
 
 - name: Generate SSH key pair
   ansible.builtin.command:
@@ -153,61 +157,59 @@
   failed_when: tofu_custom_status.finished | bool and tofu_custom_status.rc | default(1) != 0
   when: create_initial_clusters | bool
 
-- name: Get rancher-server outputs
-  ansible.builtin.command:
-    cmd: tofu output -no-color -json
+- name: Dump rancher-server cluster_nodes_json
+  ansible.builtin.shell: >-
+    tofu output -raw -no-color cluster_nodes_json
+    > "{{ outputs_dir }}/rancher-server-nodes.json"
+  args:
     chdir: "{{ tofu_module }}"
   environment:
     TF_WORKSPACE: rancher-server
-  register: rancher_outputs_json
-  changed_when: false
+  changed_when: true
   when: job_type == 'recurring'
 
-- name: Parse rancher-server outputs
-  ansible.builtin.set_fact:
-    rancher_ips: "{{ (rancher_outputs_json.stdout | from_json).instance_public_ips.value }}"
-    rancher_master_ip: "{{ (rancher_outputs_json.stdout | from_json).kube_api_host.value }}"
-    rancher_fqdn: "{{ (rancher_outputs_json.stdout | from_json).fqdn.value }}"
-  when: job_type == 'recurring'
-
-- name: Set rancher_host
-  ansible.builtin.set_fact:
-    rancher_host: "{{ rancher_fqdn }}"
-  when: job_type == 'recurring'
-
-- name: Generate rancher-server inventory
-  ansible.builtin.template:
-    src: inventory.j2
-    dest: "{{ outputs_dir }}/rancher-server-inventory.yml"
-    mode: "0644"
-  vars:
-    master_ip: "{{ rancher_master_ip }}"
-    all_ips: "{{ rancher_ips }}"
-  when: job_type == 'recurring'
-
-- name: Get import cluster outputs
+- name: Generate rancher-server Ansible inventory
   ansible.builtin.command:
-    cmd: tofu output -no-color -json
+    cmd: >-
+      python3 {{ qa_infra_dir }}/scripts/generate_inventory.py
+      --input {{ outputs_dir }}/rancher-server-nodes.json
+      --distro k3s --env default
+      --schema {{ qa_infra_dir }}/ansible/_inventory-schema.yaml
+      --output-dir {{ outputs_dir }}/inventory-rancher-server
+  changed_when: true
+  when: job_type == 'recurring'
+
+- name: Read rancher-server node metadata
+  ansible.builtin.slurp:
+    src: "{{ outputs_dir }}/rancher-server-nodes.json"
+  register: rancher_nodes_slurp
+  when: job_type == 'recurring'
+
+- name: Set rancher_host from cluster_nodes_json metadata
+  ansible.builtin.set_fact:
+    rancher_host: "{{ (rancher_nodes_slurp.content | b64decode | from_json).metadata.fqdn }}"
+  when: job_type == 'recurring'
+
+- name: Dump importcluster cluster_nodes_json
+  ansible.builtin.shell: >-
+    tofu output -raw -no-color cluster_nodes_json
+    > "{{ outputs_dir }}/importcluster-nodes.json"
+  args:
     chdir: "{{ tofu_module }}"
   environment:
     TF_WORKSPACE: importcluster
-  register: import_outputs_json
-  changed_when: false
+  changed_when: true
   when: create_initial_clusters | bool
 
-- name: Parse import cluster outputs
-  ansible.builtin.set_fact:
-    import_master_ip: "{{ (import_outputs_json.stdout | from_json).kube_api_host.value }}"
-  when: create_initial_clusters | bool
-
-- name: Generate import cluster inventory
-  ansible.builtin.template:
-    src: inventory.j2
-    dest: "{{ outputs_dir }}/import-inventory.yml"
-    mode: "0644"
-  vars:
-    master_ip: "{{ import_master_ip }}"
-    all_ips: "{{ [import_master_ip] }}"
+- name: Generate importcluster Ansible inventory
+  ansible.builtin.command:
+    cmd: >-
+      python3 {{ qa_infra_dir }}/scripts/generate_inventory.py
+      --input {{ outputs_dir }}/importcluster-nodes.json
+      --distro k3s --env default
+      --schema {{ qa_infra_dir }}/ansible/_inventory-schema.yaml
+      --output-dir {{ outputs_dir }}/inventory-importcluster
+  changed_when: true
   when: create_initial_clusters | bool
 
 - name: Get custom node IP

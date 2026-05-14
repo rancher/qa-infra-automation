@@ -26,7 +26,7 @@
 - name: Extract expected checksum from file
   ansible.builtin.shell: |
     {% if dv_checksum_format == 'github_sha256sum' %}
-    grep "{{ dv_github_artifact_name }}" "{{ _dv_checksum_file }}" | head -1 | awk '{print $1}'
+    grep -E "^[0-9a-f]+[[:space:]]+{{ dv_github_artifact_name }}$" "{{ _dv_checksum_file }}" | head -1 | awk '{print $1}'
     {% else %}
     head -1 "{{ _dv_checksum_file }}" | awk '{print $1}'
     {% endif %}
