@@ -244,6 +244,10 @@ ansible-galaxy collection install \
   "community.docker:<5" "community.crypto:<3" --upgrade
 ```
 
+> `cloud.terraform` is kept for the shared K3s playbook's fallback path.
+> dashboard-e2e itself drives Ansible from a static inventory produced by
+> `scripts/generate_inventory.py`, so the lookup is inert during normal runs.
+
 ### Run the playbook
 
 ```bash
