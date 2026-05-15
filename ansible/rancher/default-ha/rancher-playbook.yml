@@ -447,6 +447,7 @@
         content: |
           fqdn = "https://{{ fqdn }}"
           api_key = "{{ rancher_generated_token }}"
+        mode: "0600"
 
     - name: Display Rancher deployment summary
       ansible.builtin.debug:
@@ -455,9 +456,6 @@
           - "  RANCHER DEPLOYMENT COMPLETE"
           - "============================================================"
           - "  URL:        https://{{ fqdn }}"
-          - "  Username:   admin"
-          - "  Password:   {{ password }}"
-          - "  API Token:  {{ rancher_generated_token }}"
           - ""
           - "  Token file: {{ playbook_dir }}/generated.tfvars"
           - "  K8s version: {{ k8s_cluster_version }}"
