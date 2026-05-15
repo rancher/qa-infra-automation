@@ -228,7 +228,7 @@
           Admin Credentials:
           - Username: admin
           - Password: {{ rancher_admin_password }}
-          - API Token: {{ rancher_generated_token }}
+          - API Token: See {{ repo_root }}/tmp/rancher-admin-token.json
 
           Access Instructions:
           1. Configure DNS or add to /etc/hosts: {{ rancher_public_hostname }} -> <LoadBalancer-IP or Node-IP>
@@ -255,8 +255,8 @@
           - "  Namespace:      {{ rancher_namespace }}"
           - ""
           - "  Admin Username: admin"
-          - "  Admin Password: {{ rancher_admin_password }}"
-          - "  API Token:      {{ rancher_generated_token }}"
+          - "  Admin Password: <see summary file>"
+          - "  API Token:      <see token file>"
           - ""
           - "  Service Type:   {{ rancher_service_info.resources[0].spec.type }}"
           - ""
