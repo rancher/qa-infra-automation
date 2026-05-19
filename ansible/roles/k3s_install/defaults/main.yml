@@ -12,6 +12,3 @@ k3s_channel_url: "https://update.k3s.io/v1-release/channels"
 
 # Binary install directory
 k3s_bin_dir: "/usr/local/bin"
-
-# Systemd directory
-k3s_systemd_dir: "/etc/systemd/system"
