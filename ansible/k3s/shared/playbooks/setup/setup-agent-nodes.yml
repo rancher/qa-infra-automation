@@ -1,0 +1,75 @@
+---
+- name: Setup K3s Agent Nodes
+  hosts: "{{ agent_group | default('workers') }}"
+  become: true
+  gather_facts: true
+  serial: 3 # Process 3 agents at a time instead of 1
+  vars:
+    target_group: "{{ target | default('master') }}"
+    node_token_file: "/tmp/node_token.txt"
+  tasks:
+    - name: Read node_token from local file
+      ansible.builtin.slurp:
+        src: "{{ node_token_file }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      register: node_token_file_content
+
+    - name: Set node_token fact from file content
+      ansible.builtin.set_fact:
+        node_token: "{{ node_token_file_content.content | b64decode | trim }}"
+      run_once: true
+      delegate_to: localhost
+
+    - name: Stop any existing K3s services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+      failed_when: false
+      loop:
+        - k3s
+        - k3s-agent
+
+    - name: Create K3s agent directory
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: "0755"
+
+    - name: Install K3s on agent nodes
+      ansible.builtin.include_role:
+        name: k3s_install
+      vars:
+        k3s_node_type: agent
+        k3s_api_host: "{{ kube_api_host }}"
+        k3s_fqdn: "{{ fqdn | default(kube_api_host) }}"
+        k3s_token: "{{ node_token }}"
+        public_ip: "{{ ansible_host }}"
+        k3s_worker_flags: "{{ worker_flags | default('') }}"
+        k3s_channel: "{{ channel | default('latest') }}"
+
+    - name: Wait for agent to join cluster
+      ansible.builtin.shell: |
+        export KUBECONFIG={{ kubeconfig_file | default('/etc/rancher/k3s/k3s.yaml') }}
+        kubectl get node {{ inventory_hostname }} --no-headers 2>/dev/null | grep -q " Ready"
+      delegate_to: "{{ groups[target_group][0] }}"
+      become: true
+      register: agent_join_check
+      until: agent_join_check.rc == 0
+      retries: 12
+      delay: 10
+      changed_when: false
+
+    - name: Check K3s service status
+      ansible.builtin.systemd:
+        name: k3s-agent
+      register: k3s_status
+
+    - name: Display service status
+      ansible.builtin.debug:
+        msg: |
+          {{ inventory_hostname }} K3s Agent Service Status:
+          Name: {{ k3s_status.name }}
+          State: {{ k3s_status.status.ActiveState }}
+          Enabled: {{ k3s_status.status.UnitFileState }}
