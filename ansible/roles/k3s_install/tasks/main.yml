@@ -81,6 +81,18 @@
         - crictl
         - ctr
 
+    - name: Register K3s systemd service via install script
+      ansible.builtin.shell: |
+        export INSTALL_K3S_SKIP_DOWNLOAD="true"
+        export INSTALL_K3S_SKIP_START="true"
+        export INSTALL_K3S_VERSION="{{ kubernetes_version }}"
+        {% if k3s_node_type == 'agent' %}
+        export INSTALL_K3S_EXEC="agent"
+        {% endif %}
+        curl -sfL https://get.k3s.io | sh -
+      register: _k3s_service_register
+      changed_when: true
+
 # --- Commit hash: fallback to install script (requires GITHUB_TOKEN) ---
 - name: Check if k3s binary already exists
   when: _k3s_is_commit
