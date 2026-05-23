@@ -10,6 +10,12 @@ RUN wget -q "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubect
     echo "${KUBECTL_SUM}  /tmp/kubectl" | sha256sum -c - && \
     mv /tmp/kubectl /bin/kubectl && \
     chmod +x /bin/kubectl
+
+# curl is required by the imported-cluster registration command
+# (`curl --insecure -sfL <manifest> | kubectl apply -f -`) executed by
+# cypress/e2e/tests/pages/manager/cluster-manager.spec.ts.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /root/.kube
 
 COPY imported_config /root/.kube/config
