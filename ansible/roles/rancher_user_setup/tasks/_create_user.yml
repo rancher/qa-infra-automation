@@ -51,6 +51,10 @@
       Authorization: "Bearer {{ _rancher_admin_token }}"
     validate_certs: "{{ rancher_validate_certs }}"
     status_code: [200, 201, 409, 422]
+  register: _bind_global_result
+  retries: 5
+  delay: 15
+  until: _bind_global_result.status | default(0) in [200, 201, 409, 422]
   loop: "{{ _user.global_roles | default([]) }}"
   loop_control:
     loop_var: _role
