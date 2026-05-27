@@ -448,7 +448,6 @@
           fqdn = "https://{{ fqdn }}"
           api_key = "{{ rancher_generated_token }}"
         mode: "0600"
-
     - name: Display Rancher deployment summary
       ansible.builtin.debug:
         msg:
@@ -461,6 +460,7 @@
           - "  K8s version: {{ k8s_cluster_version }}"
           - "============================================================"
       when: rancher_version != ""
+
 
     - name: Upgrade Rancher
       ansible.builtin.include_tasks: rancher-upgrade-tasks.yml

@@ -1,15 +1,15 @@
 ---
 - name: restart k3s
-  raw: |
-    systemctl daemon-reload
-    systemctl restart k3s
+  ansible.builtin.systemd:
+    name: k3s
+    state: restarted
+    daemon_reload: true
   listen: restart k3s
-  changed_when: true
 
 - name: restart k3s-agent
-  raw: |
-    systemctl daemon-reload
-    systemctl restart k3s-agent
+  ansible.builtin.systemd:
+    name: k3s-agent
+    state: restarted
+    daemon_reload: true
   listen: restart k3s-agent
-  changed_when: true
 

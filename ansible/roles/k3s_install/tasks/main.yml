@@ -81,6 +81,18 @@
         - crictl
         - ctr
 
+    - name: Register K3s systemd service via install script
+      ansible.builtin.shell: |
+        export INSTALL_K3S_SKIP_DOWNLOAD="true"
+        export INSTALL_K3S_SKIP_START="true"
+        export INSTALL_K3S_VERSION="{{ kubernetes_version }}"
+        {% if k3s_node_type == 'agent' %}
+        export INSTALL_K3S_EXEC="agent"
+        {% endif %}
+        curl -sfL https://get.k3s.io | sh -
+      register: _k3s_service_register
+      changed_when: true
+
 # --- Commit hash: fallback to install script (requires GITHUB_TOKEN) ---
 - name: Check if k3s binary already exists
   when: _k3s_is_commit
@@ -110,25 +122,7 @@
       register: _k3s_commit_install_result
       changed_when: true
 
-# --- Systemd service (always render for idempotent updates) ---
-- name: Render K3s server systemd service
-  ansible.builtin.template:
-    src: k3s.service.j2
-    dest: "{{ k3s_systemd_dir }}/k3s.service"
-    mode: "0644"
-  when: k3s_node_type != 'agent'
-
-- name: Render K3s agent systemd service
-  ansible.builtin.template:
-    src: k3s-agent.service.j2
-    dest: "{{ k3s_systemd_dir }}/k3s-agent.service"
-    mode: "0644"
-  when: k3s_node_type == 'agent'
-
-- name: Reload systemd daemon
-  ansible.builtin.systemd:
-    daemon_reload: true
-
+# --- Systemd service ---
 - name: Enable and start K3s service
   block:
     - name: Enable and start K3s service
