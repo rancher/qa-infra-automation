@@ -16,7 +16,9 @@
 - name: Detect dashboard target branch
   ansible.builtin.set_fact:
     target_branch: >-
-      {%- if rancher_image_tag == 'head' -%}
+      {%- if dashboard_branch is defined and dashboard_branch and dashboard_branch != 'master' -%}
+        {{ dashboard_branch }}
+      {%- elif rancher_image_tag == 'head' -%}
         master
       {%- elif rancher_image_tag is match('^v(\d+\.\d+)') -%}
         release-{{ rancher_image_tag | regex_replace('^v(\d+\.\d+).*$', '\1') }}
