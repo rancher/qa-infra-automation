@@ -5,10 +5,24 @@
 write-kubeconfig-mode: "0644"
 {% endif %}
 
-# Node labels and taints based on role combinations (matching RKE2 logic)
-{% set has_etcd = 'etcd' in (ansible_role | default('')) %}
-{% set has_cp = 'cp' in (ansible_role | default('')) %}
-{% set has_worker = 'worker' in (ansible_role | default('')) %}
+# Node role detection — inventory writes node_roles per host (matches RKE2; was ansible_role which never resolved).
+{% set _roles = node_roles | default([]) %}
+{% set has_etcd = 'etcd' in _roles %}
+{% set has_cp = 'cp' in _roles %}
+{% set has_worker = 'worker' in _roles %}
+
+# Component split for split-role topologies (legacy parity).
+{% if k3s_node_type in ['cluster-init', 'server'] %}
+{% if has_etcd and not has_cp %}
+# Etcd-only / etcd-worker: disable control-plane components
+disable-apiserver: true
+disable-controller-manager: true
+disable-scheduler: true
+{% elif has_cp and not has_etcd %}
+# CP-only / cp-worker: disable embedded etcd (uses external from etcd nodes)
+disable-etcd: true
+{% endif %}
+{% endif %}
 
 {% if not has_etcd and has_cp and not has_worker %}
 # Control plane only node
@@ -52,8 +66,10 @@ node-label:
   - role-worker=true
 {% endif %}
 
-# Node type specific configuration
-{% if k3s_node_type == 'cluster-init' %}
+# Skip cluster-init when external datastore is in use (server_flags has datastore-endpoint, or master is cp-only).
+{% set _flags_blob = (server_flags | default('')) ~ "\n" ~ (role_server_flags | default('')) %}
+{% set _uses_external_datastore = ('datastore-endpoint' in _flags_blob) or (has_cp and not has_etcd) %}
+{% if k3s_node_type == 'cluster-init' and not _uses_external_datastore %}
 cluster-init: true
 {% elif k3s_node_type == 'server' and (kube_api_host | default(k3s_api_host) | default('')) != '' %}
 server: "https://{{ kube_api_host | default(k3s_api_host) }}:6443"

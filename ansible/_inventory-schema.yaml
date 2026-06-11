@@ -35,10 +35,11 @@ k3s:
     input_type: cluster_nodes
     ip_field: public_ip
     groups:
+      # Prefer etcd (embedded etcd); fall back to cp (external-datastore topology — needs datastore-endpoint via server_flags).
       master:
-        roles: [cp]
+        roles_priority: [[etcd], [cp]]
         first_only: true
       servers:
-        roles: [cp]
+        roles: [etcd, cp]
       workers:
         roles: [worker]

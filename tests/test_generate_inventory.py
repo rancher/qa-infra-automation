@@ -112,6 +112,27 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         master_hosts = result["all"]["children"]["master"]["hosts"]
         self.assertEqual(list(master_hosts.keys()), ["master"])
 
+    def test_k3s_split_role_master_is_first_etcd(self):
+        """K3s split-role: when any etcd node exists, master must be one of
+        them (not cp), because cluster-init bootstraps embedded etcd."""
+        data = load_fixture("k3s_split_role.json")
+        cfg = self.schema["k3s"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        master_hosts = result["all"]["children"]["master"]["hosts"]
+        self.assertEqual(list(master_hosts.keys()), ["master"])
+        # Master node in the fixture has roles=[etcd]
+        self.assertEqual(result["all"]["hosts"]["master"]["node_roles"], ["etcd"])
+
+    def test_k3s_split_role_servers_include_etcd_and_cp(self):
+        """K3s split-role: servers group must include both remaining etcd
+        and cp nodes (not just cp). Otherwise the play silently drops etcd
+        nodes from the install."""
+        data = load_fixture("k3s_split_role.json")
+        cfg = self.schema["k3s"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        server_names = set(result["all"]["children"]["servers"]["hosts"].keys())
+        self.assertEqual(server_names, {"etcd-1", "cp-0", "cp-1"})
+
     def test_worker_nodes_not_in_master_group(self):
         data = load_fixture("rke2_single_master.json")
         cfg = self.schema["rke2"]["default"]

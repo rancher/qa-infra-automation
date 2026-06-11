@@ -97,6 +97,19 @@ def validate_airgap(data: dict) -> None:
         raise ValueError(f"airgap JSON missing fields: {missing}")
 
 
+def warn_if_k3s_needs_datastore(distro: str, data: dict) -> None:
+    """Warn when K3s topology has no etcd — requires external datastore via server_flags."""
+    if distro != "k3s":
+        return
+    if any("etcd" in n.get("roles", []) for n in data.get("nodes", [])):
+        return
+    print(
+        "WARNING: K3s topology has no etcd-role node — set `datastore-endpoint: ...` "
+        "via `server_flags` in vars.yaml or cluster-init will fail.",
+        file=sys.stderr,
+    )
+
+
 def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     """Generate inventory YAML for cluster_nodes input type."""
     metadata = data["metadata"]
@@ -105,15 +118,22 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     default_key = metadata.get("ssh_private_key")
     groups_cfg = schema_cfg.get("groups", {})
 
-    # Build groups: each node is assigned to groups based on its roles
+    # Build groups: `roles` matches any listed role; `roles_priority` tries each set in order and stops on first match.
     groups: dict[str, list[dict]] = {name: [] for name in groups_cfg}
 
-    for node in nodes:
-        node_roles = set(node["roles"])
-        for group_name, group_def in groups_cfg.items():
-            required_roles = set(group_def.get("roles", []))
-            if required_roles & node_roles:  # node has at least one matching role
-                groups[group_name].append(node)
+    for group_name, group_def in groups_cfg.items():
+        roles_priority = group_def.get("roles_priority")
+        if roles_priority:
+            for role_set in roles_priority:
+                required = set(role_set)
+                matched = [n for n in nodes if required & set(n["roles"])]
+                if matched:
+                    groups[group_name] = matched
+
+                    break
+        else:
+            required = set(group_def.get("roles", []))
+            groups[group_name] = [n for n in nodes if required & set(n["roles"])]
 
     # Apply first_only constraint
     for group_name, group_def in groups_cfg.items():
@@ -327,6 +347,7 @@ def main() -> None:
 
     if input_type == "cluster_nodes":
         validate_cluster_nodes(data)
+        warn_if_k3s_needs_datastore(args.distro, data)
         inventory_yaml = generate_cluster_nodes_inventory(data, distro_schema)
     elif input_type == "airgap":
         validate_airgap(data)
