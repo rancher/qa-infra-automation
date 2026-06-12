@@ -138,11 +138,35 @@
       run_once: true
       become: false
 
+    # Pick first cp-having host for kubeconfig URL — split-role master may be etcd-only and have no apiserver.
+    - name: Pick a kube-apiserver-bearing host for the kubeconfig server URL
+      set_fact:
+        kube_api_apiserver_host: >-
+          {{ (groups['all'] | map('extract', hostvars)
+              | selectattr('node_roles', 'defined')
+              | selectattr('node_roles', 'contains', 'cp')
+              | map(attribute='ansible_host') | list | first)
+            | default(kube_api_host, true) }}
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    # Treat fqdn as absent when it equals kube_api_host (synthetic fallback at line ~35) so apiserver pick wins.
+    - name: Compute kubeconfig server URL
+      set_fact:
+        kubeconfig_server_url: >-
+          https://{{ (fqdn if (fqdn is defined and fqdn | length > 0 and fqdn != kube_api_host)
+                      else kube_api_apiserver_host) }}:6443
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    # Match any server: line — k3s_install role may have rewritten 127.0.0.1 to master IP before we slurped.
     - name: Update kubeconfig server address
       lineinfile:
         path: "{{ kubeconfig_file }}"
-        regexp: '^\s+server:\s+https://127\.0\.0\.1:6443'
-        line: "    server: https://{{ fqdn | default(kube_api_host) }}:6443"
+        regexp: '^\s*server:\s+https://[^\s]+'
+        line: "    server: {{ kubeconfig_server_url }}"
       delegate_to: localhost
       run_once: true
       become: false

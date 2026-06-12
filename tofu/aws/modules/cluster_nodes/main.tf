@@ -10,11 +10,13 @@ locals {
       }
     ]
   ])
-  first_etcd_index = index([for node in local.temp_node_names : contains(node.role, "etcd")], true)
-  # Update the is_server attribute for the first etcd node
+  # Master = first etcd, fall back to first cp (cp-only + external datastore). try() avoids index() errors when role absent.
+  first_etcd_index   = try(index([for node in local.temp_node_names : contains(node.role, "etcd")], true), -1)
+  first_cp_index     = try(index([for node in local.temp_node_names : contains(node.role, "cp")], true), -1)
+  first_master_index = local.first_etcd_index >= 0 ? local.first_etcd_index : local.first_cp_index
   node_names = [
     for idx, node in local.temp_node_names : {
-      name = node.name == local.temp_node_names[local.first_etcd_index].name ? "master" : node.name
+      name = node.name == local.temp_node_names[local.first_master_index].name ? "master" : node.name
       role = node.role
       instance_type = node.instance_type
     }
