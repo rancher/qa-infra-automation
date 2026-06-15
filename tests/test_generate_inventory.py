@@ -105,12 +105,28 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         self.assertEqual(len(children["master"]["hosts"]), 1)
         self.assertEqual(len(children["workers"]["hosts"]), 2)
 
-    def test_k3s_master_is_first_cp_only(self):
+    def test_k3s_single_master_has_etcd_and_cp(self):
+        """K3s single-master canonical topology: master runs embedded etcd + cp
+        on the same node. A cp-only master with no datastore-endpoint would
+        not boot, so the fixture must include etcd."""
         data = load_fixture("k3s_single_master.json")
         cfg = self.schema["k3s"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         master_hosts = result["all"]["children"]["master"]["hosts"]
         self.assertEqual(list(master_hosts.keys()), ["master"])
+        self.assertIn("etcd", result["all"]["hosts"]["master"]["node_roles"])
+        self.assertIn("cp", result["all"]["hosts"]["master"]["node_roles"])
+
+    def test_k3s_external_datastore_master_falls_back_to_cp(self):
+        """K3s external-datastore topology (no etcd nodes): roles_priority must
+        fall back from [etcd] to [cp] and pick the first cp node as master.
+        Without this fallback the master group is empty and the play can't bootstrap."""
+        data = load_fixture("k3s_external_datastore.json")
+        cfg = self.schema["k3s"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        master_hosts = result["all"]["children"]["master"]["hosts"]
+        self.assertEqual(list(master_hosts.keys()), ["cp-0"])
+        self.assertEqual(result["all"]["hosts"]["cp-0"]["node_roles"], ["cp"])
 
     def test_k3s_split_role_master_is_first_etcd(self):
         """K3s split-role: when any etcd node exists, master must be one of
@@ -131,7 +147,7 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         cfg = self.schema["k3s"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         server_names = set(result["all"]["children"]["servers"]["hosts"].keys())
-        self.assertEqual(server_names, {"etcd-1", "cp-0", "cp-1"})
+        self.assertEqual(server_names, {"etcd-1", "etcd-2", "cp-0", "cp-1"})
 
     def test_worker_nodes_not_in_master_group(self):
         data = load_fixture("rke2_single_master.json")

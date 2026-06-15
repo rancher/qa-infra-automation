@@ -118,16 +118,19 @@
     node_token_file: "/tmp/node_token.txt"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
-    # CIS/etcd prep; effective config merges role-specific dict + rke2_additional_config (dtf SERVER_FLAGS path).
+    # Build the config RKE2 actually reads. DTF forwards SERVER_FLAGS through
+    # rke2_additional_config, while manual users may set rke2_server_config or
+    # rke2_agent_config directly, so the CIS checks must inspect both sources.
     - name: CIS | Resolve effective config
       set_fact:
         _rke2_is_server: "{{ rke2_node_role == 'master' or 'cp' in (node_roles | default([])) or 'etcd' in (node_roles | default([])) }}"
         _rke2_srv_eff: "{{ rke2_server_config | default({}) | combine(rke2_additional_config | default({})) }}"
         _rke2_agt_eff: "{{ rke2_agent_config | default({}) | combine(rke2_additional_config | default({})) }}"
-        rke2_is_slemicro: "{{ 'micro' in (ansible_distribution | default('') | lower) }}"
       tags: ['cluster', 'rke2']
 
-    # CIS expression repeated since set_fact doesn't expose sibling values within the same task.
+    # CIS needs sysctls wherever the effective profile is cis. Servers may also
+    # need the etcd user for etcd settings. Repeat the CIS predicate because
+    # set_fact does not expose sibling values within the same task.
     - name: CIS | Determine flags
       set_fact:
         rke2_needs_cis_sysctl: "{{ (_rke2_is_server and 'cis' in (_rke2_srv_eff.profile | default(''))) or (not _rke2_is_server and 'cis' in (_rke2_agt_eff.profile | default(''))) }}"
@@ -144,21 +147,8 @@
       when: rke2_needs_etcd_user
       tags: ['cluster', 'rke2']
 
-    # SLEMicro: tarball install doesn't ship /usr/share/rke2/rke2-cis-sysctl.conf — write the values inline (legacy parity).
-    - name: CIS | Write inline sysctls (SLEMicro)
-      copy:
-        dest: /etc/sysctl.d/60-rke2-cis.conf
-        mode: '0644'
-        content: |
-          vm.overcommit_memory=1
-          kernel.panic=10
-          kernel.panic_on_oops=1
-      when:
-        - rke2_needs_cis_sysctl
-        - rke2_is_slemicro
-      tags: ['cluster', 'rke2']
-
-    # Other supported OSes: copy from the shipped file (try known paths).
+    # Try copying the shipped rke2-cis-sysctl.conf from each known path. RPM-installed RHEL/SLES use
+    # /usr/share/rke2/ or /usr/local/share/rke2/; tarball installs use /opt/rke2/share/rke2/.
     - name: CIS | Copy rke2-cis-sysctl.conf into /etc/sysctl.d
       copy:
         src: "{{ item }}"
@@ -169,20 +159,26 @@
         - /usr/share/rke2/rke2-cis-sysctl.conf
         - /usr/local/share/rke2/rke2-cis-sysctl.conf
         - /opt/rke2/share/rke2/rke2-cis-sysctl.conf
-      when:
-        - rke2_needs_cis_sysctl
-        - not rke2_is_slemicro
+      when: rke2_needs_cis_sysctl
       ignore_errors: true
       register: cis_sysctl_copy
       tags: ['cluster', 'rke2']
 
-    - name: CIS | Fail if no rke2-cis-sysctl.conf was found
-      fail:
-        msg: "profile: cis is set but rke2-cis-sysctl.conf isn't present at any known path — rke2-common may not be installed yet"
+    # Fallback: write the rke2-cis sysctls inline if none of the shipped paths existed.
+    # Covers SLE Micro and any image where rke2-common isn't laid down yet at preflight time.
+    - name: CIS | Write inline sysctls (fallback when shipped file is absent)
+      copy:
+        dest: /etc/sysctl.d/60-rke2-cis.conf
+        mode: '0644'
+        content: |
+          vm.panic_on_oom=0
+          vm.overcommit_memory=1
+          kernel.panic=10
+          kernel.panic_on_oops=1
+          kernel.keys.root_maxbytes=25000000
       when:
         - rke2_needs_cis_sysctl
-        - not rke2_is_slemicro
-        - cis_sysctl_copy.results | selectattr('failed', 'equalto', false) | list | length == 0
+        - cis_sysctl_copy.results | default([]) | selectattr('failed', 'equalto', false) | list | length == 0
       tags: ['cluster', 'rke2']
 
     - name: CIS | Reload sysctls

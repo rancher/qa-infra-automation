@@ -1,0 +1,28 @@
+{
+  "type": "cluster_nodes",
+  "metadata": {
+    "kube_api_host": "4.5.6.7",
+    "fqdn": "k3s-extds.example.com",
+    "ssh_user": "ubuntu"
+  },
+  "nodes": [
+    {
+      "name": "cp-0",
+      "roles": ["cp"],
+      "public_ip": "4.5.6.7",
+      "private_ip": "10.0.4.1"
+    },
+    {
+      "name": "cp-1",
+      "roles": ["cp"],
+      "public_ip": "4.5.6.8",
+      "private_ip": "10.0.4.2"
+    },
+    {
+      "name": "worker-0",
+      "roles": ["worker"],
+      "public_ip": "4.5.6.9",
+      "private_ip": "10.0.4.3"
+    }
+  ]
+}

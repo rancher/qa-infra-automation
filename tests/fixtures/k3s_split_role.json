@@ -19,6 +19,12 @@
       "private_ip": "10.0.3.2"
     },
     {
+      "name": "etcd-2",
+      "roles": ["etcd"],
+      "public_ip": "3.4.5.11",
+      "private_ip": "10.0.3.6"
+    },
+    {
       "name": "cp-0",
       "roles": ["cp"],
       "public_ip": "3.4.5.8",
