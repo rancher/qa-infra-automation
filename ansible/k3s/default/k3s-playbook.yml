@@ -32,10 +32,12 @@
           use_terraform: false
         when: not tfstate_file_stat.stat.exists
 
-      - name: Set fqdn content from env or vars when not using terraform
+      - name: Set fqdn content from env when not using terraform
         ansible.builtin.set_fact:
-          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn if fqdn is defined else (kube_api_host if kube_api_host is defined else ''), true) }}"
-        when: not tfstate_file_stat.stat.exists
+          fqdn: "{{ lookup('env', 'FQDN') }}"
+        when:
+          - not tfstate_file_stat.stat.exists
+          - lookup('env', 'FQDN') | length > 0
 
     - name: Validate required variables
       assert:
@@ -151,12 +153,10 @@
       run_once: true
       become: false
 
-    # Treat fqdn as absent when it equals kube_api_host (synthetic fallback at line ~35) so apiserver pick wins.
+    # Prefer a real fqdn for kubeconfig; otherwise use a cp-bearing host since split-role master may be etcd-only.
     - name: Compute kubeconfig server URL
       set_fact:
-        kubeconfig_server_url: >-
-          https://{{ (fqdn if (fqdn is defined and fqdn | length > 0 and fqdn != kube_api_host)
-                      else kube_api_apiserver_host) }}:6443
+        kubeconfig_server_url: "https://{{ fqdn | default(kube_api_apiserver_host, true) }}:6443"
       delegate_to: localhost
       run_once: true
       become: false
