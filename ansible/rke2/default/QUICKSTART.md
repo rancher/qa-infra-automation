@@ -27,7 +27,7 @@ Before running the playbook, verify that your inventory file is correctly popula
     children:
       master:
         hosts:
-          master:                       # First node must be named "master"
+          master:                       # Bootstrap node
             ansible_host: "1.2.3.4"    # node public IP
             ansible_user: "ec2-user"   # SSH user
             rke2_node_role: master

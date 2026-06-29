@@ -72,11 +72,15 @@ node-label:
 {% if k3s_node_type == 'cluster-init' and not _uses_external_datastore %}
 cluster-init: true
 {% elif k3s_node_type == 'server' and (kube_api_host | default(k3s_api_host) | default('')) != '' %}
+# For joins this is the cluster-init/supervisor endpoint, which may be etcd-only
+# in split-role topologies. The saved kubeconfig is rewritten to a cp-bearing host.
 server: "https://{{ kube_api_host | default(k3s_api_host) }}:6443"
 {% if k3s_token | default('') | trim %}
 token: "{{ k3s_token }}"
 {% endif %}
 {% elif k3s_node_type == 'agent' and (kube_api_host | default(k3s_api_host) | default('')) != '' %}
+# For joins this is the cluster-init/supervisor endpoint, which may be etcd-only
+# in split-role topologies. The saved kubeconfig is rewritten to a cp-bearing host.
 server: "https://{{ kube_api_host | default(k3s_api_host) }}:6443"
 {% if k3s_token | default('') | trim %}
 token: "{{ k3s_token }}"

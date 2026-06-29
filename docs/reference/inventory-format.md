@@ -132,7 +132,7 @@ If you're not using Tofu, create the inventory file manually. The required struc
 See the [RKE2 BYO guide](../guides/rke2-default-byo.md#step-1-create-the-ansible-inventory) for a complete example.
 
 Key requirements:
-- First node must be in the `master` group and named `master`
+- Bootstrap node must be in the `master` group
 - `rke2_node_role`: `master` (first node), `server` (additional CP), or `agent` (worker)
 - `node_roles`: list of `etcd`, `cp`, `worker`
 - `fqdn` and `kube_api_host` in `all.vars`
@@ -142,7 +142,7 @@ Key requirements:
 See the [K3s BYO guide](../guides/k3s-default-byo.md#step-1-create-the-ansible-inventory) for a complete example.
 
 Key requirements:
-- First node must be in the `master` group and named `master`
+- Bootstrap node must be in the `master` group
 - `fqdn` and `kube_api_host` in `all.vars`
 - **All-role topology** (every server has etcd + cp + worker): group membership
   alone is enough — `node_roles` is optional.

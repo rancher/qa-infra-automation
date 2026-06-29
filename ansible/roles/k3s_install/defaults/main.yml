@@ -12,3 +12,8 @@ k3s_channel_url: "https://update.k3s.io/v1-release/channels"
 
 # Binary install directory
 k3s_bin_dir: "/usr/local/bin"
+
+# Install k3s-selinux on RHEL-family hosts before K3s starts. This matches the
+# upstream get.k3s.io behavior that is bypassed by this role's direct binary
+# install path.
+k3s_install_selinux_policy: true

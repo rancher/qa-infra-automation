@@ -6,12 +6,31 @@
   ansible.builtin.debug:
     msg: "Detected OS: {{ ansible_distribution }} {{ ansible_distribution_version }} ({{ ansible_os_family }})"
 
+# SLES images often run cloud-init / wicked / auto-refresh holding /var/run/zypp.pid at first boot.
+# Wait for the lock to clear, then retry the install in case it re-locks before we land.
+- name: Wait for zypper lock to clear (SLES/openSUSE)
+  ansible.builtin.shell: |
+    for i in $(seq 1 60); do
+      [ -f /var/run/zypp.pid ] && pid=$(cat /var/run/zypp.pid 2>/dev/null) || pid=""
+      if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then exit 0; fi
+      sleep 5
+    done
+    echo "zypper lock held by pid $pid after 300s"; exit 1
+  args: { executable: /bin/bash }
+  changed_when: false
+  when: ansible_os_family == "Suse"
+  become: true
+
 - name: Install required packages (SLES/openSUSE)
   community.general.zypper:
     name: "{{ rke2_required_packages }}"
     state: present
   when: ansible_os_family == "Suse"
   become: true
+  register: zypper_install
+  until: zypper_install is succeeded
+  retries: 6
+  delay: 20
 
 - name: Install required packages (RHEL/CentOS)
   ansible.builtin.yum:
