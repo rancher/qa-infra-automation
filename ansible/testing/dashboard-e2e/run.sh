@@ -36,6 +36,16 @@ VARS_FILE="${SCRIPT_DIR}/vars.yaml"
 
 # --- Detect container runtime ---
 detect_runtime() {
+	# Docker Desktop on macOS installs its CLI under ~/.docker/bin, which is not
+	# always on PATH (e.g. when the shell is managed outside Docker's installer).
+	# Add it so `command -v docker` can find it.
+	if [ -x "${HOME}/.docker/bin/docker" ]; then
+		case ":${PATH}:" in
+		*":${HOME}/.docker/bin:"*) ;;
+		*) PATH="${HOME}/.docker/bin:${PATH}" ;;
+		esac
+	fi
+
 	if command -v podman >/dev/null 2>&1; then
 		RUNTIME="podman"
 	elif command -v docker >/dev/null 2>&1; then
@@ -72,12 +82,17 @@ detect_socket() {
 		echo "  macOS:  podman machine start" >&2
 		exit 1
 	else
-		SOCKET="/var/run/docker.sock"
-		if [ ! -S "$SOCKET" ]; then
-			echo "ERROR: Docker socket not found at $SOCKET" >&2
-			echo "Is Docker running?" >&2
-			exit 1
-		fi
+		for _sock in \
+			"/var/run/docker.sock" \
+			"${HOME}/.docker/run/docker.sock"; do
+			if [ -S "$_sock" ]; then
+				SOCKET="$_sock"
+				return
+			fi
+		done
+		echo "ERROR: Docker socket not found at /var/run/docker.sock or ${HOME}/.docker/run/docker.sock" >&2
+		echo "Is Docker running?" >&2
+		exit 1
 	fi
 }
 
