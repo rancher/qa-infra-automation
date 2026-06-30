@@ -78,10 +78,15 @@ k3s:
     ip_field: public_ip
     groups:
       master:
-        roles: [cp]
+        # Try each role list in order; pick the first node that matches.
+        # K3s supports embedded etcd (master must have etcd) and external
+        # datastore (cp-only, no etcd) topologies — this lets the schema
+        # express "prefer etcd, fall back to cp".
+        roles_priority: [[etcd], [cp]]
         first_only: true
       servers:
-        roles: [cp]
+        # Any etcd-having or cp-having node installs as a K3s server.
+        roles: [etcd, cp]
       workers:
         roles: [worker]
 ```
@@ -127,7 +132,7 @@ If you're not using Tofu, create the inventory file manually. The required struc
 See the [RKE2 BYO guide](../guides/rke2-default-byo.md#step-1-create-the-ansible-inventory) for a complete example.
 
 Key requirements:
-- First node must be in the `master` group and named `master`
+- Bootstrap node must be in the `master` group
 - `rke2_node_role`: `master` (first node), `server` (additional CP), or `agent` (worker)
 - `node_roles`: list of `etcd`, `cp`, `worker`
 - `fqdn` and `kube_api_host` in `all.vars`
@@ -137,9 +142,15 @@ Key requirements:
 See the [K3s BYO guide](../guides/k3s-default-byo.md#step-1-create-the-ansible-inventory) for a complete example.
 
 Key requirements:
-- First node must be in the `master` group and named `master`
-- Group membership determines role (no `rke2_node_role` or `node_roles` needed)
+- Bootstrap node must be in the `master` group
 - `fqdn` and `kube_api_host` in `all.vars`
+- **All-role topology** (every server has etcd + cp + worker): group membership
+  alone is enough — `node_roles` is optional.
+- **Split-role topology** (etcd-only servers, cp-only servers, etc.): each host
+  must include `node_roles: [etcd]` / `[cp]` / `[etcd, worker]` / etc. Without
+  it the K3s config template silently falls through to the all-role default
+  (no `disable-apiserver` / `disable-etcd` flags, wrong labels), which is not
+  what you want for split-role. See the K3s BYO guide's split-role example.
 
 ### Airgap Inventory
 
