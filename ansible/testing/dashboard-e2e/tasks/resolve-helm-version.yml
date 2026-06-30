@@ -73,8 +73,12 @@
 
       case "${TAG}" in
         head)
-          echo "${SEARCH}" | sed -n '1!p' | head -1 \
-            | awk '{print $2}' | tr -d '[:space:]'
+          # Use version sort, not helm's order: helm sorts pre-release
+          # identifiers lexically, so 2.x-alpha9 ranks above 2.x-alpha14
+          # ('9' > '1') and a plain `head -1` would pick a stale alpha.
+          # `sort -V` gives the true newest chart version.
+          echo "${SEARCH}" | sed -n '1!p' \
+            | awk '{print $2}' | sort -V | tail -1 | tr -d '[:space:]'
           ;;
         *)
           case "{{ rancher_helm_repo }}" in
