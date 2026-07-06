@@ -77,7 +77,7 @@ help: ## Show this help message
 	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy)"
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo "  WORKSPACE = $(WORKSPACE)    (tofu workspace name)"
-	@echo "  TARGET_GROUP = $(if $(TARGET_GROUP),$(TARGET_GROUP),<unset>)  (airgap node group: rancher, downstream)"
+	@echo "  TARGET_GROUP = $(if $(TARGET_GROUP),$(TARGET_GROUP),<unset>)  (airgap node group, e.g. rancher/downstream; required for 'downstream')"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws WORKSPACE=myworkspace"
 	@echo "At the moment this only supports rke2, default/airgap, and aws"
@@ -122,7 +122,7 @@ help: ## Show this help message
 	@echo "  agents              Setup additional agent nodes"
 	@echo "  registry            Configure private registry on cluster nodes"
 	@echo "  rancher             Deploy Rancher to cluster"
-	@echo "  downstream          Register an airgap cluster into Rancher (ENV=airgap, TARGET_GROUP=downstream)"
+	@echo "  downstream          Register an airgap cluster into Rancher (requires ENV=airgap and TARGET_GROUP=downstream)"
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
 	@echo ""
@@ -557,9 +557,14 @@ kubectl-setup: check-inventory ## Setup kubectl access on bastion
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: downstream
-downstream: check-inventory ## Register an existing airgap cluster into Rancher as a downstream (ENV=airgap, TARGET_GROUP=downstream)
+downstream: check-inventory ## Register an existing airgap cluster into Rancher as a downstream (requires ENV=airgap and TARGET_GROUP, e.g. TARGET_GROUP=downstream)
 	@if [ "$(ENV)" != "airgap" ]; then \
 		echo "ERROR: 'downstream' target only applies to ENV=airgap"; exit 1; \
+	fi
+	@if [ -z "$(TARGET_GROUP)" ]; then \
+		echo "ERROR: 'downstream' requires TARGET_GROUP (the inventory group of the cluster to register into Rancher)."; \
+		echo "       Example: make downstream ENV=airgap TARGET_GROUP=downstream"; \
+		exit 1; \
 	fi
 	@if [ -z "$(DOWNSTREAM_PLAYBOOK)" ] || [ ! -f "$(DOWNSTREAM_PLAYBOOK)" ]; then \
 		echo "ERROR: downstream playbook not found: $(DOWNSTREAM_PLAYBOOK)"; exit 1; \
