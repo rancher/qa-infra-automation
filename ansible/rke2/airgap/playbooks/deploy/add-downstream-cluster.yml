@@ -6,6 +6,12 @@
     admin_password: "{{ rancher_bootstrap_password | default('admin') }}"
     repo_root: "{{ playbook_dir | regex_replace('(.*)/ansible/.*', '\\1') }}"
     fqdn: "{{ rancher_hostname | default(external_lb_hostname) }}"
+    # Cluster name generation: <prefix>-<random suffix>
+    # Override prefix via `downstream_cluster_name_prefix` var or DOWNSTREAM_CLUSTER_NAME_PREFIX env.
+    # Override suffix length via `downstream_cluster_name_suffix_length` (default 8).
+    # Set DOWNSTREAM_CLUSTER_NAME (or `cluster_name`) to use a fully custom name instead.
+    downstream_cluster_name_prefix: "{{ lookup('env', 'DOWNSTREAM_CLUSTER_NAME_PREFIX') | default('ansible-created', true) }}"
+    downstream_cluster_name_suffix_length: 8
   pre_tasks:
     - name: Validate rancher group exists
       ansible.builtin.assert:
@@ -47,14 +53,18 @@
       delay: 10
       until: token_response.status == 201
 
-    - name: Get cluster name from environment variable
+    - name: Get cluster name from explicit variable or environment
       ansible.builtin.set_fact:
-        cluster_name: "{{ lookup('env', 'DOWNSTREAM_CLUSTER_NAME') | default('', true) }}"
+        cluster_name: "{{ cluster_name | default(lookup('env', 'DOWNSTREAM_CLUSTER_NAME'), true) }}"
 
-    - name: Generate cluster name if DOWNSTREAM_CLUSTER_NAME is empty
+    - name: Generate cluster name as <prefix>-<random suffix> when not explicitly set
       ansible.builtin.set_fact:
-        cluster_name: "ansible-created-{{ lookup('password', '/dev/null length=8 chars=ascii_lowercase,digits') }}"
-      when: cluster_name == ''
+        cluster_name: "{{ downstream_cluster_name_prefix }}-{{ lookup('password', '/dev/null length=' ~ downstream_cluster_name_suffix_length ~ ' chars=ascii_lowercase,digits') }}"
+      when: cluster_name | default('', true) | length == 0
+
+    - name: Display generated cluster name
+      ansible.builtin.debug:
+        msg: "Downstream cluster name: {{ cluster_name }}"
 
     - name: Create generic imported cluster with OpenTofu
       ansible.builtin.shell: |

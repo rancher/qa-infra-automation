@@ -654,16 +654,20 @@ airgap-downstream: check-inventory ## Full airgap multi-cluster: downstream RKE2
 		echo "ERROR: 'airgap-downstream' requires ENV=airgap"; exit 1; \
 	fi
 	@echo ""
-	@echo "==> [1/4] Installing $(DISTRO) on downstream group..."
+	@echo "==> [1/5] Installing $(DISTRO) on downstream group..."
 	@$(MAKE) cluster DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=downstream
 	@echo ""
-	@echo "==> [2/4] Installing $(DISTRO) on rancher group..."
+	@echo "==> [2/5] Configuring private registry on downstream group..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-registry-config-playbook.yml -e target=downstream -v $(ANSIBLE_EXTRA_VARS)
+	@echo ""
+	@echo "==> [3/5] Installing $(DISTRO) on rancher group..."
 	@$(MAKE) cluster DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=rancher
 	@echo ""
-	@echo "==> [3/4] Deploying Rancher on rancher group..."
+	@echo "==> [4/5] Deploying Rancher on rancher group..."
 	@$(MAKE) rancher DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=
 	@echo ""
-	@echo "==> [4/4] Registering downstream cluster into Rancher..."
+	@echo "==> [5/5] Registering downstream cluster into Rancher..."
 	@$(MAKE) downstream DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=downstream
 	@echo ""
 	@echo "Airgap Rancher + downstream cluster setup complete!"
