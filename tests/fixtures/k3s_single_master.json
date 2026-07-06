@@ -8,7 +8,7 @@
   "nodes": [
     {
       "name": "master",
-      "roles": ["cp"],
+      "roles": ["etcd", "cp"],
       "public_ip": "2.3.4.5",
       "private_ip": "10.0.2.1"
     },

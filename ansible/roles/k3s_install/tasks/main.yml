@@ -25,6 +25,58 @@
   loop:
     - "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}"
 
+- name: Install k3s-selinux policy on RHEL-family hosts
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    if rpm -q k3s-selinux >/dev/null 2>&1; then
+      echo "k3s-selinux already installed"
+      exit 0
+    fi
+
+    el="$(rpm -E %rhel 2>/dev/null || true)"
+    if [ -z "${el}" ] || [ "${el}" = "%rhel" ]; then
+      echo "not an EL rpm target; skipping"
+      exit 0
+    fi
+
+    if command -v dnf >/dev/null 2>&1; then
+      package_manager=dnf
+    elif command -v yum >/dev/null 2>&1; then
+      package_manager=yum
+    else
+      echo "no dnf/yum available; skipping"
+      exit 0
+    fi
+
+    "${package_manager}" install -y \
+      --nogpgcheck \
+      --repofrompath="rancher-k3s,https://rpm.rancher.io/k3s/stable/common/centos/${el}/noarch/" \
+      k3s-selinux
+  args:
+    executable: /bin/bash
+  register: k3s_selinux_policy_install
+  changed_when:
+    - k3s_selinux_policy_install.rc == 0
+    - "'k3s-selinux already installed' not in k3s_selinux_policy_install.stdout"
+    - "'skipping' not in k3s_selinux_policy_install.stdout"
+  failed_when: false
+  when:
+    - k3s_install_selinux_policy | default(true) | bool
+    - ansible_os_family | default('') == "RedHat"
+
+- name: Warn when k3s-selinux policy installation fails
+  ansible.builtin.debug:
+    msg: >-
+      k3s-selinux installation failed on {{ inventory_hostname }}.
+      Local-path-provisioner storage tests may fail. rc={{ k3s_selinux_policy_install.rc }}
+      stdout={{ k3s_selinux_policy_install.stdout | default('') }}
+      stderr={{ k3s_selinux_policy_install.stderr | default('') }}
+  when:
+    - k3s_selinux_policy_install is defined
+    - k3s_selinux_policy_install.rc is defined
+    - k3s_selinux_policy_install.rc != 0
+
 - name: Generate K3s configuration from template
   template:
     src: k3s-config.yaml.j2
@@ -205,4 +257,3 @@
       Version: {{ k3s_version_output.stdout.split('\n')[0] }}
       Node Type: {{ k3s_node_type }}
       Service: {{ 'k3s-agent' if k3s_node_type == 'agent' else 'k3s' }}
-

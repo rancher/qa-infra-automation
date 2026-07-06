@@ -26,6 +26,11 @@ variable "nodes" {
     role          = list(string) # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
     instance_type = optional(string) # Override global instance_type for this node group
   }))
+  validation {
+    # Need >=1 cp node (count>0). Without it first_master_index = -1 → cryptic plan error.
+    condition     = anytrue([for ng in var.nodes : ng.count > 0 && contains(ng.role, "cp")])
+    error_message = "At least one node group must include the \"cp\" role with count > 0. K3s/RKE2 clusters need a real control-plane node."
+  }
 }
 variable "airgap_setup" {}
 variable "proxy_setup" {}

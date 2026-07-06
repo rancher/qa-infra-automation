@@ -25,6 +25,26 @@
   become: true
   notify: restart rke2
 
+- name: Ensure RKE2 config.yaml.d drop-in directory exists
+  ansible.builtin.file:
+    path: "{{ rke2_config_dir }}/config.yaml.d"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  become: true
+
+# RKE2 merges config.yaml.d/*.yaml with config.yaml; DTF report reads this drop-in to classify nodes.
+- name: Generate RKE2 role_config.yaml drop-in
+  ansible.builtin.template:
+    src: role_config.yaml.j2
+    dest: "{{ rke2_config_dir }}/config.yaml.d/role_config.yaml"
+    mode: '0600'
+    owner: root
+    group: root
+  become: true
+  notify: restart rke2
+
 - name: Display config file location
   ansible.builtin.debug:
     msg: "RKE2 configuration written to {{ rke2_config_dir }}/config.yaml"
