@@ -566,7 +566,7 @@ downstream: check-inventory ## Register an existing airgap cluster into Rancher 
 	fi
 	@echo "Registering '$(TARGET_GROUP)' cluster into Rancher as downstream..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(DOWNSTREAM_PLAYBOOK) -v $(TARGET_EXTRA_VARS) $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) $(DOWNSTREAM_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) $(TARGET_EXTRA_VARS)
 
 # ============================================================================
 # UTILITIES
