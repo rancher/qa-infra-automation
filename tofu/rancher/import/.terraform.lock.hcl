@@ -1,8 +1,9 @@
 # This file is maintained automatically by "tofu init".
 # Manual edits may be lost in future updates.
 
-provider "registry.opentofu.org/hashicorp/rancher2" {
-  version = "14.1.1"
+provider "registry.opentofu.org/rancher/rancher2" {
+  version     = "14.1.1"
+  constraints = ">= 14.0.0"
   hashes = [
     "h1:XguC/YWN5PuuX+oQ9U7HZdrpLZ/z32XFTmWcTZTO/AY=",
     "zh:11c4c34ba996b633d116e83f48b0baecaa1e0cbf50562abdfd9424cd6f6141a4",
