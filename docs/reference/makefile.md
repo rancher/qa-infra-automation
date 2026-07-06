@@ -42,7 +42,7 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 | `make agents` | Set up additional agent nodes (airgap) |
 | `make registry` | Configure private registry on cluster nodes (airgap) |
 | `make rancher` | Deploy Rancher onto the cluster |
-| `make downstream` | Register an existing airgap cluster into Rancher as a downstream (`ENV=airgap` only; use `TARGET_GROUP=` to name the group) |
+| `make downstream` | Register an existing airgap cluster into Rancher as a downstream (`ENV=airgap` only; use `TARGET_GROUP=<group>`, e.g. `TARGET_GROUP=downstream`, to name the group) |
 | `make upgrade-cluster` | Upgrade Kubernetes version |
 | `make kubectl-setup` | Set up kubectl on the bastion host (airgap) |
 
