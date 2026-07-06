@@ -7,11 +7,14 @@
     repo_root: "{{ playbook_dir | regex_replace('(.*)/ansible/.*', '\\1') }}"
     fqdn: "{{ rancher_hostname | default(external_lb_hostname) }}"
     # Cluster name generation: <prefix>-<random suffix>
-    # Override prefix via `downstream_cluster_name_prefix` var or DOWNSTREAM_CLUSTER_NAME_PREFIX env.
-    # Override suffix length via `downstream_cluster_name_suffix_length` (default 8).
+    # Precedence for the prefix (highest first): `downstream_cluster_name_prefix` (e.g. set in inventory/group_vars),
+    # `DOWNSTREAM_CLUSTER_NAME_PREFIX` env, then the hardcoded 'ansible-created' below.
+    # Suffix length: override via `downstream_cluster_name_suffix_length` (default 8).
     # Set DOWNSTREAM_CLUSTER_NAME (or `cluster_name`) to use a fully custom name instead.
-    downstream_cluster_name_prefix: "{{ lookup('env', 'DOWNSTREAM_CLUSTER_NAME_PREFIX') | default('ansible-created', true) }}"
-    downstream_cluster_name_suffix_length: 8
+    # NOTE: defined as `*_default` play vars (not the override names) so inventory/group_vars/host_vars
+    # can override them — play-level `vars:` otherwise outrank inventory vars.
+    downstream_cluster_name_prefix_default: "{{ lookup('env', 'DOWNSTREAM_CLUSTER_NAME_PREFIX') | default('ansible-created', true) }}"
+    downstream_cluster_name_suffix_length_default: 8
   pre_tasks:
     - name: Validate rancher group exists
       ansible.builtin.assert:
@@ -59,7 +62,7 @@
 
     - name: Generate cluster name as <prefix>-<random suffix> when not explicitly set
       ansible.builtin.set_fact:
-        cluster_name: "{{ downstream_cluster_name_prefix }}-{{ lookup('password', '/dev/null length=' ~ downstream_cluster_name_suffix_length ~ ' chars=ascii_lowercase,digits') }}"
+        cluster_name: "{{ downstream_cluster_name_prefix | default(downstream_cluster_name_prefix_default) }}-{{ lookup('password', '/dev/null length=' ~ (downstream_cluster_name_suffix_length | default(downstream_cluster_name_suffix_length_default)) ~ ' chars=ascii_lowercase,digits') }}"
       when: cluster_name | default('', true) | length == 0
 
     - name: Display generated cluster name
