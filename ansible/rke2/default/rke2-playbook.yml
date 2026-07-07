@@ -210,17 +210,26 @@
         - optional_files is defined
         - (optional_files | trim | length) > 0
       block:
+        # Fail clearly on a malformed entry instead of an opaque index error, and
+        # split on the first comma only so URLs containing commas stay intact.
+        - name: Optional files | Validate "dest,url" format
+          ansible.builtin.assert:
+            that: "',' in item"
+            fail_msg: "optional_files entry '{{ item }}' must be in 'dest,url' form"
+            quiet: true
+          loop: "{{ optional_files.split() }}"
+
         - name: Optional files | Ensure destination directories exist
           ansible.builtin.file:
-            path: "{{ (item.split(',')[0] | trim) | dirname }}"
+            path: "{{ (item.split(',', 1)[0] | trim) | dirname }}"
             state: directory
             mode: '0755'
           loop: "{{ optional_files.split() }}"
 
         - name: Optional files | Fetch each url to its destination
           ansible.builtin.get_url:
-            url: "{{ item.split(',')[1] | trim }}"
-            dest: "{{ item.split(',')[0] | trim }}"
+            url: "{{ item.split(',', 1)[1] | trim }}"
+            dest: "{{ item.split(',', 1)[0] | trim }}"
             mode: '0644'
           loop: "{{ optional_files.split() }}"
       tags: ['cluster', 'rke2']
@@ -242,6 +251,13 @@
         rke2_kubeconfig_path: "{{ playbook_dir }}/kubeconfig.yaml"
         rke2_server_flags: "{{ server_flags | default('') }}"
         # External datastore (postgres/mysql/etc. via kine) has no local etcd pods — skip the etcd health check.
-        # Detect datastore-endpoint from every source the config template renders: server_flags, rke2_server_config, rke2_additional_config.
-        rke2_check_etcd_health: "{{ 'datastore-endpoint' not in ((server_flags | default('')) ~ (rke2_server_config | default({}) | to_json) ~ (rke2_additional_config | default({}) | to_json)) }}"
+        # Substring-match the server_flags string; key-match the config dicts (avoids a value that merely contains the text).
+        rke2_check_etcd_health: >-
+          {{
+            not (
+              ('datastore-endpoint' in (server_flags | default(''))) or
+              ('datastore-endpoint' in (rke2_server_config | default({}))) or
+              ('datastore-endpoint' in (rke2_additional_config | default({})))
+            )
+          }}
       tags: ['health', 'rke2']

@@ -39,7 +39,7 @@ module "external_db" {
   db_group_name      = "default.postgres16"
   instance_class     = "db.t3.medium"
   db_username        = "adminuser"
-  db_password        = "admin1234"
+  db_password        = var.db_password  # required — supply via tfvars / secret plumbing, never hardcode
 
   aws_security_group = [var.db_security_group]  # must allow 5432/3306 from cluster nodes
   db_subnet_ids      = var.db_subnet_ids        # >=2 AZs; omit to use the account default

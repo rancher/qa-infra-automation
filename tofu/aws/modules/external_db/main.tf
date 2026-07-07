@@ -15,13 +15,16 @@ resource "random_id" "db" {
 }
 
 locals {
+  # Normalize the engine once so casing is consistent everywhere (validation
+  # accepts mixed case; the module compares/uses lowercase throughout).
+  external_db = lower(var.external_db)
   # Case-insensitive "null" sentinel — callers may pass NULL, null, or empty for "no engine".
-  is_external  = var.datastore_type == "external" && var.external_db != "" && lower(var.external_db) != "null"
-  is_aurora    = local.is_external && var.external_db == "aurora-mysql"
+  is_external  = var.datastore_type == "external" && local.external_db != "" && local.external_db != "null"
+  is_aurora    = local.is_external && local.external_db == "aurora-mysql"
   is_standrds  = local.is_external && !local.is_aurora
   identifier   = "${var.resource_name}-${try(random_id.db[0].hex, "")}-db"
   needs_subnet = length(var.db_subnet_ids) > 0
-  db_port      = var.external_db == "postgres" ? 5432 : 3306
+  db_port      = local.external_db == "postgres" ? 5432 : 3306
   # Prefer our dedicated SG (opens the DB port from the cluster nodes); fall back
   # to the caller-provided SG only if no VPC was given to create one.
   make_db_sg = local.is_external && var.aws_vpc != "" && length(var.aws_security_group) > 0
@@ -76,7 +79,7 @@ resource "aws_db_instance" "db" {
   identifier             = local.identifier
   storage_type           = "gp2"
   allocated_storage      = var.allocated_storage
-  engine                 = var.external_db
+  engine                 = local.external_db
   engine_version         = var.external_db_version
   instance_class         = var.instance_class
   name                   = var.db_name
@@ -87,7 +90,8 @@ resource "aws_db_instance" "db" {
   vpc_security_group_ids = local.rds_sg_ids
   db_subnet_group_name   = local.needs_subnet ? aws_db_subnet_group.db[0].name : null
   skip_final_snapshot    = true
-  publicly_accessible    = true
+  # Cluster nodes reach the DB privately within the VPC via the dedicated SG; no public exposure needed.
+  publicly_accessible = false
   tags = {
     Environment = var.environment
     Team        = var.resource_name
@@ -98,7 +102,7 @@ resource "aws_db_instance" "db" {
 resource "aws_rds_cluster" "db" {
   count                  = local.is_aurora ? 1 : 0
   cluster_identifier     = local.identifier
-  engine                 = var.external_db
+  engine                 = local.external_db
   engine_version         = var.external_db_version
   engine_mode            = var.engine_mode
   database_name          = var.db_name

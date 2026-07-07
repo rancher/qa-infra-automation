@@ -75,7 +75,7 @@ disable:
 # etcd-disable is needed. The connection string's case/colons are preserved.
 {% for key, value in rke2_additional_config.items() %}
 {% if value is string %}
-{{ key }}: {{ value }}
+{{ key }}: {{ value | to_json }}
 {% elif value is sequence and value is not string %}
 {{ key }}:
 {% for item in value %}

@@ -2,12 +2,12 @@
 # `datastore-endpoint`. Empty for embedded etcd. Format mirrors the legacy
 # distros-test-framework rendering so downstream parsing is unchanged.
 locals {
-  _pg_endpoint     = local.is_standrds && var.external_db == "postgres" ? aws_db_instance.db[0].endpoint : ""
-  _mysql_endpoint  = local.is_standrds && var.external_db != "postgres" ? aws_db_instance.db[0].endpoint : ""
-  _aurora_endpoint = local.is_aurora ? aws_rds_cluster.db[0].endpoint : ""
+  _pg_endpoint     = local.is_standrds && local.external_db == "postgres" ? aws_db_instance.db[0].endpoint : ""
+  _mysql_endpoint  = local.is_standrds && local.external_db != "postgres" ? aws_db_instance.db[0].endpoint : ""
+  _aurora_endpoint = local.is_aurora ? "${aws_rds_cluster.db[0].endpoint}:${aws_rds_cluster.db[0].port}" : ""
 
   datastore_endpoint = (
-    var.external_db == "postgres" && local._pg_endpoint != "" ?
+    local.external_db == "postgres" && local._pg_endpoint != "" ?
     "postgres://${var.db_username}:${var.db_password}@${local._pg_endpoint}/${var.db_name}" :
     (
       local.is_aurora ?
@@ -20,7 +20,9 @@ locals {
     )
   )
 
-  db_host = coalesce(local._pg_endpoint, local._mysql_endpoint, local._aurora_endpoint, "")
+  # coalesce() errors when every argument is empty (the etcd no-op path), so
+  # wrap in try() to yield "" instead of failing.
+  db_host = try(coalesce(local._pg_endpoint, local._mysql_endpoint, local._aurora_endpoint), "")
 }
 
 output "datastore_endpoint" {

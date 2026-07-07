@@ -15,12 +15,20 @@ variable "datastore_type" {
   description = "etcd (no DB created) or external (provision RDS)."
   type        = string
   default     = "etcd"
+  validation {
+    condition     = contains(["etcd", "external"], var.datastore_type)
+    error_message = "datastore_type must be \"etcd\" or \"external\"."
+  }
 }
 
 variable "external_db" {
   description = "RDS engine: postgres | mysql | mariadb | aurora-mysql. Empty/NULL means none."
   type        = string
   default     = ""
+  validation {
+    condition     = var.external_db == "" || lower(var.external_db) == "null" || contains(["postgres", "mysql", "mariadb", "aurora-mysql"], lower(var.external_db))
+    error_message = "external_db must be empty/NULL or one of: postgres, mysql, mariadb, aurora-mysql."
+  }
 }
 
 variable "external_db_version" {
@@ -47,9 +55,9 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  type      = string
-  default   = "admin1234"
-  sensitive = true
+  description = "Master password for the DB (required; no default so callers must pass a secret)."
+  type        = string
+  sensitive   = true
 }
 
 variable "db_name" {
