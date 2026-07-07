@@ -201,6 +201,30 @@
       when: rke2_needs_cis_sysctl
       tags: ['cluster', 'rke2']
 
+    # Fetch operator-provided files before rke2 starts (e.g. the custom PSA config that
+    # lets Rancher run on profile: cis). Legacy optional_files contract: space-separated
+    # "dest,url" pairs. Opt-in, so plain CIS runs keep RKE2's strict default PSA.
+    - name: Optional files | Deliver operator-provided files
+      when:
+        - _rke2_is_server | default(false)
+        - optional_files is defined
+        - (optional_files | trim | length) > 0
+      block:
+        - name: Optional files | Ensure destination directories exist
+          ansible.builtin.file:
+            path: "{{ (item.split(',')[0] | trim) | dirname }}"
+            state: directory
+            mode: '0755'
+          loop: "{{ optional_files.split() }}"
+
+        - name: Optional files | Fetch each url to its destination
+          ansible.builtin.get_url:
+            url: "{{ item.split(',')[1] | trim }}"
+            dest: "{{ item.split(',')[0] | trim }}"
+            mode: '0644'
+          loop: "{{ optional_files.split() }}"
+      tags: ['cluster', 'rke2']
+
   roles:
     - role: rke2_cluster
       vars:
@@ -217,4 +241,7 @@
       vars:
         rke2_kubeconfig_path: "{{ playbook_dir }}/kubeconfig.yaml"
         rke2_server_flags: "{{ server_flags | default('') }}"
+        # External datastore (postgres/mysql/etc. via kine) has no local etcd pods — skip the etcd health check.
+        # Detect datastore-endpoint from every source the config template renders: server_flags, rke2_server_config, rke2_additional_config.
+        rke2_check_etcd_health: "{{ 'datastore-endpoint' not in ((server_flags | default('')) ~ (rke2_server_config | default({}) | to_json) ~ (rke2_additional_config | default({}) | to_json)) }}"
       tags: ['health', 'rke2']

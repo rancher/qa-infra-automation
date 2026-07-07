@@ -16,11 +16,13 @@ rke2:
     input_type: cluster_nodes
     ip_field: public_ip
     groups:
+      # Prefer etcd; fall back to cp for external-datastore (kine) topologies
+      # that have no etcd nodes. Etcd clusters are unaffected (etcd still wins).
       master:
-        roles: [etcd]
+        roles_priority: [[etcd], [cp]]
         first_only: true
       servers:
-        roles: [cp]
+        roles: [etcd, cp]
       workers:
         roles: [worker]
       # 'all' is implicit in Ansible and includes every host

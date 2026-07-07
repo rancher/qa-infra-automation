@@ -153,6 +153,20 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         self.assertEqual(list(master_hosts.keys()), ["cp-0"])
         self.assertEqual(result["all"]["hosts"]["cp-0"]["node_roles"], ["cp"])
 
+    def test_rke2_external_datastore_master_falls_back_to_cp(self):
+        """RKE2 external-datastore topology (no etcd nodes): roles_priority must
+        fall back from [etcd] to [cp] and pick the first cp node as master, so a
+        cp-only kine cluster still gets a bootstrap node."""
+        data = load_fixture("rke2_external_datastore.json")
+        cfg = self.schema["rke2"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        master_hosts = result["all"]["children"]["master"]["hosts"]
+        self.assertEqual(list(master_hosts.keys()), ["cp-0"])
+        self.assertEqual(result["all"]["hosts"]["cp-0"]["rke2_node_role"], "master")
+        # remaining cp node is a joining server, worker is an agent
+        self.assertEqual(result["all"]["hosts"]["cp-1"]["rke2_node_role"], "server")
+        self.assertEqual(result["all"]["hosts"]["worker-0"]["rke2_node_role"], "agent")
+
     def test_k3s_split_role_master_is_first_etcd(self):
         """K3s split-role: when any etcd node exists, master must be one of
         them (not cp), because cluster-init bootstraps embedded etcd."""

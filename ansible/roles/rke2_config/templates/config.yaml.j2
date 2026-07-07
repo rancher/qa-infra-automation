@@ -69,7 +69,10 @@ disable:
 {% endif %}
 
 {% if rke2_additional_config | length > 0 %}
-# Additional configuration
+# Additional configuration.
+# External datastore: pass `datastore-endpoint: <conn-string>` here (or via
+# server flags). RKE2 switches to kine automatically when it's set — no explicit
+# etcd-disable is needed. The connection string's case/colons are preserved.
 {% for key, value in rke2_additional_config.items() %}
 {% if value is string %}
 {{ key }}: {{ value }}
