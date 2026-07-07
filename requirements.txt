@@ -9,14 +9,21 @@
 #
 # Or, if Ansible is managed with pipx:
 #
-#     cd /tmp && pipx inject ansible pyyaml jmespath kubernetes boto3 botocore
-#     cd -  # return to project directory
+#     pipx install "ansible-core==2.21.1"
+#     pipx inject ansible-core pyyaml jmespath kubernetes boto3 botocore
 #     ansible-galaxy collection install -r requirements.yml
 #
-# Note: Cannot use `-r requirements.txt` if local `ansible/` directory exists.
-# Run from /tmp or elsewhere to avoid path conflict.
+# Note: `pipx inject ... -r requirements.txt` does not work from this directory
+# because the local `ansible/` folder clashes with the `ansible-core` package
+# name; list the supporting libraries explicitly as shown above.
 
-# Core control-node runtime (ansible-core bundled with pipx ansible)
+# Core control-node runtime. Pinned to the release validated locally so the
+# control node matches the tested environment. Ansible collections
+# (kubernetes.core, community.general, ...) come from requirements.yml, NOT the
+# `ansible` metapackage.
+# NOTE: ansible/testing/dashboard-e2e independently pins ansible-core<2.17 via
+# uv; 2.21.1 is newer than that suite's cap.
+ansible-core==2.21.1
 
 # Used by scripts/generate_inventory.py
 pyyaml==6.0.2

@@ -5,7 +5,7 @@
 Before running a playbook, ensure you have the following:
 
 *   **Python 3.11+**
-*   **Ansible-core 2.16+** (installed by `requirements.txt`)
+*   **Ansible-core 2.21.1** (pinned via `requirements.txt`)
 *   **Tofu (Optional):** If you're using the provided inventory, you'll need OpenTofu installed and configured to manage your infrastructure.
 
 ## Installation
@@ -24,12 +24,13 @@ pip install -r requirements.txt
 ansible-galaxy collection install -r requirements.yml
 ```
 
-If you manage Ansible with `pipx` instead of a venv, inject the extra deps
-into the same environment so the Python modules are importable at runtime:
+If you manage Ansible with `pipx` instead of a venv, install `ansible-core`
+with the same pin, then inject the extra deps into that environment so the
+Python modules are importable at runtime:
 
 ```bash
-pipx install ansible        # if not already installed
-pipx inject ansible -r requirements.txt
+pipx install "ansible-core==2.21.1"   # if not already installed
+pipx inject ansible-core pyyaml jmespath kubernetes boto3 botocore
 ansible-galaxy collection install -r requirements.yml
 ```
 
