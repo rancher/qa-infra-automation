@@ -10,7 +10,7 @@
 # Or, if Ansible is managed with pipx:
 #
 #     pipx install "ansible-core==2.21.1"
-#     pipx inject ansible-core pyyaml jmespath kubernetes boto3 botocore
+#     pipx inject ansible-core pyyaml kubernetes boto3 botocore
 #     ansible-galaxy collection install -r requirements.yml
 #
 # Note: `pipx inject ... -r requirements.txt` does not work from this directory
@@ -27,10 +27,6 @@ ansible-core==2.21.1
 
 # Used by scripts/generate_inventory.py
 pyyaml==6.0.2
-
-# Required by community.general.json_query filter
-# (ansible/roles/rke2_health_check/tasks/main.yml)
-jmespath>=1.0.1
 
 # Required by kubernetes.core modules (k8s, k8s_info, helm, helm_repository, ...)
 # used across ansible/rancher, ansible/rke2, ansible/k3s, etc.
