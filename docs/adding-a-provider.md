@@ -69,7 +69,7 @@ output "cluster_nodes_json" {
 | `nodes[].private_ip` | string | Private IP — available but not used in standard deploys |
 
 > **Why `"master"`?** The inventory schema and Ansible roles identify the initial cluster node
-> by the group name `master`. The bridge script assigns `rke2_node_role: master` to any node
+> by the group name `master`. The bridge script assigns `node_type: master` to any node
 > named `"master"` in the JSON. Do not use any other name for the first etcd node.
 
 ## Step 3: Implement the node naming locals in `main.tf`
