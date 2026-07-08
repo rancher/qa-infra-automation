@@ -105,21 +105,21 @@ all:
         master:
           ansible_host: "1.2.3.4"
           ansible_user: "ec2-user"
-          rke2_node_role: master
+          node_type: master
           node_roles: [etcd, cp, worker]
     servers:
       hosts:
         cp-0:
           ansible_host: "1.2.3.5"
           ansible_user: "ec2-user"
-          rke2_node_role: server
+          node_type: server
           node_roles: [cp]
     workers:
       hosts:
         worker-0:
           ansible_host: "1.2.3.6"
           ansible_user: "ec2-user"
-          rke2_node_role: agent
+          node_type: agent
           node_roles: [worker]
 ```
 
@@ -133,7 +133,7 @@ See the [RKE2 BYO guide](../guides/rke2-default-byo.md#step-1-create-the-ansible
 
 Key requirements:
 - Bootstrap node must be in the `master` group
-- `rke2_node_role`: `master` (first node), `server` (additional CP), or `agent` (worker)
+- `node_type`: `master` (first node), `server` (additional CP), or `agent` (worker)
 - `node_roles`: list of `etcd`, `cp`, `worker`
 - `fqdn` and `kube_api_host` in `all.vars`
 

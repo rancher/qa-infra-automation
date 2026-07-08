@@ -23,7 +23,7 @@ All configurable variables across playbooks and roles. Variables are set in `var
 | `kube_api_host` | Tofu / manual | Kubernetes API server IP |
 | `ansible_host` | Tofu / manual | Node IP for SSH |
 | `ansible_user` | Tofu / manual | SSH user |
-| `rke2_node_role` | Tofu / manual | `master`, `server`, or `agent` |
+| `node_type` | Tofu / manual | `master`, `server`, or `agent` |
 | `node_roles` | Tofu / manual | List: `etcd`, `cp`, `worker` |
 
 ## K3s Default (`ansible/k3s/default/vars.yaml`)

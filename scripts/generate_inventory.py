@@ -180,15 +180,15 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         node_roles = node["roles"]
         group = node_to_group.get(node["name"])
         if group == "master":
-            rke2_node_role = "master"
+            node_type = "master"
         elif any(r in node_roles for r in ("cp", "etcd")):
-            rke2_node_role = "server"
+            node_type = "server"
         else:
-            rke2_node_role = "agent"
+            node_type = "agent"
         host_entry = {
             "ansible_host": node[ip_field],
             "node_roles": node_roles,
-            "rke2_node_role": rke2_node_role,
+            "node_type": node_type,
         }
 
         node_key = node.get("ssh_private_key")
