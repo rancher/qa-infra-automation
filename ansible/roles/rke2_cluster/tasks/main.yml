@@ -9,7 +9,7 @@
 
 # Master node initialization
 - name: Start RKE2 on master node
-  when: rke2_node_role == 'master'
+  when: node_type == 'master'
   block:
     - name: Start rke2-server service on master
       ansible.builtin.systemd:
@@ -64,7 +64,7 @@
 - name: Set cluster token on all nodes
   ansible.builtin.set_fact:
     rke2_token: "{{ hostvars[groups['master'][0]]['rke2_cluster_token'] }}"
-  when: rke2_node_role != 'master'
+  when: node_type != 'master'
 
 - name: Write token to config on non-master nodes
   ansible.builtin.lineinfile:
@@ -73,12 +73,12 @@
     line: "token: {{ rke2_token }}"
     create: false
   become: true
-  when: rke2_node_role != 'master'
+  when: node_type != 'master'
 
 # Start server nodes (control-plane/etcd)
 - name: Start RKE2 on server nodes
   when:
-    - rke2_node_role != 'master'
+    - node_type != 'master'
     - "'cp' in node_roles or 'etcd' in node_roles"
   block:
     - name: Start rke2-server service on server nodes
@@ -147,7 +147,7 @@
 # Start agent nodes (workers)
 - name: Start RKE2 on agent nodes
   when:
-    - rke2_node_role != 'master'
+    - node_type != 'master'
     - "'worker' in node_roles"
     - "'cp' not in node_roles and 'etcd' not in node_roles"
   block:
@@ -226,14 +226,14 @@
   register: cluster_status
   changed_when: false
   become: true
-  when: rke2_node_role == 'master'
+  when: node_type == 'master'
   run_once: true
 
 - name: Display cluster status
   ansible.builtin.debug:
     msg: "{{ cluster_status.stdout_lines }}"
   when:
-    - rke2_node_role == 'master'
+    - node_type == 'master'
     - cluster_status is defined
   run_once: true
 

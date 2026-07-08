@@ -187,7 +187,7 @@
     # CIS checks recompute the flags mapping here — --tags cluster included.
     - name: CIS | Resolve effective config
       set_fact:
-        _rke2_is_server: "{{ rke2_node_role == 'master' or 'cp' in (node_roles | default([])) or 'etcd' in (node_roles | default([])) }}"
+        _rke2_is_server: "{{ node_type == 'master' or 'cp' in (node_roles | default([])) or 'etcd' in (node_roles | default([])) }}"
         _rke2_srv_eff: >-
           {{ rke2_server_config | default({}) |
              combine(rke2_additional_config |

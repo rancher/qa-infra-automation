@@ -31,7 +31,7 @@ Additional variables used (defined in rke2_config role):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `rke2_node_role` | Yes | Node role: `master`, `server`, or `agent` |
+| `node_type` | Yes | Node role: `master`, `server`, or `agent` |
 | `node_roles` | Yes | Comma-separated roles: `cp`, `etcd`, `worker` |
 | `rke2_token_file` | Yes | Path to token file (default: `/var/lib/rancher/rke2/server/node-token`) |
 | `rke2_config_dir` | Yes | RKE2 config directory (default: `/etc/rancher/rke2`) |
@@ -174,7 +174,7 @@ This role orchestrates cluster formation in the following sequence:
 
 The role automatically determines service type based on:
 
-**Master node** (`rke2_node_role == 'master'`):
+**Master node** (` == 'master'`):
 - First node in the cluster
 - Starts first to generate token
 - Runs rke2-server service
