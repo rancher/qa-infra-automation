@@ -48,7 +48,7 @@ all:
           ansible_host: "9.10.11.12"
 ```
 
-> **Key difference from RKE2:** for all-roles clusters K3s inventory doesn't need `rke2_node_role` or `node_roles` fields — group membership (`master`, `servers`, `workers`) is enough.
+> **Key difference from RKE2:** for all-roles clusters K3s inventory doesn't need `node_type` or `node_roles` fields — group membership (`master`, `servers`, `workers`) is enough.
 >
 > **Split-role topologies require `node_roles` per host.** When some servers
 > are etcd-only and others are cp-only, the K3s install template uses

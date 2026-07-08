@@ -218,22 +218,22 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         self.assertNotIn("worker-0", master_hosts)
         self.assertNotIn("worker-1", master_hosts)
 
-    def test_rke2_node_role_master_for_master_group_node(self):
+    def test_node_type_master_for_master_group_node(self):
         data = load_fixture("rke2_single_master.json")
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
-        self.assertEqual(result["all"]["hosts"]["master"]["rke2_node_role"], "master")
+        self.assertEqual(result["all"]["hosts"]["master"]["node_type"], "master")
 
-    def test_rke2_node_role_agent_for_worker_nodes(self):
+    def test_node_type_agent_for_worker_nodes(self):
         data = load_fixture("rke2_single_master.json")
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
-        self.assertEqual(result["all"]["hosts"]["worker-0"]["rke2_node_role"], "agent")
-        self.assertEqual(result["all"]["hosts"]["worker-1"]["rke2_node_role"], "agent")
+        self.assertEqual(result["all"]["hosts"]["worker-0"]["node_type"], "agent")
+        self.assertEqual(result["all"]["hosts"]["worker-1"]["node_type"], "agent")
 
-    def test_rke2_node_role_server_for_cp_node_outside_master_group(self):
+    def test_node_type_server_for_cp_node_outside_master_group(self):
         # A node with cp/etcd roles that isn't picked as the master group node
-        # should get rke2_node_role == 'server'
+        # should get node_type == 'server'
         data = load_fixture("rke2_single_master.json")
         data["nodes"].insert(1, {
             "name": "server-1",
@@ -243,7 +243,7 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         })
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
-        self.assertEqual(result["all"]["hosts"]["server-1"]["rke2_node_role"], "server")
+        self.assertEqual(result["all"]["hosts"]["server-1"]["node_type"], "server")
 
     def test_node_roles_is_list_not_string(self):
         data = load_fixture("rke2_single_master.json")

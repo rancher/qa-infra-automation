@@ -4,7 +4,7 @@
 
 - name: Display node configuration info
   ansible.builtin.debug:
-    msg: "Configuring RKE2 on {{ inventory_hostname }} (Role: {{ rke2_node_role }}, Node roles: {{ node_roles }})"
+    msg: "Configuring RKE2 on {{ inventory_hostname }} (Role: {{ node_type }}, Node roles: {{ node_roles }})"
 
 - name: Ensure RKE2 config directory exists
   ansible.builtin.file:

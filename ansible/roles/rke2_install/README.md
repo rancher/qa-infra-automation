@@ -163,11 +163,11 @@ Leave `rke2_version` empty to install the latest from the selected channel.
 ## Node Type Detection
 
 The role automatically determines whether to install RKE2 server or agent based on:
-- `rke2_node_role` (typically `master` for first node)
+- `node_type` (typically `master` for first node)
 - `node_roles` containing `cp` or `etcd`
 
 **Server installation** if:
-- `rke2_node_role == 'master'` OR
+- `node_type == 'master'` OR
 - `'cp' in node_roles` OR
 - `'etcd' in node_roles`
 
