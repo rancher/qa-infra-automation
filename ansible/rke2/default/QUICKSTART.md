@@ -30,7 +30,7 @@ Before running the playbook, verify that your inventory file is correctly popula
           master:                       # Bootstrap node
             ansible_host: "1.2.3.4"    # node public IP
             ansible_user: "ec2-user"   # SSH user
-            rke2_node_role: master
+            node_type: master
             node_roles:                # Must include etcd for first node
               - etcd
               - cp
@@ -40,7 +40,7 @@ Before running the playbook, verify that your inventory file is correctly popula
           node2:
             ansible_host: "5.6.7.8"
             ansible_user: "ec2-user"
-            rke2_node_role: server
+            node_type: server
             node_roles:
               - cp
       workers:
@@ -48,7 +48,7 @@ Before running the playbook, verify that your inventory file is correctly popula
           node3:
             ansible_host: "9.10.11.12"
             ansible_user: "ec2-user"
-            rke2_node_role: agent
+            node_type: agent
             node_roles:
               - worker
   ```
