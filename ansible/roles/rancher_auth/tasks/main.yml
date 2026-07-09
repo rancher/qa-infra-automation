@@ -284,6 +284,7 @@
     - name: Display cattle config update status
       ansible.builtin.debug:
         msg: "Updated {{ rancher_cattle_config_file }} with adminToken and host"
+      when: ansible_verbosity >= 1
 
 # Step 7: Clean up temporary login token
 # The login API creates a session token (~15h TTL) that is only needed during this
