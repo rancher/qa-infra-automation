@@ -4,7 +4,7 @@
 
 Before running a playbook, ensure you have the following:
 
-*   **Python 3.11+**
+*   **Python 3.12+**
 *   **Ansible-core 2.21.1** (pinned via `requirements.txt`)
 *   **Tofu (Optional):** If you're using the provided inventory, you'll need OpenTofu installed and configured to manage your infrastructure.
 

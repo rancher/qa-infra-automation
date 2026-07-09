@@ -6,7 +6,7 @@ Everything you need before deploying a cluster with this repository.
 
 | Tool | Version | Purpose | Install |
 |------|---------|---------|---------|
-| **Python** | 3.11+ | Runs Ansible and helper scripts | [python.org](https://www.python.org/downloads/) |
+| **Python** | 3.12+ | Runs Ansible and helper scripts | [python.org](https://www.python.org/downloads/) |
 | **Ansible** | core 2.21.1 (pinned) | Deploys K8s and Rancher onto nodes | `pip install -r requirements.txt` |
 | **OpenTofu** | 1.6+ | Provisions cloud infrastructure | [opentofu.org](https://opentofu.org/docs/intro/install/) |
 | **kubectl** | any recent | Verifies the cluster after deployment | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
