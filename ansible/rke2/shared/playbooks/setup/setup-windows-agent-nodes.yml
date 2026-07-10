@@ -1,0 +1,62 @@
+---
+- name: Install RKE2 Agent on Windows Server Nodes
+  hosts: windows_agents
+  gather_facts: true
+  vars:
+    server_url: "https://<linux-server-ip>:9345" # Overridden by Go extra-vars
+    cluster_token: "K10...::server:abc123xyz"    # Overridden by Go extra-vars
+    rke2_version: "v1.31.2+rke2r1"
+
+  tasks:
+    - name: Enable the Windows Server Containers feature
+      ansible.windows.win_feature:
+        name: containers
+        state: present
+        include_management_tools: true
+      register: feature_install
+
+    - name: Reboot Windows if Containers feature required it
+      ansible.windows.win_reboot:
+      when: feature_install.reboot_required
+
+    - name: Create RKE2 system directories
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "C:\\etc\\rancher\\rke2"
+        - "C:\\usr\\local\\bin"
+        - "C:\\var\\lib\\rancher\\rke2\\bin"
+
+    - name: Configure the RKE2 Windows Agent config.yaml
+      ansible.windows.win_copy:
+        content: |
+          server: "{{ server_url }}"
+          token: "{{ cluster_token }}"
+        dest: "C:\\etc\\rancher\\rke2\\config.yaml"
+
+    - name: Download the official RKE2 Windows installation script
+      ansible.windows.win_get_url:
+        url: "https://raw.githubusercontent.com/rancher/rke2/master/install.ps1"
+        dest: "C:\\usr\\local\\bin\\install.ps1"
+
+    - name: Set up System Environment Path for RKE2 Binaries
+      ansible.windows.win_path:
+        elements:
+          - "C:\\var\\lib\\rancher\\rke2\\bin"
+          - "C:\\usr\\local\\bin"
+        state: present
+
+    - name: Execute the RKE2 PowerShell Installer
+      ansible.windows.win_shell: "C:\\usr\\local\\bin\\install.ps1"
+      environment:
+        INSTALL_RKE2_VERSION: "{{ rke2_version }}"
+
+    - name: Register the RKE2 Windows Service
+      ansible.windows.win_shell: "C:\\usr\\local\\bin\\rke2.exe agent service --add"
+
+    - name: Ensure the RKE2 Agent service is running and set to automatic
+      ansible.windows.win_service:
+        name: rke2
+        start_mode: auto
+        state: started

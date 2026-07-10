@@ -25,13 +25,33 @@ variable "aws_volume_size" {}
 variable "aws_volume_type" {}
 variable "aws_subnet" {}
 variable "instance_type" {}
+# Windows Instance Variables (RKE2 Agent only)
+variable "aws_ami_windows" {
+  description = "Optional specific Windows AMI ID."
+  type        = string
+  default     = null
+}
+variable "instance_type_windows" {
+  default = null
+}
+variable "aws_volume_size_windows" {
+  default = null
+}
+variable "aws_volume_type_windows" {
+  default = null
+}
 variable "nodes" {
   description = "Configuration for product nodes."
   type = list(object({
     count         = number
     role          = list(string) # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
     instance_type = optional(string) # Override global instance_type for this node group
+    os            = optional(string, "linux") # Defaults to linux if omitted
   }))
+  default = [
+    { role = ["etcd", "cp"], count = 1, os = "linux" },
+    { role = ["worker"], count = 1, os = "linux" }
+  ]
   validation {
     # Need >=1 cp node (count>0). Without it first_master_index = -1 → cryptic plan error.
     condition     = anytrue([for ng in var.nodes : ng.count > 0 && contains(ng.role, "cp")])
