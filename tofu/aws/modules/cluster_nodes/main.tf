@@ -8,7 +8,7 @@ locals {
         is_server     = false
         instance_type = node_group.instance_type
       }
-    ]
+    ] if node_group.os == "linux"
   ])
   # Master = first etcd, fall back to first cp (cp-only + external datastore). try() avoids index() errors when role absent.
   first_etcd_index   = try(index([for node in local.temp_node_names : contains(node.role, "etcd")], true), -1)
@@ -27,6 +27,25 @@ locals {
     if contains(node.role, "cp")
   }
   cp_node_count = length(local.cp_nodes)
+
+  # Map used for the linux aws_instance for_each engine
+  linux_instances_map = {
+    for node in local.node_names : node.name => node
+  }
+
+  # Windows node logic
+  windows_temp_nodes = flatten([
+    for group in var.nodes : [
+      for i in range(group.count) : {
+        roles = ["worker"] # RKE2 Windows instances can only hold worker compute roles
+        os    = "windows"
+      }
+    ] if group.os == "windows"
+  ])
+
+  windows_nodes = {
+    for idx, node in local.windows_temp_nodes : "tf-windows-worker-${idx+1}" => node
+  }
 }
 
 variable "registry_ip" {
@@ -121,6 +140,29 @@ resource "aws_instance" "node" {
 
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
+  }
+}
+resource "aws_instance" "windows" {
+  for_each               = local.windows_nodes
+  ami                    = var.aws_ami_windows
+  instance_type          = var.instance_type_windows
+  subnet_id              = var.aws_subnet
+  vpc_security_group_ids = var.aws_security_group
+  key_name               = aws_key_pair.ssh_public_key.key_name
+  get_password_data      = true
+  user_data              = <<EOF
+<powershell>
+# Set default shell to powershell
+New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service -Name sshd -StartupType 'Automatic'
+</powershell>
+EOF 
+
+  tags = {
+    Name = each.key
+    OS   = "windows"
   }
 }
 
