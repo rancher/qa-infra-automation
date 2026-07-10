@@ -670,6 +670,8 @@ airgap-downstream: check-inventory ## Full airgap multi-cluster: downstream RKE2
 	@$(MAKE) cluster DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=rancher
 	@echo ""
 	@echo "==> [4/5] Deploying Rancher on rancher group..."
+	# Intentionally clear TARGET_GROUP so the Rancher deploy step never inherits a
+	# stray target group from the command line or an earlier step in this flow.
 	@$(MAKE) rancher DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=
 	@echo ""
 	@echo "==> [5/5] Registering downstream cluster into Rancher..."
