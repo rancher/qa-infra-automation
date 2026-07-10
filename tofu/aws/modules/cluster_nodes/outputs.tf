@@ -12,24 +12,43 @@ output "instance_public_ips" {
   value       = [for instance in aws_instance.node : instance.public_ip]
 }
 
+output "windows_instance_public_ips" {
+  description = "The public IP addresses assigned to the EC2 instances for windows"
+  value       = [for instance in aws_instance.windows : instance.public_ip]
+}
+
 output "cluster_nodes_json" {
   description = "Complete node metadata for bridge script consumption"
   value = jsonencode({
     type = "cluster_nodes"
     metadata = {
-      kube_api_host   = aws_instance.node[local.node_names[local.first_master_index].name].public_ip
-      fqdn            = aws_route53_record.aws_route53.fqdn
-      ssh_user        = var.aws_ssh_user
-      ssh_private_key = var.private_ssh_key
+      kube_api_host    = aws_instance.node[local.node_names[local.first_master_index].name].public_ip
+      fqdn             = aws_route53_record.aws_route53.fqdn
+      ssh_user         = var.aws_ssh_user
+      ssh_private_key  = var.private_ssh_key
     }
-    nodes = [
-      for node in local.node_names : {
-        name       = node.name
-        roles      = node.role
-        public_ip  = aws_instance.node[node.name].public_ip
-        private_ip = aws_instance.node[node.name].private_ip
-      }
-    ]
+    nodes = concat(
+      # Linux nodes
+      [
+        for name, instance in aws_instance.node : {
+          name       = name
+          roles      = local.linux_instances_map[name].role # References your master/cp mappings
+          public_ip  = instance.public_ip
+          private_ip = instance.private_ip
+          os         = "linux"
+        }
+      ],
+      # Windows nodes
+      [
+        for name, instance in aws_instance.windows : {
+          name       = name
+          roles      = ["worker"]
+          public_ip  = instance.public_ip
+          private_ip = instance.private_ip
+          os         = "windows"
+        }
+      ]
+    )
   })
 }
 
