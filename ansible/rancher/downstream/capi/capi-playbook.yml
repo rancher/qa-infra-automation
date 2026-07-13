@@ -16,6 +16,51 @@
         msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
       when: not kubeconfig_file_stat.stat.exists
 
+    - name: Download clusterctl binary
+      ansible.builtin.get_url:
+        url: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.13.3/clusterctl-linux-amd64
+        dest: "{{ playbook_dir }}/clusterctl"
+        mode: '0755'
+
+    - name: Run clusterctl init with rancher-fleet addon
+      ansible.builtin.command:
+        cmd: ./clusterctl init --addon rancher-fleet
+        chdir: "{{ playbook_dir }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig_file }}"
+
+    - name: Fetch cert-manager manifest
+      ansible.builtin.uri:
+        url: https://github.com/jetstack/cert-manager/releases/latest/download/cert-manager.yaml
+        method: GET
+        return_content: true
+        body_format: raw
+      register: cert_manager_manifest
+
+    - name: Apply cert-manager
+      kubernetes.core.k8s:
+        state: present
+        resource_definition: "{{ cert_manager_manifest.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Add capi-operator helm repo
+      kubernetes.core.helm_repository:
+        name: capi-operator
+        repo_url: https://kubernetes-sigs.github.io/cluster-api-operator
+
+    - name: Install capi-operator with rancher-fleet addon enabled
+      kubernetes.core.helm:
+        name: capi-operator
+        chart_ref: capi-operator/cluster-api-operator
+        release_namespace: capi-operator-system
+        create_namespace: true
+        update_repo_cache: true
+        kubeconfig: "{{ kubeconfig_file }}"
+        values:
+          addon:
+            rancher-fleet:
+              enabled: true
+
     - name: Apply CAPI providers
       kubernetes.core.k8s:
         namespace: default
@@ -23,7 +68,7 @@
         src: "{{ capiconfig_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
     
-    - name: Fetch clusterclass-ec2-rke2
+    - name: Fetch clusterclass
       ansible.builtin.uri:
         url: "{{ clusterclass_url }}"
         method: GET
@@ -39,57 +84,6 @@
         resource_definition: "{{ clusterclass.content }}"
         kubeconfig: "{{ kubeconfig_file }}"
       when: clusterclass_url is defined and clusterclass_url != ''
-
-    - name: Fetch helm-chart
-      ansible.builtin.uri:
-        url: "{{ helm_chart_url }}"
-        method: GET
-        return_content: true
-        body_format: raw
-      register: helm_chart
-      when: helm_chart_url is defined and helm_chart_url != ''
-
-    - name: Apply helm-chart
-      kubernetes.core.k8s:
-        namespace: default
-        state: present
-        resource_definition: "{{ helm_chart.content }}"
-        kubeconfig: "{{ kubeconfig_file }}"
-      when: helm_chart_url is defined and helm_chart_url != ''
-
-    - name: Fetch calico helm-chart
-      ansible.builtin.uri:
-        url: "{{ calico_helm_chart_url }}"
-        method: GET
-        return_content: true
-        body_format: raw
-      register: calico_helm_chart
-      when: calico_helm_chart_url is defined and calico_helm_chart_url != ''
-
-    - name: Apply calico helm-chart
-      kubernetes.core.k8s:
-        namespace: default
-        state: present
-        resource_definition: "{{ calico_helm_chart.content }}"
-        kubeconfig: "{{ kubeconfig_file }}"
-      when: calico_helm_chart_url is defined and calico_helm_chart_url != ''
-
-    - name: Fetch ccm helm-chart
-      ansible.builtin.uri:
-        url: "{{ ccm_helm_chart_url }}"
-        method: GET
-        return_content: true
-        body_format: raw
-      register: ccm_helm_chart
-      when: ccm_helm_chart_url is defined and ccm_helm_chart_url != ''
-
-    - name: Apply ccm helm-chart
-      kubernetes.core.k8s:
-        namespace: default
-        state: present
-        resource_definition: "{{ ccm_helm_chart.content }}"
-        kubeconfig: "{{ kubeconfig_file }}"
-      when: ccm_helm_chart_url is defined and ccm_helm_chart_url != ''
 
     - name: Apply CAPI cluster
       kubernetes.core.k8s:
