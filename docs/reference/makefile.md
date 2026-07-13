@@ -12,6 +12,7 @@ Override these with `make <target> VAR=value`:
 | `ENV` | `default` | `default`, `airgap`, `proxy` | Deployment environment |
 | `PROVIDER` | `aws` | `aws`, `gcp`, `harvester` | Infrastructure provider |
 | `EXTRA_VARS` | (empty) | any | Extra Ansible variables passed with `--extra-vars` |
+| `TARGET_GROUP` | (empty) | `rancher`, `downstream`, any group | Airgap inventory group to target (translates to `--extra-vars target=<group>`) |
 
 **Example:**
 
@@ -41,6 +42,7 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 | `make agents` | Set up additional agent nodes (airgap) |
 | `make registry` | Configure private registry on cluster nodes (airgap) |
 | `make rancher` | Deploy Rancher onto the cluster |
+| `make downstream` | Register an existing airgap cluster into Rancher as a downstream (`ENV=airgap` only; use `TARGET_GROUP=<group>`, e.g. `TARGET_GROUP=downstream`, to name the group) |
 | `make upgrade-cluster` | Upgrade Kubernetes version |
 | `make kubectl-setup` | Set up kubectl on the bastion host (airgap) |
 
@@ -64,6 +66,7 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 |--------|-------------|
 | `make all` | Full setup: infra-up → cluster → rancher |
 | `make setup-from-infra` | Cluster + rancher (infra already exists) |
+| `make airgap-downstream` | Airgap multi-cluster: RKE2 on `downstream` + `rancher` groups, deploy Rancher, register downstream (`ENV=airgap` only) |
 
 ## Common Invocations
 
@@ -94,6 +97,15 @@ make infra-nuke
 
 # Pass extra Ansible variables
 make cluster EXTRA_VARS="kubernetes_version=v1.34.2+rke2r1"
+
+# Airgap: install RKE2 on a specific node group
+make cluster ENV=airgap TARGET_GROUP=downstream
+
+# Airgap: full Rancher + downstream cluster workflow
+make airgap-downstream ENV=airgap
+
+# Airgap: register an already-running cluster into Rancher
+make downstream ENV=airgap TARGET_GROUP=downstream
 ```
 
 ## How Variables Determine Paths
@@ -109,4 +121,17 @@ For example, `DISTRO=rke2 ENV=airgap PROVIDER=aws` maps to:
 - Tofu: `tofu/aws/modules/airgap/`
 - Ansible: `ansible/rke2/airgap/`
 - Cluster playbook: `ansible/rke2/airgap/playbooks/deploy/rke2-tarball-playbook.yml`
-- Rancher playbook: `ansible/rke2/airgap/playbooks/deploy/rancher-helm-deploy-playbook.yml`
+- Rancher playbook: `ansible/rke2/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml`
+- Downstream playbook: `ansible/rke2/airgap/playbooks/deploy/add-downstream-cluster.yml`
+
+## Airgap Multi-Cluster (`TARGET_GROUP`)
+
+Airgap deployments can provision multiple node groups (e.g. `rancher` + `downstream`) by setting `node_groups` in `terraform.tfvars`. The `TARGET_GROUP` variable selects which group a target operates on:
+
+| `TARGET_GROUP` value | Effect |
+|----------------------|--------|
+| (unset) | Use each playbook's default group (typically `rancher`) |
+| `rancher` | Explicitly target the `rancher` group |
+| `downstream` | Target the `downstream` group |
+
+The `make airgap-downstream` target orchestrates the full sequence (install RKE2 on both groups → deploy Rancher → register the downstream cluster). See [Import a downstream cluster on airgap](../import_cluster_on_airgap.md) for the complete guide.

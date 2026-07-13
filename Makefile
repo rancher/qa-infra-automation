@@ -12,9 +12,12 @@ SHELL := /bin/bash
 DISTRO       ?= rke2
 ENV          ?= default
 PROVIDER     ?= aws
-WORKSPACE    ?= default
+WORKSPACE     ?= default
+# Target inventory group for airgap cluster installs (e.g. rancher, downstream).
+# Leave empty to use each playbook's default (rancher).
+TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
-AUTO_APPROVE ?= no
+AUTO_APPROVE  ?= no
 
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
@@ -28,15 +31,24 @@ CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
 REGISTRY_TARGET  :=
 else ifeq ($(ENV),airgap)
-TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
-CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
-RANCHER_PLAYBOOK := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
-REGISTRY_TARGET  := registry
+TOFU_DIR            := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
+RANCHER_PLAYBOOK    := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
+DOWNSTREAM_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/add-downstream-cluster.yml
+REGISTRY_TARGET     := registry
 else
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
 RANCHER_PLAYBOOK := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  :=
+endif
+
+# Extra --extra-vars for selecting a target inventory group (airgap multi-cluster).
+# Applies to targets that install on a node group (cluster, downstream).
+ifdef TARGET_GROUP
+TARGET_EXTRA_VARS := --extra-vars "target=$(TARGET_GROUP)"
+else
+TARGET_EXTRA_VARS :=
 endif
 
 # Kubeconfig written by the cluster role; rancher needs to know where it is.
@@ -65,6 +77,7 @@ help: ## Show this help message
 	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy)"
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo "  WORKSPACE = $(WORKSPACE)    (tofu workspace name)"
+	@echo "  TARGET_GROUP = $(if $(TARGET_GROUP),$(TARGET_GROUP),<unset>)  (airgap node group, e.g. rancher/downstream; required for 'downstream')"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws WORKSPACE=myworkspace"
 	@echo "At the moment this only supports rke2, default/airgap, and aws"
@@ -109,6 +122,7 @@ help: ## Show this help message
 	@echo "  agents              Setup additional agent nodes"
 	@echo "  registry            Configure private registry on cluster nodes"
 	@echo "  rancher             Deploy Rancher to cluster"
+	@echo "  downstream          Register an airgap cluster into Rancher (requires ENV=airgap and TARGET_GROUP=downstream)"
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
 	@echo ""
@@ -124,10 +138,12 @@ help: ## Show this help message
 	@echo "COMBINED WORKFLOWS:"
 	@echo "  all                 Full setup: infrastructure + cluster + Rancher"
 	@echo "  setup-from-infra    Setup cluster + Rancher (infra already exists)"
+	@echo "  airgap-downstream   Airgap: downstream+ rancher RKE2, Rancher, then register downstream"
 	@echo ""
 	@echo "EXAMPLES:"
 	@echo "  make all                                    # RKE2 default on AWS (default)"
 	@echo "  make all ENV=airgap                         # RKE2 airgap on AWS"
+	@echo "  make airgap-downstream ENV=airgap           # Airgap Rancher + downstream cluster"
 	@echo "  make all DISTRO=k3s                         # K3s default on AWS"
 	@echo "  make cluster ENV=airgap                     # Just RKE2 airgap cluster"
 	@echo "  make status                                 # Check current cluster"
@@ -505,10 +521,10 @@ bootstrap-python: check-inventory ## Bootstrap Python 3.9+ on target nodes
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: cluster
-cluster: check-inventory bootstrap-python ## Install Kubernetes cluster
-	@echo "Installing $(DISTRO) cluster ($(ENV) environment)..."
+cluster: check-inventory bootstrap-python ## Install Kubernetes cluster (use TARGET_GROUP=downstream for airgap multi-cluster)
+	@echo "Installing $(DISTRO) cluster ($(ENV) environment$(if $(TARGET_GROUP), on '$(TARGET_GROUP)' group,))..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(CLUSTER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) $(CLUSTER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) $(TARGET_EXTRA_VARS)
 
 .PHONY: agents
 agents: check-inventory ## Setup additional agent nodes
@@ -539,6 +555,23 @@ kubectl-setup: check-inventory ## Setup kubectl access on bastion
 	@echo "Setting up kubectl access..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
+
+.PHONY: downstream
+downstream: check-inventory ## Register an existing airgap cluster into Rancher as a downstream (requires ENV=airgap and TARGET_GROUP, e.g. TARGET_GROUP=downstream)
+	@if [ "$(ENV)" != "airgap" ]; then \
+		echo "ERROR: 'downstream' target only applies to ENV=airgap"; exit 1; \
+	fi
+	@if [ -z "$(TARGET_GROUP)" ]; then \
+		echo "ERROR: 'downstream' requires TARGET_GROUP (the inventory group of the cluster to register into Rancher)."; \
+		echo "       Example: make downstream ENV=airgap TARGET_GROUP=downstream"; \
+		exit 1; \
+	fi
+	@if [ -z "$(DOWNSTREAM_PLAYBOOK)" ] || [ ! -f "$(DOWNSTREAM_PLAYBOOK)" ]; then \
+		echo "ERROR: downstream playbook not found: $(DOWNSTREAM_PLAYBOOK)"; exit 1; \
+	fi
+	@echo "Registering '$(TARGET_GROUP)' cluster into Rancher as downstream..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(DOWNSTREAM_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) $(TARGET_EXTRA_VARS)
 
 # ============================================================================
 # UTILITIES
@@ -619,6 +652,32 @@ setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) rancher ## Setup cl
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
+
+.PHONY: airgap-downstream
+airgap-downstream: check-inventory ## Full airgap multi-cluster: downstream RKE2 + rancher RKE2 + Rancher + register downstream
+	@if [ "$(ENV)" != "airgap" ]; then \
+		echo "ERROR: 'airgap-downstream' requires ENV=airgap"; exit 1; \
+	fi
+	@echo ""
+	@echo "==> [1/5] Installing $(DISTRO) on downstream group..."
+	@$(MAKE) cluster DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=downstream
+	@echo ""
+	@echo "==> [2/5] Configuring private registry on downstream group..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-registry-config-playbook.yml -e target=downstream -v $(ANSIBLE_EXTRA_VARS)
+	@echo ""
+	@echo "==> [3/5] Installing $(DISTRO) on rancher group..."
+	@$(MAKE) cluster DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=rancher
+	@echo ""
+	@echo "==> [4/5] Deploying Rancher on rancher group..."
+	# Intentionally clear TARGET_GROUP so the Rancher deploy step never inherits a
+	# stray target group from the command line or an earlier step in this flow.
+	@$(MAKE) rancher DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=
+	@echo ""
+	@echo "==> [5/5] Registering downstream cluster into Rancher..."
+	@$(MAKE) downstream DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=downstream
+	@echo ""
+	@echo "Airgap Rancher + downstream cluster setup complete!"
 
 # ============================================================================
 # DEBUG
