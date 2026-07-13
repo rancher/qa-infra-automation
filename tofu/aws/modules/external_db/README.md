@@ -1,11 +1,15 @@
 # external_db
 
-Provisions an AWS RDS instance to use as an **external datastore** (kine) for
-K3s / RKE2, instead of embedded etcd. Mirrors the legacy distros-test-framework
-external-db provisioning.
+Provisions an AWS RDS database to use as an **external datastore** (kine) for
+K3s / RKE2, instead of embedded etcd. It supports standalone PostgreSQL, MySQL,
+and MariaDB instances as well as Aurora MySQL clusters. The module can also
+create an RDS subnet group and a dedicated security group that allows access
+from the cluster nodes, and it returns the database host and complete
+`datastore-endpoint` connection string.
 
-When `datastore_type = "etcd"` (the default) this module creates **nothing** —
-it is a no-op, so it is safe to always include.
+Calling this module always provisions an external database; omit the module
+when using embedded etcd. Its behavior mirrors the legacy
+distros-test-framework external-db provisioning.
 
 ## Engines
 
@@ -13,14 +17,13 @@ it is a no-op, so it is safe to always include.
 |---|---|---|
 | `postgres` | `aws_db_instance` | `postgres://<user>:<pass>@<host>:5432/<db>` |
 | `mysql` / `mariadb` | `aws_db_instance` | `mysql://<user>:<pass>@tcp(<host>:3306)/<db>` |
-| `aurora-mysql` | `aws_rds_cluster` + instance | `mysql://<user>:<pass>@tcp(<host>)/<db>` |
+| `aurora-mysql` | `aws_rds_cluster` + instance | `mysql://<user>:<pass>@tcp(<host>:3306)/<db>` |
 
 ## Outputs
 
 - `datastore_endpoint` — full connection string; pass to K3s/RKE2 as
-  `datastore-endpoint` (via server flags or `rke2_additional_config`). Empty for etcd.
+  `datastore-endpoint` (via server flags or `rke2_additional_config`).
 - `db_host` — raw RDS endpoint (`host:port`).
-- `datastore_type` — echoes the requested type.
 
 ## Usage
 
@@ -33,7 +36,6 @@ module "external_db" {
   aws_region     = var.aws_region
   resource_name  = "my-cluster"
 
-  datastore_type     = "external"
   external_db        = "postgres"
   external_db_version = "16.3"
   db_group_name      = "default.postgres16"

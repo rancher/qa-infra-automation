@@ -1,5 +1,4 @@
-# External datastore RDS provisioning. No resources are created for embedded
-# etcd (datastore_type = "etcd") or when no engine is selected.
+# External datastore RDS provisioning.
 
 provider "aws" {
   access_key = var.aws_access_key
@@ -7,27 +6,22 @@ provider "aws" {
   region     = var.aws_region
 }
 
-# Only created for an external datastore, so an etcd/default run adds no
-# resources to state at all.
 resource "random_id" "db" {
-  count       = local.is_external ? 1 : 0
   byte_length = 4
 }
 
 locals {
   # Normalize the engine once so casing is consistent everywhere (validation
   # accepts mixed case; the module compares/uses lowercase throughout).
-  external_db = lower(var.external_db)
-  # Case-insensitive "null" sentinel — callers may pass NULL, null, or empty for "no engine".
-  is_external  = var.datastore_type == "external" && local.external_db != "" && local.external_db != "null"
-  is_aurora    = local.is_external && local.external_db == "aurora-mysql"
-  is_standrds  = local.is_external && !local.is_aurora
-  identifier   = "${var.resource_name}-${try(random_id.db[0].hex, "")}-db"
+  external_db  = lower(var.external_db)
+  is_aurora    = local.external_db == "aurora-mysql"
+  is_standrds  = !local.is_aurora
+  identifier   = "${var.resource_name}-${random_id.db.hex}-db"
   needs_subnet = length(var.db_subnet_ids) > 0
   db_port      = local.external_db == "postgres" ? 5432 : 3306
   # Prefer our dedicated SG (opens the DB port from the cluster nodes); fall back
   # to the caller-provided SG only if no VPC was given to create one.
-  make_db_sg = local.is_external && var.aws_vpc != "" && length(var.aws_security_group) > 0
+  make_db_sg = var.aws_vpc != "" && length(var.aws_security_group) > 0
   rds_sg_ids = local.make_db_sg ? [aws_security_group.db[0].id] : (length(var.aws_security_group) > 0 ? var.aws_security_group : null)
 }
 
@@ -64,7 +58,7 @@ resource "aws_security_group" "db" {
 # Dedicated subnet group when explicit subnets are provided; otherwise RDS uses
 # the account's default subnet group.
 resource "aws_db_subnet_group" "db" {
-  count      = local.is_external && local.needs_subnet ? 1 : 0
+  count      = local.needs_subnet ? 1 : 0
   name       = "${local.identifier}-subnets"
   subnet_ids = var.db_subnet_ids
   tags = {

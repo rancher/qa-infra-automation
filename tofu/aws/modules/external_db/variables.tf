@@ -11,23 +11,12 @@ variable "resource_name" {
   type        = string
 }
 
-variable "datastore_type" {
-  description = "etcd (no DB created) or external (provision RDS)."
-  type        = string
-  default     = "etcd"
-  validation {
-    condition     = contains(["etcd", "external"], var.datastore_type)
-    error_message = "datastore_type must be \"etcd\" or \"external\"."
-  }
-}
-
 variable "external_db" {
-  description = "RDS engine: postgres | mysql | mariadb | aurora-mysql. Empty/NULL means none."
+  description = "RDS engine: postgres | mysql | mariadb | aurora-mysql."
   type        = string
-  default     = ""
   validation {
-    condition     = var.external_db == "" || lower(var.external_db) == "null" || contains(["postgres", "mysql", "mariadb", "aurora-mysql"], lower(var.external_db))
-    error_message = "external_db must be empty/NULL or one of: postgres, mysql, mariadb, aurora-mysql."
+    condition     = contains(["postgres", "mysql", "mariadb", "aurora-mysql"], lower(var.external_db))
+    error_message = "external_db must be one of: postgres, mysql, mariadb, aurora-mysql."
   }
 }
 
