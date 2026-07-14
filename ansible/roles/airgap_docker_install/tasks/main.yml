@@ -3,8 +3,8 @@
   include_role:
     name: download_verify
   vars:
-    dv_artifact_url: "https://download.docker.com/linux/static/stable/{{ ansible_architecture }}/docker-{{ docker_version }}.tgz"
-    dv_checksum_url: "https://download.docker.com/linux/static/stable/{{ ansible_architecture }}/docker-{{ docker_version }}.tgz.sha256"
+    dv_artifact_url: "https://download.docker.com/linux/static/stable/{{ ansible_facts.architecture }}/docker-{{ docker_version }}.tgz"
+    dv_checksum_url: "https://download.docker.com/linux/static/stable/{{ ansible_facts.architecture }}/docker-{{ docker_version }}.tgz.sha256"
     dv_dest: "/tmp/docker-{{ docker_version }}.tgz"
     dv_checksum_format: "sha256sum_file"
     dv_mode: "0644"

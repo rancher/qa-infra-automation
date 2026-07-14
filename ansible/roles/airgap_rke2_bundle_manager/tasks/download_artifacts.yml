@@ -24,7 +24,7 @@
 
 - name: Set rke2-arch fact
   ansible.builtin.set_fact:
-    rke2_arch: "{{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
+    rke2_arch: "{{ ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
 
 - name: Show urls used to get artifacts
   ansible.builtin.debug:

@@ -63,7 +63,7 @@
   failed_when: false
   when:
     - k3s_install_selinux_policy | default(true) | bool
-    - ansible_os_family | default('') == "RedHat"
+    - ansible_facts.os_family | default('') == "RedHat"
 
 - name: Warn when k3s-selinux policy installation fails
   ansible.builtin.debug:

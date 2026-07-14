@@ -6,8 +6,8 @@ Everything you need before deploying a cluster with this repository.
 
 | Tool | Version | Purpose | Install |
 |------|---------|---------|---------|
-| **Python** | 3.11+ | Runs Ansible and helper scripts | [python.org](https://www.python.org/downloads/) |
-| **Ansible** | core 2.16+ | Deploys K8s and Rancher onto nodes | Installed via `requirements.txt` |
+| **Python** | 3.12+ | Runs Ansible and helper scripts | [python.org](https://www.python.org/downloads/) |
+| **Ansible** | core 2.21.1 (pinned) | Deploys K8s and Rancher onto nodes | `pip install -r requirements.txt` |
 | **OpenTofu** | 1.6+ | Provisions cloud infrastructure | [opentofu.org](https://opentofu.org/docs/intro/install/) |
 | **kubectl** | any recent | Verifies the cluster after deployment | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
 | **Helm** | 3.x | Required only for Rancher deployment | [helm.sh](https://helm.sh/docs/intro/install/) |
@@ -23,7 +23,7 @@ From the repository root:
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install Python packages (ansible-core, kubernetes client, jmespath, boto3, ...)
+# Install Python packages (ansible-core 2.21.1, kubernetes client, jmespath, boto3, ...)
 pip install -r requirements.txt
 
 # Install Ansible collections (kubernetes.core, community.general, cloud.terraform, ...)
@@ -33,11 +33,11 @@ ansible-galaxy collection install -r requirements.yml
 <details>
 <summary>Alternative: using pipx</summary>
 
-If you manage Ansible with `pipx` instead of a venv, inject the dependencies into the same environment:
+If you manage Ansible with `pipx` instead of a venv, install `ansible-core` with the same pin, then inject the supporting libraries:
 
 ```bash
-pipx install ansible
-pipx inject ansible -r requirements.txt
+pipx install "ansible-core==2.21.1"
+pipx inject ansible-core pyyaml jmespath kubernetes boto3 botocore
 ansible-galaxy collection install -r requirements.yml
 ```
 

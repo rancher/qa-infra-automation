@@ -136,10 +136,10 @@
       ansible.builtin.set_fact:
         pod_status_summary: "{{ pod_status_summary | default([]) + [{
           'namespace': item.item,
-          'total': item.stdout | from_json | json_query('items | length(@)'),
-          'running': item.stdout | from_json | json_query('items[?status.phase==`Running`] | length(@)'),
-          'pending': item.stdout | from_json | json_query('items[?status.phase==`Pending`] | length(@)'),
-          'failed': item.stdout | from_json | json_query('items[?status.phase==`Failed`] | length(@)')
+          'total': (item.stdout | from_json)['items'] | length,
+          'running': (item.stdout | from_json)['items'] | selectattr('status.phase', 'equalto', 'Running') | list | length,
+          'pending': (item.stdout | from_json)['items'] | selectattr('status.phase', 'equalto', 'Pending') | list | length,
+          'failed': (item.stdout | from_json)['items'] | selectattr('status.phase', 'equalto', 'Failed') | list | length
         }] }}"
       loop: "{{ system_pods_json.results }}"
       run_once: true

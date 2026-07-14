@@ -218,7 +218,7 @@
       ansible.builtin.copy:
         content: |
           # Rancher Deployment Summary
-          Deployment Date: {{ ansible_date_time.iso8601 }}
+          Deployment Date: {{ ansible_facts.date_time.iso8601 }}
           Rancher Version: {{ rancher_chart_version | default('latest') }}
           Hostname: {{ rancher_private_hostname }}
           Public Hostname: {{ rancher_public_hostname }}

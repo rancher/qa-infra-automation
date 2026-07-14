@@ -201,7 +201,7 @@
     - name: Download manifest to register into Rancher
       ansible.builtin.get_url:
         url: "https://{{ fqdn }}/v3/import/{{ hostvars['localhost']['cluster_registration_token'] }}_{{ hostvars['localhost']['cluster_id'] }}.yaml"
-        dest: "/tmp/cluster_registration_manifest_{{ ansible_date_time.iso8601 }}.yaml"
+        dest: "/tmp/cluster_registration_manifest_{{ ansible_facts.date_time.iso8601 }}.yaml"
         mode: "0755"
         timeout: 60
         force: true
@@ -210,7 +210,7 @@
     - name: Apply manifest to add cluster to Rancher
       kubernetes.core.k8s:
         state: present
-        src: "/tmp/cluster_registration_manifest_{{ ansible_date_time.iso8601 }}.yaml"
+        src: "/tmp/cluster_registration_manifest_{{ ansible_facts.date_time.iso8601 }}.yaml"
         kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
         verify_ssl: false
       environment:

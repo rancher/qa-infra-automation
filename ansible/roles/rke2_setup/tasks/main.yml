@@ -4,7 +4,7 @@
 
 - name: Display OS information
   ansible.builtin.debug:
-    msg: "Detected OS: {{ ansible_distribution }} {{ ansible_distribution_version }} ({{ ansible_os_family }})"
+    msg: "Detected OS: {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }} ({{ ansible_facts.os_family }})"
 
 # SLES images often run cloud-init / wicked / auto-refresh holding /var/run/zypp.pid at first boot.
 # Wait for the lock to clear, then retry the install in case it re-locks before we land.
@@ -18,14 +18,14 @@
     echo "zypper lock held by pid $pid after 300s"; exit 1
   args: { executable: /bin/bash }
   changed_when: false
-  when: ansible_os_family == "Suse"
+  when: ansible_facts.os_family == "Suse"
   become: true
 
 - name: Install required packages (SLES/openSUSE)
   community.general.zypper:
     name: "{{ rke2_required_packages }}"
     state: present
-  when: ansible_os_family == "Suse"
+  when: ansible_facts.os_family == "Suse"
   become: true
   register: zypper_install
   until: zypper_install is succeeded
@@ -36,7 +36,7 @@
   ansible.builtin.yum:
     name: "{{ rke2_required_packages }}"
     state: present
-  when: ansible_os_family == "RedHat"
+  when: ansible_facts.os_family == "RedHat"
   become: true
 
 - name: Install required packages (Debian/Ubuntu)
@@ -44,7 +44,7 @@
     name: "{{ rke2_required_packages }}"
     state: present
     update_cache: true
-  when: ansible_os_family == "Debian"
+  when: ansible_facts.os_family == "Debian"
   become: true
 
 - name: Check cgroup version
