@@ -97,13 +97,16 @@
         src: "{{ capiclusterconfig_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
 
-    - name: List CAPI MachineDeployments
+    - name: Wait for CAPI MachineDeployment matching capi_pool_name to be created
       kubernetes.core.k8s_info:
         api_version: cluster.x-k8s.io/v1beta1
         kind: MachineDeployment
         namespace: default
         kubeconfig: "{{ kubeconfig_file }}"
       register: capi_machinedeployments
+      until: capi_machinedeployments.resources | selectattr('metadata.name', 'search', capi_pool_name) | list | length > 0
+      retries: 5
+      delay: 60
 
     - name: Resolve MachineDeployment name matching capi_pool_name
       ansible.builtin.set_fact:
