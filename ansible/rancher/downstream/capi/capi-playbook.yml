@@ -60,6 +60,7 @@
           addon:
             rancher-fleet:
               enabled: true
+      ignore_errors: true
 
     - name: Apply CAPI providers
       kubernetes.core.k8s:
@@ -67,6 +68,10 @@
         state: present
         src: "{{ capiconfig_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
+      register: capi_provider_result
+      retries: 5
+      delay: 30
+      until: capi_provider_result is succeeded
     
     - name: Fetch clusterclass
       ansible.builtin.uri:
@@ -92,12 +97,24 @@
         src: "{{ capiclusterconfig_file }}"
         kubeconfig: "{{ kubeconfig_file }}"
 
+    - name: List CAPI MachineDeployments
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: MachineDeployment
+        namespace: default
+        kubeconfig: "{{ kubeconfig_file }}"
+      register: capi_machinedeployments
+
+    - name: Resolve MachineDeployment name matching capi_pool_name
+      ansible.builtin.set_fact:
+        capi_machinedeployment_name: "{{ capi_machinedeployments.resources | selectattr('metadata.name', 'search', capi_pool_name) | map(attribute='metadata.name') | first }}"
+
     - name: Wait for CAPI cluster be ready
       kubernetes.core.k8s_info:
         api_version: cluster.x-k8s.io/v1beta1
         kind: MachineDeployment
-        name: "{{ capi_pool_name }}"
-        namespace: fleet-default
+        name: "{{ capi_machinedeployment_name }}"
+        namespace: default
         kubeconfig: "{{ kubeconfig_file }}"
         wait: yes
         wait_timeout: 1800
