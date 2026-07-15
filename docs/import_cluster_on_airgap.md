@@ -12,6 +12,12 @@ The RKE2 upgrade process for airgap environments involves:
 
 ## Process
 
+> **Makefile shortcuts:** This entire workflow can be run with a single command:
+> ```bash
+> make airgap-downstream ENV=airgap
+> ```
+> Or step-by-step using individual targets (see the `make` equivalents in each step below).
+
 ### 1. Provision nodes
 
 Run `tofu apply -var-file="terraform.tfvars"` with the desired `*.tfvars` file. This content can be used as a template:
@@ -53,8 +59,13 @@ ssh-add "<path_to_private_key>"
 Then we install RKE2 in both groups of nodes:
 
 ```bash
-ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml --extra-vars="target=downstream" # Install RKE2 on the downstream cluster nodes
-ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml # Group "rancher" is the default target group.
+# Makefile shortcut (recommended):
+make cluster ENV=airgap TARGET_GROUP=downstream  # Install RKE2 on the downstream cluster nodes
+make cluster ENV=airgap TARGET_GROUP=rancher      # Install RKE2 on the rancher cluster nodes (default group)
+
+# Raw Ansible equivalent:
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml --extra-vars="target=downstream"
+ansible-playbook -i inventory/inventory.yml playbooks/deploy/rke2-tarball-playbook.yml  # Group "rancher" is the default target group.
 ```
 
 Mind that, since we provisioned two groups of nodes, running this playbook without `--extra-vars` will default to installing on the nodes of group named `rancher`.
@@ -70,6 +81,10 @@ ansible-playbook -i inventory/inventory.yml playbooks/setup/setup-kubectl-access
 Use the appropriate playbook to install Rancher on the appropriate nodes:
 
 ```bash
+# Makefile shortcut (recommended):
+make rancher ENV=airgap
+
+# Raw Ansible equivalent:
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/rancher-helm-deploy-playbook.yml
 ```
 
@@ -80,6 +95,10 @@ The use of additional flags is not needed here because this playbook will be app
 Use the appropriate playbook to add the configured downstream cluster to the configured Rancher instance.
 
 ```bash
+# Makefile shortcut (recommended):
+make downstream ENV=airgap TARGET_GROUP=downstream
+
+# Raw Ansible equivalent:
 ansible-playbook -i inventory/inventory.yml playbooks/deploy/add-downstream-cluster.yml --extra-vars="target=downstream"
 ```
 

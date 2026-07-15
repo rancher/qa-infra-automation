@@ -2,6 +2,7 @@ all:
   vars:
     # Global SSH configuration - update this path to match your environment
     ssh_private_key_file: "${ssh_key}"
+    ansible_ssh_private_key_file: "{{ ssh_private_key_file }}"
     bastion_user: "${aws_ssh_user}"
     bastion_host: "${bastion_host}"
     external_lb_hostname: "${external_lb_hostname}"

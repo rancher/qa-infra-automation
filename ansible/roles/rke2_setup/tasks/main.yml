@@ -1,0 +1,75 @@
+---
+# Main tasks for rke2_setup role
+# Prepares the system for RKE2 installation
+
+- name: Display OS information
+  ansible.builtin.debug:
+    msg: "Detected OS: {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }} ({{ ansible_facts.os_family }})"
+
+# SLES images often run cloud-init / wicked / auto-refresh holding /var/run/zypp.pid at first boot.
+# Wait for the lock to clear, then retry the install in case it re-locks before we land.
+- name: Wait for zypper lock to clear (SLES/openSUSE)
+  ansible.builtin.shell: |
+    for i in $(seq 1 60); do
+      [ -f /var/run/zypp.pid ] && pid=$(cat /var/run/zypp.pid 2>/dev/null) || pid=""
+      if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then exit 0; fi
+      sleep 5
+    done
+    echo "zypper lock held by pid $pid after 300s"; exit 1
+  args: { executable: /bin/bash }
+  changed_when: false
+  when: ansible_facts.os_family == "Suse"
+  become: true
+
+- name: Install required packages (SLES/openSUSE)
+  community.general.zypper:
+    name: "{{ rke2_required_packages }}"
+    state: present
+  when: ansible_facts.os_family == "Suse"
+  become: true
+  register: zypper_install
+  until: zypper_install is succeeded
+  retries: 6
+  delay: 20
+
+- name: Install required packages (RHEL/CentOS)
+  ansible.builtin.yum:
+    name: "{{ rke2_required_packages }}"
+    state: present
+  when: ansible_facts.os_family == "RedHat"
+  become: true
+
+- name: Install required packages (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: "{{ rke2_required_packages }}"
+    state: present
+    update_cache: true
+  when: ansible_facts.os_family == "Debian"
+  become: true
+
+- name: Check cgroup version
+  ansible.builtin.shell: |
+    if [ -f /proc/filesystems ]; then
+      grep -q cgroup2 /proc/filesystems && echo "v2" || echo "v1"
+    else
+      echo "unknown"
+    fi
+  register: cgroup_version
+  changed_when: false
+
+- name: Display cgroup version
+  ansible.builtin.debug:
+    msg: "Detected cgroup version: {{ cgroup_version.stdout }}"
+
+- name: Fail if cgroup v1 is detected
+  ansible.builtin.fail:
+    msg: >
+      RKE2 v1.35+ requires cgroup v2, but this host is running cgroup v1.
+      To enable cgroup v2, add 'GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT systemd.unified_cgroup_hierarchy=1"'
+      to /etc/default/grub, then run 'grub2-mkconfig -o /boot/grub2/grub.cfg' and reboot.
+      Alternatively, use a SLES 15 SP5+ AMI which defaults to cgroup v2.
+  when: cgroup_version.stdout == "v1"
+
+- name: Display setup completion
+  ansible.builtin.debug:
+    msg: "System setup complete. Required packages installed. Firewall managed by cloud provider security groups."

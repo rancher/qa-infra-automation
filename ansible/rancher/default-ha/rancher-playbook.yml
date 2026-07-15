@@ -11,28 +11,56 @@
     terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
     terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
 
+    # Kubeconfig location - from env or default to RKE2 playbook output
+    kubeconfig_file: "{{ lookup('env', 'KUBECONFIG_FILE') | default(playbook_dir + '/../rke2/default/kubeconfig.yaml', true) }}"
+
     # Use default values if not defined in vars.yaml
     rancher_chart_repo_final: "{{ rancher_chart_repo | default('rancher-latest') }}"
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default('https://releases.rancher.com/server-charts/latest') }}"
 
+    # ingress.tls.source: "rancher" (default/self-signed), "letsEncrypt", or "secret".
+    # Set ingress_tls_source in vars.yaml to override.
+    ingress_tls_source_final: "{{ ingress_tls_source | default('') }}"
+
+    # Let's Encrypt settings — only used when ingress_tls_source == "letsEncrypt".
+    letsencrypt_email_final: "{{ letsencrypt_email | default('') }}"
+
+    # Custom TLS secret settings — only used when ingress_tls_source == "secret".
+    # Paths to PEM files on the Ansible controller; the playbook creates the
+    # tls-rancher-ingress secret (and optionally tls-ca) on the cluster.
+    tls_cert_path_final: "{{ tls_cert_path | default('') }}"
+    tls_key_path_final: "{{ tls_key_path | default('') }}"
+    tls_ca_cert_path_final: "{{ tls_ca_cert_path | default('') }}"
+
+    # Extra helm values to merge into the Rancher helm install command.
+    extra_helm_values_final: "{{ extra_helm_values | default({}) }}"
+
+    # Set to true via -e "upgrade_mode=true" to skip the initial install/first-boot
+    # tasks and run rancher-upgrade-tasks.yml instead (helm upgrade --reuse-values).
+    upgrade_mode: false
+
+    # Skip Rancher chart verification (default: true for faster deployment)
+    # Set to false to verify signed charts
+    skip_rancher_chart_verification: true
+
   tasks:
     - name: Set variables based on tofu or environment
-      when: fqdn is not defined 
-      block: 
-      - name: Check if using tfstate file
-        ansible.builtin.stat:
-          path: "{{ terraform_state_file }}"
-        register: tfstate_file_stat
+      when: fqdn is not defined
+      block:
+        - name: Check if using tfstate file
+          ansible.builtin.stat:
+            path: "{{ terraform_state_file }}"
+          register: tfstate_file_stat
 
-      - name: Set fqdn content from tfstate file if it exists
-        ansible.builtin.set_fact:
-          fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
-        when: tfstate_file_stat.stat.exists
+        - name: Set fqdn content from tfstate file if it exists
+          ansible.builtin.set_fact:
+            fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+          when: tfstate_file_stat.stat.exists
 
-      - name: Set fqdn content from env when not using terraform
-        ansible.builtin.set_fact:
-          fqdn: "{{ lookup('env', 'FQDN') }}"
-        when: not tfstate_file_stat.stat.exists
+        - name: Set fqdn content from env when not using terraform
+          ansible.builtin.set_fact:
+            fqdn: "{{ lookup('env', 'FQDN') }}"
+          when: not tfstate_file_stat.stat.exists
 
     - name: Check if kubeconfig file exists
       stat:
@@ -47,6 +75,21 @@
           - fqdn | length > 0
         fail_msg: "Required variables not defined. Please ensure kubeconfig_file and fqdn are set in vars.yaml or environment variables."
 
+    - name: Validate TLS secret inputs
+      ansible.builtin.assert:
+        that:
+          - tls_cert_path_final != ""
+          - tls_key_path_final != ""
+        fail_msg: "tlsSource is 'secret' but tlsCertPath or tlsKeyPath is empty"
+      when: ingress_tls_source_final == "secret"
+
+    - name: Validate Let's Encrypt inputs
+      ansible.builtin.assert:
+        that:
+          - letsencrypt_email_final != ""
+        fail_msg: "tlsSource is 'letsEncrypt' but letsEncryptEmail is empty"
+      when: ingress_tls_source_final == "letsEncrypt"
+
     - name: Try to connect to Kubernetes cluster by listing namespaces
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig_file }}"
@@ -57,24 +100,58 @@
       retries: 5
       delay: 15
 
+    - name: Get Kubernetes cluster version
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: v1
+        kind: Node
+      register: cluster_nodes_info
+
+    - name: Extract Kubernetes server version
+      ansible.builtin.set_fact:
+        k8s_cluster_version: "{{ cluster_nodes_info.resources[0].status.nodeInfo.kubeletVersion }}"
+
     - name: Show connection result
       debug:
-        msg: "Connected! Found {{ ns_info.resources | length }} namespaces."
+        msg: "Connected! Found {{ ns_info.resources | length }} namespaces. Kubernetes version: {{ k8s_cluster_version }}"
+
+    - name: Download cert-manager CRDs with SHA256 verification
+      include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml"
+        dv_dest: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
+        dv_checksum_format: "github_release"
+        dv_github_repo: "cert-manager/cert-manager"
+        dv_github_release_asset_name: "cert-manager.crds.yaml"
+        dv_github_release_tag: "v{{ cert_manager_version }}"
+      when: cert_manager_version != ""
 
     - name: Install cert-manager CRDs
-      no_log: true
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml
+        src: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
         state: present
       retries: 5
       delay: 30
       when: cert_manager_version != ""
 
+    - name: Download cert-manager manifest with SHA256 verification
+      include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml"
+        dv_dest: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
+        dv_checksum_format: "github_release"
+        dv_github_repo: "cert-manager/cert-manager"
+        dv_github_release_asset_name: "cert-manager.yaml"
+        dv_github_release_tag: "v{{ cert_manager_version }}"
+      when: cert_manager_version != ""
+
     - name: Install cert-manager
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml
+        src: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
         state: present
         wait: true
         wait_timeout: 300
@@ -95,6 +172,47 @@
       delay: 30
       when: cert_manager_version != ""
 
+    - name: Ensure cattle-system namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_file }}"
+        api_version: v1
+        kind: Namespace
+        name: cattle-system
+        state: present
+      when: ingress_tls_source_final == "secret"
+
+    - name: Create tls-rancher-ingress secret
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_file }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: tls-rancher-ingress
+            namespace: cattle-system
+          type: kubernetes.io/tls
+          data:
+            tls.crt: "{{ lookup('file', tls_cert_path_final) | b64encode }}"
+            tls.key: "{{ lookup('file', tls_key_path_final) | b64encode }}"
+      no_log: true
+      when: ingress_tls_source_final == "secret" and tls_cert_path_final != "" and tls_key_path_final != ""
+
+    - name: Create tls-ca secret
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_file }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: tls-ca
+            namespace: cattle-system
+          type: Opaque
+          data:
+            cacerts.pem: "{{ lookup('file', tls_ca_cert_path_final) | b64encode }}"
+      when: ingress_tls_source_final == "secret" and tls_ca_cert_path_final != ""
+
     - name: Get all nodes
       k8s_info:
         api_version: v1
@@ -110,25 +228,142 @@
         name: "{{ rancher_chart_repo_final }}"
         repo_url: "{{ rancher_chart_repo_url_final }}"
       when: rancher_version != ""
+      register: add_repo_result
+      failed_when:
+        - add_repo_result.failed
+        - "'already have a repository' not in add_repo_result.msg"
 
-    - name: Install Rancher
-      kubernetes.core.helm:
-        kubeconfig: "{{ kubeconfig_file }}"
-        name: rancher
-        chart_ref: "{{ rancher_chart_repo_final }}/rancher"
-        release_namespace: cattle-system
-        create_namespace: true
-        chart_version: "{{ (rancher_version == 'latest') | ternary('', rancher_version | default(rancher_version)) }}"
-        wait: true
-        wait_timeout: "800s"
-        values:
+    - name: Update Helm repository cache
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: Set chart version (strip 'v' prefix if present)
+      ansible.builtin.set_fact:
+        rancher_chart_version: "{{ rancher_version | regex_replace('^v', '') if rancher_version != 'latest' else '' }}"
+      when: rancher_version != ""
+
+    - name: Get Rancher chart metadata
+      ansible.builtin.command:
+        cmd: >-
+          helm show chart {{ rancher_chart_repo_final }}/rancher
+          {{ ('--version ' + rancher_chart_version) if rancher_chart_version else '' }}
+      register: rancher_chart_metadata
+      changed_when: false
+
+    - name: Extract Rancher chart kubeVersion
+      ansible.builtin.set_fact:
+        rancher_chart_kube_version: "{{ (rancher_chart_metadata.stdout | regex_search('kubeVersion:\\s*(.+)', '\\1') | first).strip() }}"
+      when:
+        - rancher_chart_metadata.stdout is defined
+        - rancher_chart_metadata.stdout | regex_search('kubeVersion:') is not none
+
+    - name: Display version compatibility info
+      ansible.builtin.debug:
+        msg: >-
+          Cluster Kubernetes version: {{ k8s_cluster_version }}
+          - Rancher chart kubeVersion: {{ rancher_chart_kube_version | default('not specified') }}
+
+    - name: Dry-run Rancher install to verify Kubernetes version compatibility
+      ansible.builtin.command:
+        cmd: >-
+          helm install rancher {{ rancher_chart_repo_final }}/rancher
+          --dry-run
+          --namespace cattle-system
+          {{ ('--version ' + rancher_chart_version) if rancher_chart_version else '' }}
+          --set hostname={{ fqdn }}
+          --set bootstrapPassword={{ bootstrap_password }}
+          --kubeconfig {{ kubeconfig_file }}
+      register: rancher_dry_run
+      changed_when: false
+      # Don't fail yet if the error is about kubeVersion incompatibility;
+      # we handle that with a clear message in the next task.
+      failed_when:
+        - rancher_dry_run.rc != 0
+        - rancher_dry_run.stderr is not defined or 'incompatible' not in rancher_dry_run.stderr
+
+    - name: Fail on Kubernetes version incompatibility
+      ansible.builtin.fail:
+        msg: |-
+          INCOMPATIBLE KUBERNETES VERSION
+          ================================
+          Cluster version: {{ k8s_cluster_version }}
+          Rancher chart requires: {{ rancher_chart_kube_version | default('see below') }}
+
+          {{ rancher_dry_run.stderr }}
+
+          The Rancher chart does not support Kubernetes {{ k8s_cluster_version }}.
+          Options:
+            1. Downgrade Kubernetes to a version matching {{ rancher_chart_kube_version | default('see below') }}
+            2. Use a newer Rancher chart version that supports Kubernetes {{ k8s_cluster_version }}
+            3. Check the Rancher support matrix: https://www.suse.com/suse-rancher/support-matrix/all-supported-versions/
+      when:
+        - rancher_dry_run.rc != 0
+        - rancher_dry_run.stderr is defined and 'incompatible' in rancher_dry_run.stderr
+
+    - name: Build base Rancher helm values
+      set_fact:
+        rancher_helm_values:
           hostname: "{{ fqdn }}"
           bootstrapPassword: "{{ bootstrap_password }}"
           rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
           replicas: "{{ node_info.resources | length }}"
+
+    - name: Add ingress.tls.source to helm values
+      set_fact:
+        rancher_helm_values: "{{ rancher_helm_values | combine({'ingress': {'tls': {'source': ingress_tls_source_final}}}, recursive=True) }}"
+      when: ingress_tls_source_final != ""
+
+    - name: Add letsEncrypt helm values
+      set_fact:
+        rancher_helm_values: "{{ rancher_helm_values | combine({'letsEncrypt': {'email': letsencrypt_email_final, 'environment': 'production'}}, recursive=True) }}"
+      when: ingress_tls_source_final == "letsEncrypt" and letsencrypt_email_final != ""
+
+    - name: Set privateCA helm value when a CA cert is provided
+      set_fact:
+        rancher_helm_values: "{{ rancher_helm_values | combine({'privateCA': true}, recursive=True) }}"
+      when: ingress_tls_source_final == "secret" and tls_ca_cert_path_final != ""
+
+    - name: Merge extra helm values
+      set_fact:
+        rancher_helm_values: "{{ rancher_helm_values | combine(extra_helm_values_final, recursive=True) }}"
+      when: extra_helm_values_final | length > 0
+
+    - name: Install Rancher (verify signed chart)
+      block:
+        - name: Install Rancher with chart verification
+          kubernetes.core.helm:
+            kubeconfig: "{{ kubeconfig_file }}"
+            name: rancher
+            chart_ref: "{{ rancher_chart_repo_final }}/rancher"
+            release_namespace: cattle-system
+            create_namespace: true
+            chart_version: "{{ rancher_chart_version }}"
+            wait: true
+            wait_timeout: "800s"
+            values: "{{ rancher_helm_values }}"
+            verify_ssl: "{{ not skip_rancher_chart_verification | bool }}"
+          retries: 6
+          delay: 120
+      rescue:
+        - name: Warn about chart verification failure
+          ansible.builtin.debug:
+            msg: "WARNING: Rancher chart verification failed. Installing without verification."
+
+        - name: Install Rancher (fallback without verification)
+          kubernetes.core.helm:
+            kubeconfig: "{{ kubeconfig_file }}"
+            name: rancher
+            chart_ref: "{{ rancher_chart_repo_final }}/rancher"
+            release_namespace: cattle-system
+            create_namespace: true
+            chart_version: "{{ rancher_chart_version }}"
+            wait: true
+            wait_timeout: "800s"
+            values: "{{ rancher_helm_values }}"
+            verify_ssl: false
+          retries: 6
+          delay: 120
       when: rancher_version != ""
-      retries: 6
-      delay: 120
 
     - name: Wait for Rancher to be ready
       kubernetes.core.k8s_info:
@@ -155,7 +390,7 @@
       retries: 15
       delay: 30
       when: rancher_version != ""
-      
+
     - name: Get Rancher Ingress Host
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig_file }}"
@@ -177,108 +412,56 @@
       delay: 10
       until: webpage_result.status == 200
 
-    - name: Display Rancher URL
-      debug:
-        msg: "Rancher URL: https://{{ rancher_ingress.resources[0].spec.rules[0].host }}"
-      when: rancher_version != "" and rancher_ingress.resources|length > 0 and rancher_ingress.resources[0].spec.rules|length > 0 and rancher_ingress.resources[0].spec.rules[0].host is defined
-
-    - name: Get Rancher Token
-      ansible.builtin.uri:
-        url: "https://{{ fqdn }}/v3-public/localproviders/local?action=login"
-        body:
-          username: admin
-          password: "{{ bootstrap_password }}"
-        method: POST
-        force_basic_auth: true
-        validate_certs: false
-        status_code: 201
-        body_format: json
-      register: rancherjson
-      retries: 5
-      delay: 10
-      until: rancherjson.status == 201
-      when: rancher_version != ""
-  
-    - name: Extract Rancher Token
-      set_fact:
-        API_KEY: "{{ rancherjson.json.token }}"
+    - name: Configure Rancher admin user and generate API token
+      ansible.builtin.include_role:
+        name: rancher_auth
+      vars:
+        rancher_url: "https://{{ fqdn }}"
+        rancher_token_password: "{{ bootstrap_password }}"
+        rancher_permanent_password: "{{ password }}"
+        rancher_token_output_file: "{{ playbook_dir }}/generated.tfvars"
+        rancher_token_output_format: "tfvars"
       when: rancher_version != ""
 
-    - name: Get Rancher UserID
-      ansible.builtin.uri:
-        url: "https://{{ fqdn }}/v3/users?me=true"
-        headers:
-          Accept: "application/json"
-          Content-Type: "application/json"
-          Authorization: "Bearer {{ API_KEY }}"
-        method: GET
-        force_basic_auth: true
-        validate_certs: false
-        status_code: 200
-        body_format: json
-      register: rancherjsonuser
-      retries: 5
-      delay: 10
-      until: rancherjsonuser.status == 200
-      when: rancher_version != ""
-
-    - name: Debug Rancher login response
-      debug:
-        var: rancherjson
-
-    - name: Extract Rancher User
-      set_fact:
-        rancher_user_id: "{{ rancherjsonuser.json.data[0].id }}"
-      when: rancher_version != ""
-
-    - name: Set Rancher Password
-      ansible.builtin.uri:
-        url: "https://{{ fqdn }}/v3/users/{{ rancher_user_id }}?action=setpassword"
-        method: POST
-        headers:
-          Accept: "application/json"
-          Content-Type: "application/json"
-          Authorization: "Bearer {{ API_KEY }}"
-        body: 
-          newPassword: "{{ password }}"
-        body_format: json
-        force_basic_auth: true
-        validate_certs: false
-        status_code: 200
-      register: set_password_result
-      retries: 5
-      delay: 10
-      until: set_password_result.status == 200
-      when: rancher_version != ""
-
-    - name: Set Rancher Server URL
+    - name: Set Rancher server URL
       ansible.builtin.uri:
         url: "https://{{ fqdn }}/v3/settings/server-url"
         method: PUT
         headers:
           Accept: "application/json"
           Content-Type: "application/json"
-          Authorization: "Bearer {{ API_KEY }}"
-        body: 
+          Authorization: "Bearer {{ rancher_generated_token }}"
+        body:
           name: "server-url"
           value: "https://{{ fqdn }}"
         body_format: json
-        force_basic_auth: true
         validate_certs: false
         status_code: 200
-      register: set_server_url_result
       retries: 5
       delay: 10
-      until: set_server_url_result.status == 200
       when: rancher_version != ""
-    
-    - name: Print Token
-      debug:
-        msg: "RANCHER_API_KEY: {{ API_KEY }}"
 
     - name: Write multiple variables to file
       copy:
         dest: generated.tfvars
         content: |
           fqdn = "https://{{ fqdn }}"
-          api_key = "{{ API_KEY }}"
+          api_key = "{{ rancher_generated_token }}"
+        mode: "0600"
+    - name: Display Rancher deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================================"
+          - "  RANCHER DEPLOYMENT COMPLETE"
+          - "============================================================"
+          - "  URL:        https://{{ fqdn }}"
+          - ""
+          - "  Token file: {{ playbook_dir }}/generated.tfvars"
+          - "  K8s version: {{ k8s_cluster_version }}"
+          - "============================================================"
+      when: rancher_version != ""
+
+
+    - name: Upgrade Rancher
+      ansible.builtin.include_tasks: rancher-upgrade-tasks.yml
+      when: upgrade_mode | bool

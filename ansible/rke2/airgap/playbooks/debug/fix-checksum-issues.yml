@@ -29,7 +29,7 @@
 
     - name: Download install script fresh
       ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/rancher/rke2/master/install.sh
+        url: "https://raw.githubusercontent.com/rancher/rke2/{{ rke2_version }}/install.sh"
         dest: /tmp/rke2-install.sh
         mode: "0755"
         timeout: 60

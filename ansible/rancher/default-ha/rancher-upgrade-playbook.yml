@@ -1,0 +1,20 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml # Assuming this file contains rancher_version and cert_manager_version
+  vars:
+    # Use default values if not defined in vars.yaml
+    rancher_chart_repo_upgrade: "rancher-upgrade"
+    rancher_chart_upgrade_repo_url: "https://releases.rancher.com/server-charts/latest"
+    rancher_version_upgrade: ">=0.0.0-0"
+    rancher_image_tag_upgrade: "latest"
+    # Set to true via -e "upgrade_mode=true" to skip the initial install/first-boot
+    # tasks and run rancher-upgrade-tasks.yml instead (helm upgrade --reuse-values).
+    upgrade_mode: true
+
+  tasks:
+    - name: Upgrade Rancher
+      ansible.builtin.include_tasks: rancher-upgrade-tasks.yml
+      when: upgrade_mode | bool

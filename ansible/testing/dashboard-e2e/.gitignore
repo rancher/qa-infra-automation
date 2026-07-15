@@ -1,0 +1,6 @@
+html/
+results.xml
+notification_values.txt
+outputs/
+dashboard/
+.env

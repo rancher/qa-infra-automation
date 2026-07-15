@@ -1,0 +1,25 @@
+---
+# Shared task: Download kubectl binary with SHA256 verification
+# Required variables:
+#   kubectl_version - e.g. "v1.31.4" (the kubectl binary version to download)
+#   kubectl_dest    - destination path (default: /usr/local/bin/kubectl)
+#
+# Usage:
+#   - include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
+#   or:
+#   - include_tasks: "{{ role_path }}/../../tasks/download-kubectl.yml"
+
+- name: Set kubectl download variables
+  ansible.builtin.set_fact:
+    _kubectl_dest: "{{ kubectl_dest | default('/usr/local/bin/kubectl') }}"
+    _kubectl_version: "{{ kubectl_version | default(k8s_version | default(expected_k8s_version)) }}"
+
+- name: Download kubectl binary with SHA256 verification
+  include_role:
+    name: download_verify
+  vars:
+    dv_artifact_url: "https://dl.k8s.io/release/{{ _kubectl_version }}/bin/linux/amd64/kubectl"
+    dv_checksum_url: "https://dl.k8s.io/release/{{ _kubectl_version }}/bin/linux/amd64/kubectl.sha256"
+    dv_dest: "{{ _kubectl_dest }}"
+    dv_checksum_format: "sha256sum_file"
+    dv_mode: "0755"

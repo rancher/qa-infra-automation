@@ -24,33 +24,16 @@ locals {
   )
 }
 
-resource "local_file" "ansible_inventory" {
-  content = templatefile("${path.module}/inventory.yml.tpl", {
-    group_addresses = local.group_addresses
-    bastion_host = module.bastion.public_dns
-    registry_host = length(module.registry) > 0 ? module.registry[0].public_dns : null
-    node_ips = [for s in module.airgap_nodes : s.private_ip]
+output "airgap_inventory_json" {
+  description = "Complete airgap inventory data for bridge script consumption"
+  value = jsonencode({
+    type                 = "airgap"
+    bastion_host         = module.bastion.public_dns
+    registry_host        = length(module.registry) > 0 ? module.registry[0].public_dns : null
+    ssh_key              = var.ssh_key
+    ssh_user             = var.aws_ssh_user
     external_lb_hostname = module.route53[0].record_fqdn
     internal_lb_hostname = module.internal_route53[0].record_fqdn
-    ssh_key = var.ssh_key
-    aws_ssh_user = var.aws_ssh_user
+    node_groups          = local.group_addresses
   })
-
-  filename = "${path.module}/../../../../ansible/rke2/airgap/inventory/inventory.yml"
-
-  depends_on = [
-    module.bastion,
-    module.registry,
-    module.airgap_nodes
-  ]
-}
-
-# Optional: Run ansible-inventory command to validate the generated inventory
-resource "null_resource" "validate_inventory" {
-  provisioner "local-exec" {
-    command = "cd ${path.module}/../../../../ansible/rke2/airgap && ansible-inventory -i inventory/inventory.yml --list > /dev/null && echo 'Inventory validation successful'"
-    on_failure = continue
-  }
-
-  depends_on = [local_file.ansible_inventory]
 }

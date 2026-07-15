@@ -56,11 +56,27 @@ This module deploys a set of cluster nodes on AWS.
 
 Refer to `variables.tf` for a list of configurable variables.
 
+### Node Groups
+
+The `nodes` variable defines cluster node groups. Each group accepts:
+
+| Field | Type | Required | Description |
+|-------|------|----------|------------- |
+| `count` | number | Yes | Number of instances |
+| `role` | list(string) | Yes | Node roles: `["etcd"]`, `["cp"]`, `["worker"]`, or combined like `["etcd", "cp", "worker"]` |
+| `instance_type` | string | No | Override the global `instance_type` for this node group |
+
+The first node in the first group with `etcd` role becomes the `master` node.
+
+**Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
+
 ## Outputs
 
 Refer to `outputs.tf` for a list of exported values.
 
 ## Sample `terraform.tfvars`
+
+### All-in-one (simplest)
 
 ```terraform
 aws_access_key        = "key"
@@ -68,33 +84,60 @@ aws_secret_key        = "secretkey"
 aws_region            = "us-west-1"
 aws_route53_zone      = "qa.rancher.space"
 aws_ami               = "ami-"
-instance_type         = "t3.xlarge"
+instance_type         = "t3a.medium"
 aws_vpc               = "vpc-"
 aws_subnet            = "subnet-"
 aws_security_group    = ["sg-"]
 airgap_setup          = false
 proxy_setup           = false
-aws_volume_size       = 500
+aws_volume_size       = 40
 aws_volume_type       = "gp3"
 aws_hostname_prefix   = "hostnameprefix"
 aws_ssh_user          = "ec2-user"
-user_id               = "user_id"
 public_ssh_key        = "sshkey"
 nodes = [
   {
-    count = 1
-    role  = ["etcd"]
+    count = 3
+    role  = ["etcd", "cp", "worker"]
+  }
+]
+```
+
+### Split topology with per-role instance types
+
+Use larger instances for etcd nodes (RKE2 v1.35+ requires cgroup v2, which needs SLES 15 SP5+):
+
+```terraform
+aws_access_key        = "key"
+aws_secret_key        = "secretkey"
+aws_region            = "us-west-1"
+aws_route53_zone      = "qa.rancher.space"
+aws_ami               = "ami-"          # SLES 15 SP5+ for cgroup v2
+instance_type         = "t3a.medium"    # Default for all nodes
+aws_vpc               = "vpc-"
+aws_subnet            = "subnet-"
+aws_security_group    = ["sg-"]
+airgap_setup          = false
+proxy_setup           = false
+aws_volume_size       = 40
+aws_volume_type       = "gp3"
+aws_hostname_prefix   = "hostnameprefix"
+aws_ssh_user          = "ec2-user"
+public_ssh_key        = "sshkey"
+nodes = [
+  {
+    count         = 2
+    role          = ["etcd"]
+    instance_type = "t3a.xlarge"   # 4 vCPU / 16 GB — etcd needs more RAM
   },
   {
-    count = 1
-    role  = ["cp"]
+    count         = 3
+    role          = ["cp"]
+    instance_type = "t3a.large"    # 2 vCPU / 4 GB
   },
   {
     count = 3
-    role  = ["worker"]
+    role  = ["worker"]             # Uses global instance_type (t3a.medium)
   }
-  # {
-  #   count = 1
-  #   role = ["etcd"]
-  # }
 ]
+```

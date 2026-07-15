@@ -1,0 +1,7 @@
+outputs/
+dashboard/
+.env
+vars.yaml
+Dockerfile.quickstart
+run.sh
+*.md

@@ -1,0 +1,172 @@
+---
+- name: Harvester Cluster Upgrade and VM State Management
+  hosts: localhost # This playbook only uses localhost, so no inventory is needed.
+  gather_facts: false
+  vars:
+    upgrade_annotations:
+      harvesterhci.io/skip-version-check: "true"
+    rancher_releases_host: "releases.rancher.com"
+
+  tasks:
+  - name: Check all needed values are present
+    ansible.builtin.assert:
+      that:
+      - harvester_host is defined
+      - harvester_host | length > 0
+      - harvester_user is defined
+      - harvester_user | length > 0
+      - harvester_password is defined
+      - harvester_password | length > 0
+      - target_version is defined
+      - target_version | length > 0
+      - target_version is match("^v\d+\.\d+\.\d+(-(rc\d+|dev-\d{8}))?$")
+      fail_msg: "Some required variable is missing or not in the expected format"
+
+  - name: Authenticate to Harvester
+    uri:
+      url: "https://{{ harvester_host }}/v3-public/localProviders/local?action=login"
+      method: POST
+      body_format: json
+      status_code: 201
+      body:
+        username: "{{ harvester_user }}"
+        password: "{{ harvester_password }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+    no_log: true
+    register: login_response
+
+  - name: Set Auth Token
+    set_fact:
+      auth_token: "Bearer {{ login_response.json.token }}"
+      token_id: "{{ login_response.json.id }}"
+    no_log: true
+
+  - name: Get running VMs before upgrade
+    uri:
+      url: "https://{{ harvester_host }}/v1/harvester/kubevirt.io.virtualmachines?exclude=metadata.managedFields"
+      method: GET
+      headers:
+        Authorization: "{{ auth_token }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+    register: vm_list_resp
+
+  - name: Filter list of active VM IDs
+    set_fact:
+      running_vms: "{{ vm_list_resp.json.data | selectattr('metadata.state.name', 'equalto', 'active') | map(attribute='id') | list }}"
+
+  - name: Fetch Version Manifest from Rancher Releases
+    uri:
+      url: "https://{{ rancher_releases_host }}/harvester/{{ target_version }}/version.yaml"
+      method: GET
+      return_content: true
+    register: version_yaml_resp
+
+  - name: Create Version via Harvester API
+    uri:
+      url: "https://{{ harvester_host }}/v1/harvester/harvesterhci.io.versions"
+      method: POST
+      body_format: json
+      body: "{{ version_yaml_resp.content | from_yaml }}"
+      headers:
+        Authorization: "{{ auth_token }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+      status_code: [ 201, 409 ]
+    register: version_creation
+
+  - name: Notify version existence
+    debug:
+      msg: "Version object already existed."
+    when: version_creation.status == 409
+
+  - name: Trigger Upgrade
+    uri:
+      url: "https://{{ harvester_host }}/v1/harvester/harvesterhci.io.upgrades/harvester-system"
+      method: POST
+      body_format: json
+      body:
+        type: "harvesterhci.io.upgrade"
+        metadata:
+          name: "upgrade-{{ target_version | replace('.', '-') }}"
+          namespace: "harvester-system"
+          annotations: "{{ upgrade_annotations }}"
+        spec:
+          version: "{{ target_version }}"
+      headers:
+        Authorization: "{{ auth_token }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+      status_code: 201
+    register: trigger_resp
+
+  - name: Wait for upgrade to finish
+    uri:
+      url: "https://{{ harvester_host }}/apis/harvesterhci.io/v1beta1/namespaces/harvester-system/upgrades/upgrade-{{ target_version | replace('.', '-') }}"
+      method: GET
+      headers:
+        Authorization: "{{ auth_token }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+      status_code: [ 200, 502, 503, 504 ] # The node may be off during a part of the process.
+    register: upgrade_status
+    until: upgrade_status.status == 200 and (upgrade_status.json.metadata.labels['harvesterhci.io/upgradeState'] | default('')) == 'Succeeded' and (upgrade_status.json.status.conditions | selectattr('type', 'equalto', 'Completed') | map(attribute='status') | first) == 'True'
+    retries: 120
+    delay: 60
+    failed_when:
+    - upgrade_status.status == 200
+    - upgrade_status.json.status.conditions | selectattr('status', 'equalto', 'False') | list | length > 0
+
+  - name: Wait for API to be fully ready
+    uri:
+      url: "https://{{ harvester_host }}/v1/harvester/kubevirt.io.virtualmachines?exclude=metadata.managedFields"
+      method: GET
+      headers:
+        Authorization: "{{ auth_token }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+      status_code: 200
+    retries: 4
+    delay: 30
+
+
+  - name: Start VMs that were running pre-upgrade
+    uri:
+      url: "https://{{ harvester_host }}/v1/harvester/kubevirt.io.virtualmachines/{{ item }}?action=start"
+      method: POST
+      headers:
+        Authorization: "{{ auth_token }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+      status_code: 204
+    loop: "{{ running_vms }}"
+    ignore_errors: true
+
+  - name: Wait for all VMs to return to active state
+    uri:
+      url: "https://{{ harvester_host }}/v1/harvester/kubevirt.io.virtualmachines?exclude=metadata.managedFields"
+      method: GET
+      headers:
+        Authorization: "{{ auth_token }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+    register: post_upgrade_vms
+    until: >
+      (post_upgrade_vms.json.data | selectattr('metadata.state.name', 'equalto', 'active') | map(attribute='id') | list | length) == (running_vms | length)
+    retries: 40
+    delay: 30
+    ignore_errors: true
+
+  - name: Report VM Startup Status
+    vars:
+      currently_active: "{{ post_upgrade_vms.json.data | selectattr('metadata.state.name', 'equalto', 'active') | map(attribute='id') | list }}"
+      failed_vms: "{{ running_vms | difference(currently_active) }}"
+    debug:
+      msg: >
+        {% if failed_vms | length == 0 %}
+        All VMs successfully returned to active state.
+        {% else %}
+        WARNING: The following VMs failed to start: {{ failed_vms | join(', ') }}
+        {% endif %}
+
+  - name: Delete authentication token
+    uri:
+      url: https://{{ harvester_host }}/v1/ext.cattle.io.tokens/{{ token_id }}
+      method: DELETE
+      headers:
+        Authorization: "{{ auth_token }}"
+      validate_certs: "{{ skip_tls | default(false) | bool }}"
+      status_code: 204

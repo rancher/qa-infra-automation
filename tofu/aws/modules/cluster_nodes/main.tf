@@ -3,18 +3,22 @@ locals {
   temp_node_names = flatten([
     for node_group in var.nodes : [
       for i in range(node_group.count) : {
-        name = "${join("-", node_group.role)}-${i}"
-        role = node_group.role
-        is_server = false
+        name          = "${join("-", node_group.role)}-${i}"
+        role          = node_group.role
+        is_server     = false
+        instance_type = node_group.instance_type
       }
     ]
   ])
-  first_etcd_index = index([for node in local.temp_node_names : contains(node.role, "etcd")], true)
-  # Update the is_server attribute for the first etcd node
+  # Master = first etcd, fall back to first cp (cp-only + external datastore). try() avoids index() errors when role absent.
+  first_etcd_index   = try(index([for node in local.temp_node_names : contains(node.role, "etcd")], true), -1)
+  first_cp_index     = try(index([for node in local.temp_node_names : contains(node.role, "cp")], true), -1)
+  first_master_index = local.first_etcd_index >= 0 ? local.first_etcd_index : local.first_cp_index
   node_names = [
-    for node in local.temp_node_names : {
-      name = node.name == local.temp_node_names[local.first_etcd_index].name ? "master" : node.name
+    for idx, node in local.temp_node_names : {
+      name = node.name == local.temp_node_names[local.first_master_index].name ? "master" : node.name
       role = node.role
+      instance_type = node.instance_type
     }
   ]
   # Filter for control plane nodes
@@ -49,7 +53,7 @@ resource "aws_key_pair" "ssh_public_key" {
 resource "aws_instance" "node" {
   for_each = { for node in local.node_names : node.name => node }
   ami = var.aws_ami
-  instance_type = var.instance_type
+  instance_type = each.value.instance_type != null ? each.value.instance_type : var.instance_type
   key_name = aws_key_pair.ssh_public_key.key_name
   vpc_security_group_ids = var.aws_security_group
   subnet_id = var.aws_subnet
@@ -66,18 +70,6 @@ resource "aws_instance" "node" {
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
   }
-}
-
-resource "ansible_host" "node" {
-  for_each = { for node in local.node_names : node.name => node }
-  name = each.value.name
-  variables = {
-    # Connection vars.
-    ansible_user = var.aws_ssh_user
-    ansible_host = aws_instance.node[each.key].public_ip
-    ansible_role = join(",", each.value.role)
-  }
-  depends_on = [aws_instance.node]
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {

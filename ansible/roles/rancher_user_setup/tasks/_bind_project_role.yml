@@ -1,0 +1,31 @@
+---
+# Binds a single project role for the current user.
+# Called by _create_user.yml in a loop — receives `_project_role` dict.
+
+- name: "Look up project '{{ _project_role.project | default('Default') }}'"
+  ansible.builtin.uri:
+    url: "https://{{ rancher_host }}/v3/projects?name={{ _project_role.project | default('Default') }}&clusterId={{ _project_role.cluster | default('local') }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _rancher_admin_token }}"
+    validate_certs: "{{ rancher_validate_certs }}"
+  register: _project_lookup
+  retries: 3
+  delay: 5
+  until: _project_lookup.status | default(0) == 200
+
+- name: "Bind project role"
+  ansible.builtin.uri:
+    url: "https://{{ rancher_host }}/v3/projectroletemplatebindings"
+    method: POST
+    body_format: json
+    body:
+      type: projectroletemplatebinding
+      roleTemplateId: "{{ _project_role.role }}"
+      projectId: "{{ _project_lookup.json.data[0].id }}"
+      userId: "{{ _current_user_id }}"
+    headers:
+      Authorization: "Bearer {{ _rancher_admin_token }}"
+    validate_certs: "{{ rancher_validate_certs }}"
+    status_code: [200, 201, 409, 422]
+  when: _project_lookup.json.data | default([]) | length > 0

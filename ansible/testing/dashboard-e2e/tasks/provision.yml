@@ -1,0 +1,228 @@
+# Provision AWS infrastructure via OpenTofu.
+# Creates up to 3 workspaces in parallel: rancher-server (recurring only),
+# importcluster and customnode (when create_initial_clusters is true).
+# For rancher-server and importcluster, the cluster_nodes_json output is
+# fed to scripts/generate_inventory.py to produce a static Ansible inventory
+# under outputs_dir/inventory-<workspace>/inventory.yml. The bridge script
+# bakes kube_api_host, fqdn and the SSH key into all.vars so the downstream
+# k3s playbook does not need the cloud.terraform tf_output lookup.
+
+- name: Generate SSH key pair
+  ansible.builtin.command:
+    cmd: ssh-keygen -t rsa -b 4096 -f "{{ outputs_dir }}/id_rsa" -N ""
+    creates: "{{ outputs_dir }}/id_rsa"
+
+- name: Set SSH key path
+  ansible.builtin.set_fact:
+    ssh_key: "{{ outputs_dir }}/id_rsa"
+
+- name: Write rancher-server tfvars
+  ansible.builtin.template:
+    src: tfvars.j2
+    dest: "{{ outputs_dir }}/rancher-server.tfvars"
+    mode: "0644"
+  vars:
+    hostname_prefix: "jnkui-{{ prefix }}-rancher"
+    node_count: "{{ server_count }}"
+    vm_roles: '["etcd", "cp", "worker"]'
+    instance_type: "{{ aws_instance_type }}"
+  when: job_type == 'recurring'
+
+- name: Tofu init (rancher-server)
+  ansible.builtin.command:
+    cmd: tofu init -input=false -no-color
+    chdir: "{{ tofu_module }}"
+  changed_when: false
+
+- name: Tofu workspace create/select (rancher-server)
+  ansible.builtin.shell: |
+    tofu workspace new rancher-server 2>/dev/null || tofu workspace select rancher-server
+  args:
+    chdir: "{{ tofu_module }}"
+  changed_when: false
+  when: job_type == 'recurring'
+
+- name: Tofu apply rancher-server
+  ansible.builtin.command:
+    cmd: >-
+      tofu apply
+      -var-file="{{ outputs_dir }}/rancher-server.tfvars"
+      -auto-approve -no-color -input=false
+    chdir: "{{ tofu_module }}"
+  environment:
+    TF_WORKSPACE: rancher-server
+  register: tofu_rancher_result
+  async: 600
+  poll: 0
+  changed_when: true
+  when: job_type == 'recurring'
+
+- name: Write importcluster tfvars
+  ansible.builtin.template:
+    src: tfvars.j2
+    dest: "{{ outputs_dir }}/importcluster.tfvars"
+    mode: "0644"
+  vars:
+    hostname_prefix: "jnkui-{{ prefix }}-imp"
+    node_count: 1
+    vm_roles: '["etcd", "cp", "worker"]'
+    instance_type: "{{ aws_instance_type }}"
+  when: create_initial_clusters | bool
+
+- name: Tofu workspace create/select (importcluster)
+  ansible.builtin.shell: |
+    tofu workspace new importcluster 2>/dev/null || tofu workspace select importcluster
+  args:
+    chdir: "{{ tofu_module }}"
+  changed_when: false
+  when: create_initial_clusters | bool
+
+- name: Tofu apply importcluster
+  ansible.builtin.command:
+    cmd: >-
+      tofu apply
+      -var-file="{{ outputs_dir }}/importcluster.tfvars"
+      -auto-approve -no-color -input=false
+    chdir: "{{ tofu_module }}"
+  environment:
+    TF_WORKSPACE: importcluster
+  register: tofu_import_result
+  async: 600
+  poll: 0
+  changed_when: true
+  when: create_initial_clusters | bool
+
+- name: Write customnode tfvars
+  ansible.builtin.template:
+    src: tfvars.j2
+    dest: "{{ outputs_dir }}/customnode.tfvars"
+    mode: "0644"
+  vars:
+    hostname_prefix: "jnkui-{{ prefix }}-ctm"
+    node_count: 1
+    vm_roles: '["etcd", "cp", "worker"]'
+    instance_type: "t3a.xlarge"
+  when: create_initial_clusters | bool
+
+- name: Tofu workspace create/select (customnode)
+  ansible.builtin.shell: |
+    tofu workspace new customnode 2>/dev/null || tofu workspace select customnode
+  args:
+    chdir: "{{ tofu_module }}"
+  changed_when: false
+  when: create_initial_clusters | bool
+
+- name: Tofu apply customnode
+  ansible.builtin.command:
+    cmd: >-
+      tofu apply
+      -var-file="{{ outputs_dir }}/customnode.tfvars"
+      -auto-approve -no-color -input=false
+    chdir: "{{ tofu_module }}"
+  environment:
+    TF_WORKSPACE: customnode
+  register: tofu_custom_result
+  async: 600
+  poll: 0
+  changed_when: true
+  when: create_initial_clusters | bool
+
+- name: Wait for rancher-server tofu apply
+  ansible.builtin.async_status:
+    jid: "{{ tofu_rancher_result.ansible_job_id }}"
+  register: tofu_rancher_status
+  until: tofu_rancher_status.finished | bool
+  retries: 60
+  delay: 10
+  failed_when: tofu_rancher_status.finished | bool and tofu_rancher_status.rc | default(1) != 0
+  when: job_type == 'recurring'
+
+- name: Wait for importcluster tofu apply
+  ansible.builtin.async_status:
+    jid: "{{ tofu_import_result.ansible_job_id }}"
+  register: tofu_import_status
+  until: tofu_import_status.finished | bool
+  retries: 60
+  delay: 10
+  failed_when: tofu_import_status.finished | bool and tofu_import_status.rc | default(1) != 0
+  when: create_initial_clusters | bool
+
+- name: Wait for customnode tofu apply
+  ansible.builtin.async_status:
+    jid: "{{ tofu_custom_result.ansible_job_id }}"
+  register: tofu_custom_status
+  until: tofu_custom_status.finished | bool
+  retries: 60
+  delay: 10
+  failed_when: tofu_custom_status.finished | bool and tofu_custom_status.rc | default(1) != 0
+  when: create_initial_clusters | bool
+
+- name: Dump rancher-server cluster_nodes_json
+  ansible.builtin.shell: >-
+    tofu output -raw -no-color cluster_nodes_json
+    > "{{ outputs_dir }}/rancher-server-nodes.json"
+  args:
+    chdir: "{{ tofu_module }}"
+  environment:
+    TF_WORKSPACE: rancher-server
+  changed_when: true
+  when: job_type == 'recurring'
+
+- name: Generate rancher-server Ansible inventory
+  ansible.builtin.command:
+    cmd: >-
+      python3 {{ qa_infra_dir }}/scripts/generate_inventory.py
+      --input {{ outputs_dir }}/rancher-server-nodes.json
+      --distro k3s --env default
+      --schema {{ qa_infra_dir }}/ansible/_inventory-schema.yaml
+      --output-dir {{ outputs_dir }}/inventory-rancher-server
+  changed_when: true
+  when: job_type == 'recurring'
+
+- name: Read rancher-server node metadata
+  ansible.builtin.slurp:
+    src: "{{ outputs_dir }}/rancher-server-nodes.json"
+  register: rancher_nodes_slurp
+  when: job_type == 'recurring'
+
+- name: Set rancher_host from cluster_nodes_json metadata
+  ansible.builtin.set_fact:
+    rancher_host: "{{ (rancher_nodes_slurp.content | b64decode | from_json).metadata.fqdn }}"
+  when: job_type == 'recurring'
+
+- name: Dump importcluster cluster_nodes_json
+  ansible.builtin.shell: >-
+    tofu output -raw -no-color cluster_nodes_json
+    > "{{ outputs_dir }}/importcluster-nodes.json"
+  args:
+    chdir: "{{ tofu_module }}"
+  environment:
+    TF_WORKSPACE: importcluster
+  changed_when: true
+  when: create_initial_clusters | bool
+
+- name: Generate importcluster Ansible inventory
+  ansible.builtin.command:
+    cmd: >-
+      python3 {{ qa_infra_dir }}/scripts/generate_inventory.py
+      --input {{ outputs_dir }}/importcluster-nodes.json
+      --distro k3s --env default
+      --schema {{ qa_infra_dir }}/ansible/_inventory-schema.yaml
+      --output-dir {{ outputs_dir }}/inventory-importcluster
+  changed_when: true
+  when: create_initial_clusters | bool
+
+- name: Get custom node IP
+  ansible.builtin.command:
+    cmd: tofu output -no-color -raw kube_api_host
+    chdir: "{{ tofu_module }}"
+  environment:
+    TF_WORKSPACE: customnode
+  register: customnode_output
+  changed_when: false
+  when: create_initial_clusters | bool
+
+- name: Set custom_node_ip
+  ansible.builtin.set_fact:
+    custom_node_ip: "{{ customnode_output.stdout }}"
+  when: create_initial_clusters | bool

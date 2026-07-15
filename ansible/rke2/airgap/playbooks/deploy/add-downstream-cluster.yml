@@ -6,6 +6,15 @@
     admin_password: "{{ rancher_bootstrap_password | default('admin') }}"
     repo_root: "{{ playbook_dir | regex_replace('(.*)/ansible/.*', '\\1') }}"
     fqdn: "{{ rancher_hostname | default(external_lb_hostname) }}"
+    # Cluster name generation: <prefix>-<random suffix>
+    # Precedence for the prefix (highest first): `downstream_cluster_name_prefix` (e.g. set in inventory/group_vars),
+    # `DOWNSTREAM_CLUSTER_NAME_PREFIX` env, then the hardcoded 'ansible-created' below.
+    # Suffix length: override via `downstream_cluster_name_suffix_length` (default 8).
+    # Set DOWNSTREAM_CLUSTER_NAME (or `cluster_name`) to use a fully custom name instead.
+    # NOTE: defined as `*_default` play vars (not the override names) so inventory/group_vars/host_vars
+    # can override them — play-level `vars:` otherwise outrank inventory vars.
+    downstream_cluster_name_prefix_default: "{{ lookup('env', 'DOWNSTREAM_CLUSTER_NAME_PREFIX') | default('ansible-created', true) }}"
+    downstream_cluster_name_suffix_length_default: 8
   pre_tasks:
     - name: Validate rancher group exists
       ansible.builtin.assert:
@@ -47,14 +56,18 @@
       delay: 10
       until: token_response.status == 201
 
-    - name: Get cluster name from environment variable
+    - name: Get cluster name from explicit variable or environment
       ansible.builtin.set_fact:
-        cluster_name: "{{ lookup('env', 'DOWNSTREAM_CLUSTER_NAME') | default('', true) }}"
+        cluster_name: "{{ cluster_name | default(lookup('env', 'DOWNSTREAM_CLUSTER_NAME'), true) }}"
 
-    - name: Generate cluster name if DOWNSTREAM_CLUSTER_NAME is empty
+    - name: Generate cluster name as <prefix>-<random suffix> when not explicitly set
       ansible.builtin.set_fact:
-        cluster_name: "ansible-created-{{ lookup('password', '/dev/null length=8 chars=ascii_lowercase,digits') }}"
-      when: cluster_name == ''
+        cluster_name: "{{ downstream_cluster_name_prefix | default(downstream_cluster_name_prefix_default) }}-{{ lookup('password', '/dev/null length=' ~ (downstream_cluster_name_suffix_length | default(downstream_cluster_name_suffix_length_default)) ~ ' chars=ascii_lowercase,digits') }}"
+      when: cluster_name | default('', true) | length == 0
+
+    - name: Display generated cluster name
+      ansible.builtin.debug:
+        msg: "Downstream cluster name: {{ cluster_name }}"
 
     - name: Create generic imported cluster with OpenTofu
       ansible.builtin.shell: |
@@ -75,6 +88,50 @@
         api_key: "{{ token_response.json.token }}"
         cluster_id: "{{ (tofu_outputs_json.stdout | from_json).cluster_id.value }}"
         cluster_registration_token: "{{ (tofu_outputs_json.stdout | from_json).cluster_registration_token.value }}"
+
+    # Optionally inject the downstream cluster name into cattle-config.yaml.
+    # Mirrors generate-admin-token.yml's rancher_auth role, which writes
+    # rancher.adminToken when rancher_cattle_config_file is set.
+    - name: Update cattle-config.yaml with downstream cluster name
+      when: rancher_cattle_config_file | default('') | length > 0
+      block:
+        - name: Check if cattle config file exists
+          ansible.builtin.stat:
+            path: "{{ rancher_cattle_config_file }}"
+          register: cattle_config_stat
+
+        - name: Fail if cattle config file doesn't exist
+          ansible.builtin.fail:
+            msg: "Cattle config file not found: {{ rancher_cattle_config_file }}"
+          when: not cattle_config_stat.stat.exists
+
+        - name: Read existing cattle config
+          ansible.builtin.slurp:
+            src: "{{ rancher_cattle_config_file }}"
+          register: cattle_config_content
+
+        - name: Parse cattle config YAML
+          ansible.builtin.set_fact:
+            cattle_config: "{{ cattle_config_content.content | b64decode | from_yaml }}"
+
+        - name: Update cattle config with downstream cluster name
+          ansible.builtin.set_fact:
+            cattle_config_updated: >-
+              {{ cattle_config | combine({
+                'rancher': (cattle_config.rancher | default({})) | combine({
+                  'clusterName': cluster_name
+                })
+              }, recursive=True) }}
+
+        - name: Write updated cattle config
+          ansible.builtin.copy:
+            content: "{{ cattle_config_updated | to_nice_yaml(indent=2) }}"
+            dest: "{{ rancher_cattle_config_file }}"
+            mode: '0644'
+
+        - name: Display cattle config update status
+          ansible.builtin.debug:
+            msg: "Updated {{ rancher_cattle_config_file }} with clusterName: {{ cluster_name }}"
 
 - hosts: bastion
   gather_facts: true
@@ -144,7 +201,7 @@
     - name: Download manifest to register into Rancher
       ansible.builtin.get_url:
         url: "https://{{ fqdn }}/v3/import/{{ hostvars['localhost']['cluster_registration_token'] }}_{{ hostvars['localhost']['cluster_id'] }}.yaml"
-        dest: "/tmp/cluster_registration_manifest_{{ ansible_date_time.iso8601 }}.yaml"
+        dest: "/tmp/cluster_registration_manifest_{{ ansible_facts.date_time.iso8601 }}.yaml"
         mode: "0755"
         timeout: 60
         force: true
@@ -153,7 +210,7 @@
     - name: Apply manifest to add cluster to Rancher
       kubernetes.core.k8s:
         state: present
-        src: "/tmp/cluster_registration_manifest_{{ ansible_date_time.iso8601 }}.yaml"
+        src: "/tmp/cluster_registration_manifest_{{ ansible_facts.date_time.iso8601 }}.yaml"
         kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
         verify_ssl: false
       environment:

@@ -1,0 +1,66 @@
+# Run Cypress inside Docker and collect results.
+# The container runs cypress.sh which executes tests and merges JUnit XML
+# via jrm. After the container exits, results are copied to the workspace
+# for Jenkins artifact capture.
+
+- name: Handle @standardUser tag
+  ansible.builtin.lineinfile:
+    path: "{{ workspace_dir }}/.env"
+    regexp: "^TEST_USERNAME="
+    line: "TEST_USERNAME=standard_user"
+  when: "'@standardUser' in cypress_tags"
+
+- name: Run Cypress tests in Docker
+  ansible.builtin.shell: |
+    docker run --rm -t --init \
+      --name "cypress-{{ executor_tag }}-{{ prefix | default('local') | lower | regex_replace('[^a-z0-9_.-]', '-') }}-{{ rancher_host | default('dashboard-e2e') | lower | regex_replace('[^a-z0-9_.-]', '-') }}" \
+      --shm-size=2g \
+      --env-file "{{ workspace_dir }}/.env" \
+      -e NODE_PATH="" \
+      -v "{{ host_dashboard_dir }}:/e2e" \
+      -w /e2e \
+      dashboard-test:{{ executor_tag }}
+  register: cypress_result
+  failed_when: false
+  changed_when: true
+
+- name: Log Docker errors on non-zero exit
+  ansible.builtin.debug:
+    msg: "{{ cypress_result.stderr_lines | default([]) }}"
+  when: (cypress_result.rc | default(1)) != 0 and (cypress_result.stderr_lines | default([]) | length > 0)
+
+- name: Fix dashboard permissions after Docker run
+  ansible.builtin.shell: |
+    chown -R "$(id -u):$(id -g)" "{{ dashboard_dir }}" 2>/dev/null || true
+  changed_when: false
+
+- name: Set test exit code
+  ansible.builtin.set_fact:
+    cypress_exit_code: "{{ cypress_result.rc | default(1) }}"
+
+- name: Check results.xml exists
+  ansible.builtin.stat:
+    path: "{{ dashboard_dir }}/results.xml"
+  register: results_xml
+
+- name: Copy results.xml to workspace
+  ansible.builtin.copy:
+    src: "{{ dashboard_dir }}/results.xml"
+    dest: "{{ workspace_dir }}/results.xml"
+    remote_src: true
+    mode: "0644"
+  when: results_xml.stat.exists
+
+- name: Copy HTML reports to workspace
+  ansible.builtin.shell: |
+    mkdir -p {{ workspace_dir }}/html
+    cp -r {{ dashboard_dir }}/cypress/reports/html/* {{ workspace_dir }}/html/ 2>/dev/null || true
+  changed_when: false
+
+- name: Report test status
+  ansible.builtin.debug:
+    msg: >-
+      Cypress tests {{ 'PASSED' if cypress_exit_code | int == 0 else 'FAILED' }}
+      (exit code: {{ cypress_exit_code }}){{
+      ' — results.xml copied to ' + workspace_dir + '/results.xml'
+      if results_xml.stat.exists else '' }}

@@ -1,0 +1,95 @@
+---
+# Bootstrap Python 3.9 on SLE Micro using pre-built binaries
+- name: Bootstrap Python 3.9 using pre-built binaries
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    python_url: "https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.9.20+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz"
+    python_local_path: "/tmp/python39.tar.gz"
+    has_bastion: "{{ bastion_host is defined and bastion_user is defined }}"
+
+  tasks:
+    - name: Check if Python 3.9+ exists
+      ansible.builtin.raw: python3.9 --version 2>/dev/null || echo "NEEDS_INSTALL"
+      register: check_python
+      changed_when: false
+      failed_when: false
+
+    - name: Download Python binary on control machine (runs once)
+      ansible.builtin.get_url:
+        url: "{{ python_url }}"
+        dest: "{{ python_local_path }}"
+        mode: '0644'
+      become: false
+      run_once: true
+      delegate_to: localhost
+      register: download_python
+
+    - name: Copy Python binary from localhost to bastion (airgap)
+      ansible.builtin.shell: |
+        scp -i {{ ansible_ssh_private_key_file }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{{ python_local_path }}" {{ bastion_user }}@{{ bastion_host }}:/tmp/python39.tar.gz
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: has_bastion
+
+    - name: Copy Python binary from bastion to target nodes (airgap)
+      ansible.builtin.shell: |
+        scp -i {{ ansible_ssh_private_key_file }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/python39.tar.gz {{ ansible_user }}@{{ ansible_host }}:/tmp/python39.tar.gz
+      delegate_to: bastion-node
+      become: false
+      when:
+        - has_bastion
+        - "'NEEDS_INSTALL' in check_python.stdout"
+
+    - name: Copy Python binary directly to target nodes (default)
+      ansible.builtin.shell: |
+        scp -i {{ ansible_ssh_private_key_file }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{{ python_local_path }}" {{ ansible_user }}@{{ ansible_host }}:/tmp/python39.tar.gz
+      delegate_to: localhost
+      become: false
+      when:
+        - not has_bastion
+        - "'NEEDS_INSTALL' in check_python.stdout"
+
+    - name: Install Python from local copy
+      ansible.builtin.raw: |
+        set -e
+        tmp_dir=$(mktemp -d)
+        cd "$tmp_dir"
+
+        echo "Installing Python from local copy..."
+        tar xzf /tmp/python39.tar.gz -C /usr/local --strip-components=1
+
+        # Verify
+        /usr/local/bin/python3 --version
+
+        # Create symlinks (ignore errors if they exist)
+        ln -sf /usr/local/bin/python3 /usr/local/bin/python3.9 2>/dev/null || true
+        ln -sf /usr/local/bin/pip3 /usr/local/bin/pip3.9 2>/dev/null || true
+
+        # Cleanup
+        cd /
+        rm -rf "$tmp_dir"
+        rm -f /tmp/python39.tar.gz
+
+        echo "Python 3.9 installed successfully via binary"
+      register: install_binary
+      when: "'NEEDS_INSTALL' in check_python.stdout"
+
+    - name: Verify installation
+      ansible.builtin.raw: /usr/local/bin/python3.9 --version || /usr/local/bin/python3 --version || echo "Failed"
+      register: verify
+      changed_when: false
+
+    - name: Show version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ verify.stdout | default('Verification failed') }}"
+
+    - name: Cleanup local copy on control machine
+      ansible.builtin.file:
+        path: "{{ python_local_path }}"
+        state: absent
+      become: false
+      run_once: true
+      delegate_to: localhost
