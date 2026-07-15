@@ -4,6 +4,9 @@
   gather_facts: false
   vars_files:
     - vars.yaml
+  vars:
+    # clusterctl version to download and verify. Override in vars.yaml if needed.
+    clusterctl_version: "{{ clusterctl_version | default('1.13.3') }}"
 
   tasks:
     - name: Check if kubeconfig file exists
@@ -16,11 +19,17 @@
         msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
       when: not kubeconfig_file_stat.stat.exists
 
-    - name: Download clusterctl binary
-      ansible.builtin.get_url:
-        url: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.13.3/clusterctl-linux-amd64
-        dest: "{{ playbook_dir }}/clusterctl"
-        mode: '0755'
+    - name: Download clusterctl binary with SHA256 verification
+      ansible.builtin.include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v{{ clusterctl_version }}/clusterctl-linux-amd64"
+        dv_dest: "{{ playbook_dir }}/clusterctl"
+        dv_checksum_format: "github_release"
+        dv_github_repo: "kubernetes-sigs/cluster-api"
+        dv_github_release_asset_name: "clusterctl-linux-amd64"
+        dv_github_release_tag: "v{{ clusterctl_version }}"
+        dv_mode: "0755"
 
     - name: Run clusterctl init with rancher-fleet addon
       ansible.builtin.command:
