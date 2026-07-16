@@ -40,7 +40,7 @@
 
     - name: Fetch cert-manager manifest
       ansible.builtin.uri:
-        url: https://github.com/jetstack/cert-manager/releases/latest/download/cert-manager.yaml
+        url: https://github.com/jetstack/cert-manager/releases/download/v1.21.0/cert-manager.yaml
         method: GET
         return_content: true
         body_format: raw
