@@ -202,8 +202,8 @@
       tags: ['cluster', 'rke2']
 
     # Fetch operator-provided files before rke2 starts (e.g. the custom PSA config that
-    # lets Rancher run on profile: cis). Legacy optional_files contract: space-separated
-    # "dest,url" pairs. Opt-in, so plain CIS runs keep RKE2's strict default PSA.
+    # lets Rancher run on profile: cis). optional_files is a space-separated list of
+    # "dest,url[,sha256]" entries. Opt-in, so plain CIS runs keep RKE2's strict default PSA.
     - name: Optional files | Deliver operator-provided files
       when:
         - _rke2_is_server | default(false)
@@ -212,10 +212,10 @@
       block:
         # Fail clearly on a malformed entry instead of an opaque index error, and
         # split on the first comma only so URLs containing commas stay intact.
-        - name: Optional files | Validate "dest,url" format
+        - name: Optional files | Validate "dest,url[,sha256]" format
           ansible.builtin.assert:
             that: "',' in item"
-            fail_msg: "optional_files entry '{{ item }}' must be in 'dest,url' form"
+            fail_msg: "optional_files entry '{{ item }}' must be in 'dest,url[,sha256]' form"
             quiet: true
           loop: "{{ optional_files.split() }}"
 
@@ -226,12 +226,27 @@
             mode: '0755'
           loop: "{{ optional_files.split() }}"
 
-        - name: Optional files | Fetch each url to its destination
+        - name: Optional files | Fetch and verify files with SHA256 checksums
+          ansible.builtin.include_role:
+            name: download_verify
+          vars:
+            dv_artifact_url: "{{ item.split(',', 1)[1].rsplit(',', 1)[0] | trim }}"
+            dv_dest: "{{ item.split(',', 1)[0] | trim }}"
+            dv_checksum_format: sha256sum_inline
+            dv_checksum_inline_value: "{{ item.rsplit(',', 1)[-1] | trim | lower }}"
+            dv_mode: "0644"
+          loop: "{{ optional_files.split() }}"
+          when: (item.rsplit(',', 1)[-1] | trim) is match('^[0-9a-fA-F]{64}$')
+
+        # Preserve the legacy pair format for existing DTF/Jenkins callers. New
+        # callers should provide the third SHA256 field so download_verify is used.
+        - name: Optional files | Fetch legacy entries without checksum
           ansible.builtin.get_url:
             url: "{{ item.split(',', 1)[1] | trim }}"
             dest: "{{ item.split(',', 1)[0] | trim }}"
             mode: '0644'
           loop: "{{ optional_files.split() }}"
+          when: (item.rsplit(',', 1)[-1] | trim) is not match('^[0-9a-fA-F]{64}$')
       tags: ['cluster', 'rke2']
 
   roles:

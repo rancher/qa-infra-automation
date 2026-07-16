@@ -2,11 +2,12 @@
 # `datastore-endpoint`. Format mirrors the legacy distros-test-framework
 # rendering so downstream parsing is unchanged.
 locals {
-  db_host = local.is_aurora ? "${aws_rds_cluster.db[0].endpoint}:${aws_rds_cluster.db[0].port}" : aws_db_instance.db[0].endpoint
+  db_host                      = local.is_aurora ? "${aws_rds_cluster.db[0].endpoint}:${aws_rds_cluster.db[0].port}" : aws_db_instance.db[0].endpoint
+  postgres_password_urlencoded = replace(urlencode(var.db_password), "+", "%20")
 
   datastore_endpoint = (
     local.external_db == "postgres" ?
-    "postgres://${var.db_username}:${var.db_password}@${local.db_host}/${var.db_name}" :
+    "postgres://${var.db_username}:${local.postgres_password_urlencoded}@${local.db_host}/${var.db_name}" :
     "mysql://${var.db_username}:${var.db_password}@tcp(${local.db_host})/${var.db_name}"
   )
 }

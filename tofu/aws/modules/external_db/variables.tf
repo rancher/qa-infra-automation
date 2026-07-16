@@ -2,10 +2,6 @@
 # Mirrors the legacy distros-test-framework external-db provisioning so K3s/RKE2
 # clusters can run with an external datastore instead of embedded etcd.
 
-variable "aws_access_key" {}
-variable "aws_secret_key" {}
-variable "aws_region" {}
-
 variable "resource_name" {
   description = "Prefix used for the DB identifier and tags."
   type        = string

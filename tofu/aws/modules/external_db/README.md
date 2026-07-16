@@ -28,13 +28,14 @@ distros-test-framework external-db provisioning.
 ## Usage
 
 ```hcl
+provider "aws" {
+  region = var.aws_region
+}
+
 module "external_db" {
   source = "github.com/rancher/qa-infra-automation//tofu/aws/modules/external_db"
 
-  aws_access_key = var.aws_access_key
-  aws_secret_key = var.aws_secret_key
-  aws_region     = var.aws_region
-  resource_name  = "my-cluster"
+  resource_name = "my-cluster"
 
   external_db        = "postgres"
   external_db_version = "16.3"
@@ -62,3 +63,5 @@ product switches to kine automatically — no explicit etcd-disable is required.
   non-default VPC. In the account default VPC the default subnet group is used.
 - `db_password` is marked sensitive; the connection string output is also
   sensitive because it embeds the credentials.
+- PostgreSQL passwords are percent-encoded in the connection URI. MySQL
+  passwords remain in the raw DSN format expected by Kine's MySQL driver.
