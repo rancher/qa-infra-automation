@@ -95,7 +95,7 @@ help: ## Show this help message
 	@echo "  cp $(ANSIBLE_DIR)/inventory/group_vars/all.yml.template $(GROUP_VARS)"
 	@echo ""
 	@echo "BACKEND MANAGEMENT:"
-	@echo "  backend-s3          Configure S3 backend (requires BUCKET= KEY= REGION=)"
+	@echo "  backend-s3          Configure S3 backend (BUCKET= REGION= required; KEY= optional)"
 	@echo "  backend-local       Configure local backend (optional: PATH=)"
 	@echo "  backend-init        Run tofu init in current module"
 	@echo ""
@@ -149,7 +149,7 @@ help: ## Show this help message
 	@echo "  make status                                 # Check current cluster"
 	@echo ""
 	@echo "Backend Configuration:"
-	@echo "  make backend-s3 BUCKET=my-bucket KEY=my-key REGION=us-east-1"
+	@echo "  make backend-s3 BUCKET=my-bucket REGION=us-east-1   # KEY optional, defaults to <PROVIDER>/<ENV>/terraform.tfstate"
 	@echo "  make backend-local PATH=terraform.tfstate"
 	@echo ""
 	@echo "Workspace Examples:"
@@ -235,14 +235,16 @@ check-tofu-dir:
 # ============================================================================
 
 .PHONY: backend-s3
-backend-s3: ## Configure S3 backend for current module (use BUCKET= KEY= REGION=)
-	@if [ -z "$(BUCKET)" ] || [ -z "$(KEY)" ] || [ -z "$(REGION)" ]; then \
-		echo "Error: BUCKET, KEY, and REGION are required"; \
-		echo "Usage: make backend-s3 BUCKET=my-bucket KEY=my-key REGION=us-east-1 [DYNAMODB_TABLE=table] [ENCRYPT=true]"; \
+backend-s3: ## Configure S3 backend (BUCKET= REGION= required; KEY= optional, defaults to <PROVIDER>/<ENV>/terraform.tfstate)
+	@if [ -z "$(BUCKET)" ] || [ -z "$(REGION)" ]; then \
+		echo "Error: BUCKET and REGION are required"; \
+		echo "Usage: make backend-s3 BUCKET=my-bucket REGION=us-east-1 [KEY=<provider>/<env>/terraform.tfstate] [DYNAMODB_TABLE=table] [ENCRYPT=true]"; \
+		echo "  KEY is optional; if omitted it defaults to $(PROVIDER)/$(ENV)/terraform.tfstate so each ENV gets isolated state."; \
 		exit 1; \
 	fi
-	@echo "Configuring S3 backend for $(TOFU_DIR)..."
-	@(cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh s3 --bucket "$(BUCKET)" --key "$(KEY)" --region "$(REGION)" $(if $(DYNAMODB_TABLE),--dynamodb-table "$(DYNAMODB_TABLE)") $(if $(ENCRYPT),--encrypt "$(ENCRYPT)"))
+	@key="$(if $(KEY),$(KEY),$(PROVIDER)/$(ENV)/terraform.tfstate)"; \
+	echo "Configuring S3 backend for $(TOFU_DIR) with key '$$key' ..."; \
+	cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh s3 --bucket "$(BUCKET)" --key "$$key" --region "$(REGION)" $(if $(DYNAMODB_TABLE),--dynamodb-table "$(DYNAMODB_TABLE)") $(if $(ENCRYPT),--encrypt "$(ENCRYPT)")
 
 .PHONY: backend-local
 backend-local: ## Configure local backend for current module (use STATE_PATH=terraform.tfstate)
@@ -320,6 +322,27 @@ workspace-inspect: check-tofu-dir ## Show detailed info about current workspace
 # INFRASTRUCTURE (TOFU)
 # ============================================================================
 
+.PHONY: check-state-env
+check-state-env: check-tofu-dir ## Abort if current state looks like a different ENV (wrong ENV, or shared state key + same workspace)
+	@if [ "$(WORKSPACE)" != "default" ]; then cd $(TOFU_DIR) && tofu workspace select "$(WORKSPACE)" >/dev/null 2>&1 || true; fi
+	@cd $(TOFU_DIR) && \
+	state_modules=$$(tofu state list 2>/dev/null | grep -oE '^module\.[a-z_0-9]+' | sed 's/^module\.//' | sort -u); \
+	if [ -n "$$state_modules" ] && [ "$(IGNORE_ENV_MISMATCH)" != "yes" ]; then \
+		config_modules=$$(grep -hoE 'module "[a-z_0-9]+"' *.tf 2>/dev/null | sed 's/module "\(.*\)"/\1/' | sort -u); \
+		overlap=$$(comm -12 <(printf '%s\n' "$$state_modules") <(printf '%s\n' "$$config_modules")); \
+		if [ -z "$$overlap" ]; then \
+			echo ""; \
+			echo "ERROR: state / ENV mismatch - the current state looks like a DIFFERENT environment than ENV=$(ENV)."; \
+			echo "  State has module(s), NONE of which are defined in $(TOFU_DIR):"; \
+			echo "$$state_modules" | sed 's/^/    module./'; \
+			echo "  Usually this means the wrong ENV, or a shared state key used with the same workspace."; \
+			echo "  List candidates with 'make infra-ls', then re-run with the correct ENV, e.g.:"; \
+			echo "    make $(MAKECMDGOALS) ENV=airgap   (or ENV=default / ENV=proxy)"; \
+			echo "  Override when you are certain: make $(MAKECMDGOALS) IGNORE_ENV_MISMATCH=yes"; \
+			exit 1; \
+		fi; \
+	fi
+
 .PHONY: infra-init
 infra-init: check-prereqs check-tofu-dir ## Initialize Tofu
 	@echo "Initializing Tofu for $(PROVIDER)/$(ENV)/$(WORKSPACE)..."
@@ -330,12 +353,12 @@ infra-init: check-prereqs check-tofu-dir ## Initialize Tofu
 	fi
 
 .PHONY: infra-plan
-infra-plan: infra-init ## Plan infrastructure changes
+infra-plan: infra-init check-state-env ## Plan infrastructure changes
 	@echo "Planning infrastructure for workspace '$(WORKSPACE)'..."
 	cd $(TOFU_DIR) && tofu plan -var-file=terraform.tfvars
 
 .PHONY: infra-up
-infra-up: infra-init ## Create infrastructure (generates Ansible inventory automatically)
+infra-up: infra-init check-state-env ## Create infrastructure (generates Ansible inventory automatically)
 	@echo "Creating $(PROVIDER) infrastructure for $(ENV)/$(WORKSPACE)..."
 	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars -auto-approve
 	@echo "Generating Ansible inventory..."
@@ -358,7 +381,7 @@ infra-up: infra-init ## Create infrastructure (generates Ansible inventory autom
 	@[ -f "$(INVENTORY)" ] && echo "" && echo "Infrastructure created. Inventory generated at $(INVENTORY)" || (echo "Error: Inventory generation failed" && exit 1)
 
 .PHONY: infra-down
-infra-down: check-tofu-dir ## Destroy infrastructure
+infra-down: check-tofu-dir check-state-env ## Destroy infrastructure
 	@echo "═══════════════════════════════════════════════════════════════"
 	@echo "  Infrastructure Destroy - $(PROVIDER)/$(ENV)/$(WORKSPACE)"
 	@echo "═══════════════════════════════════════════════════════════════"
@@ -381,7 +404,9 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 		echo ""; \
 		echo "Current workspace: $$(tofu workspace show)"; \
 		echo ""; \
-		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; else read -p "Continue anyway? [y/N] " confirm; fi; \
+		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; \
+		elif [ ! -t 0 ]; then echo "  ERROR: stdin is not a TTY and AUTO_APPROVE is not 'yes'"; echo "  Re-run with: make infra-down AUTO_APPROVE=yes"; exit 1; \
+		else read -p "Continue anyway? [y/N] " confirm; fi; \
 		[ "$$confirm" = "y" ] || exit 1; \
 	else \
 		tofu state list 2>/dev/null | head -10 | sed 's/^/  /'; \
@@ -391,11 +416,28 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 		echo ""; \
 		echo "Total: $$resources resource(s)"; \
 		echo ""; \
-		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; else read -p "Destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure? [y/N] " confirm; fi; \
+		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; \
+		elif [ ! -t 0 ]; then echo "  ERROR: stdin is not a TTY and AUTO_APPROVE is not 'yes'"; echo "  Re-run with: make infra-down AUTO_APPROVE=yes"; exit 1; \
+		else read -p "Destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure? [y/N] " confirm; fi; \
 		[ "$$confirm" = "y" ] || exit 1; \
 	fi)
 	@echo ""
 	@echo "Destroying..."
+	@cd $(TOFU_DIR) && \
+	creds_ok=0; \
+	[ -n "$$TF_VAR_aws_access_key" ] && creds_ok=1; \
+	[ -n "$$AWS_ACCESS_KEY_ID" ] && creds_ok=1; \
+	[ -n "$$AWS_PROFILE" ] && creds_ok=1; \
+	grep -qE '^[[:space:]]*aws_access_key[[:space:]]*=' terraform.tfvars 2>/dev/null && creds_ok=1; \
+	[ -f "$${AWS_SHARED_CREDENTIALS_FILE:-$$HOME/.aws/credentials}" ] && creds_ok=1; \
+	if [ "$$creds_ok" != "1" ]; then \
+		echo "ERROR: no AWS credentials found. The AWS provider needs one of:"; \
+		echo "    - ~/.aws/credentials shared file (set AWS_PROFILE to pick a non-default profile)"; \
+		echo "    - export TF_VAR_aws_access_key=<key> TF_VAR_aws_secret_key=<secret>"; \
+		echo "    - export AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret>"; \
+		echo "    - aws_access_key / aws_secret_key in $(CURDIR)/$(TOFU_DIR)/terraform.tfvars"; \
+		exit 1; \
+	fi
 	cd $(TOFU_DIR) && tofu destroy -var-file=terraform.tfvars -auto-approve
 	@echo ""
 	@echo "✓ Destroy complete"
