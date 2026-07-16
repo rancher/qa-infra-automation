@@ -1,0 +1,28 @@
+{
+  "type": "cluster_nodes",
+  "metadata": {
+    "kube_api_host": "5.6.7.8",
+    "fqdn": "rke2-extds.example.com",
+    "ssh_user": "ec2-user"
+  },
+  "nodes": [
+    {
+      "name": "cp-0",
+      "roles": ["cp"],
+      "public_ip": "5.6.7.8",
+      "private_ip": "10.0.5.1"
+    },
+    {
+      "name": "cp-1",
+      "roles": ["cp"],
+      "public_ip": "5.6.7.9",
+      "private_ip": "10.0.5.2"
+    },
+    {
+      "name": "worker-0",
+      "roles": ["worker"],
+      "public_ip": "5.6.7.10",
+      "private_ip": "10.0.5.3"
+    }
+  ]
+}

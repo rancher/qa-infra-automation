@@ -69,17 +69,9 @@ disable:
 {% endif %}
 
 {% if rke2_additional_config | length > 0 %}
-# Additional configuration
-{% for key, value in rke2_additional_config.items() %}
-{% if value is string %}
-{{ key }}: {{ value }}
-{% elif value is sequence and value is not string %}
-{{ key }}:
-{% for item in value %}
-  - {{ item }}
-{% endfor %}
-{% else %}
-{{ key }}: {{ value }}
-{% endif %}
-{% endfor %}
+# Additional configuration.
+# External datastore: pass `datastore-endpoint: <conn-string>` here (or via
+# server flags). RKE2 switches to kine automatically when it's set — no explicit
+# etcd-disable is needed. The connection string's case/colons are preserved.
+{{ rke2_additional_config | to_nice_yaml(indent=2, sort_keys=false) | trim }}
 {% endif %}
