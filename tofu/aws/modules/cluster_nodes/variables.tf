@@ -1,6 +1,12 @@
 variable "public_ssh_key" {} // The corrals public key.  This should be installed on every node.
-variable "aws_access_key" {}
-variable "aws_secret_key" {}
+variable "aws_access_key" {
+  type    = string
+  default = null // Optional. When null the AWS provider uses its standard credential chain (~/.aws/credentials, AWS_PROFILE, env vars, SSO, IMDS).
+}
+variable "aws_secret_key" {
+  type    = string
+  default = null // Optional. See aws_access_key.
+}
 variable "aws_region" {}
 variable "aws_ami" {}
 variable "aws_hostname_prefix" {}
