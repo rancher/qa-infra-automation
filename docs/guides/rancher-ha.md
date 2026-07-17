@@ -93,6 +93,23 @@ To print the Rancher URL, admin password, and generated API token at any time:
 make rancher-info
 ```
 
+Example output:
+
+```
+============================================================
+  RANCHER LOGIN INFORMATION  (rke2 / default)
+============================================================
+
+  Access URL:     https://rancher.example.com
+
+  Admin Username: admin
+  Admin Password: S3cur3-P@ssw0rd
+  API Token:      token-abc123:1a2b3c4d5e6f7g8h9i0j...
+
+  Token file:     /home/user/qa-infra-automation/ansible/rancher/default-ha/generated.tfvars
+============================================================
+```
+
 From the command line:
 
 ```bash
