@@ -1,6 +1,6 @@
 # CAPI (Cluster API) Ansible Playbook
 
-This playbook provisions a downstream Kubernetes cluster via [Cluster API](https://cluster-api.sigs.k8s.io/)
+This playbook configure a downstream Kubernetes cluster via [Cluster API](https://cluster-api.sigs.k8s.io/)
 (CAPI) on an existing management cluster, with the Rancher Fleet addon enabled so the
 resulting cluster is automatically imported into Rancher.
 
