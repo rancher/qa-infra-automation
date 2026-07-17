@@ -69,7 +69,25 @@
           addon:
             rancher-fleet:
               enabled: true
-      ignore_errors: true
+      register: capi_operator_install_result
+      failed_when:
+        - capi_operator_install_result is failed
+        - "'Internal error occurred: failed calling webhook' not in (capi_operator_install_result.msg | default('') ~ capi_operator_install_result.stderr | default(''))"
+
+    - name: Verify capi-operator deployment is available
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: capi-operator-cluster-api-operator
+        namespace: capi-operator-system
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 30
+      register: capi_operator_deployment
+      failed_when: capi_operator_deployment.resources | length == 0
 
     - name: Apply CAPI providers
       kubernetes.core.k8s:
@@ -131,4 +149,4 @@
         wait: yes
         wait_timeout: 1800
         wait_condition:
-          type: Ready
+          type: Ready 
