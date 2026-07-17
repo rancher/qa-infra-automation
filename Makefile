@@ -324,8 +324,13 @@ workspace-inspect: check-tofu-dir ## Show detailed info about current workspace
 
 .PHONY: check-state-env
 check-state-env: check-tofu-dir ## Abort if current state looks like a different ENV (wrong ENV, or shared state key + same workspace)
-	@if [ "$(WORKSPACE)" != "default" ]; then cd $(TOFU_DIR) && tofu workspace select "$(WORKSPACE)" >/dev/null 2>&1 || true; fi
 	@cd $(TOFU_DIR) && \
+	if [ "$(WORKSPACE)" != "default" ]; then \
+		if ! tofu workspace select "$(WORKSPACE)" >/dev/null 2>&1; then \
+			echo "NOTE: could not select workspace '$(WORKSPACE)' (it may not exist or the backend is not initialized); skipping ENV state check."; \
+			exit 0; \
+		fi; \
+	fi; \
 	state_modules=$$(tofu state list 2>/dev/null | grep -oE '^module\.[a-z_0-9]+' | sed 's/^module\.//' | sort -u); \
 	if [ -n "$$state_modules" ] && [ "$(IGNORE_ENV_MISMATCH)" != "yes" ]; then \
 		config_modules=$$(grep -hoE 'module "[a-z_0-9]+"' *.tf 2>/dev/null | sed 's/module "\(.*\)"/\1/' | sort -u); \
@@ -423,20 +428,20 @@ infra-down: check-tofu-dir check-state-env ## Destroy infrastructure
 	fi)
 	@echo ""
 	@echo "Destroying..."
-	@cd $(TOFU_DIR) && \
-	creds_ok=0; \
-	[ -n "$$TF_VAR_aws_access_key" ] && creds_ok=1; \
-	[ -n "$$AWS_ACCESS_KEY_ID" ] && creds_ok=1; \
-	[ -n "$$AWS_PROFILE" ] && creds_ok=1; \
-	grep -qE '^[[:space:]]*aws_access_key[[:space:]]*=' terraform.tfvars 2>/dev/null && creds_ok=1; \
-	[ -f "$${AWS_SHARED_CREDENTIALS_FILE:-$$HOME/.aws/credentials}" ] && creds_ok=1; \
-	if [ "$$creds_ok" != "1" ]; then \
-		echo "ERROR: no AWS credentials found. The AWS provider needs one of:"; \
-		echo "    - ~/.aws/credentials shared file (set AWS_PROFILE to pick a non-default profile)"; \
-		echo "    - export TF_VAR_aws_access_key=<key> TF_VAR_aws_secret_key=<secret>"; \
-		echo "    - export AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret>"; \
-		echo "    - aws_access_key / aws_secret_key in $(CURDIR)/$(TOFU_DIR)/terraform.tfvars"; \
-		exit 1; \
+	@if [ "$(PROVIDER)" = "aws" ]; then \
+		cd $(TOFU_DIR) && \
+		creds_ok=0; \
+		[ -n "$$TF_VAR_aws_access_key" ] && creds_ok=1; \
+		[ -n "$$AWS_ACCESS_KEY_ID" ] && creds_ok=1; \
+		[ -n "$$AWS_PROFILE" ] && creds_ok=1; \
+		grep -qE '^[[:space:]]*aws_access_key[[:space:]]*=' terraform.tfvars 2>/dev/null && creds_ok=1; \
+		[ -f "$${AWS_SHARED_CREDENTIALS_FILE:-$$HOME/.aws/credentials}" ] && creds_ok=1; \
+		if [ "$$creds_ok" != "1" ]; then \
+			echo "WARNING: no AWS credentials detected via env vars, AWS_PROFILE, or shared credentials file."; \
+			echo "  The AWS provider may still authenticate via IMDS (instance profile) or web identity, so proceeding."; \
+			echo "  If the destroy fails, set one of: TF_VAR_aws_access_key, AWS_ACCESS_KEY_ID, AWS_PROFILE,"; \
+			echo "  ~/.aws/credentials, or aws_access_key in $(CURDIR)/$(TOFU_DIR)/terraform.tfvars."; \
+		fi; \
 	fi
 	cd $(TOFU_DIR) && tofu destroy -var-file=terraform.tfvars -auto-approve
 	@echo ""
