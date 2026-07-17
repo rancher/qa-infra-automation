@@ -87,6 +87,12 @@ Log in with:
 - **Username:** `admin`
 - **Password:** the `password` value from `vars.yaml`
 
+To print the Rancher URL, admin password, and generated API token at any time:
+
+```bash
+make rancher-info
+```
+
 From the command line:
 
 ```bash

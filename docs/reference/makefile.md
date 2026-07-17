@@ -51,6 +51,7 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 | Target | Description |
 |--------|-------------|
 | `make status` | Show cluster node and Rancher pod status |
+| `make rancher-info` | Display Rancher login information (URL, admin password, API token) |
 | `make test-ssh` | Test SSH connectivity to all nodes |
 | `make ssh-bastion` | SSH into the bastion host (airgap) |
 | `make ping` | Ansible ping all hosts |
@@ -91,6 +92,9 @@ make cluster DISTRO=k3s
 
 # Check what's running
 make status
+
+# Show Rancher URL, admin password, and API token
+make rancher-info
 
 # Destroy everything
 make infra-nuke
