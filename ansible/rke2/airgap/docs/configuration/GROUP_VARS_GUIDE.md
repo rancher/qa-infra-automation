@@ -139,6 +139,45 @@ rke2_agent_options: |
 
 See [RKE2 Server Config Reference](https://docs.rke2.io/reference/server_config) and [RKE2 Agent Config Reference](https://docs.rke2.io/reference/linux_agent_config) for all options.
 
+### Rancher Deployment
+
+When `deploy_rancher: true`, Rancher is installed with Helm via the
+[`airgap_rancher_helm_deploy`](../../../../roles/airgap_rancher_helm_deploy/README.md) role.
+
+```yaml
+# inventory/group_vars/all.yml
+deploy_rancher: true
+install_helm: true
+
+rancher_hostname: "rancher.example.com"      # overrides internal_lb_hostname from inventory
+rancher_bootstrap_password: "{{ vault_rancher_bootstrap_password }}"
+rancher_image_tag: v2.12.2
+rancher_use_bundled_system_charts: true
+
+# Airgap: private registry hosting rancher/shell and system images (no scheme)
+rancher_system_default_registry: "harbor.prod.company.com"
+```
+
+Key variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `deploy_rancher` | Enable Rancher deployment | `true` |
+| `install_helm` | Install Helm 3 on the bastion if absent | `true` |
+| `rancher_hostname` | FQDN for the Rancher UI | `internal_lb_hostname` |
+| `rancher_bootstrap_password` | Initial admin password | required |
+| `rancher_image_tag` | Rancher version to deploy | — |
+| `rancher_use_bundled_system_charts` | Use bundled charts (airgap) | `true` |
+| `rancher_system_default_registry` | Airgap registry passed to the chart as `global.cattle.systemDefaultRegistry`; rewrites `shell-image` at install time | `""` |
+
+**Airgap note:** `rancher_system_default_registry` must be set so Rancher rewrites its
+system images (including `shell-image` → `<registry>/rancher/shell:<tag>`) at install time.
+`shell-image` is seeded at Rancher startup and is **not** rewritten when the setting is
+changed later, so it must be configured at deploy time. `rancher/shell:<tag>` must exist
+at `<registry>/rancher/shell:<tag>` (containerd mirrors do not cover this verbatim
+reference). See the [airgap README](../../README.md) (step 6, Deploy Rancher) and the
+[role README](../../../../roles/airgap_rancher_helm_deploy/README.md).
+
 ### Development Configuration
 
 Development environment with relaxed security:
