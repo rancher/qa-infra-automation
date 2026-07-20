@@ -128,6 +128,7 @@ help: ## Show this help message
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
+	@echo "  rancher-info        Display Rancher login information (URL, admin password, API token)"
 	@echo "  test-ssh            Test SSH connectivity to all nodes"
 	@echo "  ssh-bastion         SSH to bastion host"
 	@echo "  ping                Ping all hosts"
@@ -651,6 +652,10 @@ status: check-inventory ## Show cluster status
 		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
 		echo "Run 'make cluster' first to deploy the cluster."; \
 	fi
+
+.PHONY: rancher-info
+rancher-info: ## Display Rancher login information (URL, admin password, API token)
+	@python3 scripts/show_rancher_info.py --env $(ENV) --distro $(DISTRO) --root $(CURDIR)
 
 .PHONY: ssh-bastion
 ssh-bastion: check-inventory ## SSH to bastion host
