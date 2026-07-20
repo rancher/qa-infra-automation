@@ -23,8 +23,12 @@ rancher_tls_source: "rancher"
 # Cert-manager chart version (SemVer without leading "v", e.g. 1.12.3). Leave empty to use latest.
 cert_manager_version: ""
 
-# Private registry configuration for airgap deployments
-# Set rancher_system_default_registry to your private registry URL (without https://)
+# Private registry configuration for airgap deployments.
+# Set rancher_system_default_registry to your private registry URL (without scheme,
+# e.g. "privateregistry.example.com:5000"). When non-empty it is passed to the Rancher
+# Helm chart as global.cattle.systemDefaultRegistry so that Rancher system images
+# (including the rancher/shell image used by kubectl jobs) resolve to the private
+# registry at install time. Required for airgap; leave empty for internet-connected deploys.
 rancher_system_default_registry: ""
 
 # Optional: Specify custom Rancher image repository

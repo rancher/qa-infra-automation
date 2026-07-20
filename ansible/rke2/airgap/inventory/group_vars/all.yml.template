@@ -130,6 +130,9 @@ install_helm: true
 rancher_bootstrap_password: "<RANCHER_BOOTSTRAP_PASSWORD>"
 rancher_image_tag: <RANCHER_VERSION>
 rancher_use_bundled_system_charts: true
+# Private registry for all Rancher system images in airgap (no scheme, e.g. host:5000).
+# When set, Rancher rewrites shell-image and system images to <registry>/... at install time.
+rancher_system_default_registry: "<PRIVATE_REGISTRY_URL>"
 
 # rancher_advanced_values:
 #   extraEnv:
