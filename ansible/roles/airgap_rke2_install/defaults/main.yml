@@ -1,0 +1,9 @@
+---
+# Default variables for airgap_rke2_install role
+
+# Standalone traefik image tarball handling.
+#   "auto"  -> auto-detect from rke2_version (bundled into rke2-images-core on v1.36+,
+#              so the standalone rke2-images-traefik.* asset is skipped for >= 1.36)
+#   true     -> always expect the standalone traefik tarball (<= v1.35 / custom build)
+#   false    -> never expect it
+rke2_traefik_tarball: "auto"

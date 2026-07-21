@@ -81,6 +81,7 @@
   failed_when: false
   args:
     executable: /bin/bash
+  when: rke2_traefik_tarball_enabled | bool
 
 - name: Display checksum verification results
   ansible.builtin.debug:
@@ -89,14 +90,14 @@
       - RKE2 Tarball: {{ tarball_checksum_verify.stdout }}
       - Core Images: {{ core_images_checksum_verify.stdout }}
       - CNI Images: {{ cni_images_checksum_verify.stdout }}
-      - Traefik Images: {{ traefik_images_checksum_verify.stdout }}
+      - Traefik Images: {{ traefik_images_checksum_verify.stdout | default('SKIPPED') }}
 
 - name: Handle checksum verification failure
   when: >-
     tarball_checksum_verify.rc != 0 or
     core_images_checksum_verify.rc != 0 or
     cni_images_checksum_verify.rc != 0 or
-    traefik_images_checksum_verify.rc != 0
+    (rke2_traefik_tarball_enabled | bool and (traefik_images_checksum_verify.rc | default(0)) != 0)
   block:
     - name: Fail on checksum mismatch
       ansible.builtin.fail:
@@ -105,7 +106,7 @@
           RKE2 Tarball: {{ tarball_checksum_verify.stdout }}
           Core Images: {{ core_images_checksum_verify.stdout }}
           CNI Images: {{ cni_images_checksum_verify.stdout }}
-          Traefik Images: {{ traefik_images_checksum_verify.stdout }}
+          Traefik Images: {{ traefik_images_checksum_verify.stdout | default('SKIPPED') }}
 
 - name: Confirm successful verification
   ansible.builtin.debug:
@@ -114,4 +115,4 @@
     tarball_checksum_verify.rc == 0 and
     core_images_checksum_verify.rc == 0 and
     cni_images_checksum_verify.rc == 0 and
-    traefik_images_checksum_verify.rc == 0
+    (not (rke2_traefik_tarball_enabled | bool) or (traefik_images_checksum_verify.rc | default(0)) == 0)

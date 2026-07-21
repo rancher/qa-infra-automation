@@ -26,6 +26,22 @@
   ansible.builtin.set_fact:
     rke2_arch: "{{ ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
 
+- name: Detect whether standalone traefik tarball is shipped by this RKE2 release
+  ansible.builtin.set_fact:
+    rke2_traefik_tarball_enabled: >-
+      {{
+        (rke2_traefik_tarball == 'auto') | ternary(
+          (((rke2_version | regex_replace('^v', '')).split('+')[0]) is version('1.36.0', '<')),
+          (rke2_traefik_tarball | bool)
+        )
+      }}
+
+- name: Show traefik tarball decision
+  ansible.builtin.debug:
+    msg: >-
+      Standalone traefik tarball for RKE2 {{ rke2_version }}:
+      {{ 'INCLUDED' if (rke2_traefik_tarball_enabled | bool) else 'SKIPPED (Traefik images are bundled in rke2-images-core on v1.36+)' }}
+
 - name: Show urls used to get artifacts
   ansible.builtin.debug:
     msg: |
@@ -82,6 +98,7 @@
   retries: "{{ rke2_download_retries }}"
   delay: "{{ rke2_download_delay }}"
   become: false
+  when: rke2_traefik_tarball_enabled | bool
 
 - name: Download checksum file
   ansible.builtin.get_url:
