@@ -82,9 +82,36 @@
           ansible.builtin.set_fact:
             _rancher_preflight_user: "{{ (_rancher_preflight_cfg.auth | default({})).username | default(omit) }}"
             _rancher_preflight_pass: "{{ (_rancher_preflight_cfg.auth | default({})).password | default(omit) }}"
+            _rancher_preflight_have_creds: "{{ ((_rancher_preflight_cfg.auth | default({})).username | default('') | length > 0) }}"
             _rancher_preflight_validate_certs: >-
               {{ not ((_rancher_preflight_cfg.tls | default({})).insecure_skip_verify | default(false) | bool) }}
 
+        - name: Default preflight method to api
+          ansible.builtin.set_fact:
+            _rancher_preflight_use_skopeo: false
+
+        - name: Detect skopeo for pull mode
+          ansible.builtin.command: skopeo --version
+          register: _rancher_preflight_skopeo_ver
+          changed_when: false
+          failed_when: false
+          when: rancher_preflight_mode | default('api') == 'pull'
+
+        - name: Enable skopeo pull-check when available
+          ansible.builtin.set_fact:
+            _rancher_preflight_use_skopeo: "{{ _rancher_preflight_skopeo_ver.rc | default(1) == 0 }}"
+          when: rancher_preflight_mode | default('api') == 'pull'
+
+        - name: Warn when pull mode requested but skopeo is missing
+          ansible.builtin.debug:
+            msg: >-
+              rancher_preflight_mode=pull but skopeo is not installed on the bastion; falling back to api mode.
+              Note: api mode can return a false 404 against a cold Harbor proxy cache. Install skopeo to use pull mode.
+          when:
+            - rancher_preflight_mode | default('api') == 'pull'
+            - not (_rancher_preflight_use_skopeo | bool)
+
+        # --- API mode: registry v2 manifest GET (default; no extra deps) ---
         - name: Query Rancher image manifest in private registry
           ansible.builtin.uri:
             url: "https://{{ rancher_system_default_registry }}/v2/{{ rancher_preflight_image_repo }}/manifests/{{ rancher_image_tag }}"
@@ -102,13 +129,16 @@
             status_code: [200, 401, 403, 404]
           register: _rancher_preflight_resp
           failed_when: false
+          when: not (_rancher_preflight_use_skopeo | bool)
 
         - name: Confirm Rancher image found in private registry
           ansible.builtin.debug:
             msg: >-
               OK: {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
               present in private registry (HTTP {{ _rancher_preflight_resp.status }}).
-          when: _rancher_preflight_resp.status | default(0) == 200
+          when:
+            - not (_rancher_preflight_use_skopeo | bool)
+            - _rancher_preflight_resp.status | default(0) == 200
 
         - name: Warn if registry preflight could not confirm image
           ansible.builtin.debug:
@@ -116,7 +146,9 @@
               WARNING: could not confirm {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
               (HTTP {{ _rancher_preflight_resp.status | default('?') }}: {{ _rancher_preflight_resp.msg | default('') }}).
               If this is an auth/API issue, set rancher_preflight_verify_image: false to skip. Continuing install.
-          when: _rancher_preflight_resp.status | default(0) not in [200, 404]
+          when:
+            - not (_rancher_preflight_use_skopeo | bool)
+            - _rancher_preflight_resp.status | default(0) not in [200, 404]
 
         - name: Fail if Rancher image is missing from private registry
           ansible.builtin.fail:
@@ -125,7 +157,43 @@
               is NOT present in the private registry (HTTP 404). Mirror it (and rancher/shell, plus the
               webhook/agent images Rancher deploys) into {{ rancher_system_default_registry }} before installing,
               or set rancher_preflight_verify_image: false to skip this check.
-          when: _rancher_preflight_resp.status | default(0) == 404
+          when:
+            - not (_rancher_preflight_use_skopeo | bool)
+            - _rancher_preflight_resp.status | default(0) == 404
+
+        # --- Pull mode: skopeo inspect (same path as a real pull; correct for proxies) ---
+        - name: Pull-check Rancher image with skopeo
+          ansible.builtin.command:
+            cmd: >-
+              skopeo inspect
+              --tls-verify={{ _rancher_preflight_validate_certs | bool | lower }}
+              {{ ('--creds=' ~ _rancher_preflight_user ~ ':' ~ _rancher_preflight_pass) if (_rancher_preflight_have_creds | bool) else '' }}
+              docker://{{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+          register: _rancher_preflight_skopeo_resp
+          changed_when: false
+          failed_when: false
+          when: _rancher_preflight_use_skopeo | bool
+
+        - name: Confirm Rancher image resolvable via skopeo
+          ansible.builtin.debug:
+            msg: >-
+              OK: {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              resolvable via skopeo (pull path verified).
+          when:
+            - _rancher_preflight_use_skopeo | bool
+            - _rancher_preflight_skopeo_resp.rc | default(1) == 0
+
+        - name: Fail if skopeo cannot resolve Rancher image
+          ansible.builtin.fail:
+            msg: >-
+              Rancher image {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              could not be resolved via skopeo (rc={{ _rancher_preflight_skopeo_resp.rc }}):
+              {{ _rancher_preflight_skopeo_resp.stderr | default(_rancher_preflight_skopeo_resp.stdout | default('')) }}
+              Mirror it into {{ rancher_system_default_registry }} (or ensure the proxy-project path is correct and
+              upstream is reachable), or set rancher_preflight_verify_image: false to skip.
+          when:
+            - _rancher_preflight_use_skopeo | bool
+            - _rancher_preflight_skopeo_resp.rc | default(1) != 0
 
     - name: Add Rancher Helm repository
       kubernetes.core.helm_repository:
