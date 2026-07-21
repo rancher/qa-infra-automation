@@ -62,6 +62,71 @@
           ansible.builtin.debug:
             msg: "Helm version: {{ helm_version_output.stdout }}"
 
+    - name: Preflight - verify Rancher image exists in private registry
+      when:
+        - rancher_system_default_registry | default('') | length > 0
+        - rancher_image_tag | default('') | length > 0
+        - rancher_preflight_verify_image | default(true) | bool
+      block:
+        - name: Resolve matching registry config for preflight
+          ansible.builtin.set_fact:
+            _rancher_preflight_cfg: >-
+              {{
+                (private_registry_configs | default([])
+                  | selectattr('registry', 'equalto', rancher_system_default_registry)
+                  | list
+                  | first) | default({})
+              }}
+
+        - name: Compute preflight registry auth and TLS
+          ansible.builtin.set_fact:
+            _rancher_preflight_user: "{{ (_rancher_preflight_cfg.auth | default({})).username | default(omit) }}"
+            _rancher_preflight_pass: "{{ (_rancher_preflight_cfg.auth | default({})).password | default(omit) }}"
+            _rancher_preflight_validate_certs: >-
+              {{ not ((_rancher_preflight_cfg.tls | default({})).insecure_skip_verify | default(false) | bool) }}
+
+        - name: Query Rancher image manifest in private registry
+          ansible.builtin.uri:
+            url: "https://{{ rancher_system_default_registry }}/v2/{{ rancher_preflight_image_repo }}/manifests/{{ rancher_image_tag }}"
+            method: GET
+            timeout: 20
+            validate_certs: "{{ _rancher_preflight_validate_certs }}"
+            url_username: "{{ _rancher_preflight_user }}"
+            url_password: "{{ _rancher_preflight_pass }}"
+            force_basic_auth: true
+            headers:
+              Accept: >-
+                application/vnd.oci.image.manifest.v1+json,
+                application/vnd.docker.distribution.manifest.v2+json,
+                application/vnd.docker.distribution.manifest.list.v2+json
+            status_code: [200, 401, 403, 404]
+          register: _rancher_preflight_resp
+          failed_when: false
+
+        - name: Confirm Rancher image found in private registry
+          ansible.builtin.debug:
+            msg: >-
+              OK: {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              present in private registry (HTTP {{ _rancher_preflight_resp.status }}).
+          when: _rancher_preflight_resp.status | default(0) == 200
+
+        - name: Warn if registry preflight could not confirm image
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: could not confirm {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              (HTTP {{ _rancher_preflight_resp.status | default('?') }}: {{ _rancher_preflight_resp.msg | default('') }}).
+              If this is an auth/API issue, set rancher_preflight_verify_image: false to skip. Continuing install.
+          when: _rancher_preflight_resp.status | default(0) not in [200, 404]
+
+        - name: Fail if Rancher image is missing from private registry
+          ansible.builtin.fail:
+            msg: >-
+              Rancher image {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              is NOT present in the private registry (HTTP 404). Mirror it (and rancher/shell, plus the
+              webhook/agent images Rancher deploys) into {{ rancher_system_default_registry }} before installing,
+              or set rancher_preflight_verify_image: false to skip this check.
+          when: _rancher_preflight_resp.status | default(0) == 404
+
     - name: Add Rancher Helm repository
       kubernetes.core.helm_repository:
         name: "{{ rancher_helm_chart_repo_name }}"

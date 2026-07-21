@@ -31,6 +31,15 @@ cert_manager_version: ""
 # registry at install time. Required for airgap; leave empty for internet-connected deploys.
 rancher_system_default_registry: ""
 
+# Preflight: verify the primary Rancher image is present in the private registry
+# before installing (airgap). Auto-disabled when rancher_system_default_registry is
+# empty; set to false to skip the check entirely (e.g. auth/API quirks).
+rancher_preflight_verify_image: true
+# Repository path of the primary Rancher image inside the private registry, WITHOUT
+# the registry host (used by the preflight manifest query). Override if your mirror
+# uses a different path (e.g. "proxycache/rancher/rancher").
+rancher_preflight_image_repo: "rancher/rancher"
+
 # Optional: Specify custom Rancher image repository
 # rancher_image_repository: "privateregistry.qa.rancher.space/rancher/rancher"
 
