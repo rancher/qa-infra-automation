@@ -72,6 +72,14 @@ This system uses the **Tarball Method** for pure airgap deployments:
 - **Features**: Uses pre-downloaded RKE2 tarballs with embedded images (no registry required)
 - **Status**: [OK] **Currently Working and Tested**
 
+> **Note (RKE2 v1.36+):** As of v1.36, RKE2 no longer publishes a standalone
+> `rke2-images-traefik` tarball — the Traefik ingress images are now bundled
+> inside `rke2-images-core.tar.gz` (Traefik is the default ingress because
+> upstream `ingress-nginx` was retired). This is handled automatically: the
+> roles detect `rke2_version` and skip the standalone traefik tarball for
+> v1.36+, so **no private-registry mirror of Traefik is required**. Override
+> with the `rke2_traefik_tarball` variable (see Global Variables) if needed.
+
 ## Quick Start
 
 ### 1. Configure Inventory
@@ -359,6 +367,12 @@ Key configuration options:
 ```yaml
 # RKE2 Configuration
 rke2_version: "v1.31.11+rke2r1"
+
+# Standalone traefik image tarball handling (airgap tarball method):
+#   "auto" -> skip on RKE2 v1.36+ (Traefik images ship inside rke2-images-core)
+#   true    -> always include the standalone rke2-images-traefik tarball (<= v1.35)
+#   false   -> never include it
+rke2_traefik_tarball: "auto"
 
 # Server configuration options (applied to server/control-plane nodes)
 # These are appended to /etc/rancher/rke2/config.yaml after core settings
