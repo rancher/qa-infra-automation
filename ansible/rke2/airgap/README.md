@@ -186,6 +186,8 @@ rancher_hostname: "rancher.example.com" # Not needed if the inventory file was g
 rancher_bootstrap_password: "your-secure-password"
 rancher_image_tag: v2.12.2
 rancher_use_bundled_system_charts: true
+# Required for airgap: private registry hosting rancher/shell and system images
+rancher_system_default_registry: "privateregistry.example.com:5000"
 ```
 
 **Important Variables:**
@@ -199,6 +201,7 @@ rancher_use_bundled_system_charts: true
 | `rancher_bootstrap_password` | Initial admin password | Required |
 | `rancher_image_tag` | Rancher version to deploy | `v2.12.2` |
 | `rancher_use_bundled_system_charts` | Use bundled charts for airgap | `true` |
+| `rancher_system_default_registry` | Private registry for Rancher system images (airgap); rewrites `shell-image` to `<registry>/rancher/shell:<tag>` at install time | `""` |
 
 #### Run the Deployment
 

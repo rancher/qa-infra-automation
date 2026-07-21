@@ -162,6 +162,9 @@
               ingress:
                 tls:
                   source: "{{ rancher_tls_source }}"
+              global:
+                cattle:
+                  systemDefaultRegistry: "{{ rancher_system_default_registry }}"
             verify_ssl: true
       rescue:
         - name: Warn about unsigned Rancher chart
@@ -187,6 +190,9 @@
               ingress:
                 tls:
                   source: "{{ rancher_tls_source }}"
+              global:
+                cattle:
+                  systemDefaultRegistry: "{{ rancher_system_default_registry }}"
 
     - name: Wait for Rancher deployment to be ready
       kubernetes.core.k8s_info:
