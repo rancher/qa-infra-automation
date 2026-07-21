@@ -31,8 +31,47 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 | `make infra-up` | Create infrastructure and generate Ansible inventory |
 | `make infra-down` | Destroy infrastructure (with confirmation prompt) |
 | `make infra-output` | Show Tofu outputs |
-| `make infra-ls` | List all active infrastructure across all modules/workspaces |
-| `make infra-nuke` | Destroy ALL active infrastructure (end-of-day cleanup) |
+| `make infra-ls` | List all active infrastructure across all modules/workspaces (scans **local** state only) |
+| `make infra-nuke` | Destroy ALL active infrastructure (end-of-day cleanup; **local** state only) |
+| `make infra-ls-remote` | List **remote** (S3-backed) workspaces with resources for the current module |
+| `make infra-nuke-remote` | Destroy all **remote** (S3-backed) workspaces for the current module |
+| `make infra-empty-folders` | Remove empty workspace **folders** (0-resource state files) from the current module's bucket (`DELETE=yes`, `PURGE=yes`, `NUKE_FILTER=`) |
+
+#### Local vs. remote state cleanup
+
+`infra-ls` / `infra-scan` / `infra-nuke` scan **only local** `terraform.tfstate`
+files. When a module uses the S3 backend (the default in this repo), those local
+files don't exist — so those targets silently find nothing. For S3-backed state
+use the `*-remote` variants (backed by `tofu/scripts/remote-state.sh`), which
+read state directly from S3 per workspace:
+
+```bash
+# List every workspace that has live resources in the current module's bucket
+make infra-ls-remote                       # or ENV=airgap for the airgap module
+make infra-ls-remote NUKE_FILTER='dnew'    # scope to workspaces matching a regex
+
+# Destroy every remote workspace with resources (type 'nuke' to confirm)
+make infra-nuke-remote
+make infra-nuke-remote DRY_RUN=yes         # preview only
+
+# Remove leftover empty workspace folders (states with 0 resources).
+# After infra-nuke-remote, each destroyed workspace leaves an empty state
+# object behind — this deletes those objects so the folders vanish from S3.
+make infra-empty-folders NUKE_FILTER='dnew'              # list yours (read-only)
+make infra-empty-folders NUKE_FILTER='dnew' DELETE=yes  # delete the empty states
+make infra-empty-folders DELETE=yes PURGE=yes           # delete ALL objects under each folder
+
+# Remove STALE folders: state lists resources that are already gone in AWS
+# (e.g. a workspace whose infra was destroyed by CI, or where `tofu destroy`
+# errored due to a region mismatch). Verifies each workspace's instances in the
+# state's real region before removing; only confirmed-stale ones are deleted.
+make infra-stale-folders                                # scan (read-only)
+make infra-stale-folders DELETE=yes                     # remove the stale states
+```
+
+`infra-nuke-remote` runs `tofu destroy` per workspace and needs the variables
+each workspace was built with (`-var-file=terraform.tfvars` by default; override
+with `VAR_FILE=`). See `tofu/scripts/README.md` for the full script reference.
 
 ### Cluster Deployment (Ansible)
 
@@ -96,8 +135,14 @@ make status
 # Show Rancher URL, admin password, and API token
 make rancher-info
 
-# Destroy everything
+# Destroy everything (local state only)
 make infra-nuke
+
+# Destroy everything stored in the S3 backend
+make infra-nuke-remote AUTO_APPROVE=yes
+
+# Remove empty workspace folders (states with 0 resources; bucket stays intact)
+make infra-empty-folders NUKE_FILTER='dnew' DELETE=yes
 
 # Pass extra Ansible variables
 make cluster EXTRA_VARS="kubernetes_version=v1.34.2+rke2r1"
