@@ -2,12 +2,14 @@ variable "user_id" {}
 variable "ssh_key" {}
 variable "ssh_key_name" {}
 variable "aws_access_key" {
-  type       = string
-  sensitive  = true
+  type      = string
+  sensitive = true
+  default   = null // Optional. When null the AWS provider uses its standard credential chain (~/.aws/credentials, AWS_PROFILE, env vars, SSO, IMDS).
 }
 variable "aws_secret_key" {
   type      = string
   sensitive = true
+  default   = null // Optional. See aws_access_key.
 }
 variable "aws_region" {}
 variable "aws_ami" {}
