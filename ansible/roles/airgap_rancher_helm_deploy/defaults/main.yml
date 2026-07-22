@@ -35,12 +35,10 @@ rancher_system_default_registry: ""
 # before installing (airgap). Auto-disabled when rancher_system_default_registry is
 # empty; set to false to skip the check entirely.
 rancher_preflight_verify_image: true
-# Repository path of the primary Rancher image inside the private registry, WITHOUT
-# the registry host. Override if your mirror uses a different path — notably for a
-# Harbor pull-through PROXY cache the image lives under the proxy project namespace
-# (e.g. "proxycache/rancher/rancher"), and global.cattle.systemDefaultRegistry should
-# be prefixed with that project too, otherwise the check inspects the wrong path.
-rancher_preflight_image_repo: "rancher/rancher"
+# The registry preflight checks <rancher_system_default_registry>/<rancher_image_repository>:<rancher_image_tag>
+# — the exact image the chart pulls. For a Harbor pull-through PROXY cache, put the
+# proxy project in rancher_system_default_registry (e.g. "host/proxycache") and keep
+# rancher_image_repository as the bare repo (e.g. "rancher/rancher").
 # Verification method:
 #   "api"  (default) v2 registry manifest GET. Fast, no extra deps. Can return a
 #           false 404 against a cold Harbor proxy cache (manifest fetched on demand).
@@ -50,8 +48,11 @@ rancher_preflight_image_repo: "rancher/rancher"
 #           falls back to "api".
 rancher_preflight_mode: "api"
 
-# Optional: Specify custom Rancher image repository
-# rancher_image_repository: "privateregistry.qa.rancher.space/rancher/rancher"
+# Rancher image repository (the chart's image.repository, WITHOUT the registry host).
+# Defaults to "rancher/rancher", which is served by docker.io mirrors. RC charts default
+# to "rancher/rc" — if your private registry can't serve that, set this to a repo it
+# can (e.g. "rancher/rancher"). Also used by the registry preflight check.
+rancher_image_repository: "rancher/rancher"
 
 # Advanced configuration
 rancher_advanced_values: {}

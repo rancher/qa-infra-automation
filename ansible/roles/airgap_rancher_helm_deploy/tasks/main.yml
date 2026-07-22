@@ -114,7 +114,7 @@
         # --- API mode: registry v2 manifest GET (default; no extra deps) ---
         - name: Query Rancher image manifest in private registry
           ansible.builtin.uri:
-            url: "https://{{ rancher_system_default_registry }}/v2/{{ rancher_preflight_image_repo }}/manifests/{{ rancher_image_tag }}"
+            url: "https://{{ rancher_system_default_registry }}/v2/{{ rancher_image_repository }}/manifests/{{ rancher_image_tag }}"
             method: GET
             timeout: 20
             validate_certs: "{{ _rancher_preflight_validate_certs }}"
@@ -134,7 +134,7 @@
         - name: Confirm Rancher image found in private registry
           ansible.builtin.debug:
             msg: >-
-              OK: {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              OK: {{ rancher_system_default_registry }}/{{ rancher_image_repository }}:{{ rancher_image_tag }}
               present in private registry (HTTP {{ _rancher_preflight_resp.status }}).
           when:
             - not (_rancher_preflight_use_skopeo | bool)
@@ -143,7 +143,7 @@
         - name: Warn if registry preflight could not confirm image
           ansible.builtin.debug:
             msg: >-
-              WARNING: could not confirm {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              WARNING: could not confirm {{ rancher_system_default_registry }}/{{ rancher_image_repository }}:{{ rancher_image_tag }}
               (HTTP {{ _rancher_preflight_resp.status | default('?') }}: {{ _rancher_preflight_resp.msg | default('') }}).
               If this is an auth/API issue, set rancher_preflight_verify_image: false to skip. Continuing install.
           when:
@@ -153,7 +153,7 @@
         - name: Fail if Rancher image is missing from private registry
           ansible.builtin.fail:
             msg: >-
-              Rancher image {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              Rancher image {{ rancher_system_default_registry }}/{{ rancher_image_repository }}:{{ rancher_image_tag }}
               is NOT present in the private registry (HTTP 404). Mirror it (and rancher/shell, plus the
               webhook/agent images Rancher deploys) into {{ rancher_system_default_registry }} before installing,
               or set rancher_preflight_verify_image: false to skip this check.
@@ -168,7 +168,7 @@
               skopeo inspect
               --tls-verify={{ _rancher_preflight_validate_certs | bool | lower }}
               {{ ('--creds=' ~ _rancher_preflight_user ~ ':' ~ _rancher_preflight_pass) if (_rancher_preflight_have_creds | bool) else '' }}
-              docker://{{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              docker://{{ rancher_system_default_registry }}/{{ rancher_image_repository }}:{{ rancher_image_tag }}
           register: _rancher_preflight_skopeo_resp
           changed_when: false
           failed_when: false
@@ -177,7 +177,7 @@
         - name: Confirm Rancher image resolvable via skopeo
           ansible.builtin.debug:
             msg: >-
-              OK: {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              OK: {{ rancher_system_default_registry }}/{{ rancher_image_repository }}:{{ rancher_image_tag }}
               resolvable via skopeo (pull path verified).
           when:
             - _rancher_preflight_use_skopeo | bool
@@ -186,7 +186,7 @@
         - name: Fail if skopeo cannot resolve Rancher image
           ansible.builtin.fail:
             msg: >-
-              Rancher image {{ rancher_system_default_registry }}/{{ rancher_preflight_image_repo }}:{{ rancher_image_tag }}
+              Rancher image {{ rancher_system_default_registry }}/{{ rancher_image_repository }}:{{ rancher_image_tag }}
               could not be resolved via skopeo (rc={{ _rancher_preflight_skopeo_resp.rc }}):
               {{ _rancher_preflight_skopeo_resp.stderr | default(_rancher_preflight_skopeo_resp.stdout | default('')) }}
               Mirror it into {{ rancher_system_default_registry }} (or ensure the proxy-project path is correct and
@@ -295,9 +295,14 @@
               ingress:
                 tls:
                   source: "{{ rancher_tls_source }}"
-              global:
-                cattle:
-                  systemDefaultRegistry: "{{ rancher_system_default_registry }}"
+              # Top-level systemDefaultRegistry is what the Rancher chart reads for the
+              # server image registry (and sets CATTLE_SYSTEM_DEFAULT_REGISTRY). The chart
+              # ignores global.cattle.systemDefaultRegistry for the server image.
+              systemDefaultRegistry: "{{ rancher_system_default_registry }}"
+              image:
+                # image.repository overrides the chart default (e.g. rancher/rc on rc charts);
+                # set rancher_image_repository to a repo your registry can serve.
+                repository: "{{ rancher_image_repository }}"
             verify_ssl: true
       rescue:
         - name: Warn about unsigned Rancher chart
@@ -323,9 +328,9 @@
               ingress:
                 tls:
                   source: "{{ rancher_tls_source }}"
-              global:
-                cattle:
-                  systemDefaultRegistry: "{{ rancher_system_default_registry }}"
+              systemDefaultRegistry: "{{ rancher_system_default_registry }}"
+              image:
+                repository: "{{ rancher_image_repository }}"
 
     - name: Wait for Rancher deployment to be ready
       kubernetes.core.k8s_info:
