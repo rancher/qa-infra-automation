@@ -89,6 +89,45 @@ See also: [SSH Troubleshooting (airgap)](../../ansible/rke2/airgap/docs/knowledg
 - Destroy first: `make infra-down`
 - Or use workspaces: `cd tofu/aws/modules/cluster_nodes && tofu workspace new my-test`
 
+### `make infra-nuke` / `infra-ls` finds nothing
+
+**Symptom:** You have live infrastructure tracked in the S3 backend, but `make
+infra-ls` / `infra-scan` / `infra-nuke` report "No active infrastructure found"
+or destroy nothing.
+
+**Cause:** Those targets scan **only local** `terraform.tfstate` files. With the
+S3 backend (the repo default) there are no local state files, so they see
+nothing — the real state lives in S3 under `env:/<workspace>/<key>`.
+
+**Fix:** Use the `*-remote` variants, which read state directly from S3:
+```bash
+make infra-ls-remote                       # list S3-backed workspaces with resources
+make infra-nuke-remote                     # destroy all S3-backed workspaces
+```
+See `docs/reference/makefile.md` → *Local vs. remote state cleanup* for details.
+
+### `tofu destroy` errors on remote workspaces (state is stale)
+
+**Symptom:** `make infra-nuke-remote` fails destroying a workspace, even though
+the AWS resources appear gone.
+
+**Cause:** Two things often combine:
+1. The infrastructure was **already destroyed** (e.g. by a CI job), but the
+   state file still lists the resources — so the state is **stale**.
+2. A **region mismatch**: the workspace's resources live in one region (e.g.
+   `us-west-1`), but `infra-nuke-remote` destroys every workspace with the
+   single `aws_region` in your `terraform.tfvars` (e.g. `us-east-2`). Refreshing
+   the (already-gone) resources through the wrong region throws errors.
+
+**Fix:** If the AWS resources are already gone, don't fight `tofu destroy` —
+just remove the stale state. `make infra-stale-folders` **verifies each
+workspace's instances against AWS** (in the state's real region) and removes
+only confirmed-stale ones:
+```bash
+make infra-stale-folders                  # scan: which workspaces are gone in AWS?
+make infra-stale-folders DELETE=yes        # remove the stale state objects
+```
+
 ---
 
 ## RKE2

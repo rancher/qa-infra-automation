@@ -30,15 +30,6 @@
           - groups[target] | length > 0
         fail_msg: "The 'target' variable must be defined either on all.yml or via --extra-vars and point to an inventory group with at least one node"
 
-    - name: Attempt to run 'tofu -v' to check installation
-      ansible.builtin.command: tofu -v
-      register: tofu_check
-      ignore_errors: true
-
-  roles:
-    - role: airgap_tofu_install
-      when: tofu_check.rc != 0
-
   tasks:
     - name: Get Rancher UserID and Token
       ansible.builtin.uri:
@@ -69,25 +60,72 @@
       ansible.builtin.debug:
         msg: "Downstream cluster name: {{ cluster_name }}"
 
-    - name: Create generic imported cluster with OpenTofu
-      ansible.builtin.shell: |
-        tofu init
-        tofu apply -auto-approve -var 'fqdn=https://{{ fqdn }}' -var 'api_key={{ token_response.json.token }}' -var 'cluster_name={{ cluster_name }}'
-      args:
-        chdir: "{{ repo_root }}/tofu/rancher/import"
-      register: import_command
+    # Register the cluster via the Rancher v3 API instead of the rancher2 Terraform/OpenTofu
+    # provider. The provider's `rancher2_cluster` resource waits for the cluster to reach
+    # `active`/`provisioning` on Create, but an *imported* cluster stays `pending` until the
+    # cattle-cluster-agent connects — and the agent is applied later in this playbook
+    # (second play, after this step returns). That ordering made the provider's create-waiter
+    # retry every 10s for its 30m default timeout and never return (deadlock). The API
+    # returns the cluster id and its registration token immediately, which is all this step
+    # needs. This is also idempotent: it looks the cluster up by name first and only creates
+    # it if absent (re-runs won't duplicate it).
+    - name: Look up existing imported cluster by name (idempotency)
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3/clusters?name={{ cluster_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ token_response.json.token }}"
+        validate_certs: false
+        body_format: json
+        status_code: 200
+      register: existing_cluster_lookup
+      changed_when: false
 
-    - name: Get OpenTofu outputs as JSON
-      ansible.builtin.command:
-        cmd: tofu output -json
-        chdir: "{{ repo_root }}/tofu/rancher/import"
-      register: tofu_outputs_json
+    - name: Create imported cluster if it does not already exist
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3/clusters"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ token_response.json.token }}"
+        body_format: json
+        body:
+          type: cluster
+          name: "{{ cluster_name }}"
+          importedConfig:
+            privateRegistryUrl: "{{ downstream_private_registry_url | default('') }}"
+        validate_certs: false
+        status_code: [200, 201]
+      register: created_cluster
+      when: existing_cluster_lookup.json.data | length == 0
+
+    - name: Set cluster id fact
+      ansible.builtin.set_fact:
+        cluster_id: >-
+          {{
+            created_cluster.json.id
+            if (created_cluster is not skipped)
+            else existing_cluster_lookup.json.data[0].id
+          }}
+
+    - name: Fetch cluster registration token (available immediately at create time)
+      ansible.builtin.uri:
+        url: "https://{{ fqdn }}/v3/clusterregistrationtokens?clusterId={{ cluster_id }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ token_response.json.token }}"
+        validate_certs: false
+        body_format: json
+        status_code: 200
+      register: registration_token_resp
+      retries: 6
+      delay: 5
+      until: registration_token_resp.json.data | length > 0
 
     - name: Set useful facts
       ansible.builtin.set_fact:
         api_key: "{{ token_response.json.token }}"
-        cluster_id: "{{ (tofu_outputs_json.stdout | from_json).cluster_id.value }}"
-        cluster_registration_token: "{{ (tofu_outputs_json.stdout | from_json).cluster_registration_token.value }}"
+        cluster_id: "{{ cluster_id }}"
+        cluster_registration_token: "{{ registration_token_resp.json.data[0].token }}"
 
     # Optionally inject the downstream cluster name into cattle-config.yaml.
     # Mirrors generate-admin-token.yml's rancher_auth role, which writes

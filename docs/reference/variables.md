@@ -85,8 +85,8 @@ See the [Group Vars Guide](../../ansible/rke2/airgap/docs/configuration/GROUP_VA
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `aws_access_key` | Yes | — | AWS access key ID |
-| `aws_secret_key` | Yes | — | AWS secret access key |
+| `aws_access_key` | No | `null` | AWS access key ID. When `null`, the AWS provider uses its standard credential chain (`~/.aws/credentials`, `AWS_PROFILE`, env vars, SSO, IMDS). The airgap module uses the same variable/behavior. |
+| `aws_secret_key` | No | `null` | AWS secret access key. See `aws_access_key`. |
 | `aws_region` | Yes | — | AWS region |
 | `aws_vpc` | Yes | — | VPC ID |
 | `aws_subnet` | Yes | — | Subnet ID |

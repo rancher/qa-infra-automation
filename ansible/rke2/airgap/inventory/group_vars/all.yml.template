@@ -129,6 +129,9 @@ install_helm: true
 # rancher_hostname: "rancher.example.com"  # Optional: overrides internal_lb_hostname from inventory
 rancher_bootstrap_password: "<RANCHER_BOOTSTRAP_PASSWORD>"
 rancher_image_tag: <RANCHER_VERSION>
+# Pin the chart version to match the image tag (strip leading 'v'); rc/stable repos
+# drift, so pinning keeps the chart and image in lockstep (e.g. "2.15.0-rc1").
+rancher_chart_version: <RANCHER_CHART_VERSION>
 rancher_use_bundled_system_charts: true
 # Private registry for all Rancher system images in airgap (no scheme, e.g. host:5000).
 # When set, Rancher rewrites shell-image and system images to <registry>/... at install time.

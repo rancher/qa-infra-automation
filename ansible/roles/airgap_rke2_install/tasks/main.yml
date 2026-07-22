@@ -1,4 +1,20 @@
 ---
+- name: Detect whether standalone traefik tarball is shipped by this RKE2 release
+  ansible.builtin.set_fact:
+    rke2_traefik_tarball_enabled: >-
+      {{
+        (rke2_traefik_tarball == 'auto') | ternary(
+          (((rke2_version | regex_replace('^v', '')).split('+')[0]) is version('1.36.0', '<')),
+          (rke2_traefik_tarball | bool)
+        )
+      }}
+
+- name: Show traefik tarball decision
+  ansible.builtin.debug:
+    msg: >-
+      Standalone traefik tarball for RKE2 {{ rke2_version }}:
+      {{ 'INCLUDED' if (rke2_traefik_tarball_enabled | bool) else 'SKIPPED (Traefik images are bundled in rke2-images-core on v1.36+)' }}
+
 - name: Create RKE2 config directory
   ansible.builtin.file:
     path: /etc/rancher/rke2
@@ -202,7 +218,9 @@
       ansible.builtin.stat:
         path: "{{ item }}"
       register: file_check
-      failed_when: not file_check.stat.exists
+      failed_when: >-
+        not file_check.stat.exists and
+        (item != '/tmp/rke2-artifacts/rke2-images-traefik.tar.gz' or (rke2_traefik_tarball_enabled | bool))
       loop:
         - /tmp/rke2-artifacts/rke2.linux-amd64.tar.gz
         - /tmp/rke2-artifacts/rke2-images-core.tar.gz
@@ -219,7 +237,7 @@
           - RKE2 tarball: {{ file_check.results[0].stat.exists }}
           - Core images: {{ file_check.results[1].stat.exists }}
           - CNI images ({{ cni | default('canal') }}): {{ file_check.results[2].stat.exists }}
-          - Traefik ingress images: {{ file_check.results[3].stat.exists }}
+          - Traefik ingress images: {{ file_check.results[3].stat.exists }}{{ '' if (rke2_traefik_tarball_enabled | bool) else ' (bundled in core)' }}
           - Checksums file: {{ file_check.results[4].stat.exists }}
           - Install script: {{ file_check.results[5].stat.exists }}
       run_once: true
@@ -241,9 +259,17 @@
   loop:
     - /tmp/rke2-artifacts/rke2-images-core.tar.gz
     - /tmp/rke2-artifacts/rke2-images-cni.tar.gz
-    - /tmp/rke2-artifacts/rke2-images-traefik.tar.gz
   loop_control:
     label: "{{ item | basename }}"
+
+- name: Copy Traefik ingress images to proper location
+  ansible.builtin.copy:
+    src: /tmp/rke2-artifacts/rke2-images-traefik.tar.gz
+    dest: /var/lib/rancher/rke2/agent/images/
+    remote_src: true
+    mode: "0644"
+  become: true
+  when: rke2_traefik_tarball_enabled | bool
 
 - name: Run RKE2 server install script
   ansible.builtin.shell: |
