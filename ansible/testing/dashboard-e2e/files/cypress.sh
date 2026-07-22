@@ -60,13 +60,24 @@ if [ -n "$TAGS" ]; then
 	fi
 fi
 
+# Google Chrome in the cypress/factory image is amd64-only, so it is absent on
+# arm64 runners (Apple Silicon under Docker Desktop). Fall back to Cypress's
+# bundled Electron, which is arm64-native. Override with CYPRESS_BROWSER.
+BROWSER="${CYPRESS_BROWSER:-chrome}"
+if [ "$BROWSER" = chrome ] &&
+	! command -v google-chrome >/dev/null 2>&1 &&
+	! command -v google-chrome-stable >/dev/null 2>&1; then
+	echo "[cypress.sh] Google Chrome not found (arch=$(uname -m)); falling back to --browser electron."
+	BROWSER=electron
+fi
+
 # Run Cypress and capture the exit code
 set +e
 
 if [ -n "$PERCY_TOKEN" ]; then
-	percy exec -q -- cypress run --browser "${CYPRESS_BROWSER:-chrome}" --config-file cypress/jenkins/cypress.config.jenkins.ts "${SPEC_ARG[@]}"
+	percy exec -q -- cypress run --browser "$BROWSER" --config-file cypress/jenkins/cypress.config.jenkins.ts "${SPEC_ARG[@]}"
 else
-	cypress run --browser "${CYPRESS_BROWSER:-chrome}" --config-file cypress/jenkins/cypress.config.jenkins.ts "${SPEC_ARG[@]}"
+	cypress run --browser "$BROWSER" --config-file cypress/jenkins/cypress.config.jenkins.ts "${SPEC_ARG[@]}"
 fi
 EXIT_CODE=$?
 set -e
