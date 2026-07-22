@@ -68,20 +68,34 @@
         - rancher_image_tag | default('') | length > 0
         - rancher_preflight_verify_image | default(true) | bool
       block:
+        - name: Split registry host and path for preflight
+          ansible.builtin.set_fact:
+            # systemDefaultRegistry may include a project path (e.g. "host/proxycache"
+            # for a Harbor pull-through proxy). The registry v2 API needs "/v2/" right
+            # after the host, so split host from path here and reuse both below.
+            _rancher_preflight_host: "{{ rancher_system_default_registry.split('/')[0] }}"
+            _rancher_preflight_path: "{{ rancher_system_default_registry.split('/')[1:] | join('/') }}"
+
         - name: Resolve matching registry config for preflight
           ansible.builtin.set_fact:
+            # Match on either the full "host/project" string or just the bare host, so
+            # a config registered as the host still covers a "host/proxycache" registry.
             _rancher_preflight_cfg: >-
               {{
                 (private_registry_configs | default([])
-                  | selectattr('registry', 'equalto', rancher_system_default_registry)
+                  | selectattr('registry', 'in', [rancher_system_default_registry, _rancher_preflight_host])
                   | list
                   | first) | default({})
               }}
 
         - name: Compute preflight registry auth and TLS
           ansible.builtin.set_fact:
-            _rancher_preflight_user: "{{ (_rancher_preflight_cfg.auth | default({})).username | default(omit) }}"
-            _rancher_preflight_pass: "{{ (_rancher_preflight_cfg.auth | default({})).password | default(omit) }}"
+            # NOTE: do NOT use default(omit) here. set_fact silently drops any key
+            # whose value resolves to omit, leaving the fact undefined and crashing
+            # later references (e.g. url_password). Store empty strings and apply
+            # omit at the point of use instead.
+            _rancher_preflight_user: "{{ (_rancher_preflight_cfg.auth | default({})).username | default('') }}"
+            _rancher_preflight_pass: "{{ (_rancher_preflight_cfg.auth | default({})).password | default('') }}"
             _rancher_preflight_have_creds: "{{ ((_rancher_preflight_cfg.auth | default({})).username | default('') | length > 0) }}"
             _rancher_preflight_validate_certs: >-
               {{ not ((_rancher_preflight_cfg.tls | default({})).insecure_skip_verify | default(false) | bool) }}
@@ -114,13 +128,16 @@
         # --- API mode: registry v2 manifest GET (default; no extra deps) ---
         - name: Query Rancher image manifest in private registry
           ansible.builtin.uri:
-            url: "https://{{ rancher_system_default_registry }}/v2/{{ rancher_image_repository }}/manifests/{{ rancher_image_tag }}"
+            # Build the v2 API URL with "/v2/" right after the host, then the optional
+            # project path (e.g. proxycache), then the repo. Otherwise a registry value
+            # like "host/proxycache" would yield the invalid ".../proxycache/v2/...".
+            url: "https://{{ _rancher_preflight_host }}/v2/{{ (_rancher_preflight_path ~ '/') if (_rancher_preflight_path | length > 0) }}{{ rancher_image_repository }}/manifests/{{ rancher_image_tag }}"
             method: GET
             timeout: 20
             validate_certs: "{{ _rancher_preflight_validate_certs }}"
-            url_username: "{{ _rancher_preflight_user }}"
-            url_password: "{{ _rancher_preflight_pass }}"
-            force_basic_auth: true
+            url_username: "{{ _rancher_preflight_user if (_rancher_preflight_have_creds | bool) else omit }}"
+            url_password: "{{ _rancher_preflight_pass if (_rancher_preflight_have_creds | bool) else omit }}"
+            force_basic_auth: "{{ _rancher_preflight_have_creds | bool }}"
             headers:
               Accept: >-
                 application/vnd.oci.image.manifest.v1+json,

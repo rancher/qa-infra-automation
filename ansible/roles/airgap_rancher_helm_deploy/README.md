@@ -28,21 +28,35 @@ Rancher chart, and waits for the deployment to become ready.
 | `rancher_use_bundled_system_charts` | `true` | Use bundled system charts (`useBundledSystemChart`) |
 | `rancher_tls_source` | `rancher` | TLS source: `rancher`, `letsEncrypt`, or `secret` |
 | `cert_manager_version` | `""` | cert-manager chart version (SemVer, no `v`); empty = latest |
-| `rancher_system_default_registry` | `""` | **Airgap:** private registry passed to the chart as `global.cattle.systemDefaultRegistry` |
+| `rancher_system_default_registry` | `""` | **Airgap:** private registry passed to the chart as the top-level `systemDefaultRegistry` value (may include a project path, e.g. `host/proxycache`) |
+| `rancher_image_repository` | `rancher/rancher` | **Airgap:** image repo passed as the chart's `image.repository`, without the registry host |
+| `rancher_preflight_verify_image` | `true` | Verify the primary Rancher image is present in the private registry before installing |
+| `rancher_preflight_mode` | `api` | Preflight method: `api` (v2 manifest GET) or `pull` (`skopeo inspect`) |
 | `rancher_advanced_values` | `{}` | Extra Helm values merged into the Rancher release |
 
 ### `rancher_system_default_registry` (airgap)
 
 Set this to your private registry URL **without a scheme** (e.g.
-`privateregistry.example.com:5000`). When non-empty it is passed to the Rancher Helm
-chart as `global.cattle.systemDefaultRegistry`, so that at **install time** Rancher
-rewrites its system images — including the `shell-image` setting (`rancher/shell:<tag>`,
-used by any Rancher feature that runs a `kubectl`/rancher-shell job) — to
-`<registry>/rancher/shell:<tag>`.
+`privateregistry.example.com:5000`). When non-empty it is passed to the Rancher Helm chart
+as the **top-level** `systemDefaultRegistry` value, which the chart uses at **install
+ time** for two things:
 
-This is **required for airgap**: without it, `shell-image` stays as the public
-`rancher/shell:<tag>` reference and cannot be pulled, which breaks anything that spawns a
-shell job (for example the `WorkloadUpgradeTest` deployment-rollback path in
+1. It builds the **Rancher server pod image** as
+   `<systemDefaultRegistry>/<image.repository>:<rancherImageTag>`. (The chart reads the
+   *top-level* `systemDefaultRegistry` for this — `global.cattle.systemDefaultRegistry`
+   is ignored for the server image.)
+2. It sets the in-cluster `system-default-registry` setting, which rewrites Rancher's
+   system images — including the `shell-image` setting (`rancher/shell:<tag>`, used by any
+   Rancher feature that runs a `kubectl`/rancher-shell job) — to
+   `<registry>/rancher/shell:<tag>`.
+
+`image.repository` defaults to `rancher/rancher` (see `rancher_image_repository`); override
+it only if your registry serves the image under a different repo.
+
+This is **required for airgap**: without it, the chart keeps its default registry
+(`registry.rancher.com`) for the server image and `shell-image` stays as the public
+`rancher/shell:<tag>` reference — neither can be pulled, causing `ImagePullBackOff` /
+broken shell jobs (for example the `WorkloadUpgradeTest` deployment-rollback path in
 `rancher/tests`, failing with a misleading `resource name may not be empty`).
 
 Notes:
@@ -54,6 +68,14 @@ Notes:
 - `rancher/shell:<tag>` must exist at `<registry>/rancher/shell:<tag>`. Containerd registry
   *mirrors* (e.g. `docker.io` → `proxycache/...`) do not cover this verbatim reference, so
   the image must be mirrored to the registry root.
+- **Harbor pull-through proxy:** if `docker.io` is mirrored under a project (e.g.
+  `docker.io/*` → `host/proxycache/*`), include the project in this value
+  (`host/proxycache`) and keep `rancher_image_repository` as the bare repo
+  (`rancher/rancher`). The chart then pulls `host/proxycache/rancher/rancher:<tag>` — a
+  *direct* registry pull that the containerd mirror does not rewrite — so the image must
+  exist at that exact path. The registry preflight resolves credentials by matching either
+  the full `host/project` string **or** the bare host against `private_registry_configs`,
+  and builds the v2 manifest URL as `https://<host>/v2/[<project>/]<repo>/manifests/<tag>`.
 - Leave empty for internet-connected deployments (the chart treats `""` as no registry).
 
 ## Example
@@ -68,8 +90,12 @@ rancher_bootstrap_password: "your-secure-password"
 rancher_image_tag: v2.12.2
 rancher_use_bundled_system_charts: true
 
-# Airgap: private registry hosting rancher/shell and system images
+# Airgap: private registry hosting the Rancher server image and system images.
+# For a Harbor pull-through proxy, include the project path, e.g.
+#   rancher_system_default_registry: "harbor.example.com/proxycache"
 rancher_system_default_registry: "privateregistry.example.com:5000"
+# Rancher image repo without the registry host (default rancher/rancher)
+rancher_image_repository: "rancher/rancher"
 ```
 
 ```bash
@@ -89,9 +115,13 @@ rancherImageTag: "{{ rancher_image_tag }}"
 ingress:
   tls:
     source: "{{ rancher_tls_source }}"
-global:
-  cattle:
-    systemDefaultRegistry: "{{ rancher_system_default_registry }}"
+# Top-level systemDefaultRegistry is what the chart reads for the server image registry
+# (<systemDefaultRegistry>/<image.repository>:<tag>) and uses to set
+# CATTLE_SYSTEM_DEFAULT_REGISTRY. global.cattle.systemDefaultRegistry is ignored for
+# the server image.
+systemDefaultRegistry: "{{ rancher_system_default_registry }}"
+image:
+  repository: "{{ rancher_image_repository }}"
 ```
 
 ## Related

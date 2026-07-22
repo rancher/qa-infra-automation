@@ -209,7 +209,7 @@ rancher_system_default_registry: "privateregistry.example.com:5000"
 | `rancher_bootstrap_password` | Initial admin password | Required |
 | `rancher_image_tag` | Rancher version to deploy | `v2.12.2` |
 | `rancher_use_bundled_system_charts` | Use bundled charts for airgap | `true` |
-| `rancher_system_default_registry` | Private registry for Rancher system images (airgap); rewrites `shell-image` to `<registry>/rancher/shell:<tag>` at install time | `""` |
+| `rancher_system_default_registry` | Private registry (airgap) passed as the chart's top-level `systemDefaultRegistry`; the chart pulls the server image from `<registry>/<rancher_image_repository>:<tag>` and rewrites system images (e.g. `shell-image`) at install time | `""` |
 
 #### Run the Deployment
 

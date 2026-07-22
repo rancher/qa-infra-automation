@@ -25,10 +25,14 @@ cert_manager_version: ""
 
 # Private registry configuration for airgap deployments.
 # Set rancher_system_default_registry to your private registry URL (without scheme,
-# e.g. "privateregistry.example.com:5000"). When non-empty it is passed to the Rancher
-# Helm chart as global.cattle.systemDefaultRegistry so that Rancher system images
-# (including the rancher/shell image used by kubectl jobs) resolve to the private
-# registry at install time. Required for airgap; leave empty for internet-connected deploys.
+# e.g. "privateregistry.example.com:5000", or "host/proxycache" for a Harbor pull-through
+# proxy). When non-empty it is passed to the Rancher Helm chart as the TOP-LEVEL
+# systemDefaultRegistry value, which the chart uses BOTH to build the server pod image
+# (<systemDefaultRegistry>/<rancher_image_repository>:<tag>) AND to set
+# CATTLE_SYSTEM_DEFAULT_REGISTRY so Rancher system images (including the rancher/shell
+# image used by kubectl jobs) resolve to the private registry at install time. NOTE: the
+# chart ignores global.cattle.systemDefaultRegistry for the server image — use the
+# top-level value. Required for airgap; leave empty for internet-connected deploys.
 rancher_system_default_registry: ""
 
 # Preflight: verify the primary Rancher image is present in the private registry

@@ -33,7 +33,7 @@ ansible-playbook \
 | `rancher_bootstrap_password` | Yes | Bootstrap password set during Helm install |
 | `rancher_admin_password` | Yes | Permanent admin password to set after first login |
 | `rancher_tls_source` | No | TLS source label written to the summary file |
-| `rancher_system_default_registry` | No (airgap: yes) | Private registry passed to the chart as `global.cattle.systemDefaultRegistry`; rewrites `shell-image` at install time. See [role README](../../../../roles/airgap_rancher_helm_deploy/README.md). |
+| `rancher_system_default_registry` | No (airgap: yes) | Private registry passed as the chart's top-level `systemDefaultRegistry`; the chart pulls the server image from `<registry>/<rancher_image_repository>:<tag>` and rewrites system images (e.g. `shell-image`) at install time. See [role README](../../../../roles/airgap_rancher_helm_deploy/README.md). |
 
 Variables required by the `airgap_rancher_helm_deploy` role are documented in that role's README.
 
