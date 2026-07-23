@@ -128,6 +128,8 @@ help: ## Show this help message
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
+	@echo "  images              List all container images and tags running in the cluster"
+	@echo "  images-digests      List pulled image digests (true versions behind mutable tags)"
 	@echo "  rancher-info        Display Rancher login information (URL, admin password, API token)"
 	@echo "  test-ssh            Test SSH connectivity to all nodes"
 	@echo "  ssh-bastion         SSH to bastion host"
@@ -651,6 +653,38 @@ status: check-inventory ## Show cluster status
 	else \
 		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
 		echo "Run 'make cluster' first to deploy the cluster."; \
+	fi
+
+.PHONY: images
+images: check-inventory ## List all container images and tags running in the cluster
+	@echo "Container Images ($(DISTRO)/$(ENV)):"
+	@echo ""
+	@set -o pipefail; if [ "$(ENV)" = "airgap" ]; then \
+		echo "(airgap: reporting the cluster configured on the bastion — see 'make kubectl-setup')"; \
+		export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible -i $(INVENTORY) bastion -m shell -a "command -v kubectl >/dev/null 2>&1 && kubectl get pods -A -o jsonpath='{..image}' | tr -s '[[:space:]]' '\n' | sort -u" || echo "Could not list images — is kubectl set up on the bastion? Run 'make kubectl-setup' first."; \
+	elif [ -f "$(KUBECONFIG_FILE)" ]; then \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -A -o jsonpath='{..image}' | tr -s '[[:space:]]' '\n' | sort -u || echo "Could not list images"; \
+	else \
+		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
+		echo "Run 'make cluster' first to deploy the cluster."; \
+		exit 1; \
+	fi
+
+.PHONY: images-digests
+images-digests: check-inventory ## List pulled image digests (true versions behind mutable tags)
+	@echo "Container Image Digests ($(DISTRO)/$(ENV)):"
+	@echo ""
+	@set -o pipefail; if [ "$(ENV)" = "airgap" ]; then \
+		echo "(airgap: reporting the cluster configured on the bastion — see 'make kubectl-setup')"; \
+		export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible -i $(INVENTORY) bastion -m shell -a "command -v kubectl >/dev/null 2>&1 && kubectl get pods -A -o jsonpath='{..imageID}' | tr -s '[[:space:]]' '\n' | sort -u | grep -v '^$$'" || echo "Could not list images — is kubectl set up on the bastion? Run 'make kubectl-setup' first."; \
+	elif [ -f "$(KUBECONFIG_FILE)" ]; then \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -A -o jsonpath='{..imageID}' | tr -s '[[:space:]]' '\n' | sort -u | grep -v '^$$' || echo "Could not list images"; \
+	else \
+		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
+		echo "Run 'make cluster' first to deploy the cluster."; \
+		exit 1; \
 	fi
 
 .PHONY: rancher-info
