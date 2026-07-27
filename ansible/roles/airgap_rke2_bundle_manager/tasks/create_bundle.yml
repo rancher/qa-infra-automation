@@ -33,10 +33,16 @@
       dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2-images-core.tar.gz"
     - src: "{{ rke2_temp_dir }}/rke2-images-cni.tar.gz"
       dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2-images-cni.tar.gz"
-    - src: "{{ rke2_temp_dir }}/rke2-images-traefik.tar.gz"
-      dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2-images-traefik.tar.gz"
     - src: "{{ rke2_temp_dir }}/sha256sum-{{ rke2_arch }}.txt"
       dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/sha256sum-{{ rke2_arch }}.txt"
+
+- name: Copy Traefik images to staging directory
+  ansible.builtin.copy:
+    src: "{{ rke2_temp_dir }}/rke2-images-traefik.tar.gz"
+    dest: "{{ rke2_staging_dir }}/tmp/rke2-artifacts/rke2-images-traefik.tar.gz"
+    mode: preserve
+    remote_src: true
+  when: rke2_traefik_tarball_enabled | bool
 
 - name: Create archive of RKE2 files
   community.general.archive:

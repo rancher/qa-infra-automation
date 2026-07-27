@@ -289,3 +289,85 @@ Always check which module you're operating on:
 make workspace-inspect       # Shows module path
 make infra-down               # Shows target before destroying
 ```
+
+## remote-state.sh
+
+Operate on OpenTofu state that lives in an **S3 backend**. This exists because
+`make infra-ls` / `infra-nuke` scan *local* `terraform.tfstate` files — which
+don't exist when a module uses an S3 backend, so those targets see nothing.
+`remote-state.sh` reads state directly from S3, per workspace.
+
+It auto-discovers `bucket`/`key`/`region` from the module's `backend.tf`, so for
+S3-backed modules you usually don't pass any backend flags.
+
+### Usage
+
+```bash
+# 1) List remote workspaces that actually contain managed resources:
+make infra-ls-remote                       # current module (ENV-driven)
+make infra-ls-remote ENV=airgap            # the airgap module instead
+make infra-ls-remote NUKE_FILTER='dnew'    # scope to workspaces matching a regex
+
+# 2) Destroy every remote workspace that has resources:
+make infra-nuke-remote                     # interactive ('nuke' to confirm)
+make infra-nuke-remote AUTO_APPROVE=yes    # non-interactive (CI)
+make infra-nuke-remote NUKE_FILTER='jenkins_e2e_.*'   # scope the nuke
+make infra-nuke-remote DRY_RUN=yes         # preview without changes
+
+# 4) Remove empty workspace FOLDERS (states with 0 resources; bucket stays intact):
+make infra-empty-folders NUKE_FILTER='dnew'              # list yours (read-only)
+make infra-empty-folders NUKE_FILTER='dnew' DELETE=yes   # delete the empty state objects
+make infra-empty-folders DELETE=yes PURGE=yes            # delete all objects under each folder
+
+# 5) Remove STALE workspace folders (state lists resources that are gone in AWS):
+make infra-stale-folders                                 # verify against AWS (read-only)
+make infra-stale-folders DELETE=yes                      # remove confirmed-stale states
+
+# Target a different bucket/module explicitly:
+make infra-ls-remote BUCKET=jenkins-terraform-state-storage \
+                    KEY=terraform.tfstate REGION=us-east-2
+```
+
+Direct script usage:
+
+```bash
+tofu/scripts/remote-state.sh list          --module tofu/aws/modules/cluster_nodes
+tofu/scripts/remote-state.sh destroy       --module tofu/aws/modules/cluster_nodes --dry-run
+tofu/scripts/remote-state.sh empty-folders --module tofu/aws/modules/cluster_nodes --filter 'dnew'
+tofu/scripts/remote-state.sh stale-folders  --module tofu/aws/modules/cluster_nodes
+```
+
+### How it finds workspaces
+
+S3-backend workspace state is stored at:
+- `<key>` — the `default` workspace
+- `env:/<workspace>/<key>` — every other workspace (`workspace_key_prefix=env`)
+
+The script lists both, downloads each state object, counts `mode=managed`
+resources, and operates only on non-empty workspaces.
+
+### Safety
+
+- `list` and `destroy --dry-run` make **no changes**.
+- `destroy` requires typing `nuke` (or `AUTO_APPROVE=yes`).
+- `empty-folders` (or `make infra-empty-folders`) cleans up **workspace folders**
+  inside the current module's bucket: it lists `env:/<workspace>/` prefixes whose
+  state has 0 managed resources (the leftover state objects that `destroy`
+  leaves behind), and with `--delete` (`DELETE=yes`) removes those state objects
+  so the folders disappear from the S3 console. Add `--purge` (`PURGE=yes`) to
+  delete **all** objects under each folder (e.g. stale `.tfstate.backup` / lock
+  files), not just the state. Scope with `--filter` (`NUKE_FILTER=`). The bucket
+  itself is left intact.
+- `stale-folders` (or `make infra-stale-folders`) handles the opposite case:
+  the state still **lists** resources, but they no longer exist in AWS (e.g. a
+  workspace whose infra was destroyed by CI, or where `tofu destroy` errored
+  due to a region mismatch). For each workspace it reads the state's real region
+  (from the load-balancer ARN / instance AZ) and checks `aws ec2
+  describe-instances`; only workspaces whose instances are **all gone** are
+  flagged stale and (with `--delete`) removed. This is safe by construction — it
+  never deletes a workspace that still has live instances. Use it instead of
+  `tofu destroy` when the AWS resources are already gone.
+- `tofu destroy` needs the same variables the workspace was built with. The
+  script passes `-var-file=terraform.tfvars` if present in the module dir;
+  override with `VAR_FILE=`. Workspaces whose tfvars differ may fail to destroy
+  — switch to that workspace and destroy manually with matching variables.

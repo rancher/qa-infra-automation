@@ -116,6 +116,10 @@ help: ## Show this help message
 	@echo "  infra-ls            List ALL active infrastructure across every module/workspace"
 	@echo "  infra-scan          Detailed scan of all infrastructure with resource counts"
 	@echo "  infra-nuke          Destroy ALL active infrastructure (end-of-day cleanup)"
+	@echo "  infra-ls-remote     List remote (S3-backed) workspaces with resources (current module)"
+	@echo "  infra-nuke-remote   Destroy all remote (S3-backed) workspaces for the current module"
+	@echo "  infra-empty-folders Remove empty workspace folders (0-resource states) from the current module's bucket"
+	@echo "  infra-stale-folders  Remove STALE workspace folders (resources gone in AWS) — verified against AWS"
 	@echo ""
 	@echo "CLUSTER (Ansible):"
 	@echo "  cluster             Install Kubernetes cluster"
@@ -142,6 +146,9 @@ help: ## Show this help message
 	@echo "  airgap-downstream   Airgap: downstream+ rancher RKE2, Rancher, then register downstream"
 	@echo ""
 	@echo "EXAMPLES:"
+	@echo "  make infra-nuke-remote                      # destroy all S3-backed workspaces (current module)"
+	@echo "  make infra-empty-folders NUKE_FILTER='dnew'      # list YOUR empty workspace folders"
+	@echo "  make infra-stale-folders                         # find stale state (infra gone in AWS)"
 	@echo "  make all                                    # RKE2 default on AWS (default)"
 	@echo "  make all ENV=airgap                         # RKE2 airgap on AWS"
 	@echo "  make airgap-downstream ENV=airgap           # Airgap Rancher + downstream cluster"
@@ -557,6 +564,59 @@ infra-nuke: ## Destroy ALL active infrastructure across all modules (end-of-day 
 	else \
 		echo "All infrastructure destroyed."; \
 	fi
+
+.PHONY: infra-ls-remote
+infra-ls-remote: ## List remote (S3-backed) workspaces with resources for the current module
+	@$(CURDIR)/tofu/scripts/remote-state.sh list \
+		--module "$(TOFU_DIR)" \
+		$(if $(BUCKET),--bucket "$(BUCKET)") \
+		$(if $(KEY),--key "$(KEY)") \
+		$(if $(REGION),--region "$(REGION)") \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)")
+
+# NOTE on why infra-nuke is not enough: it scans ONLY local state files
+#   (`find tofu -name "terraform.tfstate"`). With an S3 backend there are no
+#   local state files, so infra-nuke finds nothing. infra-nuke-remote reads
+#   state directly from the S3 backend and destroys per-workspace.
+#
+# Override the module/backend with BUCKET= KEY= REGION=, scope with NUKE_FILTER
+# (regex on workspace name, e.g. NUKE_FILTER='jenkins_e2e_.*'). To clean up
+# leftover empty workspace folders afterwards, use 'make infra-empty-folders'.
+.PHONY: infra-nuke-remote
+infra-nuke-remote: ## Destroy all remote (S3-backed) workspaces for the current module
+	@$(CURDIR)/tofu/scripts/remote-state.sh destroy \
+		--module "$(TOFU_DIR)" \
+		$(if $(BUCKET),--bucket "$(BUCKET)") \
+		$(if $(KEY),--key "$(KEY)") \
+		$(if $(REGION),--region "$(REGION)") \
+		$(if $(VAR_FILE),--var-file "$(VAR_FILE)") \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)") \
+		$(if $(filter yes,$(DRY_RUN)),--dry-run) \
+		$(if $(filter yes,$(AUTO_APPROVE)),--auto-approve)
+
+.PHONY: infra-empty-folders
+infra-empty-folders: ## Remove empty workspace folders (0-resource states) from the current module's bucket
+	@$(CURDIR)/tofu/scripts/remote-state.sh empty-folders \
+		--module "$(TOFU_DIR)" \
+		$(if $(BUCKET),--bucket "$(BUCKET)") \
+		$(if $(KEY),--key "$(KEY)") \
+		$(if $(REGION),--region "$(REGION)") \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)") \
+		$(if $(filter yes,$(PURGE)),--purge) \
+		$(if $(filter yes,$(DELETE)),--delete) \
+		$(if $(filter yes,$(AUTO_APPROVE)),--auto-approve)
+
+.PHONY: infra-stale-folders
+infra-stale-folders: ## Remove STALE workspace folders (state lists resources that are gone in AWS) — verified
+	@$(CURDIR)/tofu/scripts/remote-state.sh stale-folders \
+		--module "$(TOFU_DIR)" \
+		$(if $(BUCKET),--bucket "$(BUCKET)") \
+		$(if $(KEY),--key "$(KEY)") \
+		$(if $(REGION),--region "$(REGION)") \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)") \
+		$(if $(filter yes,$(PURGE)),--purge) \
+		$(if $(filter yes,$(DELETE)),--delete) \
+		$(if $(filter yes,$(AUTO_APPROVE)),--auto-approve)
 
 # ============================================================================
 # CLUSTER DEPLOYMENT (ANSIBLE)

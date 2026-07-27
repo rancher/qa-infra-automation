@@ -168,7 +168,7 @@ Key variables:
 | `rancher_bootstrap_password` | Initial admin password | required |
 | `rancher_image_tag` | Rancher version to deploy | — |
 | `rancher_use_bundled_system_charts` | Use bundled charts (airgap) | `true` |
-| `rancher_system_default_registry` | Airgap registry passed to the chart as `global.cattle.systemDefaultRegistry`; rewrites `shell-image` at install time | `""` |
+| `rancher_system_default_registry` | Airgap registry passed as the chart's top-level `systemDefaultRegistry` (may include a project path, e.g. `host/proxycache`); the chart pulls the server image from `<registry>/<rancher_image_repository>:<tag>` and rewrites system images at install time | `""` |
 
 **Airgap note:** `rancher_system_default_registry` must be set so Rancher rewrites its
 system images (including `shell-image` → `<registry>/rancher/shell:<tag>`) at install time.
