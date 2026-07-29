@@ -181,21 +181,36 @@ TAGS=""
 STREAM=""
 _FORCE_BUILD=""
 _BUILD_ONLY=""
+_EXCL=""
+
+# destroy and build run on their own; refuse to mix them with stage verbs so a
+# request like "provision destroy" can never silently drop or reorder stages.
+_conflict() {
+	echo "ERROR: '$1' cannot be combined with other commands." >&2
+	echo "Run './run.sh --help' for usage." >&2
+	exit 2
+}
 while [ $# -gt 0 ]; do
 	case "$1" in
 	provision | setup | test)
+		[ -n "$_EXCL" ] && _conflict "$_EXCL"
 		TAGS="${TAGS:+${TAGS},}$1"
 		shift
 		;;
 	stream)
+		[ -n "$_EXCL" ] && _conflict "$_EXCL"
 		STREAM=1
 		shift
 		;;
 	destroy)
+		{ [ -n "$TAGS" ] || [ -n "$STREAM" ] || [ -n "$_EXCL" ]; } && _conflict destroy
+		_EXCL=destroy
 		TAGS="cleanup,never"
 		shift
 		;;
 	build)
+		{ [ -n "$TAGS" ] || [ -n "$STREAM" ] || [ -n "$_EXCL" ]; } && _conflict build
+		_EXCL=build
 		_FORCE_BUILD=1
 		_BUILD_ONLY=1
 		shift
@@ -222,15 +237,29 @@ while [ $# -gt 0 ]; do
 		sed -n '2,/^$/s/^# //p' "$0"
 		exit 0
 		;;
-	*)
+	-*)
+		# Unknown flag: stop parsing and forward it (and the rest) to ansible.
 		break
+		;;
+	*)
+		echo "ERROR: unknown command '$1'." >&2
+		echo "Run './run.sh --help' for usage." >&2
+		exit 2
 		;;
 	esac
 done
 
-# stream without explicit stages defaults to setup,test
-if [ -n "$STREAM" ] && [ -z "$TAGS" ]; then
-	TAGS="setup,test"
+# stream without explicit stages defaults to setup,test.
+# When "provision" is requested (for example "stream provision"), the setup
+# stage must also run because stream_cypress needs the runner image that setup
+# builds. A bare "stream test" stays a fast reuse and is left untouched.
+if [ -n "$STREAM" ]; then
+	if [ -z "$TAGS" ]; then
+		TAGS="setup,test"
+	elif printf ',%s,' "$TAGS" | grep -q ',provision,' &&
+		! printf ',%s,' "$TAGS" | grep -q ',setup,'; then
+		TAGS="${TAGS},setup"
+	fi
 fi
 
 # Check vars.yaml

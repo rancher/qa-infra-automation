@@ -5,11 +5,14 @@
 - name: Destroy tofu workspaces
   ansible.builtin.shell:
     cmd: |
-      set -eu
-      cd {{ tofu_module }}
+      set -u
+      cd {{ tofu_module }} || exit 1
       tofu workspace select {{ item.workspace }} 2>/dev/null || exit 0
-      tofu destroy -var-file="{{ outputs_dir }}/{{ item.workspace }}.tfvars" \
-        -auto-approve -no-color -input=false 2>&1 | tail -n 5
+      out="$(tofu destroy -var-file="{{ outputs_dir }}/{{ item.workspace }}.tfvars" \
+        -auto-approve -no-color -input=false 2>&1)"
+      rc=$?
+      printf '%s\n' "$out" | tail -n 20
+      exit "$rc"
   loop:
     - { workspace: customnode, condition: "{{ create_initial_clusters | bool }}" }
     - { workspace: importcluster, condition: "{{ create_initial_clusters | bool }}" }
@@ -17,8 +20,34 @@
   when: item.condition | bool
   loop_control:
     label: "{{ item.workspace }}"
-  changed_when: true
+  register: destroy_results
+  # Per-item stdout/rc are not exposed to changed_when/failed_when inside a
+  # loop, so honesty and failure handling are done in the two tasks below,
+  # where the fully populated destroy_results is in scope.
+  changed_when: false
   failed_when: false
+
+- name: Report workspaces that actually had resources destroyed
+  ansible.builtin.debug:
+    msg: "Destroyed workspace(s): {{ _destroyed }}"
+  vars:
+    _destroyed: >-
+      {{ destroy_results.results | selectattr('rc', 'defined')
+         | selectattr('rc', 'eq', 0) | selectattr('stdout', 'defined')
+         | rejectattr('stdout', 'search', '0 destroyed')
+         | map(attribute='item.workspace') | list }}
+  changed_when: _destroyed | length > 0
+  when: _destroyed | length > 0
+
+- name: Fail if any tofu destroy errored
+  ansible.builtin.fail:
+    msg: >-
+      tofu destroy failed for workspace(s):
+      {{ destroy_results.results | selectattr('rc', 'defined')
+         | selectattr('rc', 'ne', 0) | map(attribute='item.workspace') | list }}
+  when: >-
+    destroy_results.results | selectattr('rc', 'defined')
+    | selectattr('rc', 'ne', 0) | list | length > 0
 
 - name: Remove Docker image
   community.docker.docker_image:
