@@ -9,6 +9,7 @@
       kubeconfig_file: '{{ outputs_dir }}/kubeconfig-rancher.yaml'
       node_token_file: '/tmp/node_token_rancher.txt'
       channel: "stable"
+      k3s_node_external_ip: false
     dest: "{{ outputs_dir }}/rancher-server-k3s-vars.yaml"
     mode: "0644"
   when: job_type == 'recurring'

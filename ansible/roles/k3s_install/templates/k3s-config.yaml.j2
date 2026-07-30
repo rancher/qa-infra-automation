@@ -87,8 +87,11 @@ token: "{{ k3s_token }}"
 {% endif %}
 {% endif %}
 
-# Advertise public/external IP to the cluster (used by kubelet/kube-proxy)
-{% if public_ip is defined and public_ip | trim != '' %}
+# Advertise public/external IP to the cluster (used by kubelet/kube-proxy).
+# Some security groups only allow nodes to talk to each other over private
+# IPs, not public ones. If that's the case, set k3s_node_external_ip: false
+# to turn this off so nodes don't try to use public IPs to communicate.
+{% if public_ip is defined and public_ip | trim != '' and (k3s_node_external_ip | default(true)) %}
 node-external-ip:
   - "{{ public_ip }}"
 {% endif %}
