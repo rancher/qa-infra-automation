@@ -12,8 +12,15 @@
 
 - name: Run Cypress tests in Docker
   ansible.builtin.shell: |
+    USER_ARG=""
+    HOST_UID="{{ lookup('env', 'HOST_UID') }}"
+    HOST_GID="{{ lookup('env', 'HOST_GID') }}"
+    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
+      USER_ARG="--user $HOST_UID:$HOST_GID -e HOME=/tmp -e KUBECONFIG=/root/.kube/config"
+    fi
     docker run --rm -t --init \
       --name "cypress-{{ executor_tag }}-{{ prefix | default('local') | lower | regex_replace('[^a-z0-9_.-]', '-') }}-{{ rancher_host | default('dashboard-e2e') | lower | regex_replace('[^a-z0-9_.-]', '-') }}" \
+      $USER_ARG \
       --shm-size=2g \
       --env-file "{{ workspace_dir }}/.env" \
       -e NODE_PATH="" \
@@ -31,7 +38,11 @@
 
 - name: Fix dashboard permissions after Docker run
   ansible.builtin.shell: |
-    chown -R "$(id -u):$(id -g)" "{{ dashboard_dir }}" 2>/dev/null || true
+    HOST_UID="{{ lookup('env', 'HOST_UID') }}"
+    HOST_GID="{{ lookup('env', 'HOST_GID') }}"
+    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
+      chown -R "$HOST_UID:$HOST_GID" "{{ dashboard_dir }}" 2>/dev/null || true
+    fi
   changed_when: false
 
 - name: Set test exit code

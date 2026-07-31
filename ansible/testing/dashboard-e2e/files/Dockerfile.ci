@@ -30,6 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /root/.kube
 
-COPY imported_config /root/.kube/config
+COPY --chmod=644 imported_config /root/.kube/config
 
 ENTRYPOINT ["bash", "cypress/jenkins/cypress.sh"]

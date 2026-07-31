@@ -17,6 +17,9 @@
 #   ./run.sh results                  # open the HTML test report
 #   ./run.sh clean                    # remove local artifacts (reports, clone, .env)
 #
+# Options:
+#   --dashboard-dir <path>           use a local dashboard checkout (skip clone)
+#
 # Extra ansible flags pass through:
 #   ./run.sh test -v                  # verbose
 #   ./run.sh test --check             # dry-run
@@ -126,18 +129,31 @@ run_playbook() {
 	# Ansible requires a valid YAML dict; fall back to empty mapping if no creds were written
 	[ ! -s "${_creds_file}" ] && printf '{}\n' > "${_creds_file}"
 
+	# When --dashboard-dir is set, mount the external dir and pass it as an Ansible var
+	_dashboard_docker_args=""
+	_dashboard_ansible_args=""
+	if [ -n "${DASHBOARD_DIR:-}" ]; then
+		_dashboard_docker_args="-v ${DASHBOARD_DIR}:/external-dashboard"
+		_dashboard_ansible_args='--extra-vars dashboard_src=/external-dashboard'
+	fi
+
+	# shellcheck disable=SC2086
 	$RUNTIME run --rm -it \
 		-v "${SOCKET}:/var/run/docker.sock" \
 		-v "${VARS_FILE}:/playbook/vars.yaml:ro" \
 		-v "${_creds_file}:/playbook/.creds.yml:ro" \
 		-v "${SCRIPT_DIR}:/playbook" \
 		-v "${REPO_ROOT}:/qa-infra" \
+		${_dashboard_docker_args} \
 		-e QA_INFRA_DIR=/qa-infra \
-		-e HOST_DASHBOARD_DIR="${SCRIPT_DIR}/dashboard" \
+		-e HOST_DASHBOARD_DIR="${DASHBOARD_DIR:-${SCRIPT_DIR}/dashboard}" \
+		-e HOST_UID="$(id -u)" \
+		-e HOST_GID="$(id -g)" \
 		-e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
 		-e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
 		"$IMAGE_NAME" \
 		--extra-vars "@/playbook/.creds.yml" \
+		${_dashboard_ansible_args} \
 		"$@"
 
 	rm -f "${_creds_file}"
@@ -164,10 +180,13 @@ stream_cypress() {
 
 	exec $RUNTIME run --rm -it \
 		--name "$_name" \
+		--user "$(id -u):$(id -g)" \
 		--shm-size=2g \
 		--env-file "${SCRIPT_DIR}/.env" \
+		-e HOME=/tmp \
+		-e KUBECONFIG=/root/.kube/config \
 		-e NODE_PATH="" \
-		-v "${SCRIPT_DIR}/dashboard:/e2e" \
+		-v "${DASHBOARD_DIR:-${SCRIPT_DIR}/dashboard}:/e2e" \
 		-w /e2e \
 		dashboard-test:0
 }
@@ -182,6 +201,7 @@ STREAM=""
 _FORCE_BUILD=""
 _BUILD_ONLY=""
 _EXCL=""
+DASHBOARD_DIR=""
 
 # destroy and build run on their own; refuse to mix them with stage verbs so a
 # request like "provision destroy" can never silently drop or reorder stages.
@@ -236,6 +256,18 @@ while [ $# -gt 0 ]; do
 	-h | --help)
 		sed -n '2,/^$/s/^# //p' "$0"
 		exit 0
+		;;
+	--dashboard-dir)
+		if [ -z "${2:-}" ]; then
+			echo "ERROR: --dashboard-dir requires a path argument." >&2
+			exit 2
+		fi
+		if [ ! -d "$2" ]; then
+			echo "ERROR: --dashboard-dir path '$2' does not exist." >&2
+			exit 2
+		fi
+		DASHBOARD_DIR="$(cd "$2" && pwd)"
+		shift 2
 		;;
 	-*)
 		# Unknown flag: stop parsing and forward it (and the rest) to ansible.
@@ -295,6 +327,12 @@ if [ -n "$_BUILD_ONLY" ]; then
 fi
 
 mkdir -p "${SCRIPT_DIR}/outputs"
+
+if [ -n "${DASHBOARD_DIR:-}" ]; then
+	echo "[run] Using local dashboard: ${DASHBOARD_DIR}"
+	echo "[run] WARNING: --dashboard-dir overrides dashboard_repo and dashboard_branch (git clone skipped)."
+	echo "[run] Ensure your local code is compatible with rancher_helm_repo and rancher_image_tag."
+fi
 
 echo "[run] Using ${RUNTIME} (socket: ${SOCKET})"
 echo "[run] vars.yaml: ${VARS_FILE}"

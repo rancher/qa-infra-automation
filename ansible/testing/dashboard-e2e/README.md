@@ -44,9 +44,15 @@ cd ansible/testing/dashboard-e2e
 cp vars.yaml.example vars.yaml
 # Edit vars.yaml  --  at minimum you need to set the AWS variables
 
-# 2. Export AWS credentials (secrets — don't put these in vars.yaml)
+# 2. Export credentials (secrets - don't put these in vars.yaml)
 export AWS_ACCESS_KEY_ID="..."
 export AWS_SECRET_ACCESS_KEY="..."
+
+# Optional: for AKS/GKE cluster tests
+export AZURE_AKS_SUBSCRIPTION_ID="..."
+export AZURE_CLIENT_ID="..."
+export AZURE_CLIENT_SECRET="..."
+export GKE_SERVICE_ACCOUNT="..."
 
 # 3. Run the full pipeline
 ansible-playbook dashboard-e2e-playbook.yml
@@ -59,7 +65,7 @@ ansible-playbook dashboard-e2e-playbook.yml
 
 ### Containerized wrapper (run.sh)
 
-The `run.sh` wrapper runs everything inside a container — the only prerequisite
+The `run.sh` wrapper runs everything inside a container. The only prerequisite
 is Docker or Podman. Commands are simple verbs that can be combined:
 
 ```bash
@@ -69,7 +75,7 @@ is Docker or Podman. Commands are simple verbs that can be combined:
 # Provision + setup + test with live Cypress output
 ./run.sh stream provision
 
-# Setup + test (most common — iterate on provisioned infra)
+# Setup + test (most common, iterate on provisioned infra)
 ./run.sh stream
 
 # Re-run tests only (after changing cypress_tags)
@@ -86,6 +92,9 @@ is Docker or Podman. Commands are simple verbs that can be combined:
 
 # Rebuild the runner image
 ./run.sh build
+
+# Use a local dashboard checkout (skip clone)
+./run.sh stream --dashboard-dir ~/repos/dashboard
 
 # Pass extra ansible flags
 ./run.sh test -v          # verbose
@@ -149,12 +158,23 @@ usage, run setup only, then Docker manually:
 # Setup: clone dashboard, build image, generate .env
 ansible-playbook dashboard-e2e-playbook.yml --tags setup
 
-# Run Cypress with real-time streaming
+# Run Cypress with real-time streaming (default cloned checkout)
 docker run --rm -t \
   --shm-size=2g \
   --env-file .env \
   -e NODE_PATH="" \
   -v "$PWD/dashboard:/e2e" \
+  -w /e2e \
+  dashboard-test:latest
+
+# Or run Cypress with your local checkout (unprivileged user):
+docker run --rm -it \
+  --user "$(id -u):$(id -g)" \
+  --shm-size=2g \
+  --env-file .env \
+  -e HOME=/tmp \
+  -e KUBECONFIG=/root/.kube/config \
+  -v /path/to/your/dashboard:/e2e \
   -w /e2e \
   dashboard-test:latest
 ```
@@ -182,7 +202,7 @@ Tear down all AWS resources (EC2, Route53) created during provisioning.
 # With run.sh
 ./run.sh destroy
 
-# Or with direct Ansible (requires both tags — 'never' prevents accidental execution)
+# Or with direct Ansible (requires both tags; 'never' prevents accidental execution)
 ansible-playbook dashboard-e2e-playbook.yml --tags cleanup,never
 ```
 
@@ -220,10 +240,16 @@ environment variables.
 | `server_count` | `3` | Number of Rancher HA nodes (1 or 3) |
 
 The following are **required** and have no defaults. Export them as environment
-variables — don't put secrets in `vars.yaml`:
+variables. Do not put secrets in `vars.yaml`:
 
-- `AWS_ACCESS_KEY_ID` — AWS credentials
-- `AWS_SECRET_ACCESS_KEY` — AWS credentials
+| Variable | Purpose |
+|----------|--------|
+| `AWS_ACCESS_KEY_ID` | AWS credentials |
+| `AWS_SECRET_ACCESS_KEY` | AWS credentials |
+| `AZURE_AKS_SUBSCRIPTION_ID` | Azure subscription (for AKS cluster tests) |
+| `AZURE_CLIENT_ID` | Azure service principal (for AKS cluster tests) |
+| `AZURE_CLIENT_SECRET` | Azure service principal secret (for AKS cluster tests) |
+| `GKE_SERVICE_ACCOUNT` | GCP service account JSON (for GKE cluster tests) |
 
 The remaining AWS settings go in `vars.yaml`:
 `aws_ami`, `aws_route53_zone`, `aws_vpc`, `aws_subnet`, `aws_security_group`
@@ -243,7 +269,7 @@ The remaining AWS settings go in `vars.yaml`:
 Rancher is released through two pipelines: **Prime** (SUSE registry) and
 **Community** (Docker Hub). Each pipeline has production, RC, and alpha stages.
 
-Each repo is self-contained — chart and image are resolved from the same source.
+Each repo is self-contained: chart and image are resolved from the same source.
 For Prime staging repos (`rancher-latest`, `rancher-alpha`), the resolved chart
 version becomes the image tag (e.g. `2.14.0-alpha13` → `v2.14.0-alpha13`).
 
@@ -259,27 +285,27 @@ version becomes the image tag (e.g. `2.14.0-alpha13` → `v2.14.0-alpha13`).
 ### Examples
 
 ```yaml
-# Prime stable — released 2.13.4
+# Prime stable - released 2.13.4
 rancher_helm_repo: "rancher-prime"
 rancher_image_tag: "v2.13.4"
 # → chart 2.13.4 from rancher-prime, image registry.suse.com/rancher/rancher:v2.13.4
 
-# Prime RC — test the latest 2.13 release candidate
+# Prime RC - test the latest 2.13 release candidate
 rancher_helm_repo: "rancher-latest"
 rancher_image_tag: "v2.13"
 # → highest 2.13.x-rc from optimus/latest, image stgregistry.suse.com/rancher/rancher:v2.13.4-rc1
 
-# Prime alpha — test the next minor
+# Prime alpha - test the next minor
 rancher_helm_repo: "rancher-alpha"
 rancher_image_tag: "v2.14"
 # → highest 2.14.x-alpha from optimus/alpha, image stgregistry.suse.com/rancher/rancher:v2.14.0-alpha13
 
-# Community GA — stable community release
+# Community GA - stable community release
 rancher_helm_repo: "rancher-community"
 rancher_image_tag: "v2.13.3"
 # → chart 2.13.3 from releases.rancher.com/stable, image rancher/rancher:v2.13.3
 
-# Community RC (default) — test upcoming community release
+# Community RC (default) - test upcoming community release
 rancher_helm_repo: "rancher-com-rc"
 rancher_image_tag: "v2.14-head"
 # → latest 2.14.x chart from releases.rancher.com/latest, image rancher/rancher:v2.14-head
@@ -289,7 +315,7 @@ rancher_helm_repo: "rancher-com-alpha"
 rancher_image_tag: "v2.14.0-alpha9"
 # → chart 2.14.0-alpha9 from releases.rancher.com/alpha, image rancher/rancher:v2.14.0-alpha9
 
-# Dev head — latest from any repo
+# Dev head - latest from any repo
 rancher_helm_repo: "rancher-com-rc"
 rancher_image_tag: "head"
 # → latest chart in the repo, image rancher/rancher:head
@@ -306,6 +332,35 @@ rancher_image_tag: "head"
 | `dashboard_repo` | `rancher/dashboard` | Dashboard GitHub repo to clone |
 | `dashboard_branch` | (auto-detected) | Branch to clone. Auto-detected from `rancher_image_tag` (e.g. `v2.14-head` → `release-2.14`) |
 | `dashboard_overlay_branch` | `master` | Branch to overlay dependency files from (package.json, yarn.lock, cypress.config.ts). CI files come from the playbook's `files/` directory |
+
+### Using a local dashboard checkout
+
+The `--dashboard-dir` flag lets you point at your own local `rancher/dashboard`
+checkout instead of cloning from GitHub. The playbook skips the clone, overlay,
+and delete steps. Your working tree is mounted directly into the containers.
+
+```bash
+# Setup + test with live output, using your local repo
+./run.sh stream --dashboard-dir ~/repos/dashboard
+
+# Re-run tests (reuses the image, your local edits are picked up)
+./run.sh stream test --dashboard-dir ~/repos/dashboard
+```
+
+This is useful when:
+- You want to test **uncommitted changes** without pushing to a remote
+- You want to avoid the clone/overlay cycle during iteration
+- You have a large dashboard checkout and don't want to duplicate it
+
+> **Important:** When using `--dashboard-dir`, `dashboard_repo` and `dashboard_branch`
+> (for example `dashboard_repo: "izaac/dashboard"` or `dashboard_branch: "issue-2459"`)
+> are **ignored** because the local checkout is used instead of cloning. Developers and QA
+> are responsible for ensuring that their local code branch is compatible with the targeted
+> `rancher_helm_repo` and `rancher_image_tag`, otherwise tests may fail with unexpected UI errors.
+
+> **Note:** The setup stage copies a few CI files (`Dockerfile.ci`, `cypress.sh`,
+> etc.) into `cypress/jenkins/` in your checkout to build the test image. Clean
+> them with `git checkout -- cypress/jenkins/` if needed.
 
 ### Pinned versions
 
@@ -345,7 +400,7 @@ Example: Input `@userMenu` with repo `rancher-com-rc` becomes
 | `test` | Cypress Docker run + result collection |
 | `cleanup` | Infrastructure teardown (requires `--tags cleanup,never`) |
 
-Pre-tasks (validation, tag adjustment) use `always` with conditional guards —
+Pre-tasks (validation, tag adjustment) use `always` with conditional guards;
 they are evaluated on every run but skip work that doesn't apply (e.g. Cypress
 tag adjustment is skipped during `cleanup`, host validation is skipped when
 `provision` will create it).
@@ -383,7 +438,7 @@ dashboard-e2e-playbook.yml          Main orchestrator
 
 files/                               CI files (copied into dashboard clone at setup)
   Dockerfile.ci                      Cypress factory image + kubectl
-  cypress.sh                         Container entrypoint — runs Cypress + jrm
+  cypress.sh                         Container entrypoint (runs Cypress + jrm)
   cypress.config.jenkins.ts          Cypress config (reporters, retries, Qase)
   grep-filter.ts                     Pre-filter specs by tag
   utils.sh                           Shared shell utilities (clean_tags, etc.)
@@ -391,14 +446,14 @@ files/                               CI files (copied into dashboard clone at se
 
 ### Key Scripts and Tasks
 
-- **`files/`** — CI files that are infrastructure concern, not test code.
+- **`files/`** contains CI files that are an infrastructure concern, not test code.
   The playbook copies them into the dashboard clone during setup, making the
   playbook fully self-contained. No git overlay needed for CI files.
-- **`rancher_user_setup` role** (`ansible/roles/rancher_user_setup/`) — Creates
+- **`rancher_user_setup` role** (`ansible/roles/rancher_user_setup/`) creates
   Rancher local users with global and project role bindings via the Rancher API.
   Parameterized: accepts a list of users, roles, and project bindings. Idempotent
   (skips if resources already exist). Error handling configurable (`fail` or `warn`).
-- **`files/grep-filter.ts`** — Pre-filters Cypress spec files by tag before
+- **`files/grep-filter.ts`** pre-filters Cypress spec files by tag before
   Cypress launches. Runs inside the Docker container to reduce unnecessary
   spec loading.
 
@@ -438,19 +493,19 @@ macOS and most Linux distros. On minimal systems: `apt-get install xxd`.
 
 ### Shell compatibility
 
-All shell tasks in the playbook are POSIX-compatible (`/bin/sh`). No `/bin/bash`
-dependency — the playbook runs on any system with a POSIX shell.
+All shell tasks in the playbook are POSIX-compatible (`/bin/sh`). There is no
+`/bin/bash` dependency; the playbook runs on any system with a POSIX shell.
 
 ## Dependencies
 
 Ansible collections required (install manually or let `init.sh` handle it in Jenkins):
 
-- `cloud.terraform` — required by the shared `ansible/k3s/default/k3s-playbook.yml` as a
+- `cloud.terraform` is required by the shared `ansible/k3s/default/k3s-playbook.yml` as a
   fallback when `kube_api_host`/`fqdn` are absent from the inventory. dashboard-e2e
   itself no longer relies on this path: `scripts/generate_inventory.py` bakes both
   values into `all.vars`, so the lookup is inert during normal runs.
-- `kubernetes.core` — Kubernetes resource operations
-- `community.docker` **< 5** — Docker image build and container
-  management (v5+ requires ansible-core ≥ 2.17)
-- `community.crypto` **< 3** — SSH keypair generation
-  (v3+ requires ansible-core ≥ 2.17)
+- `kubernetes.core` for Kubernetes resource operations.
+- `community.docker` **< 5** for Docker image build and container
+  management (v5+ requires ansible-core ≥ 2.17).
+- `community.crypto` **< 3** for SSH keypair generation
+  (v3+ requires ansible-core ≥ 2.17).
