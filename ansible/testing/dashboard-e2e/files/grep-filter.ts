@@ -34,11 +34,14 @@ if (!grepTags) {
   process.exit(0);
 }
 
+const testSkip: string = process.env.TEST_SKIP || '';
+const skipSetup: boolean = testSkip.includes('setup') || process.env.TEST_SKIP_SETUP === 'true';
+
 // IMPORTANT: keep in sync with testDirs in cypress.config.jenkins.ts
 const testDirs: string[] = [
   'cypress/e2e/tests/priority/**/*.spec.ts',
   'cypress/e2e/tests/components/**/*.spec.ts',
-  'cypress/e2e/tests/setup/**/*.spec.ts',
+  ...(skipSetup ? [] : ['cypress/e2e/tests/setup/**/*.spec.ts']),
   'cypress/e2e/tests/pages/**/*.spec.ts',
   'cypress/e2e/tests/navigation/**/*.spec.ts',
   'cypress/e2e/tests/global-ui/**/*.spec.ts',

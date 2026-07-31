@@ -27,7 +27,7 @@
     # Paths
     qa_infra_dir: "{{ lookup('env', 'QA_INFRA_DIR') | default(playbook_dir | dirname | dirname | dirname, true) }}"
     outputs_dir: "{{ workspace_dir }}/outputs"
-    dashboard_dir: "{{ workspace_dir }}/dashboard"
+    dashboard_dir: "{{ dashboard_src | default(workspace_dir + '/dashboard') }}"
     host_dashboard_dir: "{{ lookup('env', 'HOST_DASHBOARD_DIR') | default(dashboard_dir, true) }}"
     workspace_dir: "{{ lookup('env', 'WORKSPACE') | default(playbook_dir, true) }}"
     tofu_module: "{{ qa_infra_dir }}/tofu/aws/modules/cluster_nodes"

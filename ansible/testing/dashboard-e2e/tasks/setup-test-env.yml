@@ -13,6 +13,29 @@
   retries: 30
   delay: 10
 
+- name: Validate local dashboard directory
+  when: dashboard_src is defined
+  block:
+    - name: Stat local dashboard directory
+      ansible.builtin.stat:
+        path: "{{ dashboard_dir }}"
+      register: _local_dashboard_stat
+
+    - name: Assert local dashboard directory exists and is valid
+      ansible.builtin.assert:
+        that:
+          - _local_dashboard_stat.stat.exists
+          - _local_dashboard_stat.stat.isdir
+        fail_msg: "dashboard_src directory '{{ host_dashboard_dir }}' does not exist or is not a directory."
+
+    - name: Display local dashboard directory notice
+      ansible.builtin.debug:
+        msg: >-
+          NOTICE: Using local dashboard directory '{{ host_dashboard_dir }}'.
+          Git clone is skipped; dashboard_repo and dashboard_branch are ignored.
+          Ensure your local code is compatible with rancher_helm_repo ('{{ rancher_helm_repo }}')
+          and rancher_image_tag ('{{ rancher_image_tag }}').
+
 - name: Detect dashboard target branch
   ansible.builtin.set_fact:
     target_branch: >-
@@ -25,19 +48,23 @@
       {%- else -%}
         {{ dashboard_branch | default('master') }}
       {%- endif -%}
+  when: dashboard_src is not defined
 
 - name: Show detected branch
   ansible.builtin.debug:
     msg: "rancher_image_tag={{ rancher_image_tag }} → target_branch={{ target_branch }}"
+  when: dashboard_src is not defined
 
 - name: Remove old dashboard checkout
   ansible.builtin.file:
     path: "{{ dashboard_dir }}"
     state: absent
+  when: dashboard_src is not defined
 
 - name: Show clone target
   ansible.builtin.debug:
     msg: "Cloning {{ dashboard_repo }} @ {{ target_branch }}"
+  when: dashboard_src is not defined
 
 - name: Clone dashboard repo
   ansible.builtin.git:
@@ -49,6 +76,7 @@
   delay: 10
   register: _git_clone
   until: _git_clone is success
+  when: dashboard_src is not defined
 
 - name: Copy CI files from playbook into dashboard checkout
   ansible.builtin.copy:
@@ -83,7 +111,9 @@
     git checkout FETCH_HEAD -- cypress/support/qase.ts 2>/dev/null || \
       echo "[overlay] NOTICE: cypress/support/qase.ts not found on ${OVERLAY_BRANCH}, skipping"
     echo "[overlay] OK — overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
-  when: target_branch != (dashboard_overlay_branch | default('master', true))
+  when:
+    - dashboard_src is not defined
+    - target_branch != (dashboard_overlay_branch | default('master', true))
   changed_when: true
 
 - name: Configure Rancher users and role bindings
@@ -194,6 +224,18 @@
       Cypress={{ cypress_version }}, Node={{ nodejs_version }},
       Chrome={{ chrome_version }}
 
+- name: Write .dockerignore for build context
+  ansible.builtin.copy:
+    content: |
+      .git
+      node_modules
+      cypress/downloads
+      cypress/screenshots
+      cypress/videos
+      cypress/reports
+    dest: "{{ dashboard_dir }}/.dockerignore"
+    mode: "0644"
+
 - name: Build dashboard-test Docker image
   ansible.builtin.shell: |
     set -e
@@ -206,6 +248,15 @@
       --build-arg CHROME_VERSION="{{ chrome_version }}" \
       "{{ dashboard_dir }}"
   changed_when: true
+
+- name: Fix dashboard permissions after Docker build
+  ansible.builtin.shell: |
+    HOST_UID="{{ lookup('env', 'HOST_UID') }}"
+    HOST_GID="{{ lookup('env', 'HOST_GID') }}"
+    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
+      chown -R "$HOST_UID:$HOST_GID" "{{ dashboard_dir }}" 2>/dev/null || true
+    fi
+  changed_when: false
 
 - name: Generate .env file
   ansible.builtin.template:
