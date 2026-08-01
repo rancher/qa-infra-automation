@@ -19,6 +19,8 @@
 #
 # Options:
 #   --dashboard-dir <path>           use a local dashboard checkout (skip clone)
+#   --spec <path>                    run a single Cypress spec (relative to
+#                                    dashboard dir; requires 'stream')
 #
 # Extra ansible flags pass through:
 #   ./run.sh test -v                  # verbose
@@ -130,30 +132,66 @@ run_playbook() {
 	[ ! -s "${_creds_file}" ] && printf '{}\n' > "${_creds_file}"
 
 	# When --dashboard-dir is set, mount the external dir and pass it as an Ansible var
-	_dashboard_docker_args=""
-	_dashboard_ansible_args=""
+	_dashboard_vol=""
 	if [ -n "${DASHBOARD_DIR:-}" ]; then
-		_dashboard_docker_args="-v ${DASHBOARD_DIR}:/external-dashboard"
-		_dashboard_ansible_args='--extra-vars dashboard_src=/external-dashboard'
+		_dashboard_vol="${DASHBOARD_DIR}:/external-dashboard"
 	fi
 
-	# shellcheck disable=SC2086
-	$RUNTIME run --rm -it \
+	# --userns=keep-id is Podman-only; on Docker we rely on --user alone
+	_userns=""
+	[ "$RUNTIME" = "podman" ] && _userns="--userns=keep-id"
+
+	# Keep the pseudo-tty for coloured Ansible output, but only bind stdin when
+	# there is a terminal to bind. Without this the run dies immediately under
+	# ssh in batch mode, cron, or any other non-interactive caller.
+	_stdin=""
+	[ -t 0 ] && _stdin="-i"
+
+	# On Docker the socket keeps its host ownership (root:docker) inside the
+	# container, and the unprivileged --user has no supplementary groups.
+	# Grant the socket's gid explicitly. Rootless Podman sockets are already
+	# owned by the invoking user, so nothing is needed there.
+	_sock_gid=""
+	if [ "$RUNTIME" = "docker" ]; then
+		_sock_gid="$(stat -c '%g' "$SOCKET" 2>/dev/null || stat -f '%g' "$SOCKET" 2>/dev/null || true)"
+	fi
+
+	# tasks/run-tests.yml turns these into "--user <uid>:<gid>" on the Cypress
+	# container so Docker leaves artifacts owned by the host user instead of
+	# root. Rootless Podman needs the opposite: it has no --userns=keep-id
+	# equivalent over the Docker API the task speaks, and a bare --user is
+	# remapped to a subuid that cannot write the bind-mounted dashboard. Leaving
+	# both empty there makes the container run as Podman's root, which already
+	# maps back to the invoking user, so artifacts stay host-owned either way.
+	_host_uid=""
+	_host_gid=""
+	if [ "$RUNTIME" = "docker" ]; then
+		_host_uid="$(id -u)"
+		_host_gid="$(id -g)"
+	fi
+
+	$RUNTIME run --rm -t ${_stdin:+"${_stdin}"} \
+		--user "$(id -u):$(id -g)" \
+		${_userns:+"${_userns}"} \
+		${_sock_gid:+--group-add "${_sock_gid}"} \
 		-v "${SOCKET}:/var/run/docker.sock" \
 		-v "${VARS_FILE}:/playbook/vars.yaml:ro" \
-		-v "${_creds_file}:/playbook/.creds.yml:ro" \
-		-v "${SCRIPT_DIR}:/playbook" \
-		-v "${REPO_ROOT}:/qa-infra" \
-		${_dashboard_docker_args} \
+		-v "${_creds_file}:/playbook/.creds.yml:ro,Z" \
+		-v "${SCRIPT_DIR}:/playbook:Z" \
+		-v "${REPO_ROOT}:/qa-infra:z" \
+		${_dashboard_vol:+-v "${_dashboard_vol}"} \
 		-e QA_INFRA_DIR=/qa-infra \
 		-e HOST_DASHBOARD_DIR="${DASHBOARD_DIR:-${SCRIPT_DIR}/dashboard}" \
-		-e HOST_UID="$(id -u)" \
-		-e HOST_GID="$(id -g)" \
+		-e HOST_UID="${_host_uid}" \
+		-e HOST_GID="${_host_gid}" \
 		-e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
 		-e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
+		-e HOME=/tmp \
+		-e ANSIBLE_LOCAL_TEMP="/tmp/.ansible/tmp" \
+		-e ANSIBLE_ASYNC_DIR="/tmp/.ansible_async" \
 		"$IMAGE_NAME" \
 		--extra-vars "@/playbook/.creds.yml" \
-		${_dashboard_ansible_args} \
+		${DASHBOARD_DIR:+--extra-vars dashboard_src=/external-dashboard} \
 		"$@"
 
 	rm -f "${_creds_file}"
@@ -178,9 +216,19 @@ stream_cypress() {
 	_name="cypress-$(echo "$_host" | sed 's/[^a-zA-Z0-9_.-]/-/g')"
 	$RUNTIME rm -f "$_name" 2>/dev/null || true
 
-	exec $RUNTIME run --rm -it \
+	# --userns=keep-id is Podman-only; on Docker we rely on --user alone
+	_userns=""
+	[ "$RUNTIME" = "podman" ] && _userns="--userns=keep-id"
+
+	# Same stdin guard as run_playbook: keep the tty for live Cypress output,
+	# bind stdin only when one is available.
+	_stdin=""
+	[ -t 0 ] && _stdin="-i"
+
+	exec $RUNTIME run --rm -t ${_stdin:+"${_stdin}"} \
 		--name "$_name" \
 		--user "$(id -u):$(id -g)" \
+		${_userns:+"${_userns}"} \
 		--shm-size=2g \
 		--env-file "${SCRIPT_DIR}/.env" \
 		-e HOME=/tmp \
@@ -188,7 +236,7 @@ stream_cypress() {
 		-e NODE_PATH="" \
 		-v "${DASHBOARD_DIR:-${SCRIPT_DIR}/dashboard}:/e2e" \
 		-w /e2e \
-		dashboard-test:0
+		dashboard-test:0 ${SPEC:+--spec "${SPEC}"}
 }
 
 # --- Main ---
@@ -202,6 +250,7 @@ _FORCE_BUILD=""
 _BUILD_ONLY=""
 _EXCL=""
 DASHBOARD_DIR=""
+SPEC=""
 
 # destroy and build run on their own; refuse to mix them with stage verbs so a
 # request like "provision destroy" can never silently drop or reorder stages.
@@ -262,11 +311,19 @@ while [ $# -gt 0 ]; do
 			echo "ERROR: --dashboard-dir requires a path argument." >&2
 			exit 2
 		fi
-		if [ ! -d "$2" ]; then
+		if [ ! -d "${2}" ]; then
 			echo "ERROR: --dashboard-dir path '$2' does not exist." >&2
 			exit 2
 		fi
-		DASHBOARD_DIR="$(cd "$2" && pwd)"
+		DASHBOARD_DIR="$(cd "${2}" && pwd)"
+		shift 2
+		;;
+	--spec)
+		if [ -z "${2:-}" ]; then
+			echo "ERROR: --spec requires a spec path argument." >&2
+			exit 2
+		fi
+		SPEC="${2}"
 		shift 2
 		;;
 	-*)
@@ -280,6 +337,35 @@ while [ $# -gt 0 ]; do
 		;;
 	esac
 done
+
+# --spec is only wired into the stream runner. The buffered ansible test stage
+# runs the container without extra args, so refuse a silent full-suite run.
+if [ -n "${SPEC}" ] && [ -z "${STREAM}" ]; then
+	echo "ERROR: --spec requires the 'stream' command (e.g. ./run.sh stream test --spec <path>)." >&2
+	exit 2
+fi
+
+# Validate --spec early when possible. The path is relative to the dashboard
+# dir. Globs, comma lists, and not-yet-cloned checkouts are validated inside
+# the container instead (cypress/jenkins/cypress.sh).
+if [ -n "${SPEC}" ]; then
+	case "${SPEC}" in
+	/*)
+		echo "ERROR: --spec must be relative to the dashboard dir, got absolute path '${SPEC}'." >&2
+		exit 2
+		;;
+	*'*'* | *,*)
+		: # glob or comma list — defer to in-container validation
+		;;
+	*)
+		_dash_root="${DASHBOARD_DIR:-${SCRIPT_DIR}/dashboard}"
+		if [ -d "${_dash_root}" ] && [ ! -f "${_dash_root}/${SPEC}" ]; then
+			echo "ERROR: --spec path '${SPEC}' does not exist under ${_dash_root}." >&2
+			exit 2
+		fi
+		;;
+	esac
+fi
 
 # stream without explicit stages defaults to setup,test.
 # When "provision" is requested (for example "stream provision"), the setup
@@ -327,6 +413,9 @@ if [ -n "$_BUILD_ONLY" ]; then
 fi
 
 mkdir -p "${SCRIPT_DIR}/outputs"
+# Best-effort: artifacts from runs before the container was unprivileged may be
+# root-owned; a failed chmod must not abort the run (set -e).
+chmod -R u+rwX "${SCRIPT_DIR}/outputs" 2>/dev/null || true
 
 if [ -n "${DASHBOARD_DIR:-}" ]; then
 	echo "[run] Using local dashboard: ${DASHBOARD_DIR}"
@@ -338,18 +427,10 @@ echo "[run] Using ${RUNTIME} (socket: ${SOCKET})"
 echo "[run] vars.yaml: ${VARS_FILE}"
 echo ""
 
-# Build ansible tag args
-TAG_ARGS=""
-if [ -n "$TAGS" ]; then
-	TAG_ARGS="--tags ${TAGS}"
-fi
-
 if [ -n "$STREAM" ]; then
 	# Run everything except test via playbook, then stream Cypress directly
-	# shellcheck disable=SC2086
-	run_playbook --skip-tags test ${TAG_ARGS} "$@"
+	run_playbook --skip-tags test ${TAGS:+--tags "${TAGS}"} "$@"
 	stream_cypress
 else
-	# shellcheck disable=SC2086
-	run_playbook ${TAG_ARGS} "$@"
+	run_playbook ${TAGS:+--tags "${TAGS}"} "$@"
 fi

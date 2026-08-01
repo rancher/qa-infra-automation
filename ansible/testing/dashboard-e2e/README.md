@@ -96,6 +96,9 @@ is Docker or Podman. Commands are simple verbs that can be combined:
 # Use a local dashboard checkout (skip clone)
 ./run.sh stream --dashboard-dir ~/repos/dashboard
 
+# Run a single spec file (path relative to dashboard dir)
+./run.sh stream --dashboard-dir ~/repos/dashboard --spec cypress/e2e/tests/pages/generic/login.spec.ts
+
 # Pass extra ansible flags
 ./run.sh test -v          # verbose
 ./run.sh test --check     # dry-run
@@ -362,6 +365,71 @@ This is useful when:
 > etc.) into `cypress/jenkins/` in your checkout to build the test image. Clean
 > them with `git checkout -- cypress/jenkins/` if needed.
 
+### Running a single spec file
+
+The `--spec` flag lets you run a single Cypress spec instead of the full suite.
+The path is **relative to the dashboard directory** (either `--dashboard-dir` or
+the cloned checkout).
+
+```bash
+# Run a single spec with live output
+./run.sh stream --dashboard-dir ~/repos/dashboard \
+  --spec cypress/e2e/tests/pages/generic/login.spec.ts
+
+# Re-run just the test stage with a different spec
+./run.sh stream test --dashboard-dir ~/repos/dashboard \
+  --spec cypress/e2e/tests/pages/explorer/workloads/pods.spec.ts
+```
+
+`--spec` requires the `stream` command — the buffered ansible test stage runs
+the container without extra arguments, so `run.sh` refuses the flag without
+`stream` instead of silently running the full suite. It is independent of
+`--dashboard-dir` — you can use either or both.
+
+Validation: when the dashboard directory already exists locally the spec path
+is checked before any containers start; on a first run (no clone yet) the check
+happens inside the container instead. Globs and comma-separated lists are
+passed through to Cypress unvalidated.
+
+Tag interaction: `--spec` replaces the tag-based **spec pre-filter**
+(`grep-filter.ts`), but `CYPRESS_grepTags` still filters tests at **runtime**.
+With a positive tag such as `@adminUser`, only matching tests inside your spec
+run. To run everything in the spec, leave `cypress_tags` empty: tag adjustment
+then produces exclusion-only tags (`-@prime+-@noVai`), which match every test
+that is not prime/noVai. `@bypass` drops those exclusions too.
+
+### Testing release branches (release-2.14, release-2.15, ...)
+
+Execution specs come from the target branch (auto-detected from
+`rancher_image_tag`, or set via `dashboard_branch`), while dependency files
+(`package.json`, `yarn.lock`, `cypress/package.json`, `cypress/yarn.lock`,
+`cypress.config.ts`) are overlaid from `dashboard_overlay_branch` (default
+`master`) and CI files come from this playbook's `files/` directory. Release
+branches therefore run with master's Cypress and library versions.
+
+Cross-version compatibility is handled automatically:
+
+- master pins `@cypress/grep` v6, whose `exports` map removed the
+  `@cypress/grep/src/support` entrypoint that release-2.14/2.15 import in
+  `cypress/support/e2e.ts`. The setup stage rewrites that import to the
+  v5+/v6 `register` API when the overlaid `@cypress/grep` major is >= 5
+  (skipped with `--dashboard-dir`, where deps and specs are self-consistent).
+- `cypress.config.jenkins.ts` and `grep-filter.ts` (from `files/`) support
+  both the v5+/v6 (`dist/`, exports map) and legacy v3/v4 (`src/`) layouts.
+- Config options removed after Cypress 11 (`experimentalSessionAndOrigin`,
+  `videoUploadOnPasses`) only produce warnings on Cypress 12+, not errors.
+
+Caveats:
+
+- Old specs run under master's Cypress binary (`cypress_version`). Specs that
+  depend on behavior changed since Cypress 11 need the full legacy stack
+  instead: set `dashboard_overlay_branch` to the release branch **and** pin the
+  matching `cypress_version` (for example `release-2.15` + `11.1.0`). With
+  target == overlay branch the overlay and the import rewrite are both skipped.
+- `cypress_version` has no playbook default and must match the overlay branch's
+  Cypress. In Jenkins, `VARS_YAML_CONFIG` must pin it accordingly
+  (`15.19.0` while master stays on Cypress 15.19.0).
+
 ### Pinned versions
 
 These are kept in sync with the
@@ -373,7 +441,7 @@ Only change them if the factory updates.
 | Chrome | `146.0.7680.164-1` | Factory `.env` |
 | Node.js | `24.14.0` | Factory `.env` |
 | Yarn | `1.22.22` | Factory `.env` |
-| Cypress | `11.1.0` | Dashboard `package.json` |
+| Cypress | `15.19.0` | Dashboard `package.json` |
 
 ## Cypress Tag System
 

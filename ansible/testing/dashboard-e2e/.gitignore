@@ -4,3 +4,12 @@ notification_values.txt
 outputs/
 dashboard/
 .env
+# Runner-container artifacts (unprivileged ansible writes under the mounted playbook dir)
+.ansible/
+.ansible_async/
+.cache/
+.config/
+.creds.yml
+# Local vars.yaml variants (vars.yaml itself is ignored at the repo root)
+vars.yaml.*
+!vars.yaml.example

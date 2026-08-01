@@ -134,7 +134,23 @@ export default defineConfig({
   },
   e2e: {
     setupNodeEvents(on, config) {
-      require('@cypress/grep/src/plugin')(config);
+      try {
+        // v5/v6 entrypoint
+        require('@cypress/grep/plugin').plugin(config);
+      } catch (e) {
+        // Only a genuinely absent module justifies the legacy fallback. Any
+        // other error is a real fault inside the plugin and must surface as
+        // itself, rather than being retried and reported as a misleading
+        // module-resolution failure.
+        const code = (e as NodeJS.ErrnoException)?.code;
+
+        if (code !== 'MODULE_NOT_FOUND' && code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+          throw e;
+        }
+
+        // Legacy v3/v4 entrypoint
+        require('@cypress/grep/src/plugin')(config);
+      }
 
       const mochawesome = require('cypress-mochawesome-reporter/lib');
 
