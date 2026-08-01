@@ -361,6 +361,16 @@ This is useful when:
 > are responsible for ensuring that their local code branch is compatible with the targeted
 > `rancher_helm_repo` and `rancher_image_tag`, otherwise tests may fail with unexpected UI errors.
 
+> **Branch requirement:** the checkout must carry its test dependencies in
+> `cypress/package.json` and `cypress/yarn.lock`. That layout exists from
+> `release-2.14` onwards. Older branches such as `release-2.13` keep the test
+> dependencies in the root `package.json`, which lacks the reporters and
+> preprocessor that `cypress.config.jenkins.ts` requires. Because the dependency
+> overlay is intentionally skipped for local checkouts, `--dashboard-dir` cannot
+> be used with them; `run.sh` rejects such a directory up front. Use the clone
+> path instead, which overlays the dependency manifests from
+> `dashboard_overlay_branch`.
+
 > **Note:** The setup stage copies a few CI files (`Dockerfile.ci`, `cypress.sh`,
 > etc.) into `cypress/jenkins/` in your checkout to build the test image. Clean
 > them with `git checkout -- cypress/jenkins/` if needed.
@@ -381,10 +391,10 @@ the cloned checkout).
   --spec cypress/e2e/tests/pages/explorer/workloads/pods.spec.ts
 ```
 
-`--spec` requires the `stream` command — the buffered ansible test stage runs
+`--spec` requires the `stream` command, because the buffered ansible test stage runs
 the container without extra arguments, so `run.sh` refuses the flag without
 `stream` instead of silently running the full suite. It is independent of
-`--dashboard-dir` — you can use either or both.
+`--dashboard-dir`, so you can use either or both.
 
 Validation: when the dashboard directory already exists locally the spec path
 is checked before any containers start; on a first run (no clone yet) the check

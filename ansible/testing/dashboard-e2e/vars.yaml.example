@@ -1,5 +1,5 @@
 # =============================================================================
-# Dashboard E2E Test Pipeline — Variable Configuration
+# Dashboard E2E Test Pipeline Variable Configuration
 # =============================================================================
 # Copy to vars.yaml and adjust values for your environment.
 # Jenkins sets most of these via environment variables; the playbook falls back
@@ -48,7 +48,7 @@ dashboard_branch: "master"
 # "@bypass" to also drop the automatic prime/noVai exclusions.
 cypress_tags: "@adminUser"
 allow_filtered_catalog_skip: true  # When true (default), chart tests may skip if the chart is filtered out of the UI catalog. Set false to fail instead.
-cypress_browser: "chrome"     # Use "electron" on Apple Silicon (arm64) — Chrome requires amd64
+cypress_browser: "chrome"     # Use "electron" on Apple Silicon (arm64), Chrome requires amd64
 job_type: "recurring"              # recurring | existing
 create_initial_clusters: true
 # rancher_host: ""                 # Required for job_type=existing

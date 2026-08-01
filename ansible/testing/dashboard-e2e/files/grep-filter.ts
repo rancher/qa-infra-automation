@@ -58,7 +58,7 @@ try {
 const grepTags: string | undefined = process.env.CYPRESS_grepTags || process.env.GREP_TAGS;
 
 if (!grepTags) {
-  // No tags specified — run all specs (output nothing so cypress.sh skips --spec)
+  // No tags specified, so run all specs (output nothing so cypress.sh skips --spec)
   process.exit(0);
 }
 
@@ -95,7 +95,7 @@ const matched: string[] = specFiles.filter((specFile: string) => {
     return testInfo.tests.some((info) => shouldTestRun(parsedGrep, null, info.tags));
   } catch {
     // If we can't parse it, include it so Cypress can handle it at runtime
-    console.error('grep-filter: could not parse %s — including it', specFile);
+    console.error('grep-filter: could not parse %s, including it', specFile);
 
     return true;
   }

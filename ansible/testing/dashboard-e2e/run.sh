@@ -1,6 +1,6 @@
 #!/bin/sh
 # Wrapper to run the dashboard-e2e playbook inside a container.
-# Works with Docker and Podman — no local tool installation needed.
+# Works with Docker and Podman. No local tool installation needed.
 #
 # Commands:
 #   ./run.sh                          # full pipeline (provision → test → cleanup)
@@ -18,7 +18,9 @@
 #   ./run.sh clean                    # remove local artifacts (reports, clone, .env)
 #
 # Options:
-#   --dashboard-dir <path>           use a local dashboard checkout (skip clone)
+#   --dashboard-dir <path>           use a local dashboard checkout (skip clone).
+#                                    Requires the release-2.14+ layout, i.e. the
+#                                    checkout must have cypress/package.json.
 #   --spec <path>                    run a single Cypress spec (relative to
 #                                    dashboard dir; requires 'stream')
 #
@@ -204,13 +206,31 @@ stream_cypress() {
 	echo ""
 
 	if ! $RUNTIME image inspect dashboard-test:0 >/dev/null 2>&1; then
-		echo "ERROR: dashboard-test:0 image not found — setup may have failed" >&2
+		echo "ERROR: dashboard-test:0 image not found, setup may have failed" >&2
 		exit 1
 	fi
 	if [ ! -f "${SCRIPT_DIR}/.env" ]; then
-		echo "ERROR: .env not found — setup may have failed" >&2
+		echo "ERROR: .env not found, setup may have failed" >&2
 		exit 1
 	fi
+
+	# The image bakes one Cypress binary, chosen by cypress_version at build
+	# time. Stages that skip setup (./run.sh test, ./run.sh stream test) reuse
+	# whatever image is on the host, so changing cypress_version without a
+	# rebuild leaves the npm package and the binary on different versions.
+	# Cypress then reports a missing binary, which reads like a broken image
+	# rather than a stale one.
+	_want_cypress="$(grep '^cypress_version:' "$VARS_FILE" 2>/dev/null | head -1 | sed 's/^cypress_version:[[:space:]]*//' | tr -d "\"'" | tr -d '[:space:]')"
+	if [ -n "$_want_cypress" ] &&
+		! $RUNTIME run --rm --entrypoint sh dashboard-test:0 \
+			-c "[ -d \"/root/.cache/Cypress/${_want_cypress}\" ]" >/dev/null 2>&1; then
+		echo "ERROR: dashboard-test:0 does not carry Cypress ${_want_cypress}." >&2
+		echo "The image was built for a different cypress_version. Rebuild it with:" >&2
+		echo "  ./run.sh setup" >&2
+		echo "or run the full pipeline with './run.sh stream' instead of './run.sh stream test'." >&2
+		exit 1
+	fi
+	unset _want_cypress
 
 	_host="$(grep '^rancher_host:' "$VARS_FILE" 2>/dev/null | head -1 | sed "s/^rancher_host:[[:space:]]*//" | tr -d "\"'" || echo "dashboard-e2e")"
 	_name="cypress-$(echo "$_host" | sed 's/[^a-zA-Z0-9_.-]/-/g')"
@@ -355,7 +375,7 @@ if [ -n "${SPEC}" ]; then
 		exit 2
 		;;
 	*'*'* | *,*)
-		: # glob or comma list — defer to in-container validation
+		: # glob or comma list, defer to in-container validation
 		;;
 	*)
 		_dash_root="${DASHBOARD_DIR:-${SCRIPT_DIR}/dashboard}"
@@ -383,7 +403,7 @@ fi
 # Check vars.yaml
 if [ ! -f "$VARS_FILE" ]; then
 	echo "" >&2
-	echo "  vars.yaml not found — let's set it up:" >&2
+	echo "  vars.yaml not found, let's set it up:" >&2
 	echo "" >&2
 	echo "    cp vars.yaml.example vars.yaml" >&2
 	echo "    \$EDITOR vars.yaml" >&2
@@ -421,6 +441,27 @@ if [ -n "${DASHBOARD_DIR:-}" ]; then
 	echo "[run] Using local dashboard: ${DASHBOARD_DIR}"
 	echo "[run] WARNING: --dashboard-dir overrides dashboard_repo and dashboard_branch (git clone skipped)."
 	echo "[run] Ensure your local code is compatible with rancher_helm_repo and rancher_image_tag."
+
+	# The dependency overlay is deliberately skipped for local checkouts, so the
+	# checkout must already carry the split cypress/ dependency manifests. On
+	# branches older than release-2.14 the test dependencies live in the root
+	# package.json, which does not provide the reporters and preprocessor that
+	# cypress.config.jenkins.ts needs. Fail here rather than after provisioning.
+	_missing=""
+	for _f in cypress/package.json cypress/yarn.lock; do
+		[ -f "${DASHBOARD_DIR}/${_f}" ] || _missing="${_missing} ${_f}"
+	done
+	if [ -n "${_missing}" ]; then
+		echo "ERROR: --dashboard-dir checkout is missing:${_missing}" >&2
+		echo "       Test dependencies must live in cypress/, the layout used from" >&2
+		echo "       release-2.14 onwards. Older branches keep them in the root" >&2
+		echo "       package.json and are not supported by --dashboard-dir." >&2
+		echo "       Use the clone path instead (drop --dashboard-dir and set" >&2
+		echo "       dashboard_branch); it overlays the dependency manifests from" >&2
+		echo "       dashboard_overlay_branch." >&2
+		exit 2
+	fi
+	unset _missing _f
 fi
 
 echo "[run] Using ${RUNTIME} (socket: ${SOCKET})"

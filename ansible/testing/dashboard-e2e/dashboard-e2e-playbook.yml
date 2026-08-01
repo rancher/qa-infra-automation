@@ -1,5 +1,5 @@
 ---
-# Main orchestrator — see README.md for usage and configuration.
+# Main orchestrator. See README.md for usage and configuration.
 #
 # Stages (controlled via --tags / --skip-tags):
 #   provision  →  EC2 + DNS + K3s + Rancher
@@ -145,7 +145,7 @@
 
     - name: Display pipeline info
       ansible.builtin.debug:
-        msg: "Dashboard E2E Pipeline — job_type={{ job_type }}, image_tag={{ rancher_image_tag }}, prefix={{ prefix }}"
+        msg: "Dashboard E2E Pipeline: job_type={{ job_type }}, image_tag={{ rancher_image_tag }}, prefix={{ prefix }}"
       tags: [always]
 
     - name: Set phase flags

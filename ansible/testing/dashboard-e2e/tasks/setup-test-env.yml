@@ -102,15 +102,15 @@
       echo "[overlay] ERROR: git fetch origin ${OVERLAY_BRANCH} failed"
       exit 1
     }
-    # Required dependency files — fail if missing
+    # Required dependency files, fail if missing
     git checkout FETCH_HEAD -- cypress/package.json cypress/yarn.lock package.json yarn.lock cypress.config.ts || {
       echo "[overlay] ERROR: required dependency files missing on ${OVERLAY_BRANCH}"
       exit 1
     }
-    # Optional files — may not exist on all branches
+    # Optional files, may not exist on all branches
     git checkout FETCH_HEAD -- cypress/support/qase.ts 2>/dev/null || \
       echo "[overlay] NOTICE: cypress/support/qase.ts not found on ${OVERLAY_BRANCH}, skipping"
-    echo "[overlay] OK — overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
+    echo "[overlay] OK, overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
   when:
     - dashboard_src is not defined
     - target_branch != (dashboard_overlay_branch | default('master', true))
@@ -132,21 +132,21 @@
     [ -f cypress/package.json ] || { echo "[grep-compat] cypress/package.json not found, skipping"; exit 0; }
     GREP_MAJOR=$(sed -n 's/.*"@cypress\/grep"[[:space:]]*:[[:space:]]*"[^0-9]*\([0-9][0-9]*\)\..*/\1/p' cypress/package.json | head -1)
     if [ "${GREP_MAJOR:-0}" -lt 5 ]; then
-      echo "[grep-compat] @cypress/grep major=${GREP_MAJOR:-unknown} — legacy src/support import still valid"
+      echo "[grep-compat] @cypress/grep major=${GREP_MAJOR:-unknown}, legacy src/support import still valid"
       exit 0
     fi
     if grep -q "@cypress/grep/src/support" "${SUPPORT_FILE}"; then
       sed -i.bak "s|^import \([A-Za-z_][A-Za-z0-9_]*\) from '@cypress/grep/src/support';*|const { register: \1 } = require('@cypress/grep');|" "${SUPPORT_FILE}"
       rm -f "${SUPPORT_FILE}.bak"
       if grep -q "@cypress/grep/src/support" "${SUPPORT_FILE}"; then
-        echo "[grep-compat] ERROR: legacy @cypress/grep/src/support import remains after rewrite — unsupported import style?"
+        echo "[grep-compat] ERROR: legacy @cypress/grep/src/support import remains after rewrite, unsupported import style?"
         grep -n "@cypress/grep" "${SUPPORT_FILE}"
         exit 1
       fi
       echo "[grep-compat] rewrote legacy import for @cypress/grep v${GREP_MAJOR}:"
       grep -n "@cypress/grep" "${SUPPORT_FILE}" || true
     else
-      echo "[grep-compat] no legacy import found — nothing to do"
+      echo "[grep-compat] no legacy import found, nothing to do"
     fi
   when: dashboard_src is not defined
   register: _grep_compat
@@ -198,7 +198,7 @@
     - name: Warn if kubeconfig missing
       ansible.builtin.debug:
         msg: >-
-          kubeconfig-import.yaml not found — import cluster tests will be
+          kubeconfig-import.yaml not found, import cluster tests will be
           skipped. Run with --tags provision to create import clusters.
       when: not _kubeconfig_file.stat.exists
 
@@ -247,16 +247,26 @@
       [ -f "$f" ] || missing="${missing} ${f}"
     done
     if [ -n "${missing}" ]; then
-      echo "[verify] ERROR: Missing files after overlay:${missing}"
+      echo "[verify] ERROR: Missing required files:${missing}"
+      echo "[verify] {{ _verify_hint }}"
       exit 1
     fi
-    echo "[verify] OK — key files present, CYPRESSTAGS=$(grep -c 'CYPRESSTAGS' cypress/jenkins/cypress.sh || echo 'replaced')"
+    echo "[verify] OK, key files present, CYPRESSTAGS=$(grep -c 'CYPRESSTAGS' cypress/jenkins/cypress.sh || echo 'replaced')"
+  vars:
+    _verify_hint: >-
+      {{
+        'The dependency overlay is skipped for local checkouts, so the directory passed to
+         --dashboard-dir must already provide cypress/package.json and cypress/yarn.lock.
+         That layout exists from release-2.14 onwards.'
+        if dashboard_src is defined
+        else 'The overlay from ' ~ (dashboard_overlay_branch | default('master', true)) ~ ' did not produce them.'
+      }}
   changed_when: false
 
 - name: Show Docker build args
   ansible.builtin.debug:
     msg: >-
-      Building dashboard-test image —
+      Building dashboard-test image:
       Cypress={{ cypress_version }}, Node={{ nodejs_version }},
       Chrome={{ chrome_version }}
 
@@ -291,7 +301,7 @@
     dest: "{{ workspace_dir }}/.env"
     mode: "0644"
 
-- name: Warn — qase_enabled is true but QASE_TOKEN is not set
+- name: Warn when qase_enabled is true but QASE_TOKEN is not set
   ansible.builtin.debug:
     msg: >-
       WARNING: qase_enabled is true but QASE_TOKEN is not set.
@@ -299,14 +309,14 @@
       Export QASE_TOKEN in your environment before running (do not put the token in vars.yaml).
   when: (qase_enabled | default(false)) and (qase_token | default('') | length == 0)
 
-- name: Notice — percy_enabled but @percy not in cypress_tags, skipping Percy
+- name: Notice when percy_enabled but @percy not in cypress_tags, skipping Percy
   ansible.builtin.debug:
     msg: >-
       NOTICE: percy_enabled is true but '@percy' is not in cypress_tags ('{{ cypress_tags }}').
       Percy will be skipped for this run. Add '@percy' to cypress_tags to enable Percy snapshots.
   when: (percy_enabled | default(false)) and ("@percy" not in cypress_tags)
 
-- name: Warn — percy_enabled and qase_enabled together risk Percy build failure
+- name: Warn when percy_enabled and qase_enabled together risk Percy build failure
   ansible.builtin.debug:
     msg: >-
       WARNING: percy_enabled and qase_enabled are both true.

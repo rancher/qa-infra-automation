@@ -73,5 +73,5 @@
     msg: >-
       Cypress tests {{ 'PASSED' if cypress_exit_code | int == 0 else 'FAILED' }}
       (exit code: {{ cypress_exit_code }}){{
-      ' — results.xml copied to ' + workspace_dir + '/results.xml'
+      '. results.xml copied to ' + workspace_dir + '/results.xml'
       if results_xml.stat.exists else '' }}
