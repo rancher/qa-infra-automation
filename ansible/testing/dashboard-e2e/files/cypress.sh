@@ -37,7 +37,13 @@ echo "[cypress.sh] node $(node -v), kubectl $(kubectl version --client -o json 2
 export FORCE_COLOR=1
 export PERCY_LOGLEVEL=warn
 export PERCY_SKIP_UPDATE_CHECK=true
-export DEBUG=@cypress/grep
+# The @cypress/grep debug channel dumps the whole Cypress env object, which
+# carries the AWS keys, the Azure client secret and the base64 SSH private key.
+# Keep it off by default and make the operator opt in.
+if [ "${CYPRESS_GREP_DEBUG:-false}" = "true" ]; then
+	echo "[cypress.sh] WARNING: CYPRESS_GREP_DEBUG=true. @cypress/grep debug output prints credentials into this log. Do not share it."
+	export DEBUG="${DEBUG:+$DEBUG,}@cypress/grep"
+fi
 export NODE_OPTIONS="--max-old-space-size=4096"
 
 # Use CYPRESS_grepTags from env (.env file) if set; fall back to baked-in placeholder
@@ -99,7 +105,7 @@ else
 			echo "grep-filter: will run --spec $FILTERED_SPECS"
 			SPEC_ARG=(--spec "$FILTERED_SPECS")
 		else
-			echo "[cypress.sh] ERROR: no specs matched tags '$TAGS' — nothing to run."
+			echo "[cypress.sh] ERROR: no specs matched tags '$TAGS', nothing to run."
 			echo "[cypress.sh] Check that cypress_tags matches tests available on this branch."
 			exit 1
 		fi
@@ -138,7 +144,7 @@ echo "CYPRESS EXIT CODE: $EXIT_CODE"
 # Merge JUnit reports inside the container (Node.js is available here)
 echo "[cypress.sh] Merging JUnit reports..."
 if ! npx --no-install jrm results.xml "cypress/jenkins/reports/junit/junit-*"; then
-	echo "WARNING: jrm merge failed — individual junit-*.xml files may still be available"
+	echo "WARNING: jrm merge failed, individual junit-*.xml files may still be available"
 	ls -la cypress/jenkins/reports/junit/ 2>/dev/null || echo "  (report directory not found)"
 fi
 
