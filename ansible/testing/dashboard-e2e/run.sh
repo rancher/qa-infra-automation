@@ -153,9 +153,25 @@ run_playbook() {
 	# container, and the unprivileged --user has no supplementary groups.
 	# Grant the socket's gid explicitly. Rootless Podman sockets are already
 	# owned by the invoking user, so nothing is needed there.
+	#
+	# The gid has to be read from inside a container, not from the host. Docker
+	# Desktop on macOS proxies the socket through its Linux VM and presents it
+	# as root:root regardless of who owns it on the host, so a host side stat
+	# grants a group that does not match. On macOS the host path is also a
+	# symlink owned by root:daemon, so even a host stat that dereferences
+	# correctly returns the wrong answer.
 	_sock_gid=""
 	if [ "$RUNTIME" = "docker" ]; then
-		_sock_gid="$(stat -c '%g' "$SOCKET" 2>/dev/null || stat -f '%g' "$SOCKET" 2>/dev/null || true)"
+		_sock_gid="$(docker run --rm -v "${SOCKET}:/var/run/docker.sock" \
+			--entrypoint sh "$IMAGE_NAME" \
+			-c 'stat -c %g /var/run/docker.sock' 2>/dev/null | tr -d '[:space:]')"
+		case "$_sock_gid" in
+		'' | *[!0-9]*)
+			echo "WARNING: could not determine the container side gid of ${SOCKET}." >&2
+			echo "         Falling back to the host gid, which may not match." >&2
+			_sock_gid="$(stat -Lc '%g' "$SOCKET" 2>/dev/null || stat -Lf '%g' "$SOCKET" 2>/dev/null || true)"
+			;;
+		esac
 	fi
 
 	# tasks/run-tests.yml turns these into "--user <uid>:<gid>" on the Cypress
