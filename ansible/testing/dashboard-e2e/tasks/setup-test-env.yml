@@ -123,34 +123,79 @@
 # master uses). No-op when the overlaid grep is v3/v4 or the import is already
 # new-style. Local checkouts (--dashboard-dir) are self-consistent and are
 # intentionally left untouched.
+#
+# Every exit path is either a rewrite or a hard failure. A silent no-op here
+# leaves tag filtering disabled at runtime, which looks like a green run that
+# quietly executed the wrong tests.
 - name: Adapt legacy @cypress/grep support import to v5+ overlay libs
   ansible.builtin.shell: |
     set -e
     cd "{{ dashboard_dir }}"
     SUPPORT_FILE="cypress/support/e2e.ts"
-    [ -f "${SUPPORT_FILE}" ] || { echo "[grep-compat] ${SUPPORT_FILE} not found, skipping"; exit 0; }
+
     [ -f cypress/package.json ] || { echo "[grep-compat] cypress/package.json not found, skipping"; exit 0; }
-    GREP_MAJOR=$(sed -n 's/.*"@cypress\/grep"[[:space:]]*:[[:space:]]*"[^0-9]*\([0-9][0-9]*\)\..*/\1/p' cypress/package.json | head -1)
-    if [ "${GREP_MAJOR:-0}" -lt 5 ]; then
-      echo "[grep-compat] @cypress/grep major=${GREP_MAJOR:-unknown}, legacy src/support import still valid"
+
+    GREP_SPEC=$(sed -n 's/.*"@cypress\/grep"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' cypress/package.json | head -1)
+    if [ -z "${GREP_SPEC}" ]; then
+      echo "[grep-compat] ERROR: cypress/package.json declares no @cypress/grep dependency."
+      echo "[grep-compat] The overlay did not produce a usable manifest."
+      exit 1
+    fi
+    GREP_MAJOR=$(printf '%s' "${GREP_SPEC}" | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p')
+    if [ -z "${GREP_MAJOR}" ]; then
+      echo "[grep-compat] ERROR: cannot read a major version from @cypress/grep spec '${GREP_SPEC}'."
+      exit 1
+    fi
+    echo "[grep-compat] @cypress/grep spec=${GREP_SPEC}, major=${GREP_MAJOR}"
+
+    [ -f "${SUPPORT_FILE}" ] || { echo "[grep-compat] ${SUPPORT_FILE} not found, skipping"; exit 0; }
+
+    # Registration has to live in this file. If it moved, doing nothing here
+    # would leave tag filtering silently disabled at runtime.
+    if ! grep -q "@cypress/grep" "${SUPPORT_FILE}"; then
+      echo "[grep-compat] ERROR: ${SUPPORT_FILE} does not reference @cypress/grep."
+      echo "[grep-compat] Registration has moved and tag filtering would do nothing."
+      grep -rn "@cypress/grep" cypress/support/ 2>/dev/null || true
+      exit 1
+    fi
+
+    if [ "${GREP_MAJOR}" -lt 5 ]; then
+      echo "[grep-compat] legacy src/support import is still valid for v${GREP_MAJOR}"
       exit 0
     fi
+
     if grep -q "@cypress/grep/src/support" "${SUPPORT_FILE}"; then
-      sed -i.bak "s|^import \([A-Za-z_][A-Za-z0-9_]*\) from '@cypress/grep/src/support';*|const { register: \1 } = require('@cypress/grep');|" "${SUPPORT_FILE}"
-      rm -f "${SUPPORT_FILE}.bak"
+      sed -i "s|^import \([A-Za-z_][A-Za-z0-9_]*\) from ['\"]@cypress/grep/src/support['\"];*|const { register: \1 } = require('@cypress/grep');|" "${SUPPORT_FILE}"
       if grep -q "@cypress/grep/src/support" "${SUPPORT_FILE}"; then
-        echo "[grep-compat] ERROR: legacy @cypress/grep/src/support import remains after rewrite, unsupported import style?"
+        echo "[grep-compat] ERROR: a legacy @cypress/grep/src/support import remains after the rewrite."
+        echo "[grep-compat] The import style is not one this task knows how to convert."
         grep -n "@cypress/grep" "${SUPPORT_FILE}"
         exit 1
       fi
-      echo "[grep-compat] rewrote legacy import for @cypress/grep v${GREP_MAJOR}:"
-      grep -n "@cypress/grep" "${SUPPORT_FILE}" || true
+      echo "[grep-compat] rewrote the legacy import for @cypress/grep v${GREP_MAJOR}"
     else
-      echo "[grep-compat] no legacy import found, nothing to do"
+      echo "[grep-compat] no legacy import found"
     fi
+
+    # Post-condition. Whatever path was taken, the file must bind the v5+
+    # `register` export and call it. Anything else registers nothing.
+    REG_NAME=$(sed -n "s/.*register:[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\).*@cypress\/grep.*/\1/p" "${SUPPORT_FILE}" | head -1)
+    [ -n "${REG_NAME}" ] || REG_NAME=$(sed -n "s/.*register[[:space:]]*as[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\).*@cypress\/grep.*/\1/p" "${SUPPORT_FILE}" | head -1)
+    [ -n "${REG_NAME}" ] || REG_NAME=$(sed -n "s/.*{[^}]*[^A-Za-z0-9_]\{0,1\}\(register\)[^A-Za-z0-9_:][^}]*}.*@cypress\/grep.*/\1/p" "${SUPPORT_FILE}" | head -1)
+    if [ -z "${REG_NAME}" ]; then
+      echo "[grep-compat] ERROR: ${SUPPORT_FILE} does not bind the v5+ 'register' export."
+      grep -n "@cypress/grep" "${SUPPORT_FILE}"
+      exit 1
+    fi
+    if ! grep -qE "(^|[^A-Za-z0-9_.])${REG_NAME}\(" "${SUPPORT_FILE}"; then
+      echo "[grep-compat] ERROR: ${SUPPORT_FILE} binds '${REG_NAME}' but never calls it."
+      echo "[grep-compat] @cypress/grep would not register and tags would not filter."
+      exit 1
+    fi
+    echo "[grep-compat] verified ${REG_NAME}() registers @cypress/grep v${GREP_MAJOR}"
   when: dashboard_src is not defined
   register: _grep_compat
-  changed_when: "'rewrote legacy import' in _grep_compat.stdout"
+  changed_when: "'rewrote the legacy import' in _grep_compat.stdout"
 
 - name: Configure Rancher users and role bindings
   ansible.builtin.include_role:
