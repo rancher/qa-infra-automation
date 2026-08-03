@@ -1,5 +1,5 @@
 # Resolve which Helm chart version and container image to deploy.
-# Each repo is self-contained — chart and image come from the same source.
+# Each repo is self-contained. Chart and image come from the same source.
 # Matches upstream cypress/jenkins/init.sh configure_rancher_helm().
 # See README.md "Helm Repos and Image Resolution" for details.
 

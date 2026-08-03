@@ -10,5 +10,5 @@ MD013:
   tables: false
   code_blocks: false
 
-# Tables use compact separators — consistent with GitHub rendering
+# Tables use compact separators, consistent with GitHub rendering
 MD060: false

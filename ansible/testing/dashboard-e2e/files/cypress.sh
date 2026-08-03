@@ -18,7 +18,15 @@ if ! (cd cypress && NODE_NO_WARNINGS=1 yarn install --frozen-lockfile --silent);
 	echo "[cypress.sh] yarn.lock exists: $(test -f cypress/yarn.lock && echo yes || echo no)"
 	exit 1
 fi
-ln -sf cypress/node_modules node_modules
+# Point ./node_modules at the test dependencies. -n stops ln from following an
+# existing symlink and leaving a dangling link inside its target on repeat
+# --dashboard-dir runs. A real directory is left alone: that is a developer's
+# own root install, and ln would nest inside it rather than replace it.
+if [ -L node_modules ] || [ ! -e node_modules ]; then
+	ln -sfn cypress/node_modules node_modules
+else
+	echo "[cypress.sh] node_modules is a real directory; leaving it in place (NODE_PATH still points at cypress/node_modules)."
+fi
 
 # Use test deps from cypress/node_modules
 export NODE_PATH="${PWD}/cypress/node_modules:${NODE_PATH:-}"
@@ -29,7 +37,13 @@ echo "[cypress.sh] node $(node -v), kubectl $(kubectl version --client -o json 2
 export FORCE_COLOR=1
 export PERCY_LOGLEVEL=warn
 export PERCY_SKIP_UPDATE_CHECK=true
-export DEBUG=@cypress/grep
+# The @cypress/grep debug channel dumps the whole Cypress env object, which
+# carries the AWS keys, the Azure client secret and the base64 SSH private key.
+# Keep it off by default and make the operator opt in.
+if [ "${CYPRESS_GREP_DEBUG:-false}" = "true" ]; then
+	echo "[cypress.sh] WARNING: CYPRESS_GREP_DEBUG=true. @cypress/grep debug output prints credentials into this log. Do not share it."
+	export DEBUG="${DEBUG:+$DEBUG,}@cypress/grep"
+fi
 export NODE_OPTIONS="--max-old-space-size=4096"
 
 # Use CYPRESS_grepTags from env (.env file) if set; fall back to baked-in placeholder
@@ -43,20 +57,63 @@ export CYPRESS_grepTags="$TAGS"
 # Pre-filter specs by tag so Cypress only opens matching files.
 # This bypasses the Cypress 11 bug where config.specPattern modifications
 # from setupNodeEvents are ignored.
-SPEC_ARG=()
-if [ -n "$TAGS" ]; then
-	if ! FILTERED_SPECS=$(node --no-warnings --experimental-strip-types cypress/jenkins/grep-filter.ts); then
-		echo "[cypress.sh] ERROR: grep-filter.ts failed:"
-		echo "$FILTERED_SPECS"
-		exit 1
+#
+# Only an explicit --spec replaces that pre-filter. Any other forwarded flag
+# (for example --browser) must not silently turn a tagged run into a full-suite
+# run, so it is appended to the tag-derived arguments instead.
+_spec_override=0
+for arg in "$@"; do
+	if [ "$arg" = "--spec" ]; then
+		_spec_override=1
+		break
 	fi
-	if [ -n "$FILTERED_SPECS" ]; then
-		echo "grep-filter: will run --spec $FILTERED_SPECS"
-		SPEC_ARG=(--spec "$FILTERED_SPECS")
-	else
-		echo "[cypress.sh] ERROR: no specs matched tags '$TAGS' — nothing to run."
-		echo "[cypress.sh] Check that cypress_tags matches tests available on this branch."
-		exit 1
+done
+
+SPEC_ARG=()
+if [ "$_spec_override" -eq 1 ]; then
+	SPEC_ARG=("$@")
+	echo "cypress.sh: Using passed arguments: ${SPEC_ARG[*]}"
+
+	# Belt-and-suspenders validation for --spec values inside the container.
+	# Globs and comma lists are passed through for Cypress itself to resolve.
+	i=1
+	for arg in "$@"; do
+		if [ "$arg" = "--spec" ]; then
+			next_idx=$((i + 1))
+			spec_val=""
+			eval "spec_val=\${$next_idx:-}"
+			case "$spec_val" in
+			'' | *'*'* | *,*) ;;
+			*)
+				if [ ! -f "$spec_val" ]; then
+					echo "[cypress.sh] ERROR: --spec file '$spec_val' does not exist inside the container at $(pwd)/$spec_val" >&2
+					exit 1
+				fi
+				;;
+			esac
+		fi
+		i=$((i + 1))
+	done
+else
+	if [ -n "$TAGS" ]; then
+		if ! FILTERED_SPECS=$(node --no-warnings --experimental-strip-types cypress/jenkins/grep-filter.ts); then
+			echo "[cypress.sh] ERROR: grep-filter.ts failed:"
+			echo "$FILTERED_SPECS"
+			exit 1
+		fi
+		if [ -n "$FILTERED_SPECS" ]; then
+			echo "grep-filter: will run --spec $FILTERED_SPECS"
+			SPEC_ARG=(--spec "$FILTERED_SPECS")
+		else
+			echo "[cypress.sh] ERROR: no specs matched tags '$TAGS', nothing to run."
+			echo "[cypress.sh] Check that cypress_tags matches tests available on this branch."
+			exit 1
+		fi
+	fi
+
+	if [ "$#" -gt 0 ]; then
+		echo "cypress.sh: forwarding extra arguments: $*"
+		SPEC_ARG+=("$@")
 	fi
 fi
 
@@ -87,7 +144,7 @@ echo "CYPRESS EXIT CODE: $EXIT_CODE"
 # Merge JUnit reports inside the container (Node.js is available here)
 echo "[cypress.sh] Merging JUnit reports..."
 if ! npx --no-install jrm results.xml "cypress/jenkins/reports/junit/junit-*"; then
-	echo "WARNING: jrm merge failed — individual junit-*.xml files may still be available"
+	echo "WARNING: jrm merge failed, individual junit-*.xml files may still be available"
 	ls -la cypress/jenkins/reports/junit/ 2>/dev/null || echo "  (report directory not found)"
 fi
 

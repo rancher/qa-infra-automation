@@ -102,19 +102,100 @@
       echo "[overlay] ERROR: git fetch origin ${OVERLAY_BRANCH} failed"
       exit 1
     }
-    # Required dependency files — fail if missing
+    # Required dependency files, fail if missing
     git checkout FETCH_HEAD -- cypress/package.json cypress/yarn.lock package.json yarn.lock cypress.config.ts || {
       echo "[overlay] ERROR: required dependency files missing on ${OVERLAY_BRANCH}"
       exit 1
     }
-    # Optional files — may not exist on all branches
+    # Optional files, may not exist on all branches
     git checkout FETCH_HEAD -- cypress/support/qase.ts 2>/dev/null || \
       echo "[overlay] NOTICE: cypress/support/qase.ts not found on ${OVERLAY_BRANCH}, skipping"
-    echo "[overlay] OK — overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
+    echo "[overlay] OK, overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
   when:
     - dashboard_src is not defined
     - target_branch != (dashboard_overlay_branch | default('master', true))
   changed_when: true
+
+# Release branches (2.14/2.15) register grep via `import ... from
+# '@cypress/grep/src/support'`. @cypress/grep v5+ moved to dist/ with an
+# exports map that no longer exposes src/*, so with master-overlaid deps that
+# import cannot resolve. Rewrite it to the v5+/v6 `register` API (same line
+# master uses). No-op when the overlaid grep is v3/v4 or the import is already
+# new-style. Local checkouts (--dashboard-dir) are self-consistent and are
+# intentionally left untouched.
+#
+# Every exit path is either a rewrite or a hard failure. A silent no-op here
+# leaves tag filtering disabled at runtime, which looks like a green run that
+# quietly executed the wrong tests.
+- name: Adapt legacy @cypress/grep support import to v5+ overlay libs
+  ansible.builtin.shell: |
+    set -e
+    cd "{{ dashboard_dir }}"
+    SUPPORT_FILE="cypress/support/e2e.ts"
+
+    [ -f cypress/package.json ] || { echo "[grep-compat] cypress/package.json not found, skipping"; exit 0; }
+
+    GREP_SPEC=$(sed -n 's/.*"@cypress\/grep"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' cypress/package.json | head -1)
+    if [ -z "${GREP_SPEC}" ]; then
+      echo "[grep-compat] ERROR: cypress/package.json declares no @cypress/grep dependency."
+      echo "[grep-compat] The overlay did not produce a usable manifest."
+      exit 1
+    fi
+    GREP_MAJOR=$(printf '%s' "${GREP_SPEC}" | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p')
+    if [ -z "${GREP_MAJOR}" ]; then
+      echo "[grep-compat] ERROR: cannot read a major version from @cypress/grep spec '${GREP_SPEC}'."
+      exit 1
+    fi
+    echo "[grep-compat] @cypress/grep spec=${GREP_SPEC}, major=${GREP_MAJOR}"
+
+    [ -f "${SUPPORT_FILE}" ] || { echo "[grep-compat] ${SUPPORT_FILE} not found, skipping"; exit 0; }
+
+    # Registration has to live in this file. If it moved, doing nothing here
+    # would leave tag filtering silently disabled at runtime.
+    if ! grep -q "@cypress/grep" "${SUPPORT_FILE}"; then
+      echo "[grep-compat] ERROR: ${SUPPORT_FILE} does not reference @cypress/grep."
+      echo "[grep-compat] Registration has moved and tag filtering would do nothing."
+      grep -rn "@cypress/grep" cypress/support/ 2>/dev/null || true
+      exit 1
+    fi
+
+    if [ "${GREP_MAJOR}" -lt 5 ]; then
+      echo "[grep-compat] legacy src/support import is still valid for v${GREP_MAJOR}"
+      exit 0
+    fi
+
+    if grep -q "@cypress/grep/src/support" "${SUPPORT_FILE}"; then
+      sed -i "s|^import \([A-Za-z_][A-Za-z0-9_]*\) from ['\"]@cypress/grep/src/support['\"];*|const { register: \1 } = require('@cypress/grep');|" "${SUPPORT_FILE}"
+      if grep -q "@cypress/grep/src/support" "${SUPPORT_FILE}"; then
+        echo "[grep-compat] ERROR: a legacy @cypress/grep/src/support import remains after the rewrite."
+        echo "[grep-compat] The import style is not one this task knows how to convert."
+        grep -n "@cypress/grep" "${SUPPORT_FILE}"
+        exit 1
+      fi
+      echo "[grep-compat] rewrote the legacy import for @cypress/grep v${GREP_MAJOR}"
+    else
+      echo "[grep-compat] no legacy import found"
+    fi
+
+    # Post-condition. Whatever path was taken, the file must bind the v5+
+    # `register` export and call it. Anything else registers nothing.
+    REG_NAME=$(sed -n "s/.*register:[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\).*@cypress\/grep.*/\1/p" "${SUPPORT_FILE}" | head -1)
+    [ -n "${REG_NAME}" ] || REG_NAME=$(sed -n "s/.*register[[:space:]]*as[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\).*@cypress\/grep.*/\1/p" "${SUPPORT_FILE}" | head -1)
+    [ -n "${REG_NAME}" ] || REG_NAME=$(sed -n "s/.*{[^}]*[^A-Za-z0-9_]\{0,1\}\(register\)[^A-Za-z0-9_:][^}]*}.*@cypress\/grep.*/\1/p" "${SUPPORT_FILE}" | head -1)
+    if [ -z "${REG_NAME}" ]; then
+      echo "[grep-compat] ERROR: ${SUPPORT_FILE} does not bind the v5+ 'register' export."
+      grep -n "@cypress/grep" "${SUPPORT_FILE}"
+      exit 1
+    fi
+    if ! grep -qE "(^|[^A-Za-z0-9_.])${REG_NAME}\(" "${SUPPORT_FILE}"; then
+      echo "[grep-compat] ERROR: ${SUPPORT_FILE} binds '${REG_NAME}' but never calls it."
+      echo "[grep-compat] @cypress/grep would not register and tags would not filter."
+      exit 1
+    fi
+    echo "[grep-compat] verified ${REG_NAME}() registers @cypress/grep v${GREP_MAJOR}"
+  when: dashboard_src is not defined
+  register: _grep_compat
+  changed_when: "'rewrote the legacy import' in _grep_compat.stdout"
 
 - name: Configure Rancher users and role bindings
   ansible.builtin.include_role:
@@ -162,7 +243,7 @@
     - name: Warn if kubeconfig missing
       ansible.builtin.debug:
         msg: >-
-          kubeconfig-import.yaml not found — import cluster tests will be
+          kubeconfig-import.yaml not found, import cluster tests will be
           skipped. Run with --tags provision to create import clusters.
       when: not _kubeconfig_file.stat.exists
 
@@ -211,16 +292,26 @@
       [ -f "$f" ] || missing="${missing} ${f}"
     done
     if [ -n "${missing}" ]; then
-      echo "[verify] ERROR: Missing files after overlay:${missing}"
+      echo "[verify] ERROR: Missing required files:${missing}"
+      echo "[verify] {{ _verify_hint }}"
       exit 1
     fi
-    echo "[verify] OK — key files present, CYPRESSTAGS=$(grep -c 'CYPRESSTAGS' cypress/jenkins/cypress.sh || echo 'replaced')"
+    echo "[verify] OK, key files present, CYPRESSTAGS=$(grep -c 'CYPRESSTAGS' cypress/jenkins/cypress.sh || echo 'replaced')"
+  vars:
+    _verify_hint: >-
+      {{
+        'The dependency overlay is skipped for local checkouts, so the directory passed to
+         --dashboard-dir must already provide cypress/package.json and cypress/yarn.lock.
+         That layout exists from release-2.14 onwards.'
+        if dashboard_src is defined
+        else 'The overlay from ' ~ (dashboard_overlay_branch | default('master', true)) ~ ' did not produce them.'
+      }}
   changed_when: false
 
 - name: Show Docker build args
   ansible.builtin.debug:
     msg: >-
-      Building dashboard-test image —
+      Building dashboard-test image:
       Cypress={{ cypress_version }}, Node={{ nodejs_version }},
       Chrome={{ chrome_version }}
 
@@ -249,22 +340,13 @@
       "{{ dashboard_dir }}"
   changed_when: true
 
-- name: Fix dashboard permissions after Docker build
-  ansible.builtin.shell: |
-    HOST_UID="{{ lookup('env', 'HOST_UID') }}"
-    HOST_GID="{{ lookup('env', 'HOST_GID') }}"
-    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
-      chown -R "$HOST_UID:$HOST_GID" "{{ dashboard_dir }}" 2>/dev/null || true
-    fi
-  changed_when: false
-
 - name: Generate .env file
   ansible.builtin.template:
     src: env.j2
     dest: "{{ workspace_dir }}/.env"
     mode: "0644"
 
-- name: Warn — qase_enabled is true but QASE_TOKEN is not set
+- name: Warn when qase_enabled is true but QASE_TOKEN is not set
   ansible.builtin.debug:
     msg: >-
       WARNING: qase_enabled is true but QASE_TOKEN is not set.
@@ -272,14 +354,14 @@
       Export QASE_TOKEN in your environment before running (do not put the token in vars.yaml).
   when: (qase_enabled | default(false)) and (qase_token | default('') | length == 0)
 
-- name: Notice — percy_enabled but @percy not in cypress_tags, skipping Percy
+- name: Notice when percy_enabled but @percy not in cypress_tags, skipping Percy
   ansible.builtin.debug:
     msg: >-
       NOTICE: percy_enabled is true but '@percy' is not in cypress_tags ('{{ cypress_tags }}').
       Percy will be skipped for this run. Add '@percy' to cypress_tags to enable Percy snapshots.
   when: (percy_enabled | default(false)) and ("@percy" not in cypress_tags)
 
-- name: Warn — percy_enabled and qase_enabled together risk Percy build failure
+- name: Warn when percy_enabled and qase_enabled together risk Percy build failure
   ansible.builtin.debug:
     msg: >-
       WARNING: percy_enabled and qase_enabled are both true.

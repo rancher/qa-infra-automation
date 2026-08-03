@@ -22,15 +22,43 @@ const require = createRequire(import.meta.url);
 
 const globby = require('globby') as { sync: (patterns: string[], opts: { cwd: string; ignore: string[]; absolute: boolean }) => string[] };
 const { getTestNames } = require('find-test-names') as { getTestNames: (text: string) => { tests: Array<{ tags: string[] }> } };
-const { parseGrep, shouldTestRun } = require('@cypress/grep/src/utils') as {
-  parseGrep: (title: string | null, tags: string) => unknown;
-  shouldTestRun: (parsed: unknown, title: string | null, tags: string[]) => boolean;
+
+// Resolve utils.js dynamically relative to the main entrypoint to bypass exports encapsulation in v6
+let parseGrep: (title: string | null, tags: string) => unknown;
+let shouldTestRun: (parsed: unknown, title: string | null, tags: string[]) => boolean;
+
+// Only a genuinely absent module justifies the legacy fallback. Any other error
+// is a real fault inside @cypress/grep and must surface as itself, rather than
+// being retried and reported as a misleading module-resolution failure.
+const isModuleResolutionError = (e: unknown): boolean => {
+  const code = (e as NodeJS.ErrnoException | undefined)?.code;
+
+  return code === 'MODULE_NOT_FOUND' || code === 'ERR_PACKAGE_PATH_NOT_EXPORTED';
 };
+
+try {
+  const grepMain = require.resolve('@cypress/grep');
+  const grepUtilsPath = path.join(path.dirname(grepMain), 'utils.js');
+  ({ parseGrep, shouldTestRun } = require(grepUtilsPath) as {
+    parseGrep: (title: string | null, tags: string) => unknown;
+    shouldTestRun: (parsed: unknown, title: string | null, tags: string[]) => boolean;
+  });
+} catch (e) {
+  if (!isModuleResolutionError(e)) {
+    throw e;
+  }
+
+  // Fallback to legacy path for older branches using @cypress/grep v3/v4
+  ({ parseGrep, shouldTestRun } = require('@cypress/grep/src/utils') as {
+    parseGrep: (title: string | null, tags: string) => unknown;
+    shouldTestRun: (parsed: unknown, title: string | null, tags: string[]) => boolean;
+  });
+}
 
 const grepTags: string | undefined = process.env.CYPRESS_grepTags || process.env.GREP_TAGS;
 
 if (!grepTags) {
-  // No tags specified — run all specs (output nothing so cypress.sh skips --spec)
+  // No tags specified, so run all specs (output nothing so cypress.sh skips --spec)
   process.exit(0);
 }
 
@@ -67,7 +95,7 @@ const matched: string[] = specFiles.filter((specFile: string) => {
     return testInfo.tests.some((info) => shouldTestRun(parsedGrep, null, info.tags));
   } catch {
     // If we can't parse it, include it so Cypress can handle it at runtime
-    console.error('grep-filter: could not parse %s — including it', specFile);
+    console.error('grep-filter: could not parse %s, including it', specFile);
 
     return true;
   }
