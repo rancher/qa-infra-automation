@@ -256,10 +256,11 @@
         regexp: "kubectl"
         state: absent
 
+    # Removes both the COPY of the kubeconfig and the chmod that follows it.
     - name: Strip imported_config from Dockerfile.ci
       ansible.builtin.lineinfile:
         path: "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"
-        regexp: "imported_config"
+        regexp: 'imported_config|/root/\.kube/config'
         state: absent
 
 - name: Set custom node key from SSH key file
@@ -307,6 +308,41 @@
         else 'The overlay from ' ~ (dashboard_overlay_branch | default('master', true)) ~ ' did not produce them.'
       }}
   changed_when: false
+
+- name: Reject BuildKit-only syntax in Dockerfile.ci
+  ansible.builtin.shell: |
+    set -e
+    if grep -nE '^[[:space:]]*(COPY|ADD)[[:space:]]+--(chmod|link|exclude)([[:space:]]|=)|^[[:space:]]*RUN[[:space:]]+--(mount|network|security)([[:space:]]|=)' \
+        "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"; then
+      echo "[verify] ERROR: the lines above use BuildKit-only Dockerfile syntax."
+      echo "[verify] Jenkins agents build with the legacy builder, which rejects it."
+      echo "[verify] Rewrite them so the image builds under both builders, for"
+      echo "[verify] example COPY followed by a separate RUN chmod."
+      exit 1
+    fi
+    echo "[verify] OK, Dockerfile.ci builds under the legacy builder"
+  changed_when: false
+
+# The image caches the Cypress binary named by cypress_version, while the npm
+# package comes from cypress/package.json at container start. When they differ
+# Cypress downloads the pinned binary on every run, which is slow and fails
+# outright on hosts without access to download.cypress.io.
+- name: Check cypress_version against the pinned Cypress
+  ansible.builtin.shell: |
+    set -e
+    pinned=$(sed -n 's/.*"cypress"[[:space:]]*:[[:space:]]*"[~^]\{0,1\}\([0-9][^"]*\)".*/\1/p' \
+      "{{ dashboard_dir }}/cypress/package.json" | head -1)
+    if [ -n "${pinned}" ] && [ "${pinned}" != "{{ cypress_version }}" ]; then
+      echo "WARNING: cypress_version is {{ cypress_version }} but cypress/package.json pins ${pinned}."
+      echo "Set cypress_version to ${pinned} in vars.yaml, or in VARS_YAML_CONFIG on the Jenkins job."
+    fi
+  register: _cypress_pin
+  changed_when: false
+
+- name: Warn when cypress_version does not match the pinned Cypress
+  ansible.builtin.debug:
+    msg: "{{ _cypress_pin.stdout_lines }}"
+  when: "'WARNING' in (_cypress_pin.stdout | default(''))"
 
 - name: Show Docker build args
   ansible.builtin.debug:
