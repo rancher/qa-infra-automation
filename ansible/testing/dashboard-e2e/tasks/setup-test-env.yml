@@ -309,72 +309,53 @@
       }}
   changed_when: false
 
+- name: Read Dockerfile.ci back
+  ansible.builtin.slurp:
+    src: "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"
+  register: _dockerfile_ci
+
+# Jenkins agents have no buildx, so docker build falls back to the legacy
+# builder. It rejects BuildKit only instructions outright, and the failure
+# surfaces as an opaque build error rather than a bad Dockerfile.
 - name: Reject BuildKit-only syntax in Dockerfile.ci
-  ansible.builtin.shell: |
-    set -e
-    if grep -nE '^[[:space:]]*(COPY|ADD)[[:space:]]+--(chmod|link|exclude)([[:space:]]|=)|^[[:space:]]*RUN[[:space:]]+--(mount|network|security)([[:space:]]|=)' \
-        "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"; then
-      echo "[verify] ERROR: the lines above use BuildKit-only Dockerfile syntax."
-      echo "[verify] Jenkins agents build with the legacy builder, which rejects it."
-      echo "[verify] Rewrite them so the image builds under both builders, for"
-      echo "[verify] example COPY followed by a separate RUN chmod."
-      exit 1
-    fi
-    echo "[verify] OK, Dockerfile.ci builds under the legacy builder"
-  changed_when: false
+  ansible.builtin.assert:
+    that: _buildkit_only | length == 0
+    success_msg: Dockerfile.ci builds under the legacy builder
+    fail_msg: >-
+      Dockerfile.ci uses BuildKit only syntax that the legacy builder on the
+      Jenkins agents rejects: {{ _buildkit_only | join(' / ') }}. Rewrite it so
+      the image builds under both builders, for example a plain COPY followed
+      by a separate RUN chmod.
+  vars:
+    _buildkit_only: >-
+      {{ (_dockerfile_ci.content | b64decode).splitlines()
+         | select('search', '^\s*((COPY|ADD)\s+--(chmod|link|exclude)|RUN\s+--(mount|network|security))[\s=]')
+         | list }}
 
-# The image caches the Cypress binary named by cypress_version, while the npm
-# package comes from cypress/package.json at container start. When they differ
-# Cypress downloads the pinned binary on every run, which is slow and fails
-# outright on hosts without access to download.cypress.io.
-- name: Check cypress_version against the pinned Cypress
-  ansible.builtin.shell: |
-    set -e
-    pinned=$(sed -n 's/.*"cypress"[[:space:]]*:[[:space:]]*"[~^]\{0,1\}\([0-9][^"]*\)".*/\1/p' \
-      "{{ dashboard_dir }}/cypress/package.json" | head -1)
-    if [ -n "${pinned}" ] && [ "${pinned}" != "{{ cypress_version }}" ]; then
-      echo "WARNING: cypress_version is {{ cypress_version }} but cypress/package.json pins ${pinned}."
-      echo "Set cypress_version to ${pinned} in vars.yaml, or in VARS_YAML_CONFIG on the Jenkins job."
-    fi
-  register: _cypress_pin
-  changed_when: false
+- name: Read the dashboard Cypress manifest
+  ansible.builtin.slurp:
+    src: "{{ dashboard_dir }}/cypress/package.json"
+  register: _cypress_manifest
 
+# The image bakes the binary named by cypress_version, while the npm package
+# comes from this manifest at container start. When they differ Cypress
+# downloads the pinned binary on every run, and fails outright on hosts with no
+# access to download.cypress.io.
 - name: Warn when cypress_version does not match the pinned Cypress
   ansible.builtin.debug:
-    msg: "{{ _cypress_pin.stdout_lines }}"
-  when: "'WARNING' in (_cypress_pin.stdout | default(''))"
-
-- name: Show Docker build args
-  ansible.builtin.debug:
     msg: >-
-      Building dashboard-test image:
-      Cypress={{ cypress_version }}, Node={{ nodejs_version }},
-      Chrome={{ chrome_version }}
-
-- name: Write .dockerignore for build context
-  ansible.builtin.copy:
-    content: |
-      .git
-      node_modules
-      cypress/downloads
-      cypress/screenshots
-      cypress/videos
-      cypress/reports
-    dest: "{{ dashboard_dir }}/.dockerignore"
-    mode: "0644"
-
-- name: Build dashboard-test Docker image
-  ansible.builtin.shell: |
-    set -e
-    docker build \
-      -t dashboard-test:{{ executor_tag }} \
-      -f "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci" \
-      --build-arg YARN_VERSION="{{ yarn_version }}" \
-      --build-arg NODE_VERSION="{{ nodejs_version }}" \
-      --build-arg CYPRESS_VERSION="{{ cypress_version }}" \
-      --build-arg CHROME_VERSION="{{ chrome_version }}" \
-      "{{ dashboard_dir }}"
-  changed_when: true
+      WARNING: cypress_version is {{ cypress_version }} but
+      cypress/package.json pins {{ _pinned_cypress }}. Set cypress_version to
+      {{ _pinned_cypress }} in vars.yaml, or in VARS_YAML_CONFIG on the Jenkins
+      job.
+  vars:
+    _pinned_cypress: >-
+      {{ ((_cypress_manifest.content | b64decode | from_json).dependencies | default({})).cypress
+         | default(((_cypress_manifest.content | b64decode | from_json).devDependencies | default({})).cypress, true)
+         | default('', true) | regex_replace('^[~^]', '') }}
+  when:
+    - _pinned_cypress | length > 0
+    - _pinned_cypress != cypress_version
 
 # The docker build output is only shown when the build fails, so a successful
 # build says nothing about what actually landed in the image. That silence is
