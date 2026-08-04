@@ -371,6 +371,16 @@ This is useful when:
 > path instead, which overlays the dependency manifests from
 > `dashboard_overlay_branch`.
 
+> **Cypress version:** `cypress_version` is read from your checkout's
+> `cypress/package.json`, so you do not need to set it and any value you pass is
+> overridden. Nothing is overlaid onto a local checkout, which means the
+> manifests and the specs are whatever your branch has. If you branch off
+> `release-2.15` you get Cypress 11 and your specs must be written for it; if you
+> branch off `master` you get Cypress 15. Mixing the two breaks in ways the
+> playbook cannot detect, for example `cy.exec` yields `code` up to Cypress 14
+> and `exitCode` from Cypress 15. Keeping your branch rebased on its upstream
+> avoids this.
+
 > **Note:** The setup stage copies a few CI files (`Dockerfile.ci`, `cypress.sh`,
 > etc.) into `cypress/jenkins/` in your checkout to build the test image. Clean
 > them with `git checkout -- cypress/jenkins/` if needed.
@@ -407,6 +417,9 @@ With a positive tag such as `@adminUser`, only matching tests inside your spec
 run. To run everything in the spec, leave `cypress_tags` empty: tag adjustment
 then produces exclusion-only tags (`-@prime+-@noVai`), which match every test
 that is not prime/noVai. `@bypass` drops those exclusions too.
+
+`--spec` selects which file runs and nothing else. The Cypress version comes
+from the checkout, so it is the same whether you run one spec or all of them.
 
 ### Testing release branches (release-2.14, release-2.15, ...)
 
