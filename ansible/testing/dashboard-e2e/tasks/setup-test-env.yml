@@ -104,11 +104,75 @@
   register: _branch_manifest
   when: dashboard_src is not defined
 
+# A checkout without its own manifest still needs one, but master's pins the
+# Cypress major master was cut for, which may not be this branch's. Its root
+# manifest names the Cypress it was written against, so prefer the nearest
+# newer release branch that ships a split manifest pinning the same major.
+# Falling back to master keeps the previous behaviour when no such branch
+# exists, and an explicit dashboard_overlay_branch always wins.
+- name: Read the checkout's root manifest
+  ansible.builtin.slurp:
+    src: "{{ dashboard_dir }}/package.json"
+  register: _root_manifest
+  when:
+    - dashboard_src is not defined
+    - not _branch_manifest.stat.exists
+    - dashboard_overlay_branch is not defined
+
+- name: Find an overlay source pinning the same Cypress major
+  ansible.builtin.shell: |
+    set -eu
+    cd {{ dashboard_dir }}
+    want="{{ _root_cypress_major | trim }}"
+    if [ -z "${want}" ]; then
+      echo "[overlay] root manifest names no Cypress version, falling back to master" >&2
+      echo master
+      exit 0
+    fi
+    for candidate in {{ _overlay_candidates | join(' ') }}; do
+      git fetch --depth=1 --quiet origin "${candidate}" 2>/dev/null || continue
+      manifest=$(git cat-file -p "FETCH_HEAD:cypress/package.json" 2>/dev/null) || continue
+      major=$(printf '%s' "${manifest}" | sed -n 's/.*"cypress"[[:space:]]*:[[:space:]]*"[~^]\{0,1\}\([0-9][0-9]*\).*/\1/p' | head -1)
+      if [ -n "${major}" ] && [ "${major}" = "${want}" ]; then
+        echo "${candidate}"
+        exit 0
+      fi
+      echo "[overlay] ${candidate} pins Cypress ${major:-unknown}, wanted ${want}" >&2
+    done
+    echo master
+  vars:
+    _root: "{{ (_root_manifest.content | b64decode | from_json) if (_root_manifest.content | default('') | length) > 0 else {} }}"
+    _root_cypress_major: >-
+      {{ ((_root.dependencies | default({})).cypress
+          | default((_root.devDependencies | default({})).cypress, true)
+          | default('', true) | regex_replace('^[~^]', '')).split('.')[0] }}
+    # release-2.13 yields base 2, minor 13, so the candidates are the next
+    # three minors. A target that is not a release branch yields no candidates
+    # and the probe falls through to master.
+    _base: "{{ target_branch | regex_replace('^release-([0-9]+)[.]([0-9]+)$', '\\1') }}"
+    _minor: "{{ target_branch | regex_replace('^release-([0-9]+)[.]([0-9]+)$', '\\2') }}"
+    _overlay_candidates: >-
+      {{ ['release-' ~ _base ~ '.' ~ (_minor | int + 1),
+          'release-' ~ _base ~ '.' ~ (_minor | int + 2),
+          'release-' ~ _base ~ '.' ~ (_minor | int + 3)]
+         if _minor is match('^[0-9]+$') else [] }}
+  register: _overlay_probe
+  changed_when: false
+  when:
+    - dashboard_src is not defined
+    - not _branch_manifest.stat.exists
+    - dashboard_overlay_branch is not defined
+
+- name: Set the overlay source
+  ansible.builtin.set_fact:
+    _overlay_source: "{{ dashboard_overlay_branch | default(_overlay_probe.stdout | default('master', true) | trim, true) }}"
+  when: dashboard_src is not defined
+
 - name: Overlay dependency files from dashboard master onto release branches
   ansible.builtin.shell: |
     set -e
     cd {{ dashboard_dir }}
-    OVERLAY_BRANCH="{{ dashboard_overlay_branch | default('master', true) }}"
+    OVERLAY_BRANCH="{{ _overlay_source }}"
     echo "[overlay] target_branch={{ target_branch }}, overlay_from=${OVERLAY_BRANCH}"
     git fetch --depth=1 origin "${OVERLAY_BRANCH}" || {
       echo "[overlay] ERROR: git fetch origin ${OVERLAY_BRANCH} failed"
@@ -125,7 +189,7 @@
     echo "[overlay] OK, overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
   when:
     - dashboard_src is not defined
-    - target_branch != (dashboard_overlay_branch | default('master', true))
+    - target_branch != _overlay_source
     - not _branch_manifest.stat.exists
   changed_when: true
 
