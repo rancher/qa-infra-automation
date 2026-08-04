@@ -324,6 +324,28 @@ rancher_image_tag: "head"
 # → latest chart in the repo, image rancher/rancher:head
 ```
 
+### The branch contract
+
+Everything version related is decided by one file in the dashboard checkout,
+`cypress/package.json`. It is to this playbook what `cluster_nodes_json` is to
+the Tofu to Ansible boundary: the single place a branch declares what it needs.
+
+| the playbook reads | and decides |
+|--------------------|-------------|
+| the file exists | whether the dependency overlay runs at all |
+| its `cypress` pin | `cypress_version`, so the baked binary and the installed package agree |
+| its `@cypress/grep` pin | whether the legacy `src/support` import is rewritten, and whether grep settings go through `expose` or `env` |
+| which of `_runtime_deps` it declares | what `cypress.sh` installs at container start |
+
+Two consequences follow. A branch that carries the file is self consistent and
+is left alone, which is every branch from `release-2.14` onwards. A branch that
+does not carry it has no contract to read, so one is borrowed from another
+branch, which is what the overlay does and why `release-2.13` needs it.
+
+Nothing else is inspected. Not the branch name, not `rancher_image_tag`, not
+anything you pass in `vars.yaml`. Editing this file by hand changes what the
+whole pipeline does.
+
 ### Cypress test runner
 
 | Variable | Default | Description |
@@ -371,15 +393,15 @@ This is useful when:
 > path instead, which overlays the dependency manifests from
 > `dashboard_overlay_branch`.
 
-> **Cypress version:** `cypress_version` is read from your checkout's
-> `cypress/package.json`, so you do not need to set it and any value you pass is
-> overridden. Nothing is overlaid onto a local checkout, which means the
-> manifests and the specs are whatever your branch has. If you branch off
-> `release-2.15` you get Cypress 11 and your specs must be written for it; if you
-> branch off `master` you get Cypress 15. Mixing the two breaks in ways the
-> playbook cannot detect, for example `cy.exec` yields `code` up to Cypress 14
-> and `exitCode` from Cypress 15. Keeping your branch rebased on its upstream
-> avoids this.
+> **Cypress version:** the checkout supplies its own [branch
+> contract](#the-branch-contract), so `cypress_version` is read from its
+> `cypress/package.json` and any value you pass is overridden. Nothing is
+> overlaid onto a local checkout, which means the manifests and the specs are
+> whatever your branch has. If you branch off `release-2.15` you get Cypress 11
+> and your specs must be written for it; if you branch off `master` you get
+> Cypress 15. Mixing the two breaks in ways the playbook cannot detect, for
+> example `cy.exec` yields `code` up to Cypress 14 and `exitCode` from Cypress
+> 15. Keeping your branch rebased on its upstream avoids this.
 
 > **Note:** The setup stage writes into your checkout to build the test image:
 > CI files in `cypress/jenkins/` (`Dockerfile.ci`, `cypress.sh`, and others),
@@ -439,11 +461,11 @@ Execution specs come from the target branch (auto-detected from
 playbook's `files/` directory.
 
 Dependencies follow the branch rather than master. A checkout that carries its
-own `cypress/package.json` is self consistent, so it keeps its own dependency
-manifests and its own Cypress. That layout exists from `release-2.14` onwards.
-Older branches still get `package.json`, `yarn.lock`, `cypress/package.json`,
-`cypress/yarn.lock` and `cypress.config.ts` overlaid from another branch, chosen
-in this order:
+own [branch contract](#the-branch-contract) is self consistent, so it keeps its
+own dependency manifests and its own Cypress. That layout exists from
+`release-2.14` onwards. Older branches have no contract to read, so
+`package.json`, `yarn.lock`, `cypress/package.json`, `cypress/yarn.lock` and
+`cypress.config.ts` are overlaid from another branch, chosen in this order:
 
 1. `dashboard_overlay_branch`, when set. An explicit value always wins.
 2. The nearest newer release branch, searched across the next three minors,
@@ -452,11 +474,8 @@ in this order:
    dependency surface have drifted least.
 3. `master`, which is what the playbook did before.
 
-`cypress_version` is then read from whichever `cypress/package.json` the
-checkout ends up with, so the binary baked into the image and the npm package
-yarn installs always agree. Any value passed in is overridden. Packages that
-`cypress.sh` and `grep-filter.ts` resolve at run time but the pinned manifest
-does not declare are installed inside the container at start.
+The contract is then read from whichever `cypress/package.json` the checkout
+ends up with.
 
 Cross-version compatibility is handled automatically:
 
