@@ -358,6 +358,34 @@
     - _pinned_cypress | length > 0
     - _pinned_cypress != cypress_version
 
+# cypress.sh and grep-filter.ts resolve these at run time inside the container.
+# grep-filter.ts requires globby and find-test-names unguarded, so a checkout
+# that lacks them exits 1 from a stack trace that names a module rather than
+# the cause. Name the gap here instead, while the log still has context.
+- name: Assert the checkout declares the packages the run needs
+  ansible.builtin.assert:
+    that: _missing_runtime_deps | length == 0
+    success_msg: "the checkout declares every package cypress.sh and grep-filter.ts load"
+    fail_msg: >-
+      This checkout does not declare {{ _missing_runtime_deps | join(', ') }}.
+      grep-filter.ts requires globby and find-test-names directly and exits 1
+      without them, and jrm cannot merge the JUnit XML, so the run would fail
+      or produce no report.
+      {{ 'The dependency overlay is skipped for local checkouts, so the directory passed to --dashboard-dir has to supply them.'
+         if dashboard_src is defined
+         else 'The overlay from ' ~ (dashboard_overlay_branch | default('master', true)) ~ ' did not supply them.' }}
+  vars:
+    _required_runtime_deps:
+      - cypress
+      - "@cypress/grep"
+      - cypress-mochawesome-reporter
+      - junit-report-merger
+      - find-test-names
+      - globby
+    _manifest: "{{ (_cypress_manifest.content | b64decode | from_json) if (_cypress_manifest.content | default('') | length) > 0 else {} }}"
+    _declared: "{{ ((_manifest.dependencies | default({})) | combine(_manifest.devDependencies | default({}))) | list }}"
+    _missing_runtime_deps: "{{ _required_runtime_deps | difference(_declared) }}"
+
 - name: Show Docker build args
   ansible.builtin.debug:
     msg: >-
