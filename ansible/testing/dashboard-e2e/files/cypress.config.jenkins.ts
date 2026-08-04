@@ -282,7 +282,6 @@ export default defineConfig({
     specPattern:                  testDirs,
     baseUrl
   },
-  video:               false,
-  videoCompression:    25,
-  videoUploadOnPasses: false,
+  video:            false,
+  videoCompression: 25,
 });

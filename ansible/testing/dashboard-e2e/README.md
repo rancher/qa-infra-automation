@@ -334,7 +334,7 @@ rancher_image_tag: "head"
 | `create_initial_clusters` | `true` | Whether to create import cluster and custom node. In `existing` mode, provisions only these resources (not the Rancher server) |
 | `dashboard_repo` | `rancher/dashboard` | Dashboard GitHub repo to clone |
 | `dashboard_branch` | (auto-detected) | Branch to clone. Auto-detected from `rancher_image_tag` (e.g. `v2.14-head` → `release-2.14`) |
-| `dashboard_overlay_branch` | `master` | Branch to overlay dependency files from (package.json, yarn.lock, cypress.config.ts). CI files come from the playbook's `files/` directory |
+| `dashboard_overlay_branch` | (resolved) | Branch to overlay dependency files from (package.json, yarn.lock, cypress.config.ts), for branches that carry no `cypress/package.json` of their own. Left unset, the nearest newer release branch pinning the same Cypress major is used, falling back to `master`. CI files always come from the playbook's `files/` directory |
 
 ### Using a local dashboard checkout
 
@@ -411,34 +411,51 @@ that is not prime/noVai. `@bypass` drops those exclusions too.
 ### Testing release branches (release-2.14, release-2.15, ...)
 
 Execution specs come from the target branch (auto-detected from
-`rancher_image_tag`, or set via `dashboard_branch`), while dependency files
-(`package.json`, `yarn.lock`, `cypress/package.json`, `cypress/yarn.lock`,
-`cypress.config.ts`) are overlaid from `dashboard_overlay_branch` (default
-`master`) and CI files come from this playbook's `files/` directory. Release
-branches therefore run with master's Cypress and library versions.
+`rancher_image_tag`, or set via `dashboard_branch`), and CI files come from this
+playbook's `files/` directory.
+
+Dependencies follow the branch rather than master. A checkout that carries its
+own `cypress/package.json` is self consistent, so it keeps its own dependency
+manifests and its own Cypress. That layout exists from `release-2.14` onwards.
+Older branches still get `package.json`, `yarn.lock`, `cypress/package.json`,
+`cypress/yarn.lock` and `cypress.config.ts` overlaid from another branch, chosen
+in this order:
+
+1. `dashboard_overlay_branch`, when set. An explicit value always wins.
+2. The nearest newer release branch, searched across the next three minors,
+   whose `cypress/package.json` pins the same Cypress major as the target's root
+   `package.json`. Nearest is closest in time to the target, so its spec set and
+   dependency surface have drifted least.
+3. `master`, which is what the playbook did before.
+
+`cypress_version` is then read from whichever `cypress/package.json` the
+checkout ends up with, so the binary baked into the image and the npm package
+yarn installs always agree. Any value passed in is overridden. Packages that
+`cypress.sh` and `grep-filter.ts` resolve at run time but the pinned manifest
+does not declare are installed inside the container at start.
 
 Cross-version compatibility is handled automatically:
 
 - master pins `@cypress/grep` v6, whose `exports` map removed the
-  `@cypress/grep/src/support` entrypoint that release-2.14/2.15 import in
+  `@cypress/grep/src/support` entrypoint that older branches import in
   `cypress/support/e2e.ts`. The setup stage rewrites that import to the
-  v5+/v6 `register` API when the overlaid `@cypress/grep` major is >= 5
-  (skipped with `--dashboard-dir`, where deps and specs are self-consistent).
+  v5+/v6 `register` API when the resolved `@cypress/grep` major is >= 5, so a
+  branch keeping its own v3/v4 grep is left alone.
 - `cypress.config.jenkins.ts` and `grep-filter.ts` (from `files/`) support
   both the v5+/v6 (`dist/`, exports map) and legacy v3/v4 (`src/`) layouts.
-- Config options removed after Cypress 11 (`experimentalSessionAndOrigin`,
-  `videoUploadOnPasses`) only produce warnings on Cypress 12+, not errors.
+- Cypress 11 will not accept a suite level `testIsolation` without
+  `experimentalSessionAndOrigin`, and Cypress 12 removed that option.
+  `cypress.config.jenkins.ts` sets it only when `@cypress/grep/plugin` does not
+  resolve, which is the same signal that says the checkout is on the old stack.
 
 Caveats:
 
-- Old specs run under master's Cypress binary (`cypress_version`). Specs that
-  depend on behavior changed since Cypress 11 need the full legacy stack
-  instead: set `dashboard_overlay_branch` to the release branch **and** pin the
-  matching `cypress_version` (for example `release-2.15` + `11.1.0`). With
-  target == overlay branch the overlay and the import rewrite are both skipped.
-- `cypress_version` has no playbook default and must match the overlay branch's
-  Cypress. In Jenkins, `VARS_YAML_CONFIG` must pin it accordingly
-  (`15.19.0` while master stays on Cypress 15.19.0).
+- The overlay search window is the next three minors. A branch further behind
+  than that falls back to master, which is the previous behaviour.
+- Specs are written against the Cypress version their branch pins. `cy.exec`
+  yields `code` up to Cypress 14 and `exitCode` from Cypress 15, so running a
+  branch under the wrong major breaks `cluster-manager.spec.ts` even when the
+  suite loads.
 
 ### Pinned versions
 
