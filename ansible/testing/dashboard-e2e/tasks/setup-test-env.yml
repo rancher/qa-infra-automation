@@ -94,22 +94,18 @@
 
 # A checkout that carries its own cypress/package.json is self consistent and
 # keeps its own Cypress. Overlaying master's manifests onto it forces a Cypress
-# major the branch's specs were never written for, and the mismatch surfaces as
-# a suite that fails to load rather than as a version conflict. This is the
-# rule run.sh already applies to --dashboard-dir, so both modes now agree.
-# Branches that predate the split manifest still get the overlay.
+# major the branch's specs were never written for, which surfaces as a suite
+# that fails to load. run.sh already applies this rule to --dashboard-dir.
 - name: Stat the checkout's own Cypress manifest
   ansible.builtin.stat:
     path: "{{ dashboard_dir }}/cypress/package.json"
   register: _branch_manifest
   when: dashboard_src is not defined
 
-# A checkout without its own manifest still needs one, but master's pins the
-# Cypress major master was cut for, which may not be this branch's. Its root
-# manifest names the Cypress it was written against, so prefer the nearest
-# newer release branch that ships a split manifest pinning the same major.
-# Falling back to master keeps the previous behaviour when no such branch
-# exists, and an explicit dashboard_overlay_branch always wins.
+# A checkout without its own manifest still needs one. Its root manifest names
+# the Cypress it was written against, so prefer the nearest newer release
+# branch pinning the same major. An explicit dashboard_overlay_branch wins, and
+# master is the fallback, which is the previous behaviour.
 - name: Read the checkout's root manifest
   ansible.builtin.slurp:
     src: "{{ dashboard_dir }}/package.json"
@@ -160,9 +156,7 @@
     - _root_cypress_major | length > 0
 
 # The candidates are in ascending order, so the first match is the nearest
-# newer branch. Nearest is what we want: it is closest in time to the target,
-# so its spec set and dependency surface have drifted least. Falling back to
-# master keeps the previous behaviour when none matches.
+# newer branch, the one whose spec set has drifted least from the target.
 - name: Set the overlay source
   ansible.builtin.set_fact:
     _overlay_source: "{{ dashboard_overlay_branch | default(_matching | default([]) | first | default('master', true), true) }}"
@@ -437,11 +431,10 @@
     src: "{{ dashboard_dir }}/cypress/package.json"
   register: _cypress_manifest
 
-# The image bakes the binary named by cypress_version while the npm package is
-# installed from this manifest at container start. They have to agree: a
-# mismatch makes Cypress redownload the binary on every run and fail outright
-# on hosts with no access to download.cypress.io. The manifest wins because it
-# is what yarn will actually install.
+# The image bakes the binary named by cypress_version, while yarn installs the
+# npm package from this manifest at container start. A mismatch makes Cypress
+# redownload the binary every run, and fail outright where download.cypress.io
+# is unreachable. The manifest wins because it is what yarn actually installs.
 - name: Use the Cypress version the checkout installs
   ansible.builtin.set_fact:
     cypress_version: "{{ _pinned_cypress }}"
@@ -459,16 +452,14 @@
     msg: "Cypress {{ cypress_version }} for {{ target_branch | default('the local checkout', true) }}"
 
 # cypress.sh and grep-filter.ts resolve these at run time inside the container.
-# A checkout that keeps its own Cypress may predate some of them, so name the
-# gap here and let cypress.sh install the pinned versions rather than failing a
-# run that can still produce results.
+# A checkout that keeps its own Cypress may predate some, so name the gap and
+# let cypress.sh install them rather than fail a run that can still report.
 - name: Read what the checkout declares
   ansible.builtin.set_fact:
     _declared: "{{ _decl }}"
     _missing_runtime_deps: "{{ _runtime_deps | rejectattr('name', 'in', _decl) | map(attribute='name') | list }}"
-    # Only packages with a pinned version can be installed. cypress and
-    # @cypress/grep carry no version here because their major has to match the
-    # checkout, so a missing one is a hard failure rather than an install.
+    # cypress and @cypress/grep carry no version, because their major has to
+    # match the checkout. A missing one is a hard failure, not an install.
     _missing_deps_pinned: >-
       {{ _runtime_deps | rejectattr('name', 'in', _decl) | rejectattr('version', 'eq', '')
          | map(attribute='name') | zip(_runtime_deps | rejectattr('name', 'in', _decl)

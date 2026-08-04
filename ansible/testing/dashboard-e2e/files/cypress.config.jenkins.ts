@@ -29,8 +29,8 @@ const username = process.env.TEST_USERNAME || DEFAULT_USERNAME;
 const apiUrl = process.env.API || (baseUrl.endsWith('/dashboard') ? baseUrl.split('/').slice(0, -1).join('/') : baseUrl);
 
 /**
- * Share of a single core this process used over a short sample window,
- * reported the same way dashboard's own base-config.ts reports it.
+ * Share of a single core used over a short window, matching how dashboard's
+ * own base-config.ts reports it.
  */
 const sampleCpuPercent = (sampleMs = 100): Promise<number> => new Promise((resolve) => {
   const startUsage = process.cpuUsage();
@@ -276,16 +276,10 @@ export default defineConfig({
         require('../../cypress/support/plugins/accessibility').default(on, config);
       }
 
-      // cypress/support/e2e.ts calls this task from a shared afterEach whenever a
-      // test fails. An unhandled task throws inside the hook, and Cypress skips
-      // every remaining test in the spec, so one failure costs the whole file.
-      //
-      // dashboard master guards the call behind Cypress.env('hasHostStats'),
-      // which only its own base-config.ts sets, so master skips it here. The
-      // branches that predate that guard call the task unconditionally and need
-      // it registered. Deliberately leave the flag unset: registering the task
-      // is what those branches need, and setting the flag would instead start
-      // running a hook on master that has never run under this config.
+      // Older branches call this task from a shared afterEach on failure. An
+      // unhandled task throws in the hook and skips the rest of the spec.
+      // master guards the call behind Cypress.env('hasHostStats'), so leaving
+      // that flag unset keeps master on the path it already takes.
       on('task', {
         removeDirectory,
         getHostStats: async() => {
@@ -313,9 +307,8 @@ export default defineConfig({
       return config;
     },
     fixturesFolder:               'cypress/e2e/blueprints',
-    // Cypress 11 will not accept a suite level testIsolation without this,
-    // and Cypress 12 removed it, so 15 prints a removal notice on every run.
-    // grep v5+ resolving means the checkout is on Cypress 15.
+    // Cypress 11 needs this to accept a suite level testIsolation. Cypress 12
+    // removed it. grep v5+ resolving means the checkout is on Cypress 15.
     ...(grepUsesExpose ? {} : { experimentalSessionAndOrigin: true }),
     specPattern:                  testDirs,
     baseUrl

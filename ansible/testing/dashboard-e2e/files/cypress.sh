@@ -19,14 +19,13 @@ if ! (cd cypress && NODE_NO_WARNINGS=1 yarn install --frozen-lockfile --silent);
 	exit 1
 fi
 # Packages this checkout does not declare, at versions pinned by the playbook.
-# A checkout that keeps its own Cypress can predate them, and grep-filter.ts
-# requires globby and find-test-names directly, so it exits 1 without them.
+# grep-filter.ts requires globby and find-test-names directly and exits 1
+# without them.
 if [ -n "${MISSING_RUNTIME_DEPS:-}" ]; then
 echo "[cypress.sh] Installing packages this checkout does not declare: ${MISSING_RUNTIME_DEPS}"
-# --no-lockfile because the lockfile belongs to the checkout and these are
-# additions on top of it, not a change to what it pins. The variable is
-# deliberately unquoted: it is a space separated list of name@version pairs
-# that has to split into separate arguments.
+# --no-lockfile because these are additions on top of the checkout's lockfile,
+# not a change to what it pins. Unquoted on purpose: a space separated list of
+# name@version pairs that has to split into separate arguments.
 # shellcheck disable=SC2086
 if ! (cd cypress && NODE_NO_WARNINGS=1 yarn add --no-lockfile --silent ${MISSING_RUNTIME_DEPS}); then
 echo "[cypress.sh] ERROR: could not install ${MISSING_RUNTIME_DEPS}"
