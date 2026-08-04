@@ -358,6 +358,45 @@
     - _pinned_cypress | length > 0
     - _pinned_cypress != cypress_version
 
+- name: Show Docker build args
+  ansible.builtin.debug:
+    msg: >-
+      Building dashboard-test image:
+      Cypress={{ cypress_version }}, Node={{ nodejs_version }},
+      Chrome={{ chrome_version }}
+
+- name: Write .dockerignore for build context
+  ansible.builtin.copy:
+    content: |
+      .git
+      node_modules
+      cypress/downloads
+      cypress/screenshots
+      cypress/videos
+      cypress/reports
+    dest: "{{ dashboard_dir }}/.dockerignore"
+    mode: "0644"
+
+- name: Build dashboard-test Docker image
+  ansible.builtin.command:
+    argv:
+      - docker
+      - build
+      - -t
+      - "dashboard-test:{{ executor_tag }}"
+      - -f
+      - "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"
+      - --build-arg
+      - "YARN_VERSION={{ yarn_version }}"
+      - --build-arg
+      - "NODE_VERSION={{ nodejs_version }}"
+      - --build-arg
+      - "CYPRESS_VERSION={{ cypress_version }}"
+      - --build-arg
+      - "CHROME_VERSION={{ chrome_version }}"
+      - "{{ dashboard_dir }}"
+  changed_when: true
+
 # The docker build output is only shown when the build fails, so a successful
 # build says nothing about what actually landed in the image. That silence is
 # how a BuildKit only COPY flag reached Jenkins unnoticed. These tasks read the
