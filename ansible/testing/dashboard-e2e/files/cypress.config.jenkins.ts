@@ -275,7 +275,10 @@ export default defineConfig({
       return config;
     },
     fixturesFolder:               'cypress/e2e/blueprints',
-    experimentalSessionAndOrigin: true,
+    // Cypress 11 will not accept a suite level testIsolation without this,
+    // and Cypress 12 removed it, so 15 prints a removal notice on every run.
+    // grep v5+ resolving means the checkout is on Cypress 15.
+    ...(grepUsesExpose ? {} : { experimentalSessionAndOrigin: true }),
     specPattern:                  testDirs,
     baseUrl
   },

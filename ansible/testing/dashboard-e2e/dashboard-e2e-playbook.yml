@@ -48,6 +48,21 @@
     # Executor-scoped image tag (prevents concurrent Jenkins builds from clobbering each other)
     executor_tag: "{{ lookup('env', 'EXECUTOR_NUMBER') | default('0', true) }}"
 
+    # Packages cypress.sh and grep-filter.ts load at run time inside the
+    # container. A checkout that keeps its own Cypress may predate some of
+    # them, so cypress.sh installs whichever are absent. Versions are exact:
+    # everything else in this pipeline is pinned, from the base image digest
+    # to yarn.lock, and this is the only install the repository owns.
+    _runtime_deps:
+      - { name: cypress, version: "" }
+      - { name: "@cypress/grep", version: "" }
+      - { name: cypress-mochawesome-reporter, version: 3.8.2 }
+      - { name: cypress-multi-reporters, version: 1.6.4 }
+      - { name: mocha-junit-reporter, version: 2.2.1 }
+      - { name: junit-report-merger, version: 9.0.3 }
+      - { name: find-test-names, version: 1.29.19 }
+      - { name: globby, version: 11.1.0 }
+
   pre_tasks:
     - name: Create outputs directory
       ansible.builtin.file:

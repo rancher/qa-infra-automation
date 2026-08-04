@@ -92,6 +92,18 @@
   loop_control:
     label: "{{ item.dest }}"
 
+# A checkout that carries its own cypress/package.json is self consistent and
+# keeps its own Cypress. Overlaying master's manifests onto it forces a Cypress
+# major the branch's specs were never written for, and the mismatch surfaces as
+# a suite that fails to load rather than as a version conflict. This is the
+# rule run.sh already applies to --dashboard-dir, so both modes now agree.
+# Branches that predate the split manifest still get the overlay.
+- name: Stat the checkout's own Cypress manifest
+  ansible.builtin.stat:
+    path: "{{ dashboard_dir }}/cypress/package.json"
+  register: _branch_manifest
+  when: dashboard_src is not defined
+
 - name: Overlay dependency files from dashboard master onto release branches
   ansible.builtin.shell: |
     set -e
@@ -114,6 +126,7 @@
   when:
     - dashboard_src is not defined
     - target_branch != (dashboard_overlay_branch | default('master', true))
+    - not _branch_manifest.stat.exists
   changed_when: true
 
 # Release branches register grep with `import ... from '@cypress/grep/src/support'`.
@@ -338,17 +351,14 @@
     src: "{{ dashboard_dir }}/cypress/package.json"
   register: _cypress_manifest
 
-# The image bakes the binary named by cypress_version, while the npm package
-# comes from this manifest at container start. When they differ Cypress
-# downloads the pinned binary on every run, and fails outright on hosts with no
-# access to download.cypress.io.
-- name: Warn when cypress_version does not match the pinned Cypress
-  ansible.builtin.debug:
-    msg: >-
-      WARNING: cypress_version is {{ cypress_version }} but
-      cypress/package.json pins {{ _pinned_cypress }}. Set cypress_version to
-      {{ _pinned_cypress }} in vars.yaml, or in VARS_YAML_CONFIG on the Jenkins
-      job.
+# The image bakes the binary named by cypress_version while the npm package is
+# installed from this manifest at container start. They have to agree: a
+# mismatch makes Cypress redownload the binary on every run and fail outright
+# on hosts with no access to download.cypress.io. The manifest wins because it
+# is what yarn will actually install.
+- name: Use the Cypress version the checkout installs
+  ansible.builtin.set_fact:
+    cypress_version: "{{ _pinned_cypress }}"
   vars:
     _pinned_cypress: >-
       {{ ((_cypress_manifest.content | b64decode | from_json).dependencies | default({})).cypress
@@ -358,33 +368,50 @@
     - _pinned_cypress | length > 0
     - _pinned_cypress != cypress_version
 
+- name: Report the Cypress version in use
+  ansible.builtin.debug:
+    msg: "Cypress {{ cypress_version }} for {{ target_branch | default('the local checkout', true) }}"
+
 # cypress.sh and grep-filter.ts resolve these at run time inside the container.
-# grep-filter.ts requires globby and find-test-names unguarded, so a checkout
-# that lacks them exits 1 from a stack trace that names a module rather than
-# the cause. Name the gap here instead, while the log still has context.
-- name: Assert the checkout declares the packages the run needs
+# A checkout that keeps its own Cypress may predate some of them, so name the
+# gap here and let cypress.sh install the pinned versions rather than failing a
+# run that can still produce results.
+- name: Read what the checkout declares
+  ansible.builtin.set_fact:
+    _declared: "{{ _decl }}"
+    _missing_runtime_deps: "{{ _runtime_deps | rejectattr('name', 'in', _decl) | map(attribute='name') | list }}"
+    # Only packages with a pinned version can be installed. cypress and
+    # @cypress/grep carry no version here because their major has to match the
+    # checkout, so a missing one is a hard failure rather than an install.
+    _missing_deps_pinned: >-
+      {{ _runtime_deps | rejectattr('name', 'in', _decl) | rejectattr('version', 'eq', '')
+         | map(attribute='name') | zip(_runtime_deps | rejectattr('name', 'in', _decl)
+         | rejectattr('version', 'eq', '') | map(attribute='version'))
+         | map('join', '@') | join(' ') }}
+  vars:
+    _m: "{{ (_cypress_manifest.content | b64decode | from_json) if (_cypress_manifest.content | default('') | length) > 0 else {} }}"
+    _decl: "{{ ((_m.dependencies | default({})) | combine(_m.devDependencies | default({}))) | list }}"
+
+- name: Report packages the checkout does not declare
+  ansible.builtin.debug:
+    msg: >-
+      {{ target_branch | default('the local checkout', true) }} does not declare
+      {{ _missing_runtime_deps | join(', ') }}. cypress.sh installs the pinned
+      versions at container start. grep-filter.ts requires globby and
+      find-test-names directly and exits 1 without them, and jrm cannot merge
+      the JUnit XML.
+  when: _missing_runtime_deps | length > 0
+
+- name: Assert the checkout can run Cypress at all
   ansible.builtin.assert:
-    that: _missing_runtime_deps | length == 0
-    success_msg: "the checkout declares every package cypress.sh and grep-filter.ts load"
+    that: "'cypress' in _declared and '@cypress/grep' in _declared"
+    success_msg: "the checkout declares cypress and @cypress/grep"
     fail_msg: >-
-      This checkout does not declare {{ _missing_runtime_deps | join(', ') }}.
-      grep-filter.ts requires globby and find-test-names directly and exits 1
-      without them, and jrm cannot merge the JUnit XML, so the run would fail
-      or produce no report.
+      This checkout declares no cypress or no @cypress/grep, so there is
+      nothing to run and no way to filter by tag.
       {{ 'The dependency overlay is skipped for local checkouts, so the directory passed to --dashboard-dir has to supply them.'
          if dashboard_src is defined
          else 'The overlay from ' ~ (dashboard_overlay_branch | default('master', true)) ~ ' did not supply them.' }}
-  vars:
-    _required_runtime_deps:
-      - cypress
-      - "@cypress/grep"
-      - cypress-mochawesome-reporter
-      - junit-report-merger
-      - find-test-names
-      - globby
-    _manifest: "{{ (_cypress_manifest.content | b64decode | from_json) if (_cypress_manifest.content | default('') | length) > 0 else {} }}"
-    _declared: "{{ ((_manifest.dependencies | default({})) | combine(_manifest.devDependencies | default({}))) | list }}"
-    _missing_runtime_deps: "{{ _required_runtime_deps | difference(_declared) }}"
 
 - name: Show Docker build args
   ansible.builtin.debug:

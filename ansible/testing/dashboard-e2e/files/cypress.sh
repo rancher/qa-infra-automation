@@ -18,6 +18,23 @@ if ! (cd cypress && NODE_NO_WARNINGS=1 yarn install --frozen-lockfile --silent);
 	echo "[cypress.sh] yarn.lock exists: $(test -f cypress/yarn.lock && echo yes || echo no)"
 	exit 1
 fi
+# Packages this checkout does not declare, at versions pinned by the playbook.
+# A checkout that keeps its own Cypress can predate them, and grep-filter.ts
+# requires globby and find-test-names directly, so it exits 1 without them.
+if [ -n "${MISSING_RUNTIME_DEPS:-}" ]; then
+echo "[cypress.sh] Installing packages this checkout does not declare: ${MISSING_RUNTIME_DEPS}"
+# --no-lockfile because the lockfile belongs to the checkout and these are
+# additions on top of it, not a change to what it pins. The variable is
+# deliberately unquoted: it is a space separated list of name@version pairs
+# that has to split into separate arguments.
+# shellcheck disable=SC2086
+if ! (cd cypress && NODE_NO_WARNINGS=1 yarn add --no-lockfile --silent ${MISSING_RUNTIME_DEPS}); then
+echo "[cypress.sh] ERROR: could not install ${MISSING_RUNTIME_DEPS}"
+echo "[cypress.sh] Tag filtering and JUnit reporting both need these."
+exit 1
+fi
+fi
+
 # Point ./node_modules at the test dependencies. -n stops ln from following an
 # existing symlink and leaving a dangling link inside its target on repeat
 # --dashboard-dir runs. A real directory is left alone: that is a developer's
