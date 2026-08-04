@@ -376,6 +376,82 @@
       "{{ dashboard_dir }}"
   changed_when: true
 
+# The build output is only shown when the build fails, so a successful build
+# says nothing about what actually landed in the image. That silence is how a
+# BuildKit only COPY flag reached Jenkins unnoticed. These checks read the
+# facts back out of the finished image.
+#
+# Only deterministic in-image facts fail the run. The live cluster call is
+# reported and never fatal, because reachability is already asserted earlier by
+# "Wait for import cluster API" and a second network check here would only add
+# a new way for a good build to fail.
+- name: Verify the built image
+  ansible.builtin.shell: |
+    set -eu
+    image="dashboard-test:{{ executor_tag }}"
+    want_cypress="{{ cypress_version }}"
+    need_kubeconfig="{{ 'yes' if (create_initial_clusters | bool) else 'no' }}"
+    fail=""
+
+    in_image() {
+      docker run --rm --entrypoint sh "$image" -c "$1" 2>/dev/null
+    }
+
+    # Cypress ships one binary per version under CYPRESS_CACHE_FOLDER, while
+    # the npm package is installed at container start from cypress/package.json.
+    # A mismatch makes Cypress re-download the binary on every run and fail
+    # outright on hosts with no access to download.cypress.io.
+    if in_image "test -d /root/.cache/Cypress/$want_cypress"; then
+      echo "[image] OK   cypress binary $want_cypress present"
+    else
+      have=$(in_image 'ls /root/.cache/Cypress' | tr '\n' ' ' || true)
+      echo "[image] FAIL cypress binary $want_cypress missing, image holds: $have"
+      fail=yes
+    fi
+
+    if in_image 'command -v kubectl' >/dev/null; then
+      kver=$(in_image 'kubectl version --client 2>/dev/null | head -1' || true)
+      echo "[image] OK   kubectl ${kver:-present}"
+    else
+      echo "[image] FAIL kubectl missing, the imported cluster spec pipes into kubectl apply"
+      fail=yes
+    fi
+
+    if [ "$need_kubeconfig" = no ]; then
+      echo "[image] SKIP kubeconfig, create_initial_clusters is false"
+    elif in_image 'test -f /root/.kube/config'; then
+      echo "[image] OK   kubeconfig $(in_image 'ls -l /root/.kube/config' || true)"
+      # Local runs start the container with --user, so a non-root user has to
+      # be able to read it. Jenkins runs as root and would never notice.
+      mode=$(in_image 'stat -c %a /root/.kube/config' || true)
+      case "$mode" in
+        *[4567]) echo "[image] OK   kubeconfig mode $mode is world readable" ;;
+        *) echo "[image] FAIL kubeconfig mode ${mode:-unreadable} blocks the non-root user used by local runs"
+           fail=yes ;;
+      esac
+      # Informational only. Reachability is already asserted by "Wait for
+      # import cluster API", so failing here would only add a way for a good
+      # build to break.
+      echo "[image] ---- kubectl get nodes from inside the image, informational ----"
+      in_image 'kubectl --request-timeout=20s get nodes -o wide 2>&1 | head -8' \
+        | sed 's/^/[image] /' || echo "[image] NOTE could not reach the imported cluster from the image"
+    else
+      echo "[image] FAIL /root/.kube/config missing while create_initial_clusters is true"
+      fail=yes
+    fi
+
+    if [ -n "$fail" ]; then
+      echo "[image] one or more image checks failed"
+      exit 1
+    fi
+    echo "[image] image verified"
+  register: _image_verify
+  changed_when: false
+
+- name: Show image verification output
+  ansible.builtin.debug:
+    msg: "{{ _image_verify.stdout_lines }}"
+
 - name: Generate .env file
   ansible.builtin.template:
     src: env.j2
