@@ -176,7 +176,16 @@
 
 - name: Report the overlay source
   ansible.builtin.debug:
-    msg: "{{ target_branch }} pins Cypress {{ _root_cypress_major }}, overlaying from {{ _overlay_source }}"
+    msg: "{{ _reason }}, overlaying from {{ _overlay_source }}"
+  vars:
+    _reason: >-
+      {%- if dashboard_overlay_branch is defined and dashboard_overlay_branch -%}
+        dashboard_overlay_branch names the source for {{ target_branch }}
+      {%- elif _root_cypress_major | default('') | length > 0 -%}
+        {{ target_branch }} pins Cypress {{ _root_cypress_major }}
+      {%- else -%}
+        {{ target_branch }} names no Cypress version in its root manifest
+      {%- endif -%}
   when:
     - dashboard_src is not defined
     - not _branch_manifest.stat.exists

@@ -3,6 +3,7 @@ import { defineConfig } from 'cypress';
 import { removeDirectory } from 'cypress-delete-downloads-folder';
 import websocketTasks from '../../cypress/support/utils/webSocket-utils';
 import path from 'path';
+import * as os from 'os';
 
 // Required for env vars to be available in cypress
 require('dotenv').config();
@@ -26,6 +27,22 @@ const baseUrl = (process.env.TEST_BASE_URL || 'https://localhost:8005').replace(
 const DEFAULT_USERNAME = 'admin';
 const username = process.env.TEST_USERNAME || DEFAULT_USERNAME;
 const apiUrl = process.env.API || (baseUrl.endsWith('/dashboard') ? baseUrl.split('/').slice(0, -1).join('/') : baseUrl);
+
+/**
+ * Share of a single core this process used over a short sample window,
+ * reported the same way dashboard's own base-config.ts reports it.
+ */
+const sampleCpuPercent = (sampleMs = 100): Promise<number> => new Promise((resolve) => {
+  const startUsage = process.cpuUsage();
+  const startTime = Date.now();
+
+  setTimeout(() => {
+    const usage = process.cpuUsage(startUsage);
+    const elapsedMicroseconds = (Date.now() - startTime) * 1000;
+
+    resolve((usage.user + usage.system) / elapsedMicroseconds * 100);
+  }, sampleMs);
+});
 
 /**
  * LOGS:
@@ -259,7 +276,26 @@ export default defineConfig({
         require('../../cypress/support/plugins/accessibility').default(on, config);
       }
 
-      on('task', { removeDirectory });
+      // cypress/support/e2e.ts calls this task from a shared afterEach whenever a
+      // test fails. An unhandled task throws inside the hook, and Cypress skips
+      // every remaining test in the spec, so one failure costs the whole file.
+      // dashboard master guards the call behind Cypress.env('hasHostStats'),
+      // which only its own base-config.ts sets, but the branches that predate
+      // that guard call the task unconditionally. Registering it here keeps the
+      // hook harmless on every branch.
+      on('task', {
+        removeDirectory,
+        getHostStats: async() => {
+          const totalMem = os.totalmem();
+          const usedMem = totalMem - os.freemem();
+
+          return {
+            memory:     `${ (usedMem / 1024 / 1024).toFixed(2) }MB (${ (usedMem / totalMem * 100).toFixed(2) }%)`,
+            processCpu: `${ (await sampleCpuPercent()).toFixed(2) }%`
+          };
+        }
+      });
+      config.env.hasHostStats = true;
       websocketTasks(on, config);
 
       require('cypress-terminal-report/src/installLogsPrinter')(on, {
