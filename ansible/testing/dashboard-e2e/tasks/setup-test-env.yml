@@ -159,8 +159,10 @@
     - dashboard_overlay_branch is not defined
     - _root_cypress_major | length > 0
 
-# The first candidate whose manifest pins the same Cypress major wins. Falling
-# back to master keeps the previous behaviour when none matches.
+# The candidates are in ascending order, so the first match is the nearest
+# newer branch. Nearest is what we want: it is closest in time to the target,
+# so its spec set and dependency surface have drifted least. Falling back to
+# master keeps the previous behaviour when none matches.
 - name: Set the overlay source
   ansible.builtin.set_fact:
     _overlay_source: "{{ dashboard_overlay_branch | default(_matching | default([]) | first | default('master', true), true) }}"
