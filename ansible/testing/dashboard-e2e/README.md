@@ -381,9 +381,20 @@ This is useful when:
 > and `exitCode` from Cypress 15. Keeping your branch rebased on its upstream
 > avoids this.
 
-> **Note:** The setup stage copies a few CI files (`Dockerfile.ci`, `cypress.sh`,
-> etc.) into `cypress/jenkins/` in your checkout to build the test image. Clean
-> them with `git checkout -- cypress/jenkins/` if needed.
+> **Note:** The setup stage writes into your checkout to build the test image:
+> CI files in `cypress/jenkins/` (`Dockerfile.ci`, `cypress.sh`, and others),
+> `results.xml` and `cypress/jenkins/reports/` from the run, and with
+> `create_initial_clusters` an `imported_config` file holding the imported
+> cluster's kubeconfig. None are covered by dashboard's `.gitignore`, so clear
+> them before committing:
+>
+> ```bash
+> git checkout -- cypress/jenkins/
+> git clean -fd cypress/jenkins/ && rm -f imported_config results.xml
+> ```
+>
+> `./run.sh clean` does not touch them. It removes the wrapper's own artifacts
+> in this directory, the cloned checkout, `outputs/` and `.env`.
 
 ### Running a single spec file
 
