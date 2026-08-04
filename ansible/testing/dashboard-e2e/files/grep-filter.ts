@@ -20,8 +20,26 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
-const globby = require('globby') as { sync: (patterns: string[], opts: { cwd: string; ignore: string[]; absolute: boolean }) => string[] };
-const { getTestNames } = require('find-test-names') as { getTestNames: (text: string) => { tests: Array<{ tags: string[] }> } };
+// A checkout that does not declare these fails here with a bare module
+// resolution stack trace, which reads as a broken script rather than an
+// incomplete checkout. Name the package and the consequence instead.
+const requireOrExplain = (moduleName: string): unknown => {
+  try {
+    return require(moduleName);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException | undefined)?.code === 'MODULE_NOT_FOUND') {
+      console.error(`[grep-filter] '${ moduleName }' is not installed in this checkout.`);
+      console.error('[grep-filter] Spec pre-selection needs it, so tag filtering cannot run.');
+      console.error('[grep-filter] Branches from release-2.14 onwards carry it in cypress/package.json;');
+      console.error('[grep-filter] the clone path also overlays it from dashboard_overlay_branch.');
+      process.exit(1);
+    }
+    throw e;
+  }
+};
+
+const globby = requireOrExplain('globby') as { sync: (patterns: string[], opts: { cwd: string; ignore: string[]; absolute: boolean }) => string[] };
+const { getTestNames } = requireOrExplain('find-test-names') as { getTestNames: (text: string) => { tests: Array<{ tags: string[] }> } };
 
 // Resolve utils.js dynamically relative to the main entrypoint to bypass exports encapsulation in v6
 let parseGrep: (title: string | null, tags: string) => unknown;

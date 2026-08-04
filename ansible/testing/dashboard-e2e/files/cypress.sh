@@ -144,7 +144,11 @@ echo "CYPRESS EXIT CODE: $EXIT_CODE"
 # Merge JUnit reports inside the container (Node.js is available here)
 echo "[cypress.sh] Merging JUnit reports..."
 if ! npx --no-install jrm results.xml "cypress/jenkins/reports/junit/junit-*"; then
-	echo "WARNING: jrm merge failed, individual junit-*.xml files may still be available"
+	echo "WARNING: jrm merge failed, so results.xml was not produced."
+	if ! npx --no-install jrm --version >/dev/null 2>&1; then
+		echo "WARNING: junit-report-merger is not installed in this checkout, which is why the merge could not run."
+	fi
+	echo "WARNING: individual junit-*.xml files may still be available:"
 	ls -la cypress/jenkins/reports/junit/ 2>/dev/null || echo "  (report directory not found)"
 fi
 

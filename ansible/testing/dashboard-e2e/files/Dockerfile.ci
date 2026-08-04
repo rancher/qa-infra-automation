@@ -30,6 +30,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /root/.kube
 
-COPY --chmod=644 imported_config /root/.kube/config
+# `COPY --chmod` is a BuildKit-only flag and the Jenkins agents build with the
+# legacy builder, so the mode is set in a separate step that both builders
+# accept. Mode 644 is required because local runs start the container with
+# `--user`, and that non-root user has to read the kubeconfig.
+COPY imported_config /root/.kube/config
+RUN chmod 644 /root/.kube/config
 
 ENTRYPOINT ["bash", "cypress/jenkins/cypress.sh"]
