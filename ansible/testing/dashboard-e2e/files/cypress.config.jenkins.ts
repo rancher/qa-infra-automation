@@ -279,10 +279,13 @@ export default defineConfig({
       // cypress/support/e2e.ts calls this task from a shared afterEach whenever a
       // test fails. An unhandled task throws inside the hook, and Cypress skips
       // every remaining test in the spec, so one failure costs the whole file.
+      //
       // dashboard master guards the call behind Cypress.env('hasHostStats'),
-      // which only its own base-config.ts sets, but the branches that predate
-      // that guard call the task unconditionally. Registering it here keeps the
-      // hook harmless on every branch.
+      // which only its own base-config.ts sets, so master skips it here. The
+      // branches that predate that guard call the task unconditionally and need
+      // it registered. Deliberately leave the flag unset: registering the task
+      // is what those branches need, and setting the flag would instead start
+      // running a hook on master that has never run under this config.
       on('task', {
         removeDirectory,
         getHostStats: async() => {
@@ -295,7 +298,6 @@ export default defineConfig({
           };
         }
       });
-      config.env.hasHostStats = true;
       websocketTasks(on, config);
 
       require('cypress-terminal-report/src/installLogsPrinter')(on, {
