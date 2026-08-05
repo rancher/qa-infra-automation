@@ -92,11 +92,103 @@
   loop_control:
     label: "{{ item.dest }}"
 
+# A checkout that carries its own cypress/package.json is self consistent and
+# keeps its own Cypress. Overlaying master's manifests onto it forces a Cypress
+# major the branch's specs were never written for, which surfaces as a suite
+# that fails to load. run.sh already applies this rule to --dashboard-dir.
+- name: Stat the checkout's own Cypress manifest
+  ansible.builtin.stat:
+    path: "{{ dashboard_dir }}/cypress/package.json"
+  register: _branch_manifest
+  when: dashboard_src is not defined
+
+# A checkout without its own manifest still needs one. Its root manifest names
+# the Cypress it was written against, so prefer the nearest newer release
+# branch pinning the same major. An explicit dashboard_overlay_branch wins, and
+# master is the fallback, which is the previous behaviour.
+- name: Read the checkout's root manifest
+  ansible.builtin.slurp:
+    src: "{{ dashboard_dir }}/package.json"
+  register: _root_manifest
+  when:
+    - dashboard_src is not defined
+    - not _branch_manifest.stat.exists
+    - dashboard_overlay_branch is not defined
+
+- name: Read the Cypress major the checkout was written against
+  ansible.builtin.set_fact:
+    _root_cypress_major: >-
+      {{ ((_root.dependencies | default({})).cypress
+          | default((_root.devDependencies | default({})).cypress, true)
+          | default('', true) | regex_replace('^[~^]', '')).split('.')[0] }}
+  vars:
+    _root: "{{ (_root_manifest.content | b64decode | from_json) if (_root_manifest.content | default('') | length) > 0 else {} }}"
+  when:
+    - dashboard_src is not defined
+    - not _branch_manifest.stat.exists
+    - dashboard_overlay_branch is not defined
+
+- name: Read the candidate manifests
+  ansible.builtin.uri:
+    url: "https://raw.githubusercontent.com/{{ dashboard_repo | regex_replace('\\.git$', '') }}/{{ item }}/cypress/package.json"
+    return_content: true
+    status_code: [200, 404]
+  register: _candidate_manifests
+  vars:
+    # release-2.13 yields base 2 and minor 13, so the candidates are the next
+    # three minors. A target that is not a release branch yields none and the
+    # search falls through to master.
+    _base: "{{ target_branch | regex_replace('^release-([0-9]+)[.]([0-9]+)$', '\\1') }}"
+    _minor: "{{ target_branch | regex_replace('^release-([0-9]+)[.]([0-9]+)$', '\\2') }}"
+    _overlay_candidates: >-
+      {{ ['release-' ~ _base ~ '.' ~ (_minor | int + 1),
+          'release-' ~ _base ~ '.' ~ (_minor | int + 2),
+          'release-' ~ _base ~ '.' ~ (_minor | int + 3)]
+         if _minor is match('^[0-9]+$') else [] }}
+  loop: "{{ _overlay_candidates }}"
+  loop_control:
+    label: "{{ item }}"
+  changed_when: false
+  when:
+    - dashboard_src is not defined
+    - not _branch_manifest.stat.exists
+    - dashboard_overlay_branch is not defined
+    - _root_cypress_major | length > 0
+
+# The candidates are in ascending order, so the first match is the nearest
+# newer branch, the one whose spec set has drifted least from the target.
+- name: Set the overlay source
+  ansible.builtin.set_fact:
+    _overlay_source: "{{ dashboard_overlay_branch | default(_matching | default([]) | first | default('master', true), true) }}"
+  vars:
+    _matching: >-
+      {{ _candidate_manifests.results | default([])
+         | selectattr('status', 'eq', 200)
+         | selectattr('content', 'search', '"cypress"\s*:\s*"[~^]?' ~ _root_cypress_major ~ '[.]')
+         | map(attribute='item') | list }}
+  when: dashboard_src is not defined
+
+- name: Report the overlay source
+  ansible.builtin.debug:
+    msg: "{{ _reason }}, overlaying from {{ _overlay_source }}"
+  vars:
+    _reason: >-
+      {%- if dashboard_overlay_branch is defined and dashboard_overlay_branch -%}
+        dashboard_overlay_branch names the source for {{ target_branch }}
+      {%- elif _root_cypress_major | default('') | length > 0 -%}
+        {{ target_branch }} pins Cypress {{ _root_cypress_major }}
+      {%- else -%}
+        {{ target_branch }} names no Cypress version in its root manifest
+      {%- endif -%}
+  when:
+    - dashboard_src is not defined
+    - not _branch_manifest.stat.exists
+
 - name: Overlay dependency files from dashboard master onto release branches
   ansible.builtin.shell: |
     set -e
     cd {{ dashboard_dir }}
-    OVERLAY_BRANCH="{{ dashboard_overlay_branch | default('master', true) }}"
+    OVERLAY_BRANCH="{{ _overlay_source }}"
     echo "[overlay] target_branch={{ target_branch }}, overlay_from=${OVERLAY_BRANCH}"
     git fetch --depth=1 origin "${OVERLAY_BRANCH}" || {
       echo "[overlay] ERROR: git fetch origin ${OVERLAY_BRANCH} failed"
@@ -113,7 +205,8 @@
     echo "[overlay] OK, overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
   when:
     - dashboard_src is not defined
-    - target_branch != (dashboard_overlay_branch | default('master', true))
+    - target_branch != _overlay_source
+    - not _branch_manifest.stat.exists
   changed_when: true
 
 # Release branches register grep with `import ... from '@cypress/grep/src/support'`.
@@ -338,17 +431,13 @@
     src: "{{ dashboard_dir }}/cypress/package.json"
   register: _cypress_manifest
 
-# The image bakes the binary named by cypress_version, while the npm package
-# comes from this manifest at container start. When they differ Cypress
-# downloads the pinned binary on every run, and fails outright on hosts with no
-# access to download.cypress.io.
-- name: Warn when cypress_version does not match the pinned Cypress
-  ansible.builtin.debug:
-    msg: >-
-      WARNING: cypress_version is {{ cypress_version }} but
-      cypress/package.json pins {{ _pinned_cypress }}. Set cypress_version to
-      {{ _pinned_cypress }} in vars.yaml, or in VARS_YAML_CONFIG on the Jenkins
-      job.
+# The image bakes the binary named by cypress_version, while yarn installs the
+# npm package from this manifest at container start. A mismatch makes Cypress
+# redownload the binary every run, and fail outright where download.cypress.io
+# is unreachable. The manifest wins because it is what yarn actually installs.
+- name: Use the Cypress version the checkout installs
+  ansible.builtin.set_fact:
+    cypress_version: "{{ _pinned_cypress }}"
   vars:
     _pinned_cypress: >-
       {{ ((_cypress_manifest.content | b64decode | from_json).dependencies | default({})).cypress
@@ -358,33 +447,48 @@
     - _pinned_cypress | length > 0
     - _pinned_cypress != cypress_version
 
+- name: Report the Cypress version in use
+  ansible.builtin.debug:
+    msg: "Cypress {{ cypress_version }} for {{ target_branch | default('the local checkout', true) }}"
+
 # cypress.sh and grep-filter.ts resolve these at run time inside the container.
-# grep-filter.ts requires globby and find-test-names unguarded, so a checkout
-# that lacks them exits 1 from a stack trace that names a module rather than
-# the cause. Name the gap here instead, while the log still has context.
-- name: Assert the checkout declares the packages the run needs
+# A checkout that keeps its own Cypress may predate some, so name the gap and
+# let cypress.sh install them rather than fail a run that can still report.
+- name: Read what the checkout declares
+  ansible.builtin.set_fact:
+    _declared: "{{ _decl }}"
+    _missing_runtime_deps: "{{ _runtime_deps | rejectattr('name', 'in', _decl) | map(attribute='name') | list }}"
+    # cypress and @cypress/grep carry no version, because their major has to
+    # match the checkout. A missing one is a hard failure, not an install.
+    _missing_deps_pinned: >-
+      {{ _runtime_deps | rejectattr('name', 'in', _decl) | rejectattr('version', 'eq', '')
+         | map(attribute='name') | zip(_runtime_deps | rejectattr('name', 'in', _decl)
+         | rejectattr('version', 'eq', '') | map(attribute='version'))
+         | map('join', '@') | join(' ') }}
+  vars:
+    _m: "{{ (_cypress_manifest.content | b64decode | from_json) if (_cypress_manifest.content | default('') | length) > 0 else {} }}"
+    _decl: "{{ ((_m.dependencies | default({})) | combine(_m.devDependencies | default({}))) | list }}"
+
+- name: Report packages the checkout does not declare
+  ansible.builtin.debug:
+    msg: >-
+      {{ target_branch | default('the local checkout', true) }} does not declare
+      {{ _missing_runtime_deps | join(', ') }}. cypress.sh installs the pinned
+      versions at container start. grep-filter.ts requires globby and
+      find-test-names directly and exits 1 without them, and jrm cannot merge
+      the JUnit XML.
+  when: _missing_runtime_deps | length > 0
+
+- name: Assert the checkout can run Cypress at all
   ansible.builtin.assert:
-    that: _missing_runtime_deps | length == 0
-    success_msg: "the checkout declares every package cypress.sh and grep-filter.ts load"
+    that: "'cypress' in _declared and '@cypress/grep' in _declared"
+    success_msg: "the checkout declares cypress and @cypress/grep"
     fail_msg: >-
-      This checkout does not declare {{ _missing_runtime_deps | join(', ') }}.
-      grep-filter.ts requires globby and find-test-names directly and exits 1
-      without them, and jrm cannot merge the JUnit XML, so the run would fail
-      or produce no report.
+      This checkout declares no cypress or no @cypress/grep, so there is
+      nothing to run and no way to filter by tag.
       {{ 'The dependency overlay is skipped for local checkouts, so the directory passed to --dashboard-dir has to supply them.'
          if dashboard_src is defined
          else 'The overlay from ' ~ (dashboard_overlay_branch | default('master', true)) ~ ' did not supply them.' }}
-  vars:
-    _required_runtime_deps:
-      - cypress
-      - "@cypress/grep"
-      - cypress-mochawesome-reporter
-      - junit-report-merger
-      - find-test-names
-      - globby
-    _manifest: "{{ (_cypress_manifest.content | b64decode | from_json) if (_cypress_manifest.content | default('') | length) > 0 else {} }}"
-    _declared: "{{ ((_manifest.dependencies | default({})) | combine(_manifest.devDependencies | default({}))) | list }}"
-    _missing_runtime_deps: "{{ _required_runtime_deps | difference(_declared) }}"
 
 - name: Show Docker build args
   ansible.builtin.debug:

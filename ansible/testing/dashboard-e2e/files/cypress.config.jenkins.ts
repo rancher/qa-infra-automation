@@ -3,6 +3,7 @@ import { defineConfig } from 'cypress';
 import { removeDirectory } from 'cypress-delete-downloads-folder';
 import websocketTasks from '../../cypress/support/utils/webSocket-utils';
 import path from 'path';
+import * as os from 'os';
 
 // Required for env vars to be available in cypress
 require('dotenv').config();
@@ -26,6 +27,22 @@ const baseUrl = (process.env.TEST_BASE_URL || 'https://localhost:8005').replace(
 const DEFAULT_USERNAME = 'admin';
 const username = process.env.TEST_USERNAME || DEFAULT_USERNAME;
 const apiUrl = process.env.API || (baseUrl.endsWith('/dashboard') ? baseUrl.split('/').slice(0, -1).join('/') : baseUrl);
+
+/**
+ * Share of a single core used over a short window, matching how dashboard's
+ * own base-config.ts reports it.
+ */
+const sampleCpuPercent = (sampleMs = 100): Promise<number> => new Promise((resolve) => {
+  const startUsage = process.cpuUsage();
+  const startTime = Date.now();
+
+  setTimeout(() => {
+    const usage = process.cpuUsage(startUsage);
+    const elapsedMicroseconds = (Date.now() - startTime) * 1000;
+
+    resolve((usage.user + usage.system) / elapsedMicroseconds * 100);
+  }, sampleMs);
+});
 
 /**
  * LOGS:
@@ -259,7 +276,22 @@ export default defineConfig({
         require('../../cypress/support/plugins/accessibility').default(on, config);
       }
 
-      on('task', { removeDirectory });
+      // Older branches call this task from a shared afterEach on failure. An
+      // unhandled task throws in the hook and skips the rest of the spec.
+      // master guards the call behind Cypress.env('hasHostStats'), so leaving
+      // that flag unset keeps master on the path it already takes.
+      on('task', {
+        removeDirectory,
+        getHostStats: async() => {
+          const totalMem = os.totalmem();
+          const usedMem = totalMem - os.freemem();
+
+          return {
+            memory:     `${ (usedMem / 1024 / 1024).toFixed(2) }MB (${ (usedMem / totalMem * 100).toFixed(2) }%)`,
+            processCpu: `${ (await sampleCpuPercent()).toFixed(2) }%`
+          };
+        }
+      });
       websocketTasks(on, config);
 
       require('cypress-terminal-report/src/installLogsPrinter')(on, {
@@ -275,11 +307,12 @@ export default defineConfig({
       return config;
     },
     fixturesFolder:               'cypress/e2e/blueprints',
-    experimentalSessionAndOrigin: true,
+    // Cypress 11 needs this to accept a suite level testIsolation. Cypress 12
+    // removed it. grep v5+ resolving means the checkout is on Cypress 15.
+    ...(grepUsesExpose ? {} : { experimentalSessionAndOrigin: true }),
     specPattern:                  testDirs,
     baseUrl
   },
-  video:               false,
-  videoCompression:    25,
-  videoUploadOnPasses: false,
+  video:            false,
+  videoCompression: 25,
 });

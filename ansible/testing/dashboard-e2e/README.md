@@ -324,6 +324,28 @@ rancher_image_tag: "head"
 # → latest chart in the repo, image rancher/rancher:head
 ```
 
+### The branch contract
+
+Everything version related is decided by one file in the dashboard checkout,
+`cypress/package.json`. It is to this playbook what `cluster_nodes_json` is to
+the Tofu to Ansible boundary: the single place a branch declares what it needs.
+
+| the playbook reads | and decides |
+|--------------------|-------------|
+| the file exists | whether the dependency overlay runs at all |
+| its `cypress` pin | `cypress_version`, so the baked binary and the installed package agree |
+| its `@cypress/grep` pin | whether the legacy `src/support` import is rewritten, and whether grep settings go through `expose` or `env` |
+| which of `_runtime_deps` it declares | what `cypress.sh` installs at container start |
+
+Two consequences follow. A branch that carries the file is self consistent and
+is left alone, which is every branch from `release-2.14` onwards. A branch that
+does not carry it has no contract to read, so one is borrowed from another
+branch, which is what the overlay does and why `release-2.13` needs it.
+
+Nothing else is inspected. Not the branch name, not `rancher_image_tag`, not
+anything you pass in `vars.yaml`. Editing this file by hand changes what the
+whole pipeline does.
+
 ### Cypress test runner
 
 | Variable | Default | Description |
@@ -334,7 +356,7 @@ rancher_image_tag: "head"
 | `create_initial_clusters` | `true` | Whether to create import cluster and custom node. In `existing` mode, provisions only these resources (not the Rancher server) |
 | `dashboard_repo` | `rancher/dashboard` | Dashboard GitHub repo to clone |
 | `dashboard_branch` | (auto-detected) | Branch to clone. Auto-detected from `rancher_image_tag` (e.g. `v2.14-head` → `release-2.14`) |
-| `dashboard_overlay_branch` | `master` | Branch to overlay dependency files from (package.json, yarn.lock, cypress.config.ts). CI files come from the playbook's `files/` directory |
+| `dashboard_overlay_branch` | (resolved) | Branch to overlay dependency files from (package.json, yarn.lock, cypress.config.ts), for branches that carry no `cypress/package.json` of their own. Left unset, the nearest newer release branch pinning the same Cypress major is used, falling back to `master`. CI files always come from the playbook's `files/` directory |
 
 ### Using a local dashboard checkout
 
@@ -371,9 +393,30 @@ This is useful when:
 > path instead, which overlays the dependency manifests from
 > `dashboard_overlay_branch`.
 
-> **Note:** The setup stage copies a few CI files (`Dockerfile.ci`, `cypress.sh`,
-> etc.) into `cypress/jenkins/` in your checkout to build the test image. Clean
-> them with `git checkout -- cypress/jenkins/` if needed.
+> **Cypress version:** the checkout supplies its own [branch
+> contract](#the-branch-contract), so `cypress_version` is read from its
+> `cypress/package.json` and any value you pass is overridden. Nothing is
+> overlaid onto a local checkout, which means the manifests and the specs are
+> whatever your branch has. If you branch off `release-2.15` you get Cypress 11
+> and your specs must be written for it; if you branch off `master` you get
+> Cypress 15. Mixing the two breaks in ways the playbook cannot detect, for
+> example `cy.exec` yields `code` up to Cypress 14 and `exitCode` from Cypress
+> 15. Keeping your branch rebased on its upstream avoids this.
+
+> **Note:** The setup stage writes into your checkout to build the test image:
+> CI files in `cypress/jenkins/` (`Dockerfile.ci`, `cypress.sh`, and others),
+> `results.xml` and `cypress/jenkins/reports/` from the run, and with
+> `create_initial_clusters` an `imported_config` file holding the imported
+> cluster's kubeconfig. None are covered by dashboard's `.gitignore`, so clear
+> them before committing:
+>
+> ```bash
+> git checkout -- cypress/jenkins/
+> git clean -fd cypress/jenkins/ && rm -f imported_config results.xml
+> ```
+>
+> `./run.sh clean` does not touch them. It removes the wrapper's own artifacts
+> in this directory, the cloned checkout, `outputs/` and `.env`.
 
 ### Running a single spec file
 
@@ -408,37 +451,54 @@ run. To run everything in the spec, leave `cypress_tags` empty: tag adjustment
 then produces exclusion-only tags (`-@prime+-@noVai`), which match every test
 that is not prime/noVai. `@bypass` drops those exclusions too.
 
+`--spec` selects which file runs and nothing else. The Cypress version comes
+from the checkout, so it is the same whether you run one spec or all of them.
+
 ### Testing release branches (release-2.14, release-2.15, ...)
 
 Execution specs come from the target branch (auto-detected from
-`rancher_image_tag`, or set via `dashboard_branch`), while dependency files
-(`package.json`, `yarn.lock`, `cypress/package.json`, `cypress/yarn.lock`,
-`cypress.config.ts`) are overlaid from `dashboard_overlay_branch` (default
-`master`) and CI files come from this playbook's `files/` directory. Release
-branches therefore run with master's Cypress and library versions.
+`rancher_image_tag`, or set via `dashboard_branch`), and CI files come from this
+playbook's `files/` directory.
+
+Dependencies follow the branch rather than master. A checkout that carries its
+own [branch contract](#the-branch-contract) is self consistent, so it keeps its
+own dependency manifests and its own Cypress. That layout exists from
+`release-2.14` onwards. Older branches have no contract to read, so
+`package.json`, `yarn.lock`, `cypress/package.json`, `cypress/yarn.lock` and
+`cypress.config.ts` are overlaid from another branch, chosen in this order:
+
+1. `dashboard_overlay_branch`, when set. An explicit value always wins.
+2. The nearest newer release branch, searched across the next three minors,
+   whose `cypress/package.json` pins the same Cypress major as the target's root
+   `package.json`. Nearest is closest in time to the target, so its spec set and
+   dependency surface have drifted least.
+3. `master`, which is what the playbook did before.
+
+The contract is then read from whichever `cypress/package.json` the checkout
+ends up with.
 
 Cross-version compatibility is handled automatically:
 
 - master pins `@cypress/grep` v6, whose `exports` map removed the
-  `@cypress/grep/src/support` entrypoint that release-2.14/2.15 import in
+  `@cypress/grep/src/support` entrypoint that older branches import in
   `cypress/support/e2e.ts`. The setup stage rewrites that import to the
-  v5+/v6 `register` API when the overlaid `@cypress/grep` major is >= 5
-  (skipped with `--dashboard-dir`, where deps and specs are self-consistent).
+  v5+/v6 `register` API when the resolved `@cypress/grep` major is >= 5, so a
+  branch keeping its own v3/v4 grep is left alone.
 - `cypress.config.jenkins.ts` and `grep-filter.ts` (from `files/`) support
   both the v5+/v6 (`dist/`, exports map) and legacy v3/v4 (`src/`) layouts.
-- Config options removed after Cypress 11 (`experimentalSessionAndOrigin`,
-  `videoUploadOnPasses`) only produce warnings on Cypress 12+, not errors.
+- Cypress 11 will not accept a suite level `testIsolation` without
+  `experimentalSessionAndOrigin`, and Cypress 12 removed that option.
+  `cypress.config.jenkins.ts` sets it only when `@cypress/grep/plugin` does not
+  resolve, which is the same signal that says the checkout is on the old stack.
 
 Caveats:
 
-- Old specs run under master's Cypress binary (`cypress_version`). Specs that
-  depend on behavior changed since Cypress 11 need the full legacy stack
-  instead: set `dashboard_overlay_branch` to the release branch **and** pin the
-  matching `cypress_version` (for example `release-2.15` + `11.1.0`). With
-  target == overlay branch the overlay and the import rewrite are both skipped.
-- `cypress_version` has no playbook default and must match the overlay branch's
-  Cypress. In Jenkins, `VARS_YAML_CONFIG` must pin it accordingly
-  (`15.19.0` while master stays on Cypress 15.19.0).
+- The overlay search window is the next three minors. A branch further behind
+  than that falls back to master, which is the previous behaviour.
+- Specs are written against the Cypress version their branch pins. `cy.exec`
+  yields `code` up to Cypress 14 and `exitCode` from Cypress 15, so running a
+  branch under the wrong major breaks `cluster-manager.spec.ts` even when the
+  suite loads.
 
 ### Pinned versions
 
