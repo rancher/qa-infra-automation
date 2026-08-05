@@ -108,6 +108,16 @@
       password: '{{ rancher_password }}'
       rancher_chart_repo: '{{ rancher_helm_repo }}'
       rancher_chart_repo_url: '{{ rancher_chart_url }}'
+      {% if ui_offline_preferred is defined %}
+      # Opt in only. See "Which UI the tests run against" in the README: on a
+      # release branch `-head` tag this pins the UI to the one the image embeds,
+      # which is the last GA build, not the branch. That makes a run repeatable
+      # at the cost of no longer exercising the branch's UI.
+      extra_helm_values:
+        extraEnv:
+          - name: CATTLE_UI_OFFLINE_PREFERRED
+            value: '{{ ui_offline_preferred }}'
+      {% endif %}
     dest: "{{ outputs_dir }}/rancher-vars.yaml"
     mode: "0644"
   when: job_type == 'recurring'
@@ -136,3 +146,129 @@
   delay: 10
   changed_when: false
   when: create_initial_clusters | bool
+
+# Reported unconditionally, because a rolling tag serves a different UI from one
+# run to the next and the log otherwise gives no way to tell which one a result
+# came from.
+- name: Read which UI Rancher serves
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+    api_version: management.cattle.io/v3
+    kind: Setting
+    name: "{{ item }}"
+  loop:
+    - ui-offline-preferred
+    - ui-dashboard-index
+  register: _ui_settings
+  until: _ui_settings.resources | default([]) | length > 0
+  retries: 30
+  delay: 10
+  failed_when: false
+  when: job_type == 'recurring'
+
+- name: Assert Rancher serves the UI embedded in the image
+  vars:
+    _setting: "{{ (_ui_settings.results | first).resources | default([]) | first | default({}, true) }}"
+    # `value` is what an operator set, `default` is what the deployment was
+    # given, which is where CATTLE_ env vars land. The effective setting is
+    # `value` when it is non-empty, otherwise `default`.
+    _effective: "{{ _setting.value | default('', true) or _setting.default | default('', true) }}"
+  ansible.builtin.assert:
+    that: _effective == ui_offline_preferred
+    success_msg: "ui-offline-preferred={{ _effective }}, as requested."
+    fail_msg: >-
+      ui-offline-preferred={{ _effective | default('unset', true) }}, but
+      ui_offline_preferred={{ ui_offline_preferred }} was requested.
+      CATTLE_UI_OFFLINE_PREFERRED did not reach the deployment.
+  when:
+    - job_type == 'recurring'
+    - ui_offline_preferred is defined
+
+# A rolling tag names a different build from one hour to the next, and the chart
+# version reported earlier is not the build either: `v2.15-head` resolves to
+# chart 2.15.0 whichever commit it was cut from. Record what actually ran, so a
+# result can be tied to a build afterwards. `server-version` carries Rancher's
+# own string, which for a `-head` image is `v{minor}-{commit}-head`, and the
+# pod carries the digest the node pulled.
+- name: Read the Rancher server version
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+    api_version: management.cattle.io/v3
+    kind: Setting
+    name: server-version
+  register: _rancher_version
+  failed_when: false
+  when: job_type == 'recurring'
+
+- name: Read the Rancher pods
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+    kind: Pod
+    namespace: cattle-system
+    label_selectors:
+      - app=rancher
+  register: _rancher_pods
+  failed_when: false
+  when: job_type == 'recurring'
+
+# Reported rather than asserted: an unidentified build is worth knowing about
+# but is not a reason to fail a run that otherwise has results.
+- name: Resolve what the run is testing
+  vars:
+    _setting: "{{ (_rancher_version.resources | default([]) | first) | default({}, true) }}"
+    _pod: "{{ (_rancher_pods.resources | default([]) | first) | default({}, true) }}"
+    _ui_offline_res: "{{ (_ui_settings.results | default([]) | first) | default({}, true) }}"
+    _ui_index_res: "{{ (_ui_settings.results | default([]) | last) | default({}, true) }}"
+    _ui_offline_obj: "{{ (_ui_offline_res.resources | default([]) | first) | default({}, true) }}"
+    _ui_index_obj: "{{ (_ui_index_res.resources | default([]) | first) | default({}, true) }}"
+  ansible.builtin.set_fact:
+    _rancher_container: "{{ (_pod.status | default({}, true)).containerStatuses | default([], true) | first | default({}, true) }}"
+    _server_version: "{{ _setting.value | default('', true) or _setting.default | default('', true) }}"
+    _ui_offline_value: "{{ _ui_offline_obj.value | default('', true) or _ui_offline_obj.default | default('', true) }}"
+    _ui_index_value: "{{ _ui_index_obj.value | default('', true) or _ui_index_obj.default | default('', true) }}"
+  when: job_type == 'recurring'
+
+- name: Decide where the UI came from
+  vars:
+    # `dynamic` resolves through settings.IsRelease(), which is
+    # `!strings.Contains(serverVersion, "head") && regexp("^v[0-9]").Match(serverVersion)`.
+    # A release serves the UI it embeds, anything else serves ui-dashboard-index.
+    _is_release: "{{ 'head' not in _server_version and _server_version is match('^v[0-9]') }}"
+  ansible.builtin.set_fact:
+    _ui_from_image: "{{ _ui_offline_value == 'true' or (_ui_offline_value == 'dynamic' and _is_release) }}"
+  when: job_type == 'recurring'
+
+# The CDN path is rebuilt from the release branch continuously and carries no
+# version, so the image digest alone does not identify what ran. The bundle name
+# is content hashed, which makes it a usable fingerprint: two runs naming the
+# same bundle loaded the same UI. The build date narrows down the commit that
+# produced it.
+- name: Fingerprint the UI when it is served from the CDN
+  ansible.builtin.uri:
+    url: "{{ _ui_index_value }}"
+    return_content: true
+  register: _ui_fetch
+  failed_when: false
+  when:
+    - job_type == 'recurring'
+    - not _ui_from_image
+    - _ui_index_value | length > 0
+
+- name: Report the Rancher build under test
+  vars:
+    # Hashing the index rather than naming a bundle in it: the release branches
+    # and master lay their assets out differently, and the index changes
+    # whenever any of them does. Two runs reporting the same hash loaded the
+    # same UI. The build date narrows down the commit that produced it.
+    _ui_hash: "{{ (_ui_fetch.content | default('', true) | hash('sha1'))[:12] if (_ui_fetch.content | default('', true) | length) > 0 else 'unknown' }}"
+    _built: "{{ _ui_fetch.last_modified | default('unknown', true) }}"
+  ansible.builtin.debug:
+    msg: "{{ ['server-version: ' ~ (_server_version | default('unknown', true)),
+              'image:          ' ~ (_rancher_container.image | default('unknown', true)),
+              'digest:         ' ~ (_rancher_container.imageID | default('unknown', true)),
+              'ui-offline:     ' ~ (_ui_offline_value | default('unknown', true))]
+             + (['ui:             the image'] if _ui_from_image
+                else ['ui:             ' ~ _ui_index_value,
+                      'ui build:       ' ~ _ui_hash ~ ' (sha1 of index, changes with the UI)',
+                      'ui built:       ' ~ _built]) }}"
+  when: job_type == 'recurring'
