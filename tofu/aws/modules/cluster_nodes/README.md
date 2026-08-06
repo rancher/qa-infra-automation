@@ -70,6 +70,37 @@ The first node in the first group with `etcd` role becomes the `master` node.
 
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
 
+### SSH access (avoiding prefix-list propagation lag)
+
+`create_ssh_security_group` (default `false`) — opt in to have the module create a
+**dedicated** security group that grants SSH (port 22) from a list of **stable** CIDRs
+(`ssh_allowed_cidrs`) plus the VPC's own CIDR, attached to every node **alongside**
+`aws_security_group`.
+
+**Enable this when your jumpbox/bastion/office IP is allowed SSH only through a
+*managed prefix list* referenced by `aws_security_group`.** AWS propagates
+prefix-list SG rules to each instance's ENI **asynchronously**, so on freshly-launched
+instances one random ENI can lag or land on a stale list version and silently drop SSH
+SYN packets to that node until propagation completes. This surfaces as *"one node
+randomly unreachable on SSH right after `apply`"* — host firewall open, VPC-internal
+SSH working, but a TCP connect timeout from the jumpbox, with a **different node
+affected each build**. Plain CIDR SG rules, by contrast, are realized on the ENI
+**immediately at launch**, so SSH always works.
+
+AWS security groups are **additive** (a flow is allowed if *any* attached SG allows
+it), so this layers on top of `aws_security_group` — the existing RKE2/Rancher port
+matrix in the shared SG is left untouched. The new SG is owned by this module and is
+destroyed automatically on `terraform destroy`.
+
+```terraform
+create_ssh_security_group = true
+ssh_allowed_cidrs         = ["45.33.107.248/32"]   # jumpbox / bastion / office egress
+```
+
+VPC-internal SSH is allowed automatically (from the VPC CIDR), so node-to-node access
+(e.g. Ansible run from a node, or reaching one node from another) always works
+regardless of this setting. The created SG's ID is exported as `ssh_security_group_id`.
+
 ## Outputs
 
 Refer to `outputs.tf` for a list of exported values.
@@ -95,6 +126,10 @@ aws_volume_type       = "gp3"
 aws_hostname_prefix   = "hostnameprefix"
 aws_ssh_user          = "ec2-user"
 public_ssh_key        = "sshkey"
+# Optional: grant SSH from a stable /32 (jumpbox/bastion) via a dedicated SG.
+# Avoids managed-prefix-list propagation lag — see "SSH access" above.
+# create_ssh_security_group = true
+# ssh_allowed_cidrs         = ["203.0.113.10/32"]
 nodes = [
   {
     count = 3

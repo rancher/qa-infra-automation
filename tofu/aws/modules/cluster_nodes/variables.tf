@@ -40,3 +40,15 @@ variable "nodes" {
 }
 variable "airgap_setup" {}
 variable "proxy_setup" {}
+
+variable "create_ssh_security_group" {
+  description = "Create a dedicated SG that grants SSH (22) from stable CIDRs (ssh_allowed_cidrs) plus the VPC CIDR, and attach it alongside var.aws_security_group. Enable when SSH access is granted only via a managed prefix list - prefix-list rules propagate to each new ENI asynchronously and can silently drop SSH to a freshly launched node; plain CIDR rules realize instantly."
+  type        = bool
+  default     = false
+}
+
+variable "ssh_allowed_cidrs" {
+  description = "Stable IPv4 CIDRs allowed SSH (22) when create_ssh_security_group=true. Use /32s for jumpboxes/bastions, e.g. [\"45.33.107.248/32\"]. VPC-internal SSH is allowed automatically in addition to these."
+  type        = list(string)
+  default     = []
+}

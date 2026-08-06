@@ -50,12 +50,64 @@ resource "aws_key_pair" "ssh_public_key" {
   public_key = file(var.public_ssh_key)
 }
 
+# Dedicated SSH security group with stable CIDR rules.
+#
+# Why this exists: when SSH access for the jumpbox/bastion is granted ONLY via a
+# managed prefix list (e.g. a churning "QA public IPs" list), AWS propagates the
+# prefix-list entries to each new instance's ENI asynchronously. On freshly
+# launched instances one ENI can lag or land on a stale list version and silently
+# drop the jumpbox's SSH SYN to that node until propagation catches up - so one
+# random node per build looks "unreachable" for minutes. Plain CIDR SG rules, by
+# contrast, are realized on the ENI immediately at launch, so SSH from the
+# jumpbox always works.
+#
+# This SG is attached ALONGSIDE var.aws_security_group (AWS SGs are additive: a
+# flow is allowed if ANY attached SG allows it), so the existing RKE2/Rancher
+# port matrix in the shared SG is left untouched.
+resource "aws_security_group" "ssh" {
+  count       = var.create_ssh_security_group ? 1 : 0
+  name        = "tf-${var.aws_hostname_prefix}-ssh"
+  description = "Stable SSH (22) access for ${var.aws_hostname_prefix} (avoids prefix-list propagation lag)."
+  vpc_id      = var.aws_vpc
+
+  dynamic "ingress" {
+    for_each = length(var.ssh_allowed_cidrs) > 0 ? [1] : []
+    content {
+      description = "SSH from stable CIDRs (jumpbox/bastion/office)"
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = var.ssh_allowed_cidrs
+    }
+  }
+
+  ingress {
+    description = "SSH from within the VPC"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.selected.cidr_block]
+  }
+
+  egress {
+    description = "Allow all egress"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-ssh"
+  }
+}
+
 resource "aws_instance" "node" {
   for_each = { for node in local.node_names : node.name => node }
   ami = var.aws_ami
   instance_type = each.value.instance_type != null ? each.value.instance_type : var.instance_type
   key_name = aws_key_pair.ssh_public_key.key_name
-  vpc_security_group_ids = var.aws_security_group
+  vpc_security_group_ids = compact(concat(var.aws_security_group, var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : []))
   subnet_id = var.aws_subnet
   associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
 
@@ -235,4 +287,9 @@ resource "aws_route53_record" "aws_route53" {
 data "aws_route53_zone" "selected" {
   name = var.aws_route53_zone
   private_zone = false
+}
+
+# Used to auto-allow SSH from the VPC's own CIDR in the dedicated SSH SG above.
+data "aws_vpc" "selected" {
+  id = var.aws_vpc
 }
