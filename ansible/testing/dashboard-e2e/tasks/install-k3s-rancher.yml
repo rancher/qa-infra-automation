@@ -1,6 +1,12 @@
 # Install K3s on clusters and deploy Rancher via Helm.
 # K3s installs run in parallel (rancher-server + importcluster).
 # Rancher is deployed after K3s is ready using the rancher-ha playbook.
+#
+# Both clusters set k3s_node_external_ip to false. Otherwise k3s advertises the
+# node's public IP, making that the kubernetes service endpoint. The security
+# group only allows node to node traffic over private addresses, so CoreDNS
+# cannot reach the API server, never becomes ready, and the cluster agent
+# crash loops on an unresolvable Rancher host.
 
 - name: Write k3s vars for rancher server
   ansible.builtin.copy:
@@ -38,6 +44,7 @@
       kubeconfig_file: '{{ outputs_dir }}/kubeconfig-import.yaml'
       node_token_file: '/tmp/node_token_import.txt'
       channel: "stable"
+      k3s_node_external_ip: false
     dest: "{{ outputs_dir }}/import-k3s-vars.yaml"
     mode: "0644"
   when: create_initial_clusters | bool
