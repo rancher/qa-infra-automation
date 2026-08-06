@@ -266,6 +266,38 @@ The remaining AWS settings go in `vars.yaml`:
 | `k3s_kubernetes_version` | `v1.30.0+k3s1` | K3s version for all clusters |
 | `bootstrap_password` | `password` | Rancher first-boot password |
 | `rancher_password` | `password1234` | Permanent admin password set after bootstrap |
+| `ui_offline_preferred` | unset | Pin the UI to the one the image embeds. See "Which UI the tests run against" below |
+
+### Which UI the tests run against
+
+Rancher does not necessarily serve the UI that ships inside its image. The
+`ui-offline-preferred` setting decides, and its default is `dynamic`:
+
+| Image | `dynamic` serves | The image itself embeds |
+|-------|------------------|-------------------------|
+| `v2.15.0` | the UI in the image | `v2.15.0` |
+| `v2.15-head` | `releases.rancher.com/dashboard/release-2.15/`, rebuilt from the branch | `v2.15.0`, the last GA build |
+| `head` (master) | `releases.rancher.com/dashboard/master/` | `master` |
+
+The default is usually what a release branch run wants. A `-head` image embeds
+the last GA UI, not the branch's, so pinning the UI to the image would test a
+current backend against weeks old UI and would not exercise any UI change made
+on the branch. Only `head` off master embeds a UI matching its own branch.
+
+The cost of the default is that the branch path is rebuilt continuously, so two
+runs of the same tag minutes apart can serve different UI builds. Rather than
+change what is tested, the playbook records what was tested: the Rancher build,
+the image digest and where the UI came from are printed after deployment, so a
+result can be tied to a build afterwards.
+
+Set `ui_offline_preferred: "true"` to pin the UI to the image anyway, when a
+run needs to be repeatable and testing the branch's UI is not the point, for
+example when validating a change to the tests themselves. The playbook then
+asserts the setting took effect.
+
+Note that pinning can mask a UI regression: in one run a broken branch UI failed
+nine of ten tests, while the same backend with the image's own UI failed only
+the one test caused by the backend.
 
 ### Helm Repos and Image Resolution
 

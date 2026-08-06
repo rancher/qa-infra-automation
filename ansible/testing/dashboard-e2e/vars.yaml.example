@@ -29,6 +29,13 @@ cert_manager_version: "1.11.0"
 bootstrap_password: "password"
 rancher_password: "password1234"
 rancher_username: "admin"
+# Pin the UI to the one the Rancher image embeds. Leave unset for the Rancher
+# default, which on a release branch `-head` tag serves the branch's UI from
+# releases.rancher.com; the image itself embeds the last GA UI, so pinning
+# would test a current backend against a weeks old UI. Set to "true" when a run
+# needs to be repeatable and the branch's UI is not what is under test, for
+# example when validating a change to the tests themselves.
+# ui_offline_preferred: "true"
 
 # --- Test-runner pinned versions ---
 # Keep in sync with: https://github.com/cypress-io/cypress-docker-images/blob/master/factory/.env
