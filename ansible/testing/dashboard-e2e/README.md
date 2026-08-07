@@ -415,15 +415,22 @@ This is useful when:
 > are responsible for ensuring that their local code branch is compatible with the targeted
 > `rancher_helm_repo` and `rancher_image_tag`, otherwise tests may fail with unexpected UI errors.
 
-> **Branch requirement:** the checkout must carry its test dependencies in
-> `cypress/package.json` and `cypress/yarn.lock`. That layout exists from
-> `release-2.14` onwards. Older branches such as `release-2.13` keep the test
-> dependencies in the root `package.json`, which lacks the reporters and
-> preprocessor that `cypress.config.jenkins.ts` requires. Because the dependency
-> overlay is intentionally skipped for local checkouts, `--dashboard-dir` cannot
-> be used with them; `run.sh` rejects such a directory up front. Use the clone
-> path instead, which overlays the dependency manifests from
-> `dashboard_overlay_branch`.
+> **Branch requirement:** `--dashboard-dir` requires a `release-2.15` or newer
+> checkout. The checkout has to carry its test dependencies in
+> `cypress/package.json` and `cypress/yarn.lock`, and those manifests have to
+> declare the reporting and tag filtering packages: `cypress-multi-reporters`,
+> `mocha-junit-reporter`, `junit-report-merger`, `find-test-names` and `globby`.
+> `release-2.15` was the first branch to declare all of them. `release-2.14`
+> carries the manifests but not those packages, and `release-2.13` and older
+> keep the test dependencies in the root `package.json` altogether.
+>
+> The clone path fills either gap for you, by overlaying the manifests from
+> `dashboard_overlay_branch` and by installing whatever a branch leaves out. It
+> can do that because the clone is thrown away after the run. Your own checkout
+> is not, so nothing is ever written into it and the run refuses to start
+> instead. `run.sh` rejects such a directory up front, before any infrastructure
+> is provisioned. To test an older branch, drop `--dashboard-dir` and set
+> `dashboard_branch`.
 
 > **Cypress version:** the checkout supplies its own [branch
 > contract](#the-branch-contract), so `cypress_version` is read from its
@@ -437,18 +444,32 @@ This is useful when:
 
 > **Note:** The setup stage writes into your checkout to build the test image:
 > CI files in `cypress/jenkins/` (`Dockerfile.ci`, `cypress.sh`, and others),
-> `results.xml` and `cypress/jenkins/reports/` from the run, and with
-> `create_initial_clusters` an `imported_config` file holding the imported
-> cluster's kubeconfig. None are covered by dashboard's `.gitignore`, so clear
-> them before committing:
+> plus `results.xml` and `cypress/jenkins/reports/` from the run. Some of those
+> CI files are tracked in dashboard and the rest are not covered by its
+> `.gitignore`, so restore them before committing:
 >
 > ```bash
 > git checkout -- cypress/jenkins/
-> git clean -fd cypress/jenkins/ && rm -f imported_config results.xml
+> git clean -fd cypress/jenkins/ && rm -f results.xml
 > ```
 >
-> `./run.sh clean` does not touch them. It removes the wrapper's own artifacts
-> in this directory, the cloned checkout, `outputs/` and `.env`.
+> Nothing else in your checkout is modified. The imported cluster kubeconfig is
+> written to this playbook's `outputs/` rather than into your tree, and the
+> `node_modules` link the run creates at the checkout root is removed when the
+> run finishes. Branches that do not declare the reporting and tag filtering
+> packages get them installed into `cypress/node_modules` at container start,
+> and `cypress/package.json` is put back afterwards so it stays in step with
+> `cypress/yarn.lock`. That install runs with lifecycle scripts disabled and
+> with the cloud credentials and reporting tokens removed from its environment,
+> since it needs neither.
+>
+> `./run.sh clean` does not touch the files listed above. It removes the
+> wrapper's own artifacts in this directory, the cloned checkout, `outputs/`
+> and `.env`.
+>
+> A `node_modules` directory you installed yourself at the checkout root is left
+> alone. Test dependencies are installed into and read from `cypress/node_modules`
+> either way, so the two never mix.
 
 ### Running a single spec file
 

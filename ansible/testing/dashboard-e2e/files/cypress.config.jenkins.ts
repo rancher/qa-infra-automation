@@ -100,6 +100,22 @@ if (!multiReporters) {
   console.log('Reporters: cypress-multi-reporters or mocha-junit-reporter is not installed. Falling back to cypress-mochawesome-reporter. No JUnit XML will be produced.');
 }
 
+// Cypress resolves a reporter name against the project root alone, ignoring
+// NODE_PATH and nested node_modules. A root node_modules therefore breaks a
+// name `require.resolve` finds, and no JUnit XML is written at all. Hand it a
+// root relative path instead. The root comes from the entrypoint because
+// Cypress evaluates this file from its own directory.
+const projectRoot = process.env.E2E_PROJECT_ROOT || process.cwd();
+const reporterPath = (moduleName: string): string => {
+  try {
+    const relative = path.relative(projectRoot, require.resolve(moduleName));
+
+    return relative.startsWith('..') ? moduleName : relative;
+  } catch {
+    return moduleName;
+  }
+};
+
 // @cypress/grep v5+ reads its settings through the Cypress 15 `Cypress.expose`
 // API and ignores `env` entirely, so tags placed in `env` silently disable all
 // test level filtering. Cypress 11 rejects an unknown top level `expose` key,
@@ -189,7 +205,7 @@ export default defineConfig({
     allowFilteredCatalogSkip: process.env.CYPRESS_ALLOW_FILTERED_CATALOG_SKIP !== 'false',
   },
   // Jenkins reporters configuration jUnit and HTML
-  reporter:        multiReporters ? 'cypress-multi-reporters' : 'cypress-mochawesome-reporter',
+  reporter:        reporterPath(multiReporters ? 'cypress-multi-reporters' : 'cypress-mochawesome-reporter'),
   reporterOptions: multiReporters ? multiReporterOptions : { charts: false },
   e2e: {
     setupNodeEvents(on, config) {

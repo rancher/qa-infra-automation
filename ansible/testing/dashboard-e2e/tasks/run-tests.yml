@@ -45,6 +45,23 @@
     fi
   changed_when: false
 
+# cypress.sh points ./node_modules at cypress/node_modules. Left behind in a
+# local checkout it would send a later root `yarn install` into the test tree.
+# Only the link this run created is removed, never a developer's own directory.
+- name: Stat the node_modules link in the checkout
+  ansible.builtin.stat:
+    path: "{{ dashboard_dir }}/node_modules"
+    follow: false
+  register: _node_modules_link
+
+- name: Remove the node_modules link the run created
+  ansible.builtin.file:
+    path: "{{ dashboard_dir }}/node_modules"
+    state: absent
+  when:
+    - _node_modules_link.stat.islnk | default(false)
+    - _node_modules_link.stat.lnk_target | default('') == 'cypress/node_modules'
+
 - name: Set test exit code
   ansible.builtin.set_fact:
     cypress_exit_code: "{{ cypress_result.rc | default(1) }}"

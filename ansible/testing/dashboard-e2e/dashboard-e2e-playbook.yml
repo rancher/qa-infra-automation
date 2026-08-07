@@ -27,6 +27,7 @@
     # Paths
     qa_infra_dir: "{{ lookup('env', 'QA_INFRA_DIR') | default(playbook_dir | dirname | dirname | dirname, true) }}"
     outputs_dir: "{{ workspace_dir }}/outputs"
+    docker_context_dir: "{{ outputs_dir }}/docker-context"
     dashboard_dir: "{{ dashboard_src | default(workspace_dir + '/dashboard') }}"
     host_dashboard_dir: "{{ lookup('env', 'HOST_DASHBOARD_DIR') | default(dashboard_dir, true) }}"
     workspace_dir: "{{ lookup('env', 'WORKSPACE') | default(playbook_dir, true) }}"
