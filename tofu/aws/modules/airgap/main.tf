@@ -13,6 +13,82 @@ provider "aws" {
   secret_key = var.aws_secret_key
 }
 
+locals {
+  # Ports the network load balancers forward on to the rancher targets. The
+  # NLBs themselves carry no security group, so the listener ports must be
+  # opened directly on the instances for the forwarded traffic to land.
+  ports = ["80", "443", "6443", "9345"]
+
+  # When no pre-existing security group is supplied, provision one inside the
+  # airgap VPC so the module is self-contained. Callers can still pass their
+  # own group id(s) via var.aws_security_group to reuse an existing group.
+  create_security_group = length(var.aws_security_group) == 0
+  security_group_ids    = local.create_security_group ? [aws_security_group.airgap[0].id] : var.aws_security_group
+}
+
+# Security group shared by the bastion, registry (when provisioned) and all
+# airgap cluster nodes. It lives in the airgap VPC and:
+#   * allows SSH from the operator (configurable CIDR, default anywhere),
+#   * allows full intra-group traffic so the bastion can reach the nodes and
+#     the RKE2/Rancher cluster nodes can talk to each other (etcd, kube-api,
+#     flannel VXLAN, etc.) without enumerating every cluster port,
+#   * opens the NLB listener ports so load-balanced traffic reaches the nodes,
+#   * permits all egress.
+# Note: airgap isolation is still enforced at the subnet level -- the airgap
+# subnet has no route to an internet gateway -- so the permissive egress here
+# does not break airgap-ness for the nodes in that subnet.
+resource "aws_security_group" "airgap" {
+  count       = local.create_security_group ? 1 : 0
+  name        = "${var.aws_hostname_prefix}-airgap"
+  description = "Security group for the ${var.aws_hostname_prefix} airgap deployment (bastion, registry, cluster nodes)"
+  vpc_id      = var.aws_vpc
+
+  # Operator SSH access to the bastion (and any instance sharing this group).
+  dynamic "ingress" {
+    for_each = toset(var.allowed_ssh_cidr)
+    content {
+      description = "SSH from ${ingress.value}"
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = [ingress.value]
+    }
+  }
+
+  # Full intra-group communication: bastion -> nodes and node <-> node.
+  ingress {
+    description = "All traffic between instances in this security group"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+  }
+
+  # NLB listener ports forwarded on to the rancher targets.
+  dynamic "ingress" {
+    for_each = toset(local.ports)
+    content {
+      description = "LB listener ${ingress.value} from load balancer clients"
+      from_port   = tonumber(ingress.value)
+      to_port     = tonumber(ingress.value)
+      protocol    = "tcp"
+      cidr_blocks = var.allowed_lb_cidr
+    }
+  }
+
+  egress {
+    description = "All outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.aws_hostname_prefix}-airgap"
+  }
+}
+
 # Bastion
 module "bastion" {
   source = "./../ec2_instance"
@@ -21,7 +97,7 @@ module "bastion" {
   instance_type = var.instance_type
   subnet_id = var.aws_subnet_bastion
   ssh_key_name = var.ssh_key_name
-  security_group_ids = var.aws_security_group
+  security_group_ids = local.security_group_ids
   volume_size = var.aws_volume_size
   user_id = var.user_id
   ssh_key = var.ssh_key
@@ -37,15 +113,11 @@ module "registry" {
   instance_type = var.instance_type
   subnet_id = var.aws_subnet_bastion
   ssh_key_name = var.ssh_key_name
-  security_group_ids = var.aws_security_group
+  security_group_ids = local.security_group_ids
   volume_size = var.aws_volume_size
   user_id = var.user_id
   ssh_key = var.ssh_key
   associate_public_ip = true
-}
-
-locals {
-  ports = ["80", "443", "6443", "9345"]
 }
 
 # Load Balance
@@ -84,7 +156,7 @@ module "airgap_nodes" {
   instance_type = var.instance_type
   subnet_id = var.aws_subnet_airgap
   ssh_key_name = var.ssh_key_name
-  security_group_ids = var.aws_security_group
+  security_group_ids = local.security_group_ids
   volume_size = var.aws_volume_size
   user_id = var.user_id
   ssh_key = var.ssh_key
