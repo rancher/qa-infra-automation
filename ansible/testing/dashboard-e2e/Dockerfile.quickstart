@@ -13,14 +13,14 @@ FROM python:3.12-alpine3.23@sha256:236173eb74001afe2f60862de935b74fcbd00adfca247
 ARG TARGETARCH
 
 # renovate: datasource=github-release-attachments depName=opentofu/opentofu
-ARG TOFU_VERSION=1.11.5
-# renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=1.11.5
+ARG TOFU_VERSION=v1.11.5
+# renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.11.5
 ARG TOFU_SUM_AMD64=901121681e751574d739de5208cad059eddf9bd739b575745cf9e3c961b28a13
 ARG TOFU_SUM_ARM64=1b79f8fe3cbf7ac0540507bb6bd0ecab1675c78393bbf492867eaabb79840eec
 
 # renovate: datasource=github-release-attachments depName=helm/helm
-ARG HELM_VERSION=3.17.3
-# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=3.17.3
+ARG HELM_VERSION=v3.17.3
+# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=v3.17.3
 ARG HELM_SUM_AMD64=ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd
 ARG HELM_SUM_ARM64=7944e3defd386c76fd92d9e6fec5c2d65a323f6fadc19bfb5e704e3eee10348e
 
@@ -67,7 +67,7 @@ RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" \
          arm64) TOFU_SUM="${TOFU_SUM_ARM64}" ;; \
          *) echo "Unsupported arch: ${ARCH}" >&2; exit 1 ;; \
        esac \
-    && curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${ARCH}.zip" \
+    && curl -fsSL "https://github.com/opentofu/opentofu/releases/download/${TOFU_VERSION}/tofu_${TOFU_VERSION#v}_linux_${ARCH}.zip" \
          -o /tmp/tofu.zip \
     && echo "${TOFU_SUM}  /tmp/tofu.zip" | sha256sum -c - \
     && unzip -o /tmp/tofu.zip -d /usr/local/bin tofu \
@@ -82,7 +82,7 @@ RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" \
          arm64) HELM_SUM="${HELM_SUM_ARM64}" ;; \
          *) echo "Unsupported arch: ${ARCH}" >&2; exit 1 ;; \
        esac \
-    && curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz" \
+    && curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" \
          -o /tmp/helm.tar.gz \
     && echo "${HELM_SUM}  /tmp/helm.tar.gz" | sha256sum -c - \
     && tar -xz --strip-components=1 -C /usr/local/bin "linux-${ARCH}/helm" < /tmp/helm.tar.gz \
