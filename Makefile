@@ -716,7 +716,8 @@ downstream: check-inventory ## Register an existing airgap cluster into Rancher 
 # Override WORKSPACE to manage multiple downstream clusters independently,
 # and AUTO_APPROVE=yes to skip prompts (CI).
 
-DOWNSTREAM_VAR_FILES := -var-file=$(DOWNSTREAM_TFVARS) -var-file=$(RANCHER_TFVARS)
+# Paths are made absolute because the tofu targets cd into DOWNSTREAM_TOFU_DIR before running.
+DOWNSTREAM_VAR_FILES := -var-file=$(abspath $(DOWNSTREAM_TFVARS)) -var-file=$(abspath $(RANCHER_TFVARS))
 
 .PHONY: check-downstream-tofu
 check-downstream-tofu: check-prereqs ## Validate downstream tofu inputs (DOWNSTREAM_TFVARS + RANCHER_TFVARS)
