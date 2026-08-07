@@ -92,6 +92,28 @@
   loop_control:
     label: "{{ item.dest }}"
 
+# Dockerfile.ci copies one file, imported_config, and reads nothing else from
+# the context. Building from the checkout would ship the whole working tree,
+# including cypress/node_modules, and would need a .dockerignore written into a
+# directory that is not ours to edit.
+- name: Check the Docker build context path before resetting it
+  ansible.builtin.assert:
+    that:
+      - docker_context_dir is defined
+      - docker_context_dir | length > 0
+      - docker_context_dir is search('/outputs/docker-context$')
+    fail_msg: >-
+      docker_context_dir resolved to '{{ docker_context_dir | default("") }}',
+      which is not the expected outputs/docker-context path. Refusing to delete it.
+
+- name: Reset the Docker build context
+  ansible.builtin.file:
+    path: "{{ docker_context_dir }}"
+    state: "{{ item }}"
+  loop:
+    - absent
+    - directory
+
 # A checkout that carries its own cypress/package.json is self consistent and
 # keeps its own Cypress. Overlaying master's manifests onto it forces a Cypress
 # major the branch's specs were never written for, which surfaces as a suite
@@ -330,7 +352,7 @@
     - name: Write imported_config for Docker
       ansible.builtin.copy:
         content: "{{ import_kubeconfig_b64.content | b64decode }}"
-        dest: "{{ dashboard_dir }}/imported_config"
+        dest: "{{ docker_context_dir }}/imported_config"
         mode: "0600"
       when: _kubeconfig_file.stat.exists
 
@@ -477,7 +499,23 @@
       versions at container start. grep-filter.ts requires globby and
       find-test-names directly and exits 1 without them, and jrm cannot merge
       the JUnit XML.
-  when: _missing_runtime_deps | length > 0
+  when:
+    - dashboard_src is not defined
+    - _missing_runtime_deps | length > 0
+
+# Filling a gap writes to cypress/package.json, which a clone can absorb because
+# it is thrown away. A local checkout is the developer's own tree, so refuse.
+- name: Assert a local checkout declares the reporting packages
+  ansible.builtin.assert:
+    that: _missing_runtime_deps | length == 0
+    success_msg: "the checkout declares the reporting and tag filtering packages"
+    fail_msg: >-
+      This checkout does not declare {{ _missing_runtime_deps | join(', ') }},
+      which carry the JUnit reporting and the tag filtering the run needs. They
+      are declared from release-2.15 onwards, so --dashboard-dir requires a
+      release-2.15 or newer checkout. Older branches still run through the clone
+      path: drop --dashboard-dir and set dashboard_branch.
+  when: dashboard_src is defined
 
 - name: Assert the checkout can run Cypress at all
   ansible.builtin.assert:
@@ -497,18 +535,6 @@
       Cypress={{ cypress_version }}, Node={{ nodejs_version }},
       Chrome={{ chrome_version }}
 
-- name: Write .dockerignore for build context
-  ansible.builtin.copy:
-    content: |
-      .git
-      node_modules
-      cypress/downloads
-      cypress/screenshots
-      cypress/videos
-      cypress/reports
-    dest: "{{ dashboard_dir }}/.dockerignore"
-    mode: "0644"
-
 - name: Build dashboard-test Docker image
   ansible.builtin.command:
     argv:
@@ -526,7 +552,7 @@
       - "CYPRESS_VERSION={{ cypress_version }}"
       - --build-arg
       - "CHROME_VERSION={{ chrome_version }}"
-      - "{{ dashboard_dir }}"
+      - "{{ docker_context_dir }}"
   changed_when: true
 
 # The docker build output is only shown when the build fails, so a successful

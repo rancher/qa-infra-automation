@@ -8,10 +8,60 @@ source "$(dirname "$0")/utils.sh"
 
 pwd
 
+# Undo everything this script changes in the checkout, so --dashboard-dir leaves
+# a developer's tree as found. The only place every path shares.
+_project_root="$PWD"
+# Refuse to delete paths under anything that is not a dashboard checkout.
+if [ -z "$_project_root" ] || [ ! -f "${_project_root}/cypress/package.json" ]; then
+	echo "[cypress.sh] ERROR: ${_project_root:-<empty>} is not a dashboard checkout, no cypress/package.json found."
+	exit 1
+fi
+_manifest="${_project_root}/cypress/package.json"
+# coreutils 9 also refuses to recurse across a mount point, which guards the
+# checkout root. Older rm does not know the option.
+_rm_guard=()
+if rm --help 2>&1 | grep -q 'preserve-root\[=all\]'; then
+	_rm_guard=(--preserve-root=all)
+fi
+_manifest_snapshot=""
+
+# shellcheck disable=SC2329  # invoked by the EXIT trap below
+_restore_manifest() {
+	if [ -n "$_manifest_snapshot" ] && [ -f "$_manifest_snapshot" ]; then
+		cp -p "$_manifest_snapshot" "$_manifest" 2>/dev/null || true
+		rm -f "$_manifest_snapshot" || true
+		_manifest_snapshot=""
+	fi
+}
+
+# shellcheck disable=SC2329  # invoked by the EXIT trap below
+_cleanup() {
+	_restore_manifest
+	if [ -L "${_project_root}/node_modules" ] &&
+		[ "$(readlink "${_project_root}/node_modules")" = "cypress/node_modules" ]; then
+		rm -f "${_project_root}/node_modules" || true
+	fi
+}
+trap _cleanup EXIT
+
+# The container holds cloud credentials and reporting tokens. No install needs
+# them.
+_secret_env=(
+	AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+	AZURE_AKS_SUBSCRIPTION_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET
+	CUSTOM_NODE_KEY GKE_SERVICE_ACCOUNT KUBECONFIG
+	PERCY_TOKEN QASE_AUTOMATION_TOKEN TEST_PASSWORD
+)
+_yarn_sealed() {
+	local _drop=() _v
+	for _v in "${_secret_env[@]}"; do _drop+=(-u "$_v"); done
+	env "${_drop[@]}" NODE_NO_WARNINGS=1 yarn "$@"
+}
+
 # Install test dependencies inside the container (correct platform binaries for Debian/glibc)
 echo "[cypress.sh] Installing test dependencies..."
 echo "[cypress.sh] PWD=$(pwd)"
-if ! (cd cypress && NODE_NO_WARNINGS=1 yarn install --frozen-lockfile --silent); then
+if ! (cd cypress && _yarn_sealed install --frozen-lockfile --silent); then
 	echo "[cypress.sh] ERROR: yarn install failed in $(pwd)/cypress"
 	echo "[cypress.sh] Node: $(node -v), Yarn: $(yarn --version)"
 	echo "[cypress.sh] package.json exists: $(test -f cypress/package.json && echo yes || echo no)"
@@ -19,35 +69,37 @@ if ! (cd cypress && NODE_NO_WARNINGS=1 yarn install --frozen-lockfile --silent);
 	exit 1
 fi
 # Packages this checkout does not declare, at versions pinned by the playbook.
-# grep-filter.ts requires globby and find-test-names directly and exits 1
-# without them.
 if [ -n "${MISSING_RUNTIME_DEPS:-}" ]; then
 echo "[cypress.sh] Installing packages this checkout does not declare: ${MISSING_RUNTIME_DEPS}"
-# --no-lockfile because these are additions on top of the checkout's lockfile,
-# not a change to what it pins. Unquoted on purpose: a space separated list of
-# name@version pairs that has to split into separate arguments.
+_manifest_snapshot="$(mktemp)"
+cp -p "$_manifest" "$_manifest_snapshot"
+# Unquoted on purpose, splits into separate name@version arguments.
 # shellcheck disable=SC2086
-if ! (cd cypress && NODE_NO_WARNINGS=1 yarn add --no-lockfile --silent ${MISSING_RUNTIME_DEPS}); then
+if ! (cd cypress && _yarn_sealed add --no-lockfile --ignore-scripts --silent ${MISSING_RUNTIME_DEPS}); then
 echo "[cypress.sh] ERROR: could not install ${MISSING_RUNTIME_DEPS}"
 echo "[cypress.sh] Tag filtering and JUnit reporting both need these."
 exit 1
 fi
+_restore_manifest
 fi
 
-# Point ./node_modules at the test dependencies. -n stops ln from following an
-# existing symlink and leaving a dangling link inside its target on repeat
-# --dashboard-dir runs. A real directory is left alone: that is a developer's
-# own root install, and ln would nest inside it rather than replace it.
-if [ -L node_modules ] || [ ! -e node_modules ]; then
+# Point ./node_modules at the test dependencies so anything resolving from the
+# checkout root finds them. Only an absent node_modules or a link this script
+# left is touched. A developer's own directory or link is left alone, since
+# moving it aside would strand it if the run is killed. Removed by the trap.
+if { [ ! -e node_modules ] && [ ! -L node_modules ]; } ||
+	{ [ -L node_modules ] && [ "$(readlink node_modules)" = "cypress/node_modules" ]; }; then
 	ln -sfn cypress/node_modules node_modules
 else
-	echo "[cypress.sh] node_modules is a real directory; leaving it in place (NODE_PATH still points at cypress/node_modules)."
+	echo "[cypress.sh] NOTICE: ./node_modules already exists and is not ours, so it is left untouched."
+	echo "[cypress.sh]         Test dependencies are read from cypress/node_modules either way."
 fi
 
 # Use test deps from cypress/node_modules
 export NODE_PATH="${PWD}/cypress/node_modules:${NODE_PATH:-}"
 export PATH="${PWD}/cypress/node_modules/.bin:${PATH}"
-
+# Cypress evaluates the config from its own directory, so hand it the root.
+export E2E_PROJECT_ROOT="$_project_root"
 echo "[cypress.sh] node $(node -v), kubectl $(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*"' || kubectl version --client --short 2>&1 | head -1)"
 
 export FORCE_COLOR=1
@@ -144,6 +196,13 @@ if [ "$BROWSER" = chrome ] &&
 	BROWSER=electron
 fi
 
+# mocha-junit-reporter appends here rather than replacing, so a reused checkout
+# would merge every earlier run's XML into results.xml. Absolute path, anchored
+# to the checkout verified at the top.
+_junit_dir="${_project_root}/cypress/jenkins/reports/junit"
+rm -rf "${_rm_guard[@]}" -- "$_junit_dir"
+mkdir -p -- "$_junit_dir"
+
 # Run Cypress and capture the exit code
 set +e
 
@@ -157,11 +216,13 @@ set -e
 
 echo "CYPRESS EXIT CODE: $EXIT_CODE"
 
-# Merge JUnit reports inside the container (Node.js is available here)
+# Merge JUnit reports inside the container (Node.js is available here).
+# Through PATH, not `npx --no-install`: npx resolves only against
+# ./node_modules/.bin, and a developer's own root install there has no jrm.
 echo "[cypress.sh] Merging JUnit reports..."
-if ! npx --no-install jrm results.xml "cypress/jenkins/reports/junit/junit-*"; then
+if ! jrm results.xml "cypress/jenkins/reports/junit/junit-*"; then
 	echo "WARNING: jrm merge failed, so results.xml was not produced."
-	if ! npx --no-install jrm --version >/dev/null 2>&1; then
+	if ! command -v jrm >/dev/null 2>&1; then
 		echo "WARNING: junit-report-merger is not installed in this checkout, which is why the merge could not run."
 	fi
 	echo "WARNING: individual junit-*.xml files may still be available:"
