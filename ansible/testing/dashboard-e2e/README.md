@@ -415,22 +415,19 @@ This is useful when:
 > are responsible for ensuring that their local code branch is compatible with the targeted
 > `rancher_helm_repo` and `rancher_image_tag`, otherwise tests may fail with unexpected UI errors.
 
-> **Branch requirement:** `--dashboard-dir` requires a `release-2.15` or newer
+> **Branch requirement:** `--dashboard-dir` requires a `release-2.14` or newer
 > checkout. The checkout has to carry its test dependencies in
 > `cypress/package.json` and `cypress/yarn.lock`, and those manifests have to
-> declare the reporting and tag filtering packages: `cypress-multi-reporters`,
-> `mocha-junit-reporter`, `junit-report-merger`, `find-test-names` and `globby`.
-> `release-2.15` was the first branch to declare all of them. `release-2.14`
-> carries the manifests but not those packages, and `release-2.13` and older
-> keep the test dependencies in the root `package.json` altogether.
+> declare the packages the run loads: `cypress`, `@cypress/grep`, the two
+> reporters, `junit-report-merger`, `find-test-names` and `globby`.
+> `release-2.13` and older keep the test dependencies in the root
+> `package.json` altogether.
 >
-> The clone path fills either gap for you, by overlaying the manifests from
-> `dashboard_overlay_branch` and by installing whatever a branch leaves out. It
-> can do that because the clone is thrown away after the run. Your own checkout
-> is not, so nothing is ever written into it and the run refuses to start
-> instead. `run.sh` rejects such a directory up front, before any infrastructure
-> is provisioned. To test an older branch, drop `--dashboard-dir` and set
-> `dashboard_branch`.
+> Everything the run loads is installed from `cypress/yarn.lock` and nothing is
+> added at run time, so a gap cannot be filled in later. `run.sh` rejects such a
+> directory up front, before any infrastructure is provisioned. To test an older
+> branch, drop `--dashboard-dir` and set `dashboard_branch`; the clone path
+> overlays the manifests from `dashboard_overlay_branch`.
 
 > **Cypress version:** the checkout supplies its own [branch
 > contract](#the-branch-contract), so `cypress_version` is read from its
@@ -456,12 +453,10 @@ This is useful when:
 > Nothing else in your checkout is modified. The imported cluster kubeconfig is
 > written to this playbook's `outputs/` rather than into your tree, and the
 > `node_modules` link the run creates at the checkout root is removed when the
-> run finishes. Branches that do not declare the reporting and tag filtering
-> packages get them installed into `cypress/node_modules` at container start,
-> and `cypress/package.json` is put back afterwards so it stays in step with
-> `cypress/yarn.lock`. That install runs with lifecycle scripts disabled and
-> with the cloud credentials and reporting tokens removed from its environment,
-> since it needs neither.
+> run finishes. Test dependencies are installed from `cypress/yarn.lock` into
+> `cypress/node_modules`, with the cloud credentials and reporting tokens
+> removed from the install's environment. No manifest in your tree is written
+> to.
 >
 > `./run.sh clean` does not touch the files listed above. It removes the
 > wrapper's own artifacts in this directory, the cloned checkout, `outputs/`

@@ -474,59 +474,27 @@
     msg: "Cypress {{ cypress_version }} for {{ target_branch | default('the local checkout', true) }}"
 
 # cypress.sh and grep-filter.ts resolve these at run time inside the container.
-# A checkout that keeps its own Cypress may predate some, so name the gap and
-# let cypress.sh install them rather than fail a run that can still report.
+# They come from cypress/yarn.lock and nothing is added at run time, so a
+# checkout that does not declare one cannot be filled in later.
 - name: Read what the checkout declares
   ansible.builtin.set_fact:
-    _declared: "{{ _decl }}"
-    _missing_runtime_deps: "{{ _runtime_deps | rejectattr('name', 'in', _decl) | map(attribute='name') | list }}"
-    # cypress and @cypress/grep carry no version, because their major has to
-    # match the checkout. A missing one is a hard failure, not an install.
-    _missing_deps_pinned: >-
-      {{ _runtime_deps | rejectattr('name', 'in', _decl) | rejectattr('version', 'eq', '')
-         | map(attribute='name') | zip(_runtime_deps | rejectattr('name', 'in', _decl)
-         | rejectattr('version', 'eq', '') | map(attribute='version'))
-         | map('join', '@') | join(' ') }}
+    _missing_runtime_deps: "{{ _runtime_deps | difference(_decl) }}"
   vars:
     _m: "{{ (_cypress_manifest.content | b64decode | from_json) if (_cypress_manifest.content | default('') | length) > 0 else {} }}"
     _decl: "{{ ((_m.dependencies | default({})) | combine(_m.devDependencies | default({}))) | list }}"
 
-- name: Report packages the checkout does not declare
-  ansible.builtin.debug:
-    msg: >-
-      {{ target_branch | default('the local checkout', true) }} does not declare
-      {{ _missing_runtime_deps | join(', ') }}. cypress.sh installs the pinned
-      versions at container start. grep-filter.ts requires globby and
-      find-test-names directly and exits 1 without them, and jrm cannot merge
-      the JUnit XML.
-  when:
-    - dashboard_src is not defined
-    - _missing_runtime_deps | length > 0
-
-# Filling a gap writes to cypress/package.json, which a clone can absorb because
-# it is thrown away. A local checkout is the developer's own tree, so refuse.
-- name: Assert a local checkout declares the reporting packages
+- name: Assert the checkout declares what the run loads
   ansible.builtin.assert:
     that: _missing_runtime_deps | length == 0
-    success_msg: "the checkout declares the reporting and tag filtering packages"
+    success_msg: "the checkout declares the packages the run loads"
     fail_msg: >-
-      This checkout does not declare {{ _missing_runtime_deps | join(', ') }},
-      which carry the JUnit reporting and the tag filtering the run needs. They
-      are declared from release-2.15 onwards, so --dashboard-dir requires a
-      release-2.15 or newer checkout. Older branches still run through the clone
-      path: drop --dashboard-dir and set dashboard_branch.
-  when: dashboard_src is defined
-
-- name: Assert the checkout can run Cypress at all
-  ansible.builtin.assert:
-    that: "'cypress' in _declared and '@cypress/grep' in _declared"
-    success_msg: "the checkout declares cypress and @cypress/grep"
-    fail_msg: >-
-      This checkout declares no cypress or no @cypress/grep, so there is
-      nothing to run and no way to filter by tag.
-      {{ 'The dependency overlay is skipped for local checkouts, so the directory passed to --dashboard-dir has to supply them.'
+      This checkout does not declare {{ _missing_runtime_deps | sort | join(', ') }}.
+      Cypress, the reporters and the tag filtering packages are installed from
+      cypress/yarn.lock, so a checkout that does not declare one has no way to
+      run, filter or report. release-2.14 and newer declare all of them.
+      {{ 'The directory passed to --dashboard-dir has to supply them, so use a newer branch or drop --dashboard-dir.'
          if dashboard_src is defined
-         else 'The overlay from ' ~ (dashboard_overlay_branch | default('master', true)) ~ ' did not supply them.' }}
+         else 'Older branches get them from the overlay, which did not supply them here.' }}
 
 - name: Show Docker build args
   ansible.builtin.debug:

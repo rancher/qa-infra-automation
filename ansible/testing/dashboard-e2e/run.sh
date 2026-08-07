@@ -479,9 +479,9 @@ if [ -n "${DASHBOARD_DIR:-}" ]; then
 	fi
 	unset _missing _f
 
-	# release-2.14 carries the cypress/ manifests but not the reporting and tag
-	# filtering packages. The clone path installs what a branch leaves out; a
-	# local checkout is never written to, so it has to declare them itself.
+	# Everything the run loads comes from cypress/yarn.lock and nothing is added
+	# at run time, so a checkout that does not declare one cannot be filled in
+	# later. release-2.14 and newer declare all of them.
 	_missing_deps=""
 	for _p in cypress-multi-reporters mocha-junit-reporter junit-report-merger find-test-names globby; do
 		grep -q "\"${_p}\"[[:space:]]*:" "${DASHBOARD_DIR}/cypress/package.json" ||
@@ -490,10 +490,11 @@ if [ -n "${DASHBOARD_DIR:-}" ]; then
 	if [ -n "${_missing_deps}" ]; then
 		echo "ERROR: --dashboard-dir checkout does not declare:${_missing_deps}" >&2
 		echo "       These carry the JUnit reporting and the tag filtering the run" >&2
-		echo "       needs. They are declared from release-2.15 onwards, so" >&2
-		echo "       --dashboard-dir requires a release-2.15 or newer checkout." >&2
-		echo "       Older branches still run through the clone path: drop" >&2
-		echo "       --dashboard-dir and set dashboard_branch." >&2
+		echo "       needs, and they are installed from cypress/yarn.lock, so a" >&2
+		echo "       checkout that does not declare them cannot filter or report." >&2
+		echo "       release-2.14 and newer declare all of them. To test an older" >&2
+		echo "       branch, drop --dashboard-dir and set dashboard_branch; the" >&2
+		echo "       clone path overlays the manifests from a newer branch." >&2
 		exit 2
 	fi
 	unset _missing_deps _p
