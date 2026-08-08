@@ -65,6 +65,8 @@ node_config = {
 
   aws_instance_type = "t3a.2xlarge"
   aws_security_group = ["rancher-nodes"] 
+  # When passing security group IDs (sg-*), set aws_security_group_readonly = true
+  # so docker-machine uses them as-is instead of trying to create new groups.
 
   aws_subnet = "subnet-123"
   aws_availability_zone = "b"
