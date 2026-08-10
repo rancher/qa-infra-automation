@@ -32,3 +32,8 @@ output "cluster_nodes_json" {
     ]
   })
 }
+
+output "ssh_security_group_id" {
+  description = "ID of the dedicated SSH security group created when create_ssh_security_group=true; null otherwise."
+  value       = var.create_ssh_security_group ? aws_security_group.ssh[0].id : null
+}
