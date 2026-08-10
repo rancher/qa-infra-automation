@@ -16,27 +16,15 @@ if [ -z "$_project_root" ] || [ ! -f "${_project_root}/cypress/package.json" ]; 
 	echo "[cypress.sh] ERROR: ${_project_root:-<empty>} is not a dashboard checkout, no cypress/package.json found."
 	exit 1
 fi
-_manifest="${_project_root}/cypress/package.json"
 # coreutils 9 also refuses to recurse across a mount point, which guards the
 # checkout root. Older rm does not know the option.
 _rm_guard=()
 if rm --help 2>&1 | grep -q 'preserve-root\[=all\]'; then
 	_rm_guard=(--preserve-root=all)
 fi
-_manifest_snapshot=""
-
-# shellcheck disable=SC2329  # invoked by the EXIT trap below
-_restore_manifest() {
-	if [ -n "$_manifest_snapshot" ] && [ -f "$_manifest_snapshot" ]; then
-		cp -p "$_manifest_snapshot" "$_manifest" 2>/dev/null || true
-		rm -f "$_manifest_snapshot" || true
-		_manifest_snapshot=""
-	fi
-}
 
 # shellcheck disable=SC2329  # invoked by the EXIT trap below
 _cleanup() {
-	_restore_manifest
 	if [ -L "${_project_root}/node_modules" ] &&
 		[ "$(readlink "${_project_root}/node_modules")" = "cypress/node_modules" ]; then
 		rm -f "${_project_root}/node_modules" || true
@@ -67,20 +55,6 @@ if ! (cd cypress && _yarn_sealed install --frozen-lockfile --silent); then
 	echo "[cypress.sh] package.json exists: $(test -f cypress/package.json && echo yes || echo no)"
 	echo "[cypress.sh] yarn.lock exists: $(test -f cypress/yarn.lock && echo yes || echo no)"
 	exit 1
-fi
-# Packages this checkout does not declare, at versions pinned by the playbook.
-if [ -n "${MISSING_RUNTIME_DEPS:-}" ]; then
-echo "[cypress.sh] Installing packages this checkout does not declare: ${MISSING_RUNTIME_DEPS}"
-_manifest_snapshot="$(mktemp)"
-cp -p "$_manifest" "$_manifest_snapshot"
-# Unquoted on purpose, splits into separate name@version arguments.
-# shellcheck disable=SC2086
-if ! (cd cypress && _yarn_sealed add --no-lockfile --ignore-scripts --silent ${MISSING_RUNTIME_DEPS}); then
-echo "[cypress.sh] ERROR: could not install ${MISSING_RUNTIME_DEPS}"
-echo "[cypress.sh] Tag filtering and JUnit reporting both need these."
-exit 1
-fi
-_restore_manifest
 fi
 
 # Point ./node_modules at the test dependencies so anything resolving from the

@@ -30,9 +30,8 @@ const requireOrExplain = (moduleName: string): unknown => {
     if ((e as NodeJS.ErrnoException | undefined)?.code === 'MODULE_NOT_FOUND') {
       console.error(`[grep-filter] '${ moduleName }' is not installed in this checkout.`);
       console.error('[grep-filter] Spec pre-selection needs it, so tag filtering cannot run.');
-      console.error('[grep-filter] release-2.15 and newer declare it in cypress/package.json.');
-      console.error('[grep-filter] The clone path supplies it on older branches; a local');
-      console.error('[grep-filter] checkout is never written to, so --dashboard-dir needs 2.15+.');
+      console.error('[grep-filter] It is installed from cypress/yarn.lock, so the checkout has');
+      console.error('[grep-filter] to declare it. release-2.14 and newer do.');
       process.exit(1);
     }
     throw e;

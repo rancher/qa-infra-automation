@@ -50,18 +50,17 @@
     executor_tag: "{{ lookup('env', 'EXECUTOR_NUMBER') | default('0', true) }}"
 
     # Packages cypress.sh and grep-filter.ts load at run time inside the
-    # container, installed only when the checkout does not declare them.
-    # Versions are exact because everything else here is pinned, from the base
-    # image digest to yarn.lock.
+    # container. Every checkout declares them, so they are installed from
+    # cypress/yarn.lock and nothing is added at run time.
     _runtime_deps:
-      - { name: cypress, version: "" }
-      - { name: "@cypress/grep", version: "" }
-      - { name: cypress-mochawesome-reporter, version: 3.8.2 }
-      - { name: cypress-multi-reporters, version: 1.6.4 }
-      - { name: mocha-junit-reporter, version: 2.2.1 }
-      - { name: junit-report-merger, version: 9.0.3 }
-      - { name: find-test-names, version: 1.29.19 }
-      - { name: globby, version: 11.1.0 }
+      - cypress
+      - "@cypress/grep"
+      - cypress-mochawesome-reporter
+      - cypress-multi-reporters
+      - mocha-junit-reporter
+      - junit-report-merger
+      - find-test-names
+      - globby
 
   pre_tasks:
     - name: Create outputs directory
