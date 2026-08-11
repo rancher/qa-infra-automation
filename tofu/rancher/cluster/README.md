@@ -39,6 +39,27 @@ This module deploys a downstream cluster on your rancher setup
 
     Use the same `vars.tfvars` file or `-var` flags used during `apply`.
 
+## Using `make` (from the repo root)
+
+The repository `Makefile` wraps the commands above and auto-loads
+`ansible/rancher/default-ha/generated.tfvars` for `fqdn`/`api_key`:
+
+```bash
+# Plan / create (prompts unless AUTO_APPROVE=yes)
+make downstream-tofu-plan    DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+make downstream-tofu         DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+
+# Destroy (prompts unless AUTO_APPROVE=yes)
+make downstream-tofu-destroy DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+
+# Show outputs
+make downstream-tofu-output  DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+```
+
+Override `RANCHER_TFVARS=<path>` if your Rancher outputs live elsewhere, and
+`WORKSPACE=<name>` to isolate multiple downstream clusters (one workspace per
+cluster). The targets validate that both var files exist before invoking tofu.
+
 ## Outputs
 Refer to [outputs.tf](./outputs.tf) for a list of exported values.
 

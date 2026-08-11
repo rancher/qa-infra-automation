@@ -19,6 +19,14 @@ TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
 AUTO_APPROVE  ?= no
 
+# Downstream cluster via the Rancher API (tofu/rancher/cluster).
+# Your downstream cluster vars (kubernetes_version, machine_pools,
+# cloud_provider, node_config, ...). See tofu/rancher/cluster/vars.tfvars.
+DOWNSTREAM_TFVARS ?=
+# fqdn + api_key written by the Rancher install. Override if your Rancher
+# outputs live elsewhere.
+RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
+
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
 GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
@@ -53,6 +61,10 @@ endif
 
 # Kubeconfig written by the cluster role; rancher needs to know where it is.
 KUBECONFIG_FILE := $(CURDIR)/$(ANSIBLE_DIR)/kubeconfig.yaml
+
+# Tofu module that calls the Rancher API to create a managed downstream cluster.
+# Separate from TOFU_DIR, which is the raw-VM infrastructure module.
+DOWNSTREAM_TOFU_DIR := tofu/rancher/cluster
 
 # Ansible settings
 export ANSIBLE_HOST_KEY_CHECKING := False
@@ -127,6 +139,12 @@ help: ## Show this help message
 	@echo "  registry            Configure private registry on cluster nodes"
 	@echo "  rancher             Deploy Rancher to cluster"
 	@echo "  downstream          Register an airgap cluster into Rancher (requires ENV=airgap and TARGET_GROUP=downstream)"
+	@echo ""
+	@echo "RANCHER DOWNSTREAM CLUSTER (TOFU - managed by the Rancher API):"
+	@echo "  downstream-tofu          Create/apply a Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... required)"
+	@echo "  downstream-tofu-plan     Plan downstream cluster changes"
+	@echo "  downstream-tofu-destroy  Destroy the downstream cluster (AUTO_APPROVE=yes to skip prompt)"
+	@echo "  downstream-tofu-output   Show downstream cluster tofu outputs"
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
 	@echo ""
@@ -154,6 +172,7 @@ help: ## Show this help message
 	@echo "  make all                                    # RKE2 default on AWS (default)"
 	@echo "  make all ENV=airgap                         # RKE2 airgap on AWS"
 	@echo "  make airgap-downstream ENV=airgap           # Airgap Rancher + downstream cluster"
+	@echo "  make downstream-tofu DOWNSTREAM_TFVARS=tofu/rancher/cluster/vars.tfvars  # Rancher-managed downstream cluster"
 	@echo "  make all DISTRO=k3s                         # K3s default on AWS"
 	@echo "  make cluster ENV=airgap                     # Just RKE2 airgap cluster"
 	@echo "  make status                                 # Check current cluster"
@@ -682,6 +701,81 @@ downstream: check-inventory ## Register an existing airgap cluster into Rancher 
 	@echo "Registering '$(TARGET_GROUP)' cluster into Rancher as downstream..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) $(DOWNSTREAM_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) $(TARGET_EXTRA_VARS)
+
+# ============================================================================
+# RANCHER DOWNSTREAM CLUSTER (TOFU)
+# ============================================================================
+# Creates a Rancher-managed downstream cluster by calling the Rancher API via
+# the tofu/rancher/cluster module. This is distinct from the infra modules
+# (TOFU_DIR), which only provision raw VMs. Required inputs:
+#   * DOWNSTREAM_TFVARS - your cluster vars (kubernetes_version, machine_pools,
+#                         cloud_provider, node_config, ...). See
+#                         tofu/rancher/cluster/vars.tfvars for a sample.
+#   * RANCHER_TFVARS    - fqdn + api_key written by the Rancher install
+#                         (ansible/rancher/default-ha/generated.tfvars).
+# Override WORKSPACE to manage multiple downstream clusters independently,
+# and AUTO_APPROVE=yes to skip prompts (CI).
+
+# Paths are made absolute because the tofu targets cd into DOWNSTREAM_TOFU_DIR before running.
+DOWNSTREAM_VAR_FILES := -var-file=$(abspath $(DOWNSTREAM_TFVARS)) -var-file=$(abspath $(RANCHER_TFVARS))
+
+.PHONY: check-downstream-tofu
+check-downstream-tofu: check-prereqs ## Validate downstream tofu inputs (DOWNSTREAM_TFVARS + RANCHER_TFVARS)
+	@if [ ! -d "$(DOWNSTREAM_TOFU_DIR)" ]; then \
+		echo "Error: downstream tofu module not found: $(DOWNSTREAM_TOFU_DIR)"; exit 1; \
+	fi
+	@if [ -z "$(DOWNSTREAM_TFVARS)" ]; then \
+		echo "Error: DOWNSTREAM_TFVARS is required (your downstream cluster vars)."; \
+		echo "       Example: make downstream-tofu DOWNSTREAM_TFVARS=tofu/rancher/cluster/vars.tfvars"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(DOWNSTREAM_TFVARS)" ]; then \
+		echo "Error: DOWNSTREAM_TFVARS not found: $(DOWNSTREAM_TFVARS)"; exit 1; \
+	fi
+	@if [ ! -f "$(RANCHER_TFVARS)" ]; then \
+		echo "Error: Rancher generated.tfvars not found at $(RANCHER_TFVARS)."; \
+		echo "       Install/refresh Rancher first (e.g. 'make rancher') or override: RANCHER_TFVARS=<path>"; \
+		exit 1; \
+	fi
+
+.PHONY: downstream-tofu-init
+downstream-tofu-init: check-downstream-tofu ## Initialize Tofu for the downstream cluster module (selects/creates WORKSPACE)
+	@echo "Initializing Tofu for $(DOWNSTREAM_TOFU_DIR) (workspace '$(WORKSPACE)')..."
+	@cd $(DOWNSTREAM_TOFU_DIR) && tofu init
+	@if [ "$(WORKSPACE)" != "default" ]; then \
+		echo "Selecting/creating workspace '$(WORKSPACE)'..."; \
+		cd $(DOWNSTREAM_TOFU_DIR) && { tofu workspace select $(WORKSPACE) || tofu workspace new $(WORKSPACE); }; \
+	fi
+
+.PHONY: downstream-tofu-plan
+downstream-tofu-plan: downstream-tofu-init ## Plan downstream cluster changes
+	@echo "Planning downstream cluster for workspace '$(WORKSPACE)'..."
+	cd $(DOWNSTREAM_TOFU_DIR) && tofu plan $(DOWNSTREAM_VAR_FILES)
+
+.PHONY: downstream-tofu
+downstream-tofu: downstream-tofu-init ## Create/apply the Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... required)
+	@echo "Applying downstream cluster for workspace '$(WORKSPACE)'..."
+	cd $(DOWNSTREAM_TOFU_DIR) && tofu apply $(DOWNSTREAM_VAR_FILES) $(if $(filter yes,$(AUTO_APPROVE)),-auto-approve)
+
+.PHONY: downstream-tofu-destroy
+downstream-tofu-destroy: downstream-tofu-init ## Destroy the downstream cluster (AUTO_APPROVE=yes to skip prompt)
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  Downstream Cluster Destroy - workspace '$(WORKSPACE)'"
+	@echo "═══════════════════════════════════════════════════════════════"
+	@cd $(DOWNSTREAM_TOFU_DIR) && \
+		resources=$$(tofu state list 2>/dev/null | wc -l); \
+		echo "Resources in state: $$resources"; \
+		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; \
+		elif [ ! -t 0 ]; then echo "  ERROR: stdin is not a TTY and AUTO_APPROVE is not 'yes'"; echo "  Re-run with: make downstream-tofu-destroy AUTO_APPROVE=yes"; exit 1; \
+		else read -p "Destroy downstream cluster in workspace '$(WORKSPACE)'? [y/N] " confirm; fi; \
+		[ "$$confirm" = "y" ] || { echo "Aborted."; exit 1; }
+	cd $(DOWNSTREAM_TOFU_DIR) && tofu destroy $(DOWNSTREAM_VAR_FILES) -auto-approve
+	@echo ""
+	@echo "✓ Downstream cluster destroyed"
+
+.PHONY: downstream-tofu-output
+downstream-tofu-output: downstream-tofu-init ## Show downstream cluster tofu outputs
+	cd $(DOWNSTREAM_TOFU_DIR) && tofu output
 
 # ============================================================================
 # UTILITIES
