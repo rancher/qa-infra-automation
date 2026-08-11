@@ -86,6 +86,9 @@ node_config = {
 
   aws_instance_type = "t3a.2xlarge"
   aws_security_group = ["rancher-nodes"] 
+  # Security group IDs (sg-*) are auto-detected and treated as read-only.
+  # Only set aws_security_group_readonly = true explicitly when reusing
+  # existing groups by NAME, so docker-machine doesn't try to create them.
 
   aws_subnet = "subnet-123"
   aws_availability_zone = "b"
