@@ -33,9 +33,12 @@
   delay: 20
 
 - name: Install required packages (RHEL/CentOS)
-  ansible.builtin.yum:
+  # allowerasing lets dnf swap conflicting defaults (e.g. Amazon Linux 2023 ships
+  # curl-minimal, which blocks installing curl with a Depsolve conflict).
+  ansible.builtin.dnf:
     name: "{{ rke2_required_packages }}"
     state: present
+    allowerasing: true
   when: ansible_facts.os_family == "RedHat"
   become: true
 
