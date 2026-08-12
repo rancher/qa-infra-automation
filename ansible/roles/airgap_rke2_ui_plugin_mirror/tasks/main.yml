@@ -1,0 +1,96 @@
+---
+# Mirror rancher/ui-plugin-charts on the airgap bastion so an airgapped Rancher
+# server can install UI extensions (e.g. NeuVector) with no github.com egress.
+- name: Mirror ui-plugin-charts on the bastion
+  when: enable_ui_plugin_mirror | default(false) | bool
+  block:
+    - name: Ensure required packages are installed (git, python3)
+      ansible.builtin.package:
+        name:
+          - git
+          - python3
+        state: present
+
+    - name: Compute parent directory of the mirror
+      ansible.builtin.set_fact:
+        ui_plugin_mirror_parent: "{{ ui_plugin_mirror_dest | dirname }}"
+
+    - name: Ensure mirror parent directory exists
+      ansible.builtin.file:
+        path: "{{ ui_plugin_mirror_parent }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check if mirror already exists
+      ansible.builtin.stat:
+        path: "{{ ui_plugin_mirror_dest }}/HEAD"
+      register: ui_plugin_mirror_repo
+
+    - name: Clone ui-plugin-charts as a mirror
+      ansible.builtin.command:
+        cmd: git clone --mirror {{ ui_plugin_mirror_src }} {{ ui_plugin_mirror_dest }}
+      when: not ui_plugin_mirror_repo.stat.exists
+
+    - name: Update mirror on re-run (keep current)
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} remote update --prune
+      when: ui_plugin_mirror_repo.stat.exists
+      changed_when: false
+
+    - name: Verify requested branch exists in the mirror
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} rev-parse --verify refs/heads/{{ ui_plugin_mirror_branch }}
+      register: ui_plugin_mirror_branch_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if requested branch is absent from the mirror
+      ansible.builtin.fail:
+        msg: >-
+          Branch '{{ ui_plugin_mirror_branch }}' not found in mirror of
+          {{ ui_plugin_mirror_src }}. Check available branches upstream.
+      when: ui_plugin_mirror_branch_check.rc != 0
+
+    - name: Read current mirror HEAD
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} symbolic-ref HEAD
+      register: ui_plugin_mirror_head
+      changed_when: false
+
+    - name: Point mirror HEAD at the requested branch (so dumb-HTTP clones check it out)
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} symbolic-ref HEAD refs/heads/{{ ui_plugin_mirror_branch }}
+      when: (ui_plugin_mirror_head.stdout | trim) != ('refs/heads/' ~ ui_plugin_mirror_branch)
+
+    - name: Regenerate server info for dumb HTTP serving
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} update-server-info
+      changed_when: false
+
+    - name: Install dumb-HTTP systemd unit
+      ansible.builtin.template:
+        src: ui-plugin-mirror-http.service.j2
+        dest: /etc/systemd/system/ui-plugin-mirror-http.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd and restart ui-plugin-mirror-http
+
+    - name: Ensure ui-plugin-mirror-http service is enabled and running
+      ansible.builtin.systemd:
+        name: ui-plugin-mirror-http.service
+        daemon_reload: true
+        enabled: true
+        state: started
+
+    - name: Compute the public mirror URL
+      ansible.builtin.set_fact:
+        ui_plugin_mirror_url: "http://{{ bastion_host | default(inventory_hostname) }}:{{ ui_plugin_mirror_port }}/{{ ui_plugin_mirror_dest | basename }}"
+
+    - name: Display mirror URL
+      ansible.builtin.debug:
+        msg: >-
+          ui-plugin-charts mirror served at {{ ui_plugin_mirror_url }}
+          (branch {{ ui_plugin_mirror_branch }})

@@ -147,6 +147,7 @@ help: ## Show this help message
 	@echo "  downstream-tofu-output   Show downstream cluster tofu outputs"
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
+	@echo "  ui-plugin-mirror   Mirror ui-plugin-charts on the bastion (airgap UI extension installs)"
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
@@ -684,6 +685,12 @@ kubectl-setup: check-inventory ## Setup kubectl access on bastion
 	@echo "Setting up kubectl access..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
+
+.PHONY: ui-plugin-mirror
+ui-plugin-mirror: check-inventory ## Mirror ui-plugin-charts on the bastion for airgap UI extension installs (ENV=airgap)
+	@echo "Mirroring ui-plugin-charts on the bastion..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/ui-plugin-mirror-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: downstream
 downstream: check-inventory ## Register an existing airgap cluster into Rancher as a downstream (requires ENV=airgap and TARGET_GROUP, e.g. TARGET_GROUP=downstream)

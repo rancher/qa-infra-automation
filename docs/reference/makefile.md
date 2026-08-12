@@ -84,6 +84,7 @@ with `VAR_FILE=`). See `tofu/scripts/README.md` for the full script reference.
 | `make downstream` | Register an existing airgap cluster into Rancher as a downstream (`ENV=airgap` only; use `TARGET_GROUP=<group>`, e.g. `TARGET_GROUP=downstream`, to name the group) |
 | `make upgrade-cluster` | Upgrade Kubernetes version |
 | `make kubectl-setup` | Set up kubectl on the bastion host (airgap) |
+| `make ui-plugin-mirror` | Mirror `rancher/ui-plugin-charts` on the bastion over HTTP for airgap UI extension installs (`ENV=airgap`) |
 
 ### Utilities
 

@@ -1,0 +1,8 @@
+---
+# Handlers for the ui-plugin-charts bastion mirror.
+
+- name: Reload systemd and restart ui-plugin-mirror-http
+  ansible.builtin.systemd:
+    name: ui-plugin-mirror-http.service
+    daemon_reload: true
+    state: restarted

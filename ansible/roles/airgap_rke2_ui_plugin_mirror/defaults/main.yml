@@ -1,0 +1,18 @@
+---
+# Default configuration for the ui-plugin-charts bastion mirror.
+# Override these in inventory/group_vars/all.yml or via --extra-vars.
+
+# Opt-in gate. Default off so ordinary airgap runs are unaffected.
+enable_ui_plugin_mirror: false
+
+# Upstream repository to mirror.
+ui_plugin_mirror_src: "https://github.com/rancher/ui-plugin-charts"
+ui_plugin_mirror_branch: "main"
+
+# Where to store the bare mirror on the bastion. The HTTP server roots at the
+# parent directory so the repo is served at /<basename> (i.e. /ui-plugin-charts.git).
+ui_plugin_mirror_dest: "/srv/git/ui-plugin-charts.git"
+
+# HTTP bind address and port the dumb-HTTP server listens on.
+ui_plugin_mirror_listen: "0.0.0.0"
+ui_plugin_mirror_port: 8080
