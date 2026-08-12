@@ -95,16 +95,22 @@
           ui-plugin-charts mirror served at {{ ui_plugin_mirror_url }}
           (branch {{ ui_plugin_mirror_branch }})
 
+    - name: Build cattle-config.yaml snippet lines
+      ansible.builtin.set_fact:
+        ui_plugin_cattle_config_lines:
+          - "neuvectorTest:"
+          - "  uiPluginChartsURL: {{ ui_plugin_mirror_url }}"
+          - "  uiPluginChartsBranch: {{ ui_plugin_mirror_branch }}"
+          - "  skipUIExtension: false"
+
     - name: Display cattle-config.yaml snippet for NeuVector UI extension
       ansible.builtin.debug:
-        msg: |-
-          Add the following to cattle-config.yaml (CATTLE_TEST_CONFIG) so the NeuVector
-          UI extension installs from this bastion mirror instead of github.com:
+        msg: "Mirror ready. Add the following to cattle-config.yaml (CATTLE_TEST_CONFIG):"
 
-            neuvectorTest:
-              uiPluginChartsURL: "{{ ui_plugin_mirror_url }}"
-              uiPluginChartsBranch: "{{ ui_plugin_mirror_branch }}"
-              skipUIExtension: false
+    - name: Show cattle-config.yaml snippet
+      ansible.builtin.debug:
+        var: ui_plugin_cattle_config_lines
 
-          Note: skipUIExtension defaults to true in airgap; it MUST be false here or the
-          extension install is skipped.
+    - name: skipUIExtension note
+      ansible.builtin.debug:
+        msg: "skipUIExtension must be false - it defaults to true in airgap, which skips the install."
