@@ -117,15 +117,21 @@
 - name: Install K3s from version tag with checksum verification
   when: not _k3s_is_commit
   block:
+    # k3s publishes per-arch artifacts: "k3s"/sha256sum-amd64.txt on x86_64,
+    # "k3s-arm64"/sha256sum-arm64.txt on aarch64 (amd64-only URL = Exec format error on ARM).
+    - name: Resolve K3s artifact names for the node architecture
+      ansible.builtin.set_fact:
+        _k3s_arch: "{{ 'arm64' if ansible_facts.architecture == 'aarch64' else 'amd64' }}"
+
     - name: Download K3s binary with SHA256 verification
       include_role:
         name: download_verify
       vars:
-        dv_artifact_url: "{{ k3s_github_release_url }}/{{ kubernetes_version }}/k3s"
-        dv_checksum_url: "{{ k3s_github_release_url }}/{{ kubernetes_version }}/sha256sum-amd64.txt"
+        dv_artifact_url: "{{ k3s_github_release_url }}/{{ kubernetes_version }}/k3s{{ '-arm64' if _k3s_arch == 'arm64' else '' }}"
+        dv_checksum_url: "{{ k3s_github_release_url }}/{{ kubernetes_version }}/sha256sum-{{ _k3s_arch }}.txt"
         dv_dest: "{{ k3s_bin_dir }}/k3s"
         dv_checksum_format: "github_sha256sum"
-        dv_github_artifact_name: "k3s"
+        dv_github_artifact_name: "k3s{{ '-arm64' if _k3s_arch == 'arm64' else '' }}"
         dv_mode: "0755"
 
     - name: Create k3s utility symlinks
