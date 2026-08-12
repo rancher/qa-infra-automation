@@ -139,11 +139,20 @@
     - name: Install a valid k3s-selinux policy on SUSE
       when: not k3s_selinux_suse_ready | bool
       block:
+        # SLE Micro installs land in a new snapshot: zypper/rpm_key against the
+        # running system are wrong there — use transactional-update + reboot.
+        - name: Detect a transactional-update host
+          ansible.builtin.stat:
+            path: /usr/sbin/transactional-update
+          register: k3s_suse_transactional
+
         - name: Remove an installed but unloaded k3s-selinux policy
           community.general.zypper:
             name: k3s-selinux
             state: absent
-          when: "'k3s-selinux' in ansible_facts.packages"
+          when:
+            - "'k3s-selinux' in ansible_facts.packages"
+            - not k3s_suse_transactional.stat.exists
 
         - name: Find existing Rancher K3s repositories
           ansible.builtin.find:
@@ -170,6 +179,7 @@
           ansible.builtin.rpm_key:
             key: "https://{{ k3s_selinux_resolved_rpm_site }}/public.key"
             state: present
+          when: not k3s_suse_transactional.stat.exists
 
         - name: Configure the Rancher K3s repository
           ansible.builtin.copy:
@@ -189,6 +199,22 @@
             name: k3s-selinux
             state: present
             update_cache: true
+          when: not k3s_suse_transactional.stat.exists
+
+        - name: Install k3s-selinux via transactional-update (SLE Micro)
+          ansible.builtin.command:
+            cmd: >-
+              transactional-update -n run sh -c
+              'rpm -q k3s-selinux >/dev/null 2>&1 && zypper -n remove k3s-selinux;
+              zypper -n --gpg-auto-import-keys install k3s-selinux'
+          when: k3s_suse_transactional.stat.exists
+          register: k3s_selinux_suse_tu_install
+          changed_when: k3s_selinux_suse_tu_install.rc == 0
+
+        - name: Reboot to activate the transactional snapshot
+          ansible.builtin.reboot:
+            reboot_timeout: 600
+          when: k3s_suse_transactional.stat.exists
 
     - name: Refresh installed package facts on SUSE
       ansible.builtin.package_facts:
@@ -293,6 +319,31 @@
         - crictl
         - ctr
 
+    # The later install script runs with INSTALL_K3S_SKIP_DOWNLOAD=true, which
+    # also skips upstream's chcon — a pre-placed binary would stay mislabeled.
+    - name: Restore the SELinux context on the K3s binary
+      ansible.builtin.shell: |
+        command -v restorecon >/dev/null 2>&1 || exit 0
+        restorecon -v {{ k3s_bin_dir }}/k3s
+      register: _k3s_binary_relabel
+      changed_when: _k3s_binary_relabel.stdout | default('') | length > 0
+
+    - name: Read the K3s binary SELinux context on SUSE
+      ansible.builtin.command:
+        cmd: stat -c %C {{ k3s_bin_dir }}/k3s
+      register: _k3s_binary_selinux_ctx
+      changed_when: false
+      when: k3s_selinux_suse_module_loaded | default(false) | bool
+
+    - name: Verify the K3s binary SELinux label on SUSE
+      ansible.builtin.assert:
+        that:
+          - "'container_runtime_exec_t' in _k3s_binary_selinux_ctx.stdout"
+        fail_msg: >-
+          K3s binary at {{ k3s_bin_dir }}/k3s is mislabeled:
+          {{ _k3s_binary_selinux_ctx.stdout | default('unknown') }}
+      when: k3s_selinux_suse_module_loaded | default(false) | bool
+
     - name: Register K3s systemd service via install script
       ansible.builtin.shell: |
         export INSTALL_K3S_SKIP_DOWNLOAD="true"
@@ -304,6 +355,10 @@
         curl -sfL https://get.k3s.io | sh -
       register: _k3s_service_register
       changed_when: true
+      # get.k3s.io / github intermittently return 5xx; ride out short outages.
+      retries: 3
+      delay: 20
+      until: _k3s_service_register.rc == 0
 
 # --- Commit hash: fallback to install script (requires GITHUB_TOKEN) ---
 - name: Check if k3s binary already exists
@@ -333,6 +388,9 @@
         curl -sfL https://get.k3s.io | sh -
       register: _k3s_commit_install_result
       changed_when: true
+      retries: 3
+      delay: 20
+      until: _k3s_commit_install_result.rc == 0
 
 # --- Systemd service ---
 - name: Enable and start K3s service

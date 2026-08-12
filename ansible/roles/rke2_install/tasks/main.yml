@@ -41,6 +41,10 @@
         mode: '0755'
       become: true
       when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      register: _rke2_script_download
+      retries: 3
+      delay: 15
+      until: _rke2_script_download is succeeded
 
     - name: Run RKE2 install script
       ansible.builtin.command:
@@ -53,6 +57,10 @@
       when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_install_result
       changed_when: rke2_install_result.rc == 0
+      # The script curls github releases internally; 5xx there fails the run.
+      retries: 3
+      delay: 20
+      until: rke2_install_result.rc == 0
 
     - name: Remove install script
       ansible.builtin.file:
