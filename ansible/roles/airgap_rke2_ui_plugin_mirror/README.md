@@ -17,28 +17,30 @@ and is reachable from the airgap cluster, which makes it the natural mirror host
 The role runs on `hosts: bastion` and is **gated by `enable_ui_plugin_mirror`** (default
 `false`, so ordinary airgap runs are unaffected):
 
-1. Ensures `git` and `python3` are installed.
+1. Ensures `git` and `apache2` are installed.
 2. `git clone --mirror` of the upstream repo into `ui_plugin_mirror_dest`
    (`/srv/git/ui-plugin-charts.git` by default). On re-run it syncs via
    `git remote update --prune`, so it stays current and never fails when the mirror
    already exists.
 3. Points the mirror's `HEAD` at `ui_plugin_mirror_branch` (`git symbolic-ref`, only when
-   it differs) so a dumb-HTTP clone checks out that branch, then `git update-server-info`
-   so the bare repo is cloneable over **dumb HTTP**.
-4. Serves the parent directory read-only via a systemd-managed
-   `python3 -m http.server` unit (`ui-plugin-mirror-http.service`) bound to
-   `ui_plugin_mirror_listen:ui_plugin_mirror_port`.
+   it differs) so clones check out that branch.
+4. Serves the bare repo over **smart HTTP** via Apache + `git-http-backend` (prefork MPM
+   + `mod_cgi`), configured as `/etc/apache2/conf-available/ui-plugin-mirror.conf` and
+   listening on `ui_plugin_mirror_listen:ui_plugin_mirror_port`. A system-wide
+   `safe.directory *` lets the web-server user (`www-data`) serve the root-owned repo.
 5. Exposes `ui_plugin_mirror_url`
-   (`http://<bastion_host>:<port>/ui-plugin-charts.git`) for consumers.
+   (`http://<bastion>:<port>/ui-plugin-charts.git`) for consumers.
 
-The repo is served at `/<basename>` because the HTTP server roots at the **parent** of
+The repo is served at `/<basename>` because `GIT_PROJECT_ROOT` is the **parent** of
 `ui_plugin_mirror_dest`.
 
-> **Transport:** dumb HTTP is used because it needs only a static file server and no CGI
-> backend. It has been verified end-to-end: a `git clone` over HTTP from the served mirror
-> checks out the requested branch's working tree (object transfer **and** checkout, not
-> just refs). If Rancher's catalog ever rejects a dumb-HTTP clone in practice, switch to
-> **smart HTTP** via `git http-backend` behind nginx/apache and update this note.
+> **Transport — smart HTTP is required.** Rancher's catalog controller clones with
+> `--depth=1` (shallow); dumb HTTP (`python3 -m http.server`) cannot do shallow clones
+> ("dumb http transport does not support shallow capabilities"). Smart HTTP via
+> `git-http-backend` supports shallow clones and has been verified end-to-end from an
+> airgap node (`git clone --depth=1` succeeds). Note: `mod_cgid` under Apache's event MPM
+> fails to reach its CGI daemon for `git-http-backend`, so the role switches to the
+> **prefork MPM + `mod_cgi`**.
 
 ## Variables
 
