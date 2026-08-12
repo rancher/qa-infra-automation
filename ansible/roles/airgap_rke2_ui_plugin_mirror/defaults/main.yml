@@ -16,3 +16,10 @@ ui_plugin_mirror_dest: "/srv/git/ui-plugin-charts.git"
 # HTTP bind address and port the dumb-HTTP server listens on.
 ui_plugin_mirror_listen: "0.0.0.0"
 ui_plugin_mirror_port: 8080
+
+# Hostname/IP used in the *published* mirror URL (what consumers such as the Rancher
+# catalog controller clone). Empty/unset => auto-detect the bastion's primary private
+# IPv4 (ansible_default_ipv4.address), which is how airgap nodes reach the bastion
+# without depending on VPC public-DNS resolution. Override to pin a DNS name or a
+# different interface (e.g. cross-VPC, TLS front-end).
+ui_plugin_mirror_host: ""

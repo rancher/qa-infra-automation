@@ -85,9 +85,13 @@
         enabled: true
         state: started
 
-    - name: Compute the public mirror URL
+    - name: Resolve mirror host (auto-detect bastion private IP when not pinned)
       ansible.builtin.set_fact:
-        ui_plugin_mirror_url: "http://{{ bastion_host | default(inventory_hostname) }}:{{ ui_plugin_mirror_port }}/{{ ui_plugin_mirror_dest | basename }}"
+        ui_plugin_mirror_host: "{{ (ui_plugin_mirror_host | default('') | trim | length > 0) | ternary(ui_plugin_mirror_host, ansible_default_ipv4.address | default(inventory_hostname)) }}"
+
+    - name: Compute the mirror URL
+      ansible.builtin.set_fact:
+        ui_plugin_mirror_url: "http://{{ ui_plugin_mirror_host }}:{{ ui_plugin_mirror_port }}/{{ ui_plugin_mirror_dest | basename }}"
 
     - name: Display mirror URL
       ansible.builtin.debug:

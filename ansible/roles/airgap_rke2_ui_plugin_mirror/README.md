@@ -50,6 +50,7 @@ The repo is served at `/<basename>` because the HTTP server roots at the **paren
 | `ui_plugin_mirror_dest` | `/srv/git/ui-plugin-charts.git` | Bare mirror path on the bastion. The server roots at its parent. |
 | `ui_plugin_mirror_listen` | `0.0.0.0` | HTTP bind address. |
 | `ui_plugin_mirror_port` | `8080` | HTTP port. |
+| `ui_plugin_mirror_host` | (auto: bastion private IPv4) | Host used in the published URL. Defaults to the bastion's primary private IP (`ansible_default_ipv4.address`) so airgap nodes reach it without relying on VPC public-DNS resolution. Override to pin a DNS name / other interface. |
 
 ## Usage
 
