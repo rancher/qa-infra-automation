@@ -41,7 +41,7 @@
     fi
 
     # rpm.rancher.io only publishes centos/7..9; clamp newer majors to 9 the
-    # same way k3s's install.sh does (RHEL 10 otherwise 404s and loses selinux).
+    # same way the k3s install.sh does (RHEL 10 otherwise 404s and loses selinux).
     if [ "${el}" -gt 9 ] 2>/dev/null; then
       el=9
     fi
