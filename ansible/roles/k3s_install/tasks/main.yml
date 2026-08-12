@@ -344,6 +344,18 @@
           {{ _k3s_binary_selinux_ctx.stdout | default('unknown') }}
       when: k3s_selinux_suse_module_loaded | default(false) | bool
 
+    # curl | sh hides curl failures (empty input exits 0), so download the
+    # script with its own retries and execute it as a separate step.
+    - name: Download the K3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: '0755'
+      register: _k3s_script_download
+      retries: 3
+      delay: 15
+      until: _k3s_script_download is succeeded
+
     - name: Register K3s systemd service via install script
       ansible.builtin.shell: |
         export INSTALL_K3S_SKIP_DOWNLOAD="true"
@@ -352,13 +364,18 @@
         {% if k3s_node_type == 'agent' %}
         export INSTALL_K3S_EXEC="agent"
         {% endif %}
-        curl -sfL https://get.k3s.io | sh -
+        sh /tmp/k3s-install.sh
       register: _k3s_service_register
       changed_when: true
-      # get.k3s.io / github intermittently return 5xx; ride out short outages.
+      # The script still reaches rpm repos for selinux; ride out short 5xx.
       retries: 3
       delay: 20
       until: _k3s_service_register.rc == 0
+
+    - name: Remove the K3s install script
+      ansible.builtin.file:
+        path: /tmp/k3s-install.sh
+        state: absent
 
 # --- Commit hash: fallback to install script (requires GITHUB_TOKEN) ---
 - name: Check if k3s binary already exists
@@ -378,6 +395,16 @@
           Commit hash installs use the upstream install script (requires GITHUB_TOKEN).
           For full checksum verification, prefer a version tag instead.
 
+    - name: Download the K3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: '0755'
+      register: _k3s_commit_script_download
+      retries: 3
+      delay: 15
+      until: _k3s_commit_script_download is succeeded
+
     - name: Install K3s via install script
       ansible.builtin.shell: |
         export INSTALL_K3S_COMMIT="{{ kubernetes_version }}"
@@ -385,12 +412,17 @@
         {% if k3s_node_type == 'agent' %}
         export INSTALL_K3S_EXEC="agent"
         {% endif %}
-        curl -sfL https://get.k3s.io | sh -
+        sh /tmp/k3s-install.sh
       register: _k3s_commit_install_result
       changed_when: true
       retries: 3
       delay: 20
       until: _k3s_commit_install_result.rc == 0
+
+    - name: Remove the K3s install script
+      ansible.builtin.file:
+        path: /tmp/k3s-install.sh
+        state: absent
 
 # --- Systemd service ---
 - name: Enable and start K3s service
