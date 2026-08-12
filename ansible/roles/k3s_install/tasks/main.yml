@@ -174,6 +174,7 @@
             path: /var/lib/rpm-state
             state: directory
             mode: "0755"
+          when: not k3s_suse_transactional.stat.exists
 
         - name: Import the Rancher K3s RPM signing key
           ansible.builtin.rpm_key:
@@ -201,11 +202,14 @@
             update_cache: true
           when: not k3s_suse_transactional.stat.exists
 
+        # rpm-state must exist inside the SAME snapshot the rpm installs into
+        # (the SELinux macro needs it), so it is created within the transaction.
         - name: Install k3s-selinux via transactional-update (SLE Micro)
           ansible.builtin.command:
             cmd: >-
-              transactional-update -n run sh -c
-              'rpm -q k3s-selinux >/dev/null 2>&1 && zypper -n remove k3s-selinux;
+              transactional-update --no-selfupdate -d -n run sh -c
+              'mkdir -p /var/lib/rpm-state;
+              rpm -q k3s-selinux >/dev/null 2>&1 && zypper -n remove k3s-selinux;
               zypper -n --gpg-auto-import-keys install k3s-selinux'
           when: k3s_suse_transactional.stat.exists
           register: k3s_selinux_suse_tu_install
@@ -367,10 +371,6 @@
         sh /tmp/k3s-install.sh
       register: _k3s_service_register
       changed_when: true
-      # The script still reaches rpm repos for selinux; ride out short 5xx.
-      retries: 3
-      delay: 20
-      until: _k3s_service_register.rc == 0
 
     - name: Remove the K3s install script
       ansible.builtin.file:
