@@ -65,8 +65,18 @@ make all ENV=airgap ENABLE_UI_PLUGIN_MIRROR=yes
 make registry ENV=airgap EXTRA_VARS="enable_ui_plugin_mirror=true"
 ```
 
-Then point Rancher's `rancher-ui-plugins` `ClusterRepo` at the mirror and, from an airgap
-node / Rancher server pod, confirm:
+Then point the NeuVector UI extension at the mirror. In `cattle-config.yaml`
+(`CATTLE_TEST_CONFIG`), set the following under `neuvectorTest` (the playbook prints this
+snippet with the computed URL/branch at the end of the run):
+
+```yaml
+neuvectorTest:
+  uiPluginChartsURL: "http://<bastion>:8080/ui-plugin-charts.git"
+  uiPluginChartsBranch: "main"
+  skipUIExtension: false   # must be false; defaults to true in airgap, which skips the install
+```
+
+And confirm the mirror is cloneable from an airgap node / Rancher server pod:
 
 ```bash
 git clone http://<bastion>:8080/ui-plugin-charts.git

@@ -94,3 +94,17 @@
         msg: >-
           ui-plugin-charts mirror served at {{ ui_plugin_mirror_url }}
           (branch {{ ui_plugin_mirror_branch }})
+
+    - name: Display cattle-config.yaml snippet for NeuVector UI extension
+      ansible.builtin.debug:
+        msg: |-
+          Add the following to cattle-config.yaml (CATTLE_TEST_CONFIG) so the NeuVector
+          UI extension installs from this bastion mirror instead of github.com:
+
+            neuvectorTest:
+              uiPluginChartsURL: "{{ ui_plugin_mirror_url }}"
+              uiPluginChartsBranch: "{{ ui_plugin_mirror_branch }}"
+              skipUIExtension: false
+
+          Note: skipUIExtension defaults to true in airgap; it MUST be false here or the
+          extension install is skipped.
