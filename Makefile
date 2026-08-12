@@ -18,6 +18,18 @@ WORKSPACE     ?= default
 TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
 AUTO_APPROVE  ?= no
+# Opt-in: include the standalone ui-plugin-mirror step in `all`/`setup-from-infra`
+# (airgap only). Default off so ordinary airgap runs are unaffected.
+ENABLE_UI_PLUGIN_MIRROR ?= no
+ifeq ($(ENV),airgap)
+ifeq ($(ENABLE_UI_PLUGIN_MIRROR),yes)
+UI_PLUGIN_MIRROR_TARGET := ui-plugin-mirror
+else
+UI_PLUGIN_MIRROR_TARGET :=
+endif
+else
+UI_PLUGIN_MIRROR_TARGET :=
+endif
 
 # Downstream cluster via the Rancher API (tofu/rancher/cluster).
 # Your downstream cluster vars (kubernetes_version, machine_pools,
@@ -887,14 +899,14 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster $(REGISTRY_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""

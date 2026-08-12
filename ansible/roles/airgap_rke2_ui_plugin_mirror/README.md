@@ -57,8 +57,11 @@ The repo is served at `/<basename>` because the HTTP server roots at the **paren
 # Standalone (manual / independent use)
 make ui-plugin-mirror ENV=airgap
 
-# As part of the airgap deploy pipeline — set the gate in the job's
-# ANSIBLE_VARIABLES and it is stood up automatically by the registry step:
+# As part of the full airgap pipeline (opt-in via the Makefile flag):
+make all ENV=airgap ENABLE_UI_PLUGIN_MIRROR=yes
+
+# Or via the airgap deploy playbook — set the gate in the job's ANSIBLE_VARIABLES
+# and it is stood up automatically by the registry step:
 make registry ENV=airgap EXTRA_VARS="enable_ui_plugin_mirror=true"
 ```
 
