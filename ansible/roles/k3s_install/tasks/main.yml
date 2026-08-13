@@ -269,6 +269,15 @@
           semodule_rc={{ k3s_selinux_suse_modules_after.rc | default('unavailable') }},
           expected_repo={{ k3s_selinux_suse_expected_repo }}
 
+    # SLE Micro AMIs may pre-create /var/lib/rancher with generic labels; relabel
+    # before K3s starts — safe here because no pods (and no MCS ranges) exist yet.
+    - name: Restore SELinux contexts under /var/lib/rancher
+      ansible.builtin.shell: |
+        [ -d /var/lib/rancher ] || exit 0
+        restorecon -RFv /var/lib/rancher
+      register: k3s_selinux_suse_relabel
+      changed_when: k3s_selinux_suse_relabel.stdout | default('') | length > 0
+
 - name: Generate K3s configuration from template
   template:
     src: k3s-config.yaml.j2
