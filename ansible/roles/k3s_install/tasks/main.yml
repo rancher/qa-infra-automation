@@ -214,6 +214,10 @@
           when: k3s_suse_transactional.stat.exists
           register: k3s_selinux_suse_tu_install
           changed_when: k3s_selinux_suse_tu_install.rc == 0
+          # SLE Micro's own update timer can hold the transactional lock at boot.
+          retries: 5
+          delay: 30
+          until: k3s_selinux_suse_tu_install.rc == 0
 
         - name: Reboot to activate the transactional snapshot
           ansible.builtin.reboot:
