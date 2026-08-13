@@ -26,7 +26,7 @@
 ansible-core==2.21.1
 
 # Used by scripts/generate_inventory.py
-pyyaml==6.0.2
+pyyaml==6.0.3
 
 # Required by kubernetes.core modules (k8s, k8s_info, helm, helm_repository, ...)
 # used across ansible/rancher, ansible/rke2, ansible/k3s, etc.
