@@ -1,5 +1,5 @@
 # renovate: datasource=docker depName=cypress/factory
-FROM cypress/factory:7.3.1@sha256:beb1107f12f2b9a0950d15ee5188f4fe9f049c620960ce3440accacbbc659afa
+FROM cypress/factory:7.4.0@sha256:d0cd27b6e4f82c187739f18dbbe227f69de4636fd126878477e28a9c3bca0151
 
 # Provided automatically by BuildKit; falls back to dpkg on legacy builders.
 ARG TARGETARCH
