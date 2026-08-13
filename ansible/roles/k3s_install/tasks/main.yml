@@ -222,6 +222,9 @@
         - name: Reboot to activate the transactional snapshot
           ansible.builtin.reboot:
             reboot_timeout: 600
+            # sshd accepts logins before /home mounts on SLE Micro boots; wait
+            # for the home dir or ansible's sftp to ~/.ansible/tmp fails.
+            test_command: test -d "$HOME"
           when: k3s_suse_transactional.stat.exists
 
     - name: Refresh installed package facts on SUSE
