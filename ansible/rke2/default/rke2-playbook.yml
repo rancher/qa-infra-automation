@@ -105,7 +105,9 @@
       vars:
         rke2_version: "{{ kubernetes_version }}"
         rke2_channel: "{{ channel | default('stable') }}"
-        rke2_install_method: "{{ install_method | default('online') }}"
+        # install_method carries the INSTALLER method (rpm|tar) for the upstream
+        # script; it is NOT the role's online|airgap network mode.
+        rke2_installer_method: "{{ install_method | default('') }}"
       tags: ['install', 'rke2']
 
 - hosts: all

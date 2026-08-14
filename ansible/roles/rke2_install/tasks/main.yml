@@ -52,6 +52,7 @@
       environment:
         INSTALL_RKE2_VERSION: "{{ rke2_version if rke2_version != '' else omit }}"
         INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
+        INSTALL_RKE2_METHOD: "{{ rke2_installer_method if rke2_installer_method != '' else omit }}"
         INSTALL_RKE2_TYPE: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
       become: true
       when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)

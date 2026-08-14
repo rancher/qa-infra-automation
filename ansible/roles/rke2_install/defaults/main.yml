@@ -6,6 +6,8 @@ rke2_version: ""
 
 # Installation method: online or airgap
 rke2_install_method: online
+# Installer method (rpm|tar) forwarded to the upstream script; empty = script default.
+rke2_installer_method: ""
 
 # RKE2 install script URL (floating redirect, used when rke2_version is empty)
 rke2_install_script_url: https://get.rke2.io
