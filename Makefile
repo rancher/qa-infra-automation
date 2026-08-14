@@ -18,6 +18,18 @@ WORKSPACE     ?= default
 TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
 AUTO_APPROVE  ?= no
+# Opt-in: include the standalone ui-plugin-mirror step in `all`/`setup-from-infra`
+# (airgap only). Default off so ordinary airgap runs are unaffected.
+ENABLE_UI_PLUGIN_MIRROR ?= no
+ifeq ($(ENV),airgap)
+ifeq ($(ENABLE_UI_PLUGIN_MIRROR),yes)
+UI_PLUGIN_MIRROR_TARGET := ui-plugin-mirror
+else
+UI_PLUGIN_MIRROR_TARGET :=
+endif
+else
+UI_PLUGIN_MIRROR_TARGET :=
+endif
 
 # Downstream cluster via the Rancher API (tofu/rancher/cluster).
 # Your downstream cluster vars (kubernetes_version, machine_pools,
@@ -147,6 +159,7 @@ help: ## Show this help message
 	@echo "  downstream-tofu-output   Show downstream cluster tofu outputs"
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
+	@echo "  ui-plugin-mirror   Mirror ui-plugin-charts on the bastion (airgap UI extension installs)"
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
@@ -685,6 +698,12 @@ kubectl-setup: check-inventory ## Setup kubectl access on bastion
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
 
+.PHONY: ui-plugin-mirror
+ui-plugin-mirror: check-inventory ## Mirror ui-plugin-charts on the bastion for airgap UI extension installs (ENV=airgap)
+	@echo "Mirroring ui-plugin-charts on the bastion..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/ui-plugin-mirror-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+
 .PHONY: downstream
 downstream: check-inventory ## Register an existing airgap cluster into Rancher as a downstream (requires ENV=airgap and TARGET_GROUP, e.g. TARGET_GROUP=downstream)
 	@if [ "$(ENV)" != "airgap" ]; then \
@@ -880,14 +899,14 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster $(REGISTRY_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""

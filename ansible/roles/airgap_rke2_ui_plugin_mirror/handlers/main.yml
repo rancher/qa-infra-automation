@@ -1,0 +1,11 @@
+---
+# Handlers for the ui-plugin-charts bastion mirror (smart HTTP via Apache).
+
+- name: Restart apache2
+  ansible.builtin.service:
+    name: apache2
+    state: restarted
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true

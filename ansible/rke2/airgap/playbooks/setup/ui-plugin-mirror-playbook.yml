@@ -1,0 +1,13 @@
+---
+- name: Mirror ui-plugin-charts on the bastion for airgap UI extension installs
+  hosts: bastion
+  become: true
+  gather_facts: true
+  vars:
+    # The standalone playbook's sole purpose is to stand up the mirror, so
+    # force the gate on. Override with EXTRA_VARS="enable_ui_plugin_mirror=false".
+    enable_ui_plugin_mirror: true
+  roles:
+    - role: airgap_rke2_ui_plugin_mirror
+      tags:
+        - ui-plugin-mirror

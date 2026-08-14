@@ -1,0 +1,18 @@
+Listen {{ ui_plugin_mirror_listen }}:{{ ui_plugin_mirror_port }}
+
+<VirtualHost *:{{ ui_plugin_mirror_port }}>
+    ServerName ui-plugin-mirror
+
+    SetEnv GIT_PROJECT_ROOT {{ ui_plugin_mirror_dest | dirname }}
+    SetEnv GIT_HTTP_EXPORT_ALL 1
+
+    ScriptAlias / /usr/lib/git-core/git-http-backend/
+
+    <Directory "/usr/lib/git-core">
+        Options +ExecCGI -MultiViews +SymLinksIfOwnerMatch
+        Require all granted
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/ui-plugin-mirror_error.log
+    CustomLog ${APACHE_LOG_DIR}/ui-plugin-mirror_access.log combined
+</VirtualHost>

@@ -13,6 +13,7 @@ Override these with `make <target> VAR=value`:
 | `PROVIDER` | `aws` | `aws`, `gcp`, `harvester` | Infrastructure provider |
 | `EXTRA_VARS` | (empty) | any | Extra Ansible variables passed with `--extra-vars` |
 | `TARGET_GROUP` | (empty) | `rancher`, `downstream`, any group | Airgap inventory group to target (translates to `--extra-vars target=<group>`) |
+| `ENABLE_UI_PLUGIN_MIRROR` | `no` | `yes`, `no` | Airgap opt-in: include the standalone `ui-plugin-mirror` step in `all`/`setup-from-infra` (stands up the `ui-plugin-charts` HTTP mirror on the bastion). Ignored unless `ENV=airgap` |
 
 **Example:**
 
@@ -84,6 +85,7 @@ with `VAR_FILE=`). See `tofu/scripts/README.md` for the full script reference.
 | `make downstream` | Register an existing airgap cluster into Rancher as a downstream (`ENV=airgap` only; use `TARGET_GROUP=<group>`, e.g. `TARGET_GROUP=downstream`, to name the group) |
 | `make upgrade-cluster` | Upgrade Kubernetes version |
 | `make kubectl-setup` | Set up kubectl on the bastion host (airgap) |
+| `make ui-plugin-mirror` | Mirror `rancher/ui-plugin-charts` on the bastion over HTTP for airgap UI extension installs (`ENV=airgap`) |
 
 ### Utilities
 
@@ -119,6 +121,9 @@ make all DISTRO=k3s
 
 # RKE2 airgap on AWS
 make all ENV=airgap
+
+# RKE2 airgap + stand up the ui-plugin-charts bastion mirror (UI extension installs)
+make all ENV=airgap ENABLE_UI_PLUGIN_MIRROR=yes
 
 # Just the cluster (no Rancher)
 make infra-up && make cluster
