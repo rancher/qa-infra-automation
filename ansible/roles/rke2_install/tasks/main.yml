@@ -6,6 +6,14 @@
   ansible.builtin.debug:
     msg: "Installing RKE2 using {{ rke2_install_method }} method{% if rke2_version != '' %} (version: {{ rke2_version }}){% endif %}"
 
+- name: Validate installer method
+  ansible.builtin.assert:
+    that:
+      - rke2_installer_method | default('') in ['', 'rpm', 'tar']
+    fail_msg: >-
+      rke2_installer_method must be '', 'rpm' or 'tar'
+      (got '{{ rke2_installer_method }}')
+
 - name: Check if RKE2 is already installed
   ansible.builtin.stat:
     path: "{{ rke2_bin_dir }}/rke2"
@@ -124,6 +132,26 @@
       when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_airgap_install_result
       changed_when: rke2_airgap_install_result.rc == 0
+
+# The official script installs RPMs into a new snapshot via transactional-update
+# but does not reboot — the service unit only exists after booting into it.
+- name: Detect a transactional-update host
+  ansible.builtin.stat:
+    path: /usr/sbin/transactional-update
+  register: rke2_transactional
+
+- name: Reboot to activate the transactional snapshot
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+    # sshd accepts logins before /home mounts; check the SSH user's home.
+    test_command: >-
+      test -d "$(getent passwd {{ ansible_user | quote }} | cut -d: -f6)"
+  become: true
+  when:
+    - rke2_transactional.stat.exists
+    - rke2_install_result is defined
+    - rke2_install_result is changed
+    - rke2_installer_method != 'tar'
 
 - name: Enable RKE2 service
   ansible.builtin.systemd:
