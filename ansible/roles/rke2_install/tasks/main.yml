@@ -46,6 +46,13 @@
     - rke2_installed_version.rc is defined
     - rke2_installed_version.rc == 0
 
+# SLE Micro's update timer can grab the transactional lock between our checks
+# and the installer, so lock-acquiring steps need a long retry window there.
+- name: Detect a transactional-update host
+  ansible.builtin.stat:
+    path: /usr/sbin/transactional-update
+  register: rke2_transactional
+
 # Online installation tasks
 - name: Online installation
   when: rke2_install_method == "online"
@@ -78,9 +85,10 @@
       when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_install_result
       changed_when: rke2_install_result.rc == 0
-      # The script curls github releases internally; 5xx there fails the run.
-      retries: 3
-      delay: 20
+      # Transient 5xx from github, plus the transactional-update lock on SLE
+      # Micro (the OS timer can hold it for minutes) — hence the long window.
+      retries: "{{ 20 if rke2_transactional.stat.exists else 3 }}"
+      delay: "{{ 30 if rke2_transactional.stat.exists else 20 }}"
       until: rke2_install_result.rc == 0
 
     - name: Remove install script
@@ -144,13 +152,6 @@
       when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_airgap_install_result
       changed_when: rke2_airgap_install_result.rc == 0
-
-# The official script installs RPMs into a new snapshot via transactional-update
-# but does not reboot — the service unit only exists after booting into it.
-- name: Detect a transactional-update host
-  ansible.builtin.stat:
-    path: /usr/sbin/transactional-update
-  register: rke2_transactional
 
 - name: Reboot to activate the transactional snapshot
   ansible.builtin.reboot:

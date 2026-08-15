@@ -149,7 +149,7 @@
           register: suse_selinux_tu_install
           changed_when: suse_selinux_tu_install.rc == 0
           # SLE Micro's own update timer can hold the transactional lock at boot.
-          retries: 5
+          retries: 20
           delay: 30
           until: suse_selinux_tu_install.rc == 0
 

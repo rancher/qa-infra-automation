@@ -15,6 +15,23 @@
     group: root
   become: true
 
+# An explicit CNI (rke2_cni) wins over a cni set through additional config —
+# otherwise the template would render two cni keys.
+- name: Drop cni from additional config when an explicit CNI is set
+  ansible.builtin.set_fact:
+    rke2_additional_config: >-
+      {{ rke2_additional_config | dict2items |
+         rejectattr('key', 'equalto', 'cni') | list | items2dict }}
+    rke2_cni_overridden: true
+  when:
+    - rke2_cni | default('') | length > 0
+    - "'cni' in (rke2_additional_config | default({}))"
+
+- name: Log CNI precedence
+  ansible.builtin.debug:
+    msg: "Explicit CNI '{{ rke2_cni }}' overrides the cni value from additional config"
+  when: rke2_cni_overridden | default(false)
+
 - name: Generate RKE2 config.yaml
   ansible.builtin.template:
     src: config.yaml.j2

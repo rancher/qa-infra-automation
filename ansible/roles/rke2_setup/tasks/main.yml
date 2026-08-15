@@ -34,8 +34,9 @@
   become: true
   register: zypper_install
   until: zypper_install is succeeded
-  retries: 6
-  delay: 20
+  # The transactional-update lock can be held for minutes by the OS timer.
+  retries: 20
+  delay: 30
 
 - name: Install required packages (RHEL/CentOS)
   ansible.builtin.yum:
