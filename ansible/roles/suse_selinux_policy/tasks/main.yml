@@ -1,0 +1,207 @@
+---
+# Installs and verifies <product>-selinux on SELinux-enabled SUSE hosts,
+# matching the get.<product>.io behavior bypassed by direct binary installs.
+
+- name: Probe SELinux state on SUSE
+  ansible.builtin.command: getenforce
+  register: suse_selinux_getenforce
+  changed_when: false
+  failed_when: false
+  when:
+    - suse_selinux_policy_install | bool
+    - ansible_facts.os_family | default('') == "Suse"
+
+- name: Ensure a valid {{ suse_selinux_product }}-selinux policy on SUSE
+  when:
+    - suse_selinux_policy_install | bool
+    - ansible_facts.os_family | default('') == "Suse"
+    - (suse_selinux_getenforce.stdout | default('')) in ['Enforcing', 'Permissive']
+  block:
+    - name: Read SUSE OS release metadata
+      ansible.builtin.slurp:
+        src: /etc/os-release
+      register: suse_selinux_os_release_file
+
+    - name: Resolve SUSE {{ suse_selinux_product }}-selinux repository
+      ansible.builtin.set_fact:
+        suse_selinux_rpm_channel: >-
+          {{ 'testing' if 'testing' in suse_selinux_channel else
+             'latest' if 'latest' in suse_selinux_channel else 'stable' }}
+        suse_selinux_resolved_rpm_site: >-
+          {{ suse_selinux_testing_rpm_site if 'testing' in suse_selinux_channel else
+             suse_selinux_rpm_site }}
+        suse_selinux_rpm_variant: >-
+          {{ 'slemicro' if
+             ((ansible_facts.distribution | default('') | lower == 'sles' and
+               ansible_facts.distribution_major_version | default('0') | int >= 16) or
+              ((suse_selinux_os_release_file.content | b64decode) is
+               regex('(?m)^(ID|VARIANT_ID)="?(sle-micro|sl-micro|sle-micro-rancher|transactional)"?$')))
+             else 'microos' }}
+
+    - name: Gather installed package facts on SUSE
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Read loaded SELinux modules on SUSE
+      ansible.builtin.command: semodule -l
+      register: suse_selinux_modules
+      changed_when: false
+      failed_when: false
+
+    - name: Check whether the SUSE {{ suse_selinux_product }}-selinux policy is ready
+      ansible.builtin.set_fact:
+        suse_selinux_ready: >-
+          {{ (suse_selinux_product ~ '-selinux') in ansible_facts.packages and
+             (suse_selinux_modules.stdout_lines |
+              select('match', '^' ~ suse_selinux_product ~ '(\s|$)') | list | length > 0) }}
+
+    - name: Install a valid {{ suse_selinux_product }}-selinux policy on SUSE
+      when: not suse_selinux_ready | bool
+      block:
+        # SLE Micro installs land in a new snapshot: zypper/rpm_key against the
+        # running system are wrong there — use transactional-update + reboot.
+        - name: Detect a transactional-update host
+          ansible.builtin.stat:
+            path: /usr/sbin/transactional-update
+          register: suse_selinux_transactional
+
+        - name: Remove an installed but unloaded {{ suse_selinux_product }}-selinux policy
+          community.general.zypper:
+            name: "{{ suse_selinux_product }}-selinux"
+            state: absent
+          when:
+            - (suse_selinux_product ~ '-selinux') in ansible_facts.packages
+            - not suse_selinux_transactional.stat.exists
+
+        - name: Find existing Rancher {{ suse_selinux_product }} common repositories
+          ansible.builtin.find:
+            paths: /etc/zypp/repos.d
+            patterns: "rancher-{{ suse_selinux_product }}-common*.repo"
+            file_type: file
+          register: suse_selinux_repositories
+
+        - name: Remove existing Rancher {{ suse_selinux_product }} common repositories
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ suse_selinux_repositories.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Check the installer-managed repository file
+          ansible.builtin.stat:
+            path: "{{ suse_selinux_installer_repo_file }}"
+          register: suse_selinux_installer_repo
+        # The official installer may have written the same common alias inside
+        # its own repo file — strip that section to avoid duplicate aliases.
+        - name: Drop the common section from the installer-managed repository
+          ansible.builtin.replace:
+            path: "{{ suse_selinux_installer_repo_file }}"
+            regexp: '(?ms)^\[rancher-{{ suse_selinux_product }}-common-[^\]]*\].*?(?=^\[|\Z)'
+            replace: ''
+          when:
+            - suse_selinux_installer_repo_file != ''
+            - suse_selinux_installer_repo.stat.exists | default(false)
+
+        - name: Ensure the SELinux RPM state directory exists
+          ansible.builtin.file:
+            path: /var/lib/rpm-state
+            state: directory
+            mode: "0755"
+          when: not suse_selinux_transactional.stat.exists
+
+        - name: Import the Rancher RPM signing key
+          ansible.builtin.rpm_key:
+            key: "https://{{ suse_selinux_resolved_rpm_site }}/public.key"
+            state: present
+          when: not suse_selinux_transactional.stat.exists
+
+        - name: Configure the Rancher {{ suse_selinux_product }} common repository
+          ansible.builtin.copy:
+            dest: "/etc/zypp/repos.d/rancher-{{ suse_selinux_product }}-common.repo"
+            mode: "0644"
+            content: |
+              [rancher-{{ suse_selinux_product }}-common-{{ suse_selinux_rpm_channel }}]
+              name=Rancher {{ suse_selinux_product | upper }} Common ({{ suse_selinux_rpm_channel }})
+              baseurl=https://{{ suse_selinux_resolved_rpm_site }}/{{ suse_selinux_product }}/{{ suse_selinux_rpm_channel }}/common/{{ suse_selinux_rpm_variant }}/noarch
+              enabled=1
+              gpgcheck=1
+              repo_gpgcheck=0
+              gpgkey=https://{{ suse_selinux_resolved_rpm_site }}/public.key
+
+        - name: Install {{ suse_selinux_product }}-selinux from the Rancher repository
+          community.general.zypper:
+            name: "{{ suse_selinux_product }}-selinux"
+            state: present
+            update_cache: true
+          when: not suse_selinux_transactional.stat.exists
+
+        # rpm-state must exist inside the SAME snapshot the rpm installs into
+        # (the SELinux macro needs it), so it is created within the transaction.
+        - name: Install {{ suse_selinux_product }}-selinux via transactional-update (SLE Micro)
+          ansible.builtin.command:
+            cmd: >-
+              transactional-update --no-selfupdate -d -n run sh -c
+              'mkdir -p /var/lib/rpm-state;
+              rpm -q {{ suse_selinux_product }}-selinux >/dev/null 2>&1 && zypper -n remove {{ suse_selinux_product }}-selinux;
+              zypper -n --gpg-auto-import-keys install {{ suse_selinux_product }}-selinux'
+          when: suse_selinux_transactional.stat.exists
+          register: suse_selinux_tu_install
+          changed_when: suse_selinux_tu_install.rc == 0
+          # SLE Micro's own update timer can hold the transactional lock at boot.
+          retries: 5
+          delay: 30
+          until: suse_selinux_tu_install.rc == 0
+
+        - name: Reboot to activate the transactional snapshot
+          ansible.builtin.reboot:
+            reboot_timeout: 600
+            # sshd accepts logins before /home mounts on SLE Micro boots; check
+            # the SSH user's home explicitly — under become, $HOME is /root.
+            test_command: >-
+              test -d "$(getent passwd {{ ansible_user | quote }} | cut -d: -f6)"
+          when: suse_selinux_transactional.stat.exists
+
+    - name: Refresh installed package facts on SUSE
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Check the installed SUSE {{ suse_selinux_product }}-selinux policy file
+      ansible.builtin.stat:
+        path: "/usr/share/selinux/packages/{{ suse_selinux_product }}.pp"
+      register: suse_selinux_policy_file
+
+    - name: Check loaded SELinux modules after SUSE installation
+      ansible.builtin.command: semodule -l
+      register: suse_selinux_modules_after
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve SUSE {{ suse_selinux_product }}-selinux verification state
+      ansible.builtin.set_fact:
+        suse_selinux_installed: "{{ (suse_selinux_product ~ '-selinux') in ansible_facts.packages }}"
+        suse_selinux_policy_exists: "{{ suse_selinux_policy_file.stat.exists | default(false) }}"
+        suse_selinux_module_loaded: >-
+          {{ suse_selinux_modules_after.stdout_lines | default([]) |
+             select('match', '^' ~ suse_selinux_product ~ '(\s|$)') | list | length > 0 }}
+
+    - name: Verify the SUSE {{ suse_selinux_product }}-selinux policy
+      ansible.builtin.assert:
+        that:
+          - suse_selinux_installed | bool
+          - suse_selinux_policy_exists | bool
+          - suse_selinux_module_loaded | bool
+        fail_msg: >-
+          SUSE {{ suse_selinux_product }}-selinux verification failed:
+          installed={{ suse_selinux_installed }},
+          policy_file_exists={{ suse_selinux_policy_exists }},
+          module_loaded={{ suse_selinux_module_loaded }}
+
+    # AMIs may pre-create /var/lib/rancher with generic labels; fix the types
+    # without -F so existing MCS ranges survive re-runs on live clusters.
+    - name: Restore SELinux contexts under /var/lib/rancher
+      ansible.builtin.shell: |
+        [ -d /var/lib/rancher ] || exit 0
+        restorecon -Rv /var/lib/rancher
+      register: suse_selinux_relabel
+      changed_when: suse_selinux_relabel.stdout | default('') | length > 0

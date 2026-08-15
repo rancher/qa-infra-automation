@@ -1,0 +1,11 @@
+---
+# Product prefix (k3s|rke2); drives package, repo path, policy and module names.
+suse_selinux_product: ""
+# Release channel of the product install (stable|latest|testing|vX.Y...).
+suse_selinux_channel: "stable"
+suse_selinux_rpm_site: "rpm.rancher.io"
+suse_selinux_testing_rpm_site: "rpm-testing.rancher.io"
+# Installer-managed repo file that may already carry the common section
+# (the RKE2 script writes rancher-rke2.repo); empty = nothing to reconcile.
+suse_selinux_installer_repo_file: ""
+suse_selinux_policy_install: true

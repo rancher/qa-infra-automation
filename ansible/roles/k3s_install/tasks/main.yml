@@ -83,200 +83,15 @@
     - k3s_selinux_policy_install.rc is defined
     - k3s_selinux_policy_install.rc != 0
 
-- name: Probe SELinux state on SUSE
-  ansible.builtin.command: getenforce
-  register: k3s_suse_getenforce
-  changed_when: false
-  failed_when: false
-  when:
-    - k3s_install_selinux_policy | default(true) | bool
-    - ansible_facts.os_family | default('') == "Suse"
-
-- name: Ensure a valid k3s-selinux policy on SUSE
-  when:
-    - k3s_install_selinux_policy | default(true) | bool
-    - ansible_facts.os_family | default('') == "Suse"
-    - (k3s_suse_getenforce.stdout | default('')) in ['Enforcing', 'Permissive']
-  block:
-    - name: Read SUSE OS release metadata
-      ansible.builtin.slurp:
-        src: /etc/os-release
-      register: k3s_suse_os_release_file
-
-    - name: Resolve SUSE k3s-selinux repository
-      ansible.builtin.set_fact:
-        k3s_selinux_rpm_channel: >-
-          {{ 'testing' if 'testing' in k3s_channel else
-             'latest' if 'latest' in k3s_channel else 'stable' }}
-        k3s_selinux_resolved_rpm_site: >-
-          {{ k3s_selinux_testing_rpm_site if 'testing' in k3s_channel else
-             k3s_selinux_rpm_site }}
-        k3s_selinux_rpm_variant: >-
-          {{ 'slemicro' if
-             ((ansible_facts.distribution | default('') | lower == 'sles' and
-               ansible_facts.distribution_major_version | default('0') | int >= 16) or
-              (((k3s_suse_os_release_file.content | b64decode) |
-                regex_search('(?m)^(ID|VARIANT_ID)="?(sle-micro|sl-micro|sle-micro-rancher|transactional)"?$'))
-               is not none)) else 'microos' }}
-
-    - name: Gather installed package facts on SUSE
-      ansible.builtin.package_facts:
-        manager: auto
-
-    - name: Read loaded SELinux modules on SUSE
-      ansible.builtin.command: semodule -l
-      register: k3s_selinux_suse_modules
-      changed_when: false
-      failed_when: false
-
-    - name: Check whether the SUSE k3s-selinux policy is ready
-      ansible.builtin.set_fact:
-        k3s_selinux_suse_ready: >-
-          {{ 'k3s-selinux' in ansible_facts.packages and
-             (k3s_selinux_suse_modules.stdout_lines |
-              select('match', '^k3s(?:\\s|$)') | list | length > 0) }}
-
-    - name: Install a valid k3s-selinux policy on SUSE
-      when: not k3s_selinux_suse_ready | bool
-      block:
-        # SLE Micro installs land in a new snapshot: zypper/rpm_key against the
-        # running system are wrong there — use transactional-update + reboot.
-        - name: Detect a transactional-update host
-          ansible.builtin.stat:
-            path: /usr/sbin/transactional-update
-          register: k3s_suse_transactional
-
-        - name: Remove an installed but unloaded k3s-selinux policy
-          community.general.zypper:
-            name: k3s-selinux
-            state: absent
-          when:
-            - "'k3s-selinux' in ansible_facts.packages"
-            - not k3s_suse_transactional.stat.exists
-
-        - name: Find existing Rancher K3s repositories
-          ansible.builtin.find:
-            paths: /etc/zypp/repos.d
-            patterns: "rancher-k3s-common*.repo"
-            file_type: file
-          register: k3s_selinux_suse_repositories
-
-        - name: Remove existing Rancher K3s repositories
-          ansible.builtin.file:
-            path: "{{ item.path }}"
-            state: absent
-          loop: "{{ k3s_selinux_suse_repositories.files }}"
-          loop_control:
-            label: "{{ item.path }}"
-
-        - name: Ensure the SELinux RPM state directory exists
-          ansible.builtin.file:
-            path: /var/lib/rpm-state
-            state: directory
-            mode: "0755"
-          when: not k3s_suse_transactional.stat.exists
-
-        - name: Import the Rancher K3s RPM signing key
-          ansible.builtin.rpm_key:
-            key: "https://{{ k3s_selinux_resolved_rpm_site }}/public.key"
-            state: present
-          when: not k3s_suse_transactional.stat.exists
-
-        - name: Configure the Rancher K3s repository
-          ansible.builtin.copy:
-            dest: /etc/zypp/repos.d/rancher-k3s-common.repo
-            mode: "0644"
-            content: |
-              [rancher-k3s-common-{{ k3s_selinux_rpm_channel }}]
-              name=Rancher K3s Common ({{ k3s_selinux_rpm_channel }})
-              baseurl=https://{{ k3s_selinux_resolved_rpm_site }}/k3s/{{ k3s_selinux_rpm_channel }}/common/{{ k3s_selinux_rpm_variant }}/noarch
-              enabled=1
-              gpgcheck=1
-              repo_gpgcheck=0
-              gpgkey=https://{{ k3s_selinux_resolved_rpm_site }}/public.key
-
-        - name: Install k3s-selinux from the Rancher repository
-          community.general.zypper:
-            name: k3s-selinux
-            state: present
-            update_cache: true
-          when: not k3s_suse_transactional.stat.exists
-
-        # rpm-state must exist inside the SAME snapshot the rpm installs into
-        # (the SELinux macro needs it), so it is created within the transaction.
-        - name: Install k3s-selinux via transactional-update (SLE Micro)
-          ansible.builtin.command:
-            cmd: >-
-              transactional-update --no-selfupdate -d -n run sh -c
-              'mkdir -p /var/lib/rpm-state;
-              rpm -q k3s-selinux >/dev/null 2>&1 && zypper -n remove k3s-selinux;
-              zypper -n --gpg-auto-import-keys install k3s-selinux'
-          when: k3s_suse_transactional.stat.exists
-          register: k3s_selinux_suse_tu_install
-          changed_when: k3s_selinux_suse_tu_install.rc == 0
-          # SLE Micro's own update timer can hold the transactional lock at boot.
-          retries: 5
-          delay: 30
-          until: k3s_selinux_suse_tu_install.rc == 0
-
-        - name: Reboot to activate the transactional snapshot
-          ansible.builtin.reboot:
-            reboot_timeout: 600
-            # sshd accepts logins before /home mounts on SLE Micro boots; check
-            # the SSH user's home explicitly — under become, $HOME is /root.
-            test_command: >-
-              test -d "$(getent passwd {{ ansible_user | quote }} | cut -d: -f6)"
-          when: k3s_suse_transactional.stat.exists
-
-    - name: Refresh installed package facts on SUSE
-      ansible.builtin.package_facts:
-        manager: auto
-
-    - name: Check the installed SUSE k3s-selinux policy file
-      ansible.builtin.stat:
-        path: /usr/share/selinux/packages/k3s.pp
-      register: k3s_selinux_suse_policy
-
-    - name: Check loaded SELinux modules after SUSE installation
-      ansible.builtin.command: semodule -l
-      register: k3s_selinux_suse_modules_after
-      changed_when: false
-      failed_when: false
-
-    - name: Resolve SUSE k3s-selinux verification state
-      ansible.builtin.set_fact:
-        k3s_selinux_suse_installed: "{{ 'k3s-selinux' in ansible_facts.packages }}"
-        k3s_selinux_suse_policy_exists: "{{ k3s_selinux_suse_policy.stat.exists | default(false) }}"
-        k3s_selinux_suse_module_loaded: >-
-          {{ k3s_selinux_suse_modules_after.stdout_lines | default([]) |
-             select('match', '^k3s(?:\\s|$)') | list | length > 0 }}
-        k3s_selinux_suse_expected_repo: >-
-          {{ 'https://' ~ k3s_selinux_resolved_rpm_site ~ '/k3s/' ~
-             k3s_selinux_rpm_channel ~ '/common/' ~
-             k3s_selinux_rpm_variant ~ '/noarch' }}
-
-    - name: Verify the SUSE k3s-selinux policy
-      ansible.builtin.assert:
-        that:
-          - k3s_selinux_suse_installed | bool
-          - k3s_selinux_suse_policy_exists | bool
-          - k3s_selinux_suse_module_loaded | bool
-        fail_msg: >-
-          SUSE k3s-selinux verification failed:
-          installed={{ k3s_selinux_suse_installed }},
-          policy_file_exists={{ k3s_selinux_suse_policy_exists }},
-          module_loaded={{ k3s_selinux_suse_module_loaded }},
-          semodule_rc={{ k3s_selinux_suse_modules_after.rc | default('unavailable') }},
-          expected_repo={{ k3s_selinux_suse_expected_repo }}
-
-    # SLE Micro AMIs may pre-create /var/lib/rancher with generic labels; fix the
-    # types without -F so existing MCS ranges survive re-runs on live clusters.
-    - name: Restore SELinux contexts under /var/lib/rancher
-      ansible.builtin.shell: |
-        [ -d /var/lib/rancher ] || exit 0
-        restorecon -Rv /var/lib/rancher
-      register: k3s_selinux_suse_relabel
-      changed_when: k3s_selinux_suse_relabel.stdout | default('') | length > 0
+- name: Install the K3s SELinux policy on SUSE hosts
+  ansible.builtin.include_role:
+    name: suse_selinux_policy
+  vars:
+    suse_selinux_product: k3s
+    suse_selinux_channel: "{{ k3s_channel }}"
+    suse_selinux_policy_install: "{{ k3s_install_selinux_policy | default(true) }}"
+    suse_selinux_rpm_site: "{{ k3s_selinux_rpm_site }}"
+    suse_selinux_testing_rpm_site: "{{ k3s_selinux_testing_rpm_site }}"
 
 - name: Generate K3s configuration from template
   template:
@@ -354,7 +169,7 @@
         cmd: stat -c %C {{ k3s_bin_dir }}/k3s
       register: _k3s_binary_selinux_ctx
       changed_when: false
-      when: k3s_selinux_suse_module_loaded | default(false) | bool
+      when: suse_selinux_module_loaded | default(false) | bool
 
     - name: Verify the K3s binary SELinux label on SUSE
       ansible.builtin.assert:
@@ -363,7 +178,7 @@
         fail_msg: >-
           K3s binary at {{ k3s_bin_dir }}/k3s is mislabeled:
           {{ _k3s_binary_selinux_ctx.stdout | default('unknown') }}
-      when: k3s_selinux_suse_module_loaded | default(false) | bool
+      when: suse_selinux_module_loaded | default(false) | bool
 
     # curl | sh hides curl failures (empty input exits 0), so download the
     # script with its own retries and execute it as a separate step.
