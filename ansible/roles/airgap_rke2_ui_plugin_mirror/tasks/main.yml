@@ -10,11 +10,15 @@
   when: enable_ui_plugin_mirror | default(false) | bool
   block:
     - name: Ensure required packages are installed (git, apache2)
-      ansible.builtin.package:
+      ansible.builtin.apt:
         name:
           - git
           - apache2
         state: present
+        update_cache: true
+        # The bastion AMI ships an apt cache months old; Ubuntu rotates point
+        # revisions out of -updates, so installing from the stale cache 404s.
+        cache_valid_time: 3600
 
     - name: Compute parent directory of the mirror
       ansible.builtin.set_fact:
