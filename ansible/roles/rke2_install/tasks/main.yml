@@ -165,6 +165,202 @@
     - rke2_install_result is changed
     - rke2_installer_method != 'tar'
 
+- name: Probe SELinux state on SUSE
+  ansible.builtin.command: getenforce
+  register: rke2_suse_getenforce
+  changed_when: false
+  failed_when: false
+  when:
+    - rke2_install_selinux_policy | default(true) | bool
+    - ansible_facts.os_family | default('') == "Suse"
+
+- name: Ensure a valid rke2-selinux policy on SUSE
+  when:
+    - rke2_install_selinux_policy | default(true) | bool
+    - ansible_facts.os_family | default('') == "Suse"
+    - (rke2_suse_getenforce.stdout | default('')) in ['Enforcing', 'Permissive']
+  block:
+    - name: Read SUSE OS release metadata
+      ansible.builtin.slurp:
+        src: /etc/os-release
+      register: rke2_suse_os_release_file
+
+    - name: Resolve SUSE rke2-selinux repository
+      ansible.builtin.set_fact:
+        rke2_selinux_rpm_channel: >-
+          {{ 'testing' if 'testing' in rke2_channel else
+             'latest' if 'latest' in rke2_channel else 'stable' }}
+        rke2_selinux_resolved_rpm_site: >-
+          {{ rke2_selinux_testing_rpm_site if 'testing' in rke2_channel else
+             rke2_selinux_rpm_site }}
+        rke2_selinux_rpm_variant: >-
+          {{ 'slemicro' if
+             ((ansible_facts.distribution | default('') | lower == 'sles' and
+               ansible_facts.distribution_major_version | default('0') | int >= 16) or
+              (((rke2_suse_os_release_file.content | b64decode) |
+                regex_search('(?m)^(ID|VARIANT_ID)="?(sle-micro|sl-micro|sle-micro-rancher|transactional)"?$'))
+               is not none)) else 'microos' }}
+
+    - name: Gather installed package facts on SUSE
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Read loaded SELinux modules on SUSE
+      ansible.builtin.command: semodule -l
+      register: rke2_selinux_suse_modules
+      changed_when: false
+      failed_when: false
+
+    - name: Check whether the SUSE rke2-selinux policy is ready
+      ansible.builtin.set_fact:
+        rke2_selinux_suse_ready: >-
+          {{ 'rke2-selinux' in ansible_facts.packages and
+             (rke2_selinux_suse_modules.stdout_lines |
+              select('match', '^rke2(?:\\s|$)') | list | length > 0) }}
+
+    - name: Install a valid rke2-selinux policy on SUSE
+      when: not rke2_selinux_suse_ready | bool
+      block:
+        # SLE Micro installs land in a new snapshot: zypper/rpm_key against the
+        # running system are wrong there — use transactional-update + reboot.
+        - name: Detect a transactional-update host
+          ansible.builtin.stat:
+            path: /usr/sbin/transactional-update
+          register: rke2_suse_transactional
+
+        - name: Remove an installed but unloaded rke2-selinux policy
+          community.general.zypper:
+            name: rke2-selinux
+            state: absent
+          when:
+            - "'rke2-selinux' in ansible_facts.packages"
+            - not rke2_suse_transactional.stat.exists
+
+        - name: Find existing Rancher RKE2 repositories
+          ansible.builtin.find:
+            paths: /etc/zypp/repos.d
+            patterns: "rancher-rke2-common*.repo"
+            file_type: file
+          register: rke2_selinux_suse_repositories
+
+        - name: Remove existing Rancher RKE2 repositories
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ rke2_selinux_suse_repositories.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Ensure the SELinux RPM state directory exists
+          ansible.builtin.file:
+            path: /var/lib/rpm-state
+            state: directory
+            mode: "0755"
+          when: not rke2_suse_transactional.stat.exists
+
+        - name: Import the Rancher RKE2 RPM signing key
+          ansible.builtin.rpm_key:
+            key: "https://{{ rke2_selinux_resolved_rpm_site }}/public.key"
+            state: present
+          when: not rke2_suse_transactional.stat.exists
+
+        - name: Configure the Rancher RKE2 repository
+          ansible.builtin.copy:
+            dest: /etc/zypp/repos.d/rancher-rke2-common.repo
+            mode: "0644"
+            content: |
+              [rancher-rke2-common-{{ rke2_selinux_rpm_channel }}]
+              name=Rancher RKE2 Common ({{ rke2_selinux_rpm_channel }})
+              baseurl=https://{{ rke2_selinux_resolved_rpm_site }}/rke2/{{ rke2_selinux_rpm_channel }}/common/{{ rke2_selinux_rpm_variant }}/noarch
+              enabled=1
+              gpgcheck=1
+              repo_gpgcheck=0
+              gpgkey=https://{{ rke2_selinux_resolved_rpm_site }}/public.key
+
+        - name: Install rke2-selinux from the Rancher repository
+          community.general.zypper:
+            name: rke2-selinux
+            state: present
+            update_cache: true
+          when: not rke2_suse_transactional.stat.exists
+
+        # rpm-state must exist inside the SAME snapshot the rpm installs into
+        # (the SELinux macro needs it), so it is created within the transaction.
+        - name: Install rke2-selinux via transactional-update (SLE Micro)
+          ansible.builtin.command:
+            cmd: >-
+              transactional-update --no-selfupdate -d -n run sh -c
+              'mkdir -p /var/lib/rpm-state;
+              rpm -q rke2-selinux >/dev/null 2>&1 && zypper -n remove rke2-selinux;
+              zypper -n --gpg-auto-import-keys install rke2-selinux'
+          when: rke2_suse_transactional.stat.exists
+          register: rke2_selinux_suse_tu_install
+          changed_when: rke2_selinux_suse_tu_install.rc == 0
+          # SLE Micro's own update timer can hold the transactional lock at boot.
+          retries: 5
+          delay: 30
+          until: rke2_selinux_suse_tu_install.rc == 0
+
+        - name: Reboot to activate the transactional snapshot
+          ansible.builtin.reboot:
+            reboot_timeout: 600
+            # sshd accepts logins before /home mounts on SLE Micro boots; check
+            # the SSH user's home explicitly — under become, $HOME is /root.
+            test_command: >-
+              test -d "$(getent passwd {{ ansible_user | quote }} | cut -d: -f6)"
+          when: rke2_suse_transactional.stat.exists
+
+    - name: Refresh installed package facts on SUSE
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Check the installed SUSE rke2-selinux policy file
+      ansible.builtin.stat:
+        path: /usr/share/selinux/packages/rke2.pp
+      register: rke2_selinux_suse_policy
+
+    - name: Check loaded SELinux modules after SUSE installation
+      ansible.builtin.command: semodule -l
+      register: rke2_selinux_suse_modules_after
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve SUSE rke2-selinux verification state
+      ansible.builtin.set_fact:
+        rke2_selinux_suse_installed: "{{ 'rke2-selinux' in ansible_facts.packages }}"
+        rke2_selinux_suse_policy_exists: "{{ rke2_selinux_suse_policy.stat.exists | default(false) }}"
+        rke2_selinux_suse_module_loaded: >-
+          {{ rke2_selinux_suse_modules_after.stdout_lines | default([]) |
+             select('match', '^rke2(?:\\s|$)') | list | length > 0 }}
+        rke2_selinux_suse_expected_repo: >-
+          {{ 'https://' ~ rke2_selinux_resolved_rpm_site ~ '/rke2/' ~
+             rke2_selinux_rpm_channel ~ '/common/' ~
+             rke2_selinux_rpm_variant ~ '/noarch' }}
+
+    - name: Verify the SUSE rke2-selinux policy
+      ansible.builtin.assert:
+        that:
+          - rke2_selinux_suse_installed | bool
+          - rke2_selinux_suse_policy_exists | bool
+          - rke2_selinux_suse_module_loaded | bool
+        fail_msg: >-
+          SUSE rke2-selinux verification failed:
+          installed={{ rke2_selinux_suse_installed }},
+          policy_file_exists={{ rke2_selinux_suse_policy_exists }},
+          module_loaded={{ rke2_selinux_suse_module_loaded }},
+          semodule_rc={{ rke2_selinux_suse_modules_after.rc | default('unavailable') }},
+          expected_repo={{ rke2_selinux_suse_expected_repo }}
+
+    # SLE Micro AMIs may pre-create /var/lib/rancher with generic labels; fix the
+    # types without -F so existing MCS ranges survive re-runs on live clusters.
+    - name: Restore SELinux contexts under /var/lib/rancher
+      ansible.builtin.shell: |
+        [ -d /var/lib/rancher ] || exit 0
+        restorecon -Rv /var/lib/rancher
+      register: rke2_selinux_suse_relabel
+      changed_when: rke2_selinux_suse_relabel.stdout | default('') | length > 0
+
+
 - name: Enable RKE2 service
   ansible.builtin.systemd:
     name: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"

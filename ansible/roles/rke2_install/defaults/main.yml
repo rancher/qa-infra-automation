@@ -33,3 +33,9 @@ rke2_airgap_install_script: ""
 # Whether to start and enable RKE2 service after installation
 rke2_start_on_boot: true
 rke2_start_after_install: false  # Let rke2_cluster role handle starting
+
+# Install rke2-selinux before RKE2 starts on SELinux-enabled SUSE hosts,
+# matching the RedHat-family behavior of the official installer.
+rke2_install_selinux_policy: true
+rke2_selinux_rpm_site: "rpm.rancher.io"
+rke2_selinux_testing_rpm_site: "rpm-testing.rancher.io"
