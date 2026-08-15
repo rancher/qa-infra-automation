@@ -6,16 +6,21 @@
   ansible.builtin.debug:
     msg: "Detected OS: {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }} ({{ ansible_facts.os_family }})"
 
-# SLES images often run cloud-init / wicked / auto-refresh holding /var/run/zypp.pid at first boot.
-# Wait for the lock to clear, then retry the install in case it re-locks before we land.
-- name: Wait for zypper lock to clear (SLES/openSUSE)
+# SLES images often run cloud-init / wicked / auto-refresh holding /var/run/zypp.pid
+# at first boot; SLE Micro's update timer holds the transactional-update lock too
+# (the zypper module wraps calls in transactional-update on those hosts).
+- name: Wait for zypper and transactional-update locks to clear (SLES/openSUSE)
   ansible.builtin.shell: |
-    for i in $(seq 1 60); do
-      [ -f /var/run/zypp.pid ] && pid=$(cat /var/run/zypp.pid 2>/dev/null) || pid=""
-      if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then exit 0; fi
+    for i in $(seq 1 120); do
+      busy=""
+      for f in /var/run/zypp.pid /var/run/transactional-update.pid; do
+        [ -f "$f" ] && pid=$(cat "$f" 2>/dev/null) || pid=""
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then busy="$f:$pid"; fi
+      done
+      [ -z "$busy" ] && exit 0
       sleep 5
     done
-    echo "zypper lock held by pid $pid after 300s"; exit 1
+    echo "package lock still held ($busy) after 600s"; exit 1
   args: { executable: /bin/bash }
   changed_when: false
   when: ansible_facts.os_family == "Suse"
