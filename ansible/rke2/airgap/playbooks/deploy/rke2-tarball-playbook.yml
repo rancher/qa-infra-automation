@@ -264,10 +264,36 @@
       ansible.builtin.debug:
         msg: "Installing kubectl version {{ k8s_version }} to match RKE2 {{ rke2_version }}"
 
-    - name: Download kubectl binary with SHA256 verification
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
-      vars:
-        kubectl_version: "{{ k8s_version }}"
+    - name: Install kubectl on bastion (prefer the cluster's bundled binary; airgap-safe)
+      block:
+        - name: Fetch kubectl from first {{ target_group }} node
+          ansible.builtin.fetch:
+            src: /var/lib/rancher/rke2/bin/kubectl
+            dest: /tmp/kubectl-{{ inventory_hostname }}
+            flat: true
+          delegate_to: "{{ groups[target_group][0] }}"
+          become: true
+          register: kubectl_fetched
+
+        - name: Install kubectl binary on bastion
+          ansible.builtin.copy:
+            src: "{{ kubectl_fetched.dest }}"
+            dest: "{{ kubectl_dest | default('/usr/local/bin/kubectl') }}"
+            mode: "0755"
+            owner: root
+            group: root
+
+        - name: Clean up fetched kubectl on the controller
+          ansible.builtin.file:
+            path: "{{ kubectl_fetched.dest }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+      rescue:
+        - name: Fall back to downloading kubectl from dl.k8s.io with SHA256 verification
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
+          vars:
+            kubectl_version: "{{ k8s_version }}"
 
     - name: Verify kubectl installation
       ansible.builtin.command: /usr/local/bin/kubectl version --client
