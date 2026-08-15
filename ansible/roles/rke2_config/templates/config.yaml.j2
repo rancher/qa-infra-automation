@@ -5,6 +5,9 @@
 
 {% if rke2_node_role == 'master' or 'cp' in node_roles or 'etcd' in node_roles %}
 # Server node configuration
+{% if rke2_cni | default('') | length > 0 %}
+cni: {{ rke2_cni }}
+{% endif %}
 {% for key, value in rke2_server_config.items() %}
 {% if value is string %}
 {{ key }}: {{ value }}
