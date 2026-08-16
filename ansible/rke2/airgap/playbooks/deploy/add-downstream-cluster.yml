@@ -255,17 +255,51 @@
         RANCHER_INSECURE: true
 
     - name: Wait for agent deployment to be ready
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: Deployment
-        name: cattle-cluster-agent
-        namespace: cattle-system
-        wait: true
-        wait_timeout: 300
-        kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
-        wait_condition:
-          type: Available
-          status: "True"
+      block:
+        - name: Wait for cattle-cluster-agent Deployment to be Available
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Deployment
+            name: cattle-cluster-agent
+            namespace: cattle-system
+            wait: true
+            # First agent pull can be a cold multi-hundred-MB fetch through the
+            # private registry's pull-through cache; 300s was too tight.
+            wait_timeout: 600
+            kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
+            wait_condition:
+              type: Available
+              status: "True"
+      rescue:
+        - name: Dump cattle-system deployment, pods, and events
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --namespace=cattle-system
+              - get
+              - deploy,pods,events
+              - -o
+              - wide
+          changed_when: false
+          failed_when: false
+
+        - name: Describe the agent pod for image-pull or crash details
+          # Shell is required to pipe the pod name from get into describe.
+          ansible.builtin.shell: |
+            kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml -n cattle-system \
+              get pod -l app=cattle-cluster-agent -o name | head -1 | xargs -r -I{} \
+              kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml -n cattle-system describe {}
+          changed_when: false
+          failed_when: false
+
+        - name: Fail with a pointer to the diagnostics above
+          ansible.builtin.fail:
+            msg: >-
+              cattle-cluster-agent did not become Available within 600s on the
+              downstream cluster. See the deployment/pod/events output above for the
+              cause (typical: agent image pull through the private registry, or the
+              agent cannot reach https://{{ fqdn }} from the downstream nodes).
 
     - name: Check if imported cluster is ready
       ansible.builtin.uri:
