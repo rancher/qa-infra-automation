@@ -6,6 +6,18 @@
   ansible.builtin.debug:
     msg: "Detected OS: {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }} ({{ ansible_facts.os_family }})"
 
+# Legacy parity: test nodes are disposable — stop the OS auto-update timer so
+# it cannot race installs, and clear stale zypper locks like the legacy scripts.
+- name: Disable auto-update timer and stale zypper locks (SLES/openSUSE)
+  ansible.builtin.shell: |
+    systemctl disable --now transactional-update.timer 2>/dev/null || true
+    pkill -9 -x zypper 2>/dev/null || true
+    rm -f /var/run/zypp.pid
+    exit 0
+  changed_when: false
+  when: ansible_facts.os_family == "Suse"
+  become: true
+
 # SLES images often run cloud-init / wicked / auto-refresh holding /var/run/zypp.pid
 # at first boot; SLE Micro's update timer holds the transactional-update lock too
 # (the zypper module wraps calls in transactional-update on those hosts).
