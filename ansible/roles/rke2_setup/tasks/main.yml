@@ -6,15 +6,15 @@
   ansible.builtin.debug:
     msg: "Detected OS: {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }} ({{ ansible_facts.os_family }})"
 
-# Legacy parity: test nodes are disposable — stop the OS auto-update timer so
-# it cannot race installs, and clear stale zypper locks like the legacy scripts.
-- name: Disable auto-update timer and stale zypper locks (SLES/openSUSE)
-  ansible.builtin.shell: |
-    systemctl disable --now transactional-update.timer 2>/dev/null || true
-    pkill -9 -x zypper 2>/dev/null || true
-    rm -f /var/run/zypp.pid
-    exit 0
-  changed_when: false
+# Test nodes are disposable: permanently disable the OS auto-update timer so it
+# cannot race installs (preserved clusters keep it off). In-flight transactions
+# are respected — the wait below and the install retries handle those.
+- name: Disable the auto-update timer (SLES/openSUSE)
+  ansible.builtin.systemd_service:
+    name: transactional-update.timer
+    enabled: false
+    state: stopped
+  failed_when: false
   when: ansible_facts.os_family == "Suse"
   become: true
 

@@ -58,13 +58,14 @@
     - name: Install a valid {{ suse_selinux_product }}-selinux policy on SUSE
       when: not suse_selinux_ready | bool
       block:
-        # Legacy parity: stop the OS auto-update timer so it cannot race the
-        # policy install (in-flight transactions are waited on by the retries).
+        # Permanently disable the OS auto-update timer so it cannot race the
+        # policy install; in-flight transactions are handled by the retries.
         - name: Disable the auto-update timer
-          ansible.builtin.shell: |
-            systemctl disable --now transactional-update.timer 2>/dev/null || true
-            exit 0
-          changed_when: false
+          ansible.builtin.systemd_service:
+            name: transactional-update.timer
+            enabled: false
+            state: stopped
+          failed_when: false
 
         # SLE Micro installs land in a new snapshot: zypper/rpm_key against the
         # running system are wrong there — use transactional-update + reboot.
