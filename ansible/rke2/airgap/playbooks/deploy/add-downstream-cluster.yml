@@ -257,19 +257,21 @@
     - name: Wait for agent deployment to be ready
       block:
         - name: Wait for cattle-cluster-agent Deployment to be Available
-          kubernetes.core.k8s_info:
-            api_version: v1
-            kind: Deployment
-            name: cattle-cluster-agent
-            namespace: cattle-system
-            wait: true
-            # First agent pull can be a cold multi-hundred-MB fetch through the
-            # private registry's pull-through cache; 300s was too tight.
-            wait_timeout: 600
-            kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
-            wait_condition:
-              type: Available
-              status: "True"
+          # kubectl, not k8s_info: the apt python-kubernetes client sets no
+          # per-request timeout, so a stalled connection to the downstream
+          # apiserver wedges the module forever (wait_timeout only applies
+          # between polls). kubectl bounds every request via --request-timeout.
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - --namespace=cattle-system
+              - rollout
+              - status
+              - deployment/cattle-cluster-agent
+              - --timeout=600s
+          changed_when: false
       rescue:
         - name: Dump cattle-system deployment, pods, and events
           ansible.builtin.command:
