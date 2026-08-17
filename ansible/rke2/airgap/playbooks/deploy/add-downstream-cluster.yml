@@ -211,6 +211,53 @@
         regexp: "https://127\\.0\\.0\\.1:6443"
         replace: 'https://{{ hostvars[groups[downstream][0]]["ansible_host"] }}:6443'
 
+
+    # Airgap UI extension support: inject the bastion's ui-plugin-charts mirror
+    # URL into cattle-config.yaml so the NeuVector suite creates the
+    # rancher-ui-plugins ClusterRepo from the mirror instead of github.com
+    # (unreachable from the airgap cluster). Mirrors the URL published by the
+    # airgap_rke2_ui_plugin_mirror role.
+    - name: Compute ui-plugin-charts mirror URL
+      when: enable_ui_plugin_mirror | default(false) | bool
+      ansible.builtin.set_fact:
+        downstream_ui_plugin_mirror_url: >-
+          http://{{ ansible_default_ipv4.address | default(inventory_hostname) }}:{{ ui_plugin_mirror_port | default(8080) }}/{{ (ui_plugin_mirror_dest | default('/srv/git/ui-plugin-charts.git')) | basename }}
+
+    - name: Inject ui-plugin-charts mirror URL into cattle config
+      when:
+        - enable_ui_plugin_mirror | default(false) | bool
+        - rancher_cattle_config_file | default('') | length > 0
+      delegate_to: localhost
+      become: false
+      block:
+        - name: Read existing cattle config (mirror URL)
+          ansible.builtin.slurp:
+            src: "{{ rancher_cattle_config_file }}"
+          register: mirror_cattle_config_content
+
+        - name: Parse cattle config (mirror URL)
+          ansible.builtin.set_fact:
+            mirror_cattle_config: "{{ mirror_cattle_config_content.content | b64decode | from_yaml }}"
+
+        - name: Merge mirror URL into neuvectorTest
+          ansible.builtin.set_fact:
+            mirror_cattle_config_updated: >-
+              {{ mirror_cattle_config | combine({
+                'neuvectorTest': (mirror_cattle_config.neuvectorTest | default({})) | combine({
+                  'uiPluginChartsURL': downstream_ui_plugin_mirror_url
+                })
+              }, recursive=True) }}
+
+        - name: Write updated cattle config (mirror URL)
+          ansible.builtin.copy:
+            content: "{{ mirror_cattle_config_updated | to_nice_yaml(indent=2) }}"
+            dest: "{{ rancher_cattle_config_file }}"
+            mode: '0644'
+
+        - name: Display mirror URL injection
+          ansible.builtin.debug:
+            msg: "Injected {{ downstream_ui_plugin_mirror_url }} into {{ rancher_cattle_config_file }} as neuvectorTest.uiPluginChartsURL"
+
     - name: Check if python3-pip is already installed
       ansible.builtin.command: python3 -m pip --version
       register: pip_check
