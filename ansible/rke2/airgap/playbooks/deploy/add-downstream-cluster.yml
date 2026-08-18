@@ -251,7 +251,8 @@
             mirror_cattle_config_updated: >-
               {{ mirror_cattle_config | combine({
                 'neuvectorTest': (mirror_cattle_config.neuvectorTest | default({})) | combine({
-                  'uiPluginChartsURL': downstream_ui_plugin_mirror_url
+                  'uiPluginChartsURL': downstream_ui_plugin_mirror_url,
+                  'uiPluginChartsBranch': ui_plugin_mirror_branch | default('main')
                 })
               }, recursive=True) }}
 
@@ -263,7 +264,7 @@
 
         - name: Display mirror URL injection
           ansible.builtin.debug:
-            msg: "Injected {{ downstream_ui_plugin_mirror_url }} into {{ rancher_cattle_config_file }} as neuvectorTest.uiPluginChartsURL"
+            msg: "Injected {{ downstream_ui_plugin_mirror_url }} (branch {{ ui_plugin_mirror_branch | default('main') }}) into {{ rancher_cattle_config_file }} as neuvectorTest.uiPluginChartsURL/uiPluginChartsBranch"
 
     - name: Check if python3-pip is already installed
       ansible.builtin.command: python3 -m pip --version

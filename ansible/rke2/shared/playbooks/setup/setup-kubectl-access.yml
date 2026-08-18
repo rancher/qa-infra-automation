@@ -41,9 +41,23 @@
           become: false
       rescue:
         - name: Fall back to downloading kubectl from dl.k8s.io with SHA256 verification
+          # Opt-in: get_url's timeout does not bound DNS resolution, so this
+          # path can stall indefinitely in airgap — the failure mode the
+          # bundled binary above exists to avoid. Enable only where egress
+          # and DNS are known-good.
+          when: kubectl_dl_fallback | default(false) | bool
           ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
           vars:
             kubectl_version: "{{ k8s_version }}"
+
+        - name: Fail with the original kubectl install error
+          when: not (kubectl_dl_fallback | default(false) | bool)
+          ansible.builtin.fail:
+            msg: >-
+              Failed to install kubectl from the first {{ target_group }} node and
+              the dl.k8s.io fallback is disabled (set kubectl_dl_fallback=true to
+              enable it; note it is unbounded when DNS stalls). Original error:
+              {{ ansible_failed_result.msg | default('unknown') }}
 
     - name: Verify kubectl installation
       ansible.builtin.command: kubectl version --client
