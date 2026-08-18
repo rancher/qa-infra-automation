@@ -52,6 +52,7 @@ Each role can be executed independently using Ansible tags, enabling selective e
 - `rke2_version` (from `kubernetes_version`, default: `""` — installs latest stable)
 - `rke2_channel` (from `channel`, default: `stable`)
 - `rke2_install_method` (default: `online`; options: `online`, `airgap`)
+- `rke2_installer_method` (default: `''` — auto; options: `rpm`, `tar`; set via `install_method: rpm|tar`)
 - `rke2_airgap_tarball` (required for airgap, path to RKE2 tarball on remote host)
 - `rke2_airgap_images_tarball` (optional, path to RKE2 images tarball)
 - `rke2_airgap_install_script` (required for airgap, path to install script on remote host)
@@ -163,7 +164,7 @@ cni: 'calico'                           # Used by: rke2_config (CNI plugin: cali
 
 # Optional Variables
 channel: 'stable'                       # Used by: rke2_install (RKE2 channel: stable, latest, testing)
-install_method: 'online'               # Used by: rke2_install (installation method: online, airgap)
+install_method: 'online'               # Used by: rke2_install (online, airgap; or rpm, tar to force the online installer method)
 
 # Advanced Configuration (Optional)
 # server_flags: '--disable=traefik'    # Used by: rke2_config (additional server flags)

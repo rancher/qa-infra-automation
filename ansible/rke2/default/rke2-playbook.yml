@@ -86,6 +86,10 @@
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   roles:
     - role: rke2_config
+      vars:
+        # Explicit cni wins over a cni set through rke2_additional_config;
+        # empty keeps the RKE2 default (no cni key rendered).
+        rke2_cni: "{{ cni | default('') }}"
       tags: ['config', 'rke2']
 
 - hosts: all
@@ -101,9 +105,16 @@
       vars:
         rke2_version: "{{ kubernetes_version }}"
         rke2_channel: "{{ channel | default('stable') }}"
-        # install_method carries the INSTALLER method (rpm|tar) for the upstream
-        # script; it is NOT the role's online|airgap network mode.
-        rke2_installer_method: "{{ install_method | default('') }}"
+        # install_method accepts both contracts: online|airgap picks the role's
+        # network mode; rpm|tar picks the upstream installer method (online).
+        rke2_install_method: >-
+          {{ install_method
+             if install_method | default('') in ['online', 'airgap']
+             else 'online' }}
+        rke2_installer_method: >-
+          {{ install_method
+             if install_method | default('') in ['rpm', 'tar']
+             else '' }}
       tags: ['install', 'rke2']
 
 - hosts: all

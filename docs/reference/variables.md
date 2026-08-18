@@ -10,7 +10,7 @@ All configurable variables across playbooks and roles. Variables are set in `var
 | `cni` | Yes | — | CNI plugin: `calico`, `canal`, or `cilium` |
 | `kubeconfig_file` | No | `./kubeconfig.yaml` | Local path to save the kubeconfig |
 | `channel` | No | `stable` | RKE2 release channel: `stable`, `latest`, `testing` |
-| `install_method` | No | `online` | Installation method: `online` or `airgap` |
+| `install_method` | No | `online` | Installation: `online`/`airgap` (network mode) or `rpm`/`tar` (online, forces installer method) |
 | `server_flags` | No | — | Extra YAML config for server nodes (written to `/etc/rancher/rke2/config.yaml`) |
 | `worker_flags` | No | — | Extra YAML config for agent nodes |
 | `node_token_file` | No | `/tmp/node_token.txt` | Temp file for cluster join token |
