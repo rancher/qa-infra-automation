@@ -9,6 +9,19 @@
 - name: Mirror ui-plugin-charts on the bastion
   when: enable_ui_plugin_mirror | default(false) | bool
   block:
+    # The Apache wiring below is Debian-specific (apt, a2enconf/conf-available,
+    # /usr/lib/git-core/git-http-backend, ${APACHE_LOG_DIR}). Fail fast with a
+    # clear message on other families instead of an opaque apt error; SLES
+    # support is a follow-up (see README).
+    - name: Require a Debian-family bastion
+      ansible.builtin.assert:
+        that: ansible_facts['os_family'] == 'Debian'
+        fail_msg: >-
+          airgap_rke2_ui_plugin_mirror currently requires an Ubuntu/Debian
+          bastion (the Apache layout and git-http-backend path are
+          Debian-specific). See the role README; SLES support is planned as a
+          follow-up.
+
     - name: Ensure required packages are installed (git, apache2)
       ansible.builtin.apt:
         name:

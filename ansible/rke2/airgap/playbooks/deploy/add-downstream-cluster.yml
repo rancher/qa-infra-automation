@@ -217,11 +217,18 @@
     # rancher-ui-plugins ClusterRepo from the mirror instead of github.com
     # (unreachable from the airgap cluster). Mirrors the URL published by the
     # airgap_rke2_ui_plugin_mirror role.
+    - name: Resolve mirror host (honor ui_plugin_mirror_host when pinned)
+      # Same resolution as the airgap_rke2_ui_plugin_mirror role: pinned host
+      # when set (DNS name / other interface / cross-VPC), else the bastion's
+      # primary private IPv4.
+      when: enable_ui_plugin_mirror | default(false) | bool
+      ansible.builtin.set_fact:
+        downstream_ui_plugin_mirror_host: "{{ (ui_plugin_mirror_host | default('') | trim | length > 0) | ternary(ui_plugin_mirror_host, ansible_default_ipv4.address | default(inventory_hostname)) }}"
+
     - name: Compute ui-plugin-charts mirror URL
       when: enable_ui_plugin_mirror | default(false) | bool
       ansible.builtin.set_fact:
-        downstream_ui_plugin_mirror_url: >-
-          http://{{ ansible_default_ipv4.address | default(inventory_hostname) }}:{{ ui_plugin_mirror_port | default(8080) }}/{{ (ui_plugin_mirror_dest | default('/srv/git/ui-plugin-charts.git')) | basename }}
+        downstream_ui_plugin_mirror_url: "http://{{ downstream_ui_plugin_mirror_host }}:{{ ui_plugin_mirror_port | default(8080) }}/{{ (ui_plugin_mirror_dest | default('/srv/git/ui-plugin-charts.git')) | basename }}"
 
     - name: Inject ui-plugin-charts mirror URL into cattle config
       when:
@@ -325,6 +332,7 @@
             argv:
               - kubectl
               - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
               - --namespace=cattle-system
               - get
               - deploy,pods,events
@@ -336,9 +344,9 @@
         - name: Describe the agent pod for image-pull or crash details
           # Shell is required to pipe the pod name from get into describe.
           ansible.builtin.shell: |
-            kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml -n cattle-system \
+            kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s -n cattle-system \
               get pod -l app=cattle-cluster-agent -o name | head -1 | xargs -r -I{} \
-              kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml -n cattle-system describe {}
+              kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s -n cattle-system describe {}
           changed_when: false
           failed_when: false
 

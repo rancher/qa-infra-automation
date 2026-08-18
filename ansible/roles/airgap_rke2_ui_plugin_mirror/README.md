@@ -4,6 +4,11 @@ Mirrors [`rancher/ui-plugin-charts`](https://github.com/rancher/ui-plugin-charts
 airgap **bastion** host and serves it over HTTP, so an airgapped Rancher server can install
 UI extensions (NeuVector first) with **no outbound `github.com` egress**.
 
+> **Requirements:** an Ubuntu/Debian bastion. The Apache wiring (package
+> install, `a2enconf`/`conf-available` layout, `/usr/lib/git-core/git-http-backend`
+> path, `${APACHE_LOG_DIR}`) is Debian-family specific; the role fails fast with
+> a clear message on other families. SLES support is planned as a follow-up.
+
 ## Why
 
 NeuVector's UI extension is installed via a **git-based** `ClusterRepo`
