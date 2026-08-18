@@ -264,50 +264,10 @@
       ansible.builtin.debug:
         msg: "Installing kubectl version {{ k8s_version }} to match RKE2 {{ rke2_version }}"
 
-    - name: Install kubectl on bastion (prefer the cluster's bundled binary; airgap-safe)
-      block:
-        - name: Fetch kubectl from first {{ target_group }} node
-          ansible.builtin.fetch:
-            src: /var/lib/rancher/rke2/bin/kubectl
-            dest: /tmp/kubectl-{{ inventory_hostname }}
-            flat: true
-          delegate_to: "{{ groups[target_group][0] }}"
-          become: true
-          register: kubectl_fetched
-
-        - name: Install kubectl binary on bastion
-          ansible.builtin.copy:
-            src: "{{ kubectl_fetched.dest }}"
-            dest: "{{ kubectl_dest | default('/usr/local/bin/kubectl') }}"
-            mode: "0755"
-            owner: root
-            group: root
-
-        - name: Clean up fetched kubectl on the controller
-          ansible.builtin.file:
-            path: "{{ kubectl_fetched.dest }}"
-            state: absent
-          delegate_to: localhost
-          become: false
-      rescue:
-        - name: Fall back to downloading kubectl from dl.k8s.io with SHA256 verification
-          # Opt-in: get_url's timeout does not bound DNS resolution, so this
-          # path can stall indefinitely in airgap — the failure mode the
-          # bundled binary above exists to avoid. Enable only where egress
-          # and DNS are known-good.
-          when: kubectl_dl_fallback | default(false) | bool
-          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
-          vars:
-            kubectl_version: "{{ k8s_version }}"
-
-        - name: Fail with the original kubectl install error
-          when: not (kubectl_dl_fallback | default(false) | bool)
-          ansible.builtin.fail:
-            msg: >-
-              Failed to install kubectl from the first {{ target_group }} node and
-              the dl.k8s.io fallback is disabled (set kubectl_dl_fallback=true to
-              enable it; note it is unbounded when DNS stalls). Original error:
-              {{ ansible_failed_result.msg | default('unknown') }}
+    - name: Install kubectl on bastion from the cluster's bundled binary (airgap-safe)
+      # Shared task: fetch /var/lib/rancher/rke2/bin/kubectl from the first
+      # cluster node (airgap-safe), with an opt-in dl.k8s.io fallback.
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/install-kubectl-from-cluster.yml"
 
     - name: Verify kubectl installation
       ansible.builtin.command: /usr/local/bin/kubectl version --client
