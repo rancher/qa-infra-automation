@@ -15,6 +15,36 @@
     group: root
   become: true
 
+# Extra-vars outrank set_fact, so precedence is resolved into NEW internal
+# vars instead of mutating rke2_additional_config/rke2_cni in place.
+- name: Resolve effective CNI and additional config
+  ansible.builtin.set_fact:
+    # Historical contract: any rke2_cni other than the calico default wins;
+    # otherwise a cni inside additional config (rendered last on main) beats
+    # one inside rke2_server_config, which beats the calico default itself.
+    _rke2_effective_cni: >-
+      {{ (rke2_cni | default(''))
+         if ((rke2_cni | default('')) not in ['', 'calico'])
+         else (((rke2_additional_config | default({})).cni | default('')) or
+               ((rke2_server_config | default({})).cni | default('')) or
+               (rke2_cni | default(''))) }}
+    # cni is carried exclusively by _rke2_effective_cni: strip it from both
+    # source dicts so the template can never render a duplicate key.
+    _rke2_effective_additional_config: >-
+      {{ rke2_additional_config | default({}) | dict2items |
+         rejectattr('key', 'equalto', 'cni') | list | items2dict }}
+    _rke2_effective_server_config: >-
+      {{ rke2_server_config | default({}) | dict2items |
+         rejectattr('key', 'equalto', 'cni') | list | items2dict }}
+
+- name: Log CNI precedence
+  ansible.builtin.debug:
+    msg: >-
+      Effective CNI '{{ _rke2_effective_cni }}'
+      (rke2_cni='{{ rke2_cni | default('') }}', additional-config
+      cni='{{ (rke2_additional_config | default({})).cni | default('') }}')
+  when: "'cni' in (rke2_additional_config | default({}))"
+
 - name: Generate RKE2 config.yaml
   ansible.builtin.template:
     src: config.yaml.j2

@@ -6,25 +6,60 @@
   ansible.builtin.debug:
     msg: "Installing RKE2 using {{ rke2_install_method }} method{% if rke2_version != '' %} (version: {{ rke2_version }}){% endif %}"
 
+- name: Validate install method
+  ansible.builtin.assert:
+    that:
+      - rke2_install_method | default('online') in ['online', 'airgap']
+    fail_msg: >-
+      rke2_install_method must be 'online' or 'airgap'
+      (got '{{ rke2_install_method }}')
+
+- name: Validate installer method
+  ansible.builtin.assert:
+    that:
+      - rke2_installer_method | default('') in ['', 'rpm', 'tar']
+    fail_msg: >-
+      rke2_installer_method must be '', 'rpm' or 'tar'
+      (got '{{ rke2_installer_method }}')
+
+# RPM installs land in /usr/bin, tarball in rke2_bin_dir or /opt/rke2/bin —
+# probing a single path makes re-runs reinstall (and reboot) needlessly.
 - name: Check if RKE2 is already installed
   ansible.builtin.stat:
-    path: "{{ rke2_bin_dir }}/rke2"
-  register: rke2_binary
+    path: "{{ item }}"
+  loop:
+    - /usr/bin/rke2
+    - "{{ rke2_bin_dir }}/rke2"
+    - /opt/rke2/bin/rke2
+  register: rke2_binary_candidates
+
+- name: Resolve the installed RKE2 binary path
+  ansible.builtin.set_fact:
+    rke2_existing_binary: >-
+      {{ rke2_binary_candidates.results | selectattr('stat.exists') |
+         map(attribute='item') | list | first | default('') }}
 
 - name: Get installed RKE2 version
-  ansible.builtin.command: "{{ rke2_bin_dir }}/rke2 --version"
+  ansible.builtin.command: "{{ rke2_existing_binary }} --version"
   register: rke2_installed_version
   changed_when: false
   failed_when: false
-  when: rke2_binary.stat.exists
+  when: rke2_existing_binary != ''
 
 - name: Display installed version
   ansible.builtin.debug:
     msg: "RKE2 already installed: {{ rke2_installed_version.stdout_lines[0] }}"
   when:
-    - rke2_binary.stat.exists
+    - rke2_existing_binary != ''
     - rke2_installed_version.rc is defined
     - rke2_installed_version.rc == 0
+
+# SLE Micro's update timer can grab the transactional lock between our checks
+# and the installer, so lock-acquiring steps need a long retry window there.
+- name: Detect a transactional-update host
+  ansible.builtin.stat:
+    path: /usr/sbin/transactional-update
+  register: rke2_transactional
 
 # Online installation tasks
 - name: Online installation
@@ -40,7 +75,11 @@
         dest: /tmp/rke2-install.sh
         mode: '0755'
       become: true
-      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      register: _rke2_script_download
+      retries: 3
+      delay: 15
+      until: _rke2_script_download is succeeded
 
     - name: Run RKE2 install script
       ansible.builtin.command:
@@ -48,11 +87,17 @@
       environment:
         INSTALL_RKE2_VERSION: "{{ rke2_version if rke2_version != '' else omit }}"
         INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
+        INSTALL_RKE2_METHOD: "{{ rke2_installer_method if rke2_installer_method != '' else omit }}"
         INSTALL_RKE2_TYPE: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
       become: true
-      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_install_result
       changed_when: rke2_install_result.rc == 0
+      # Transient 5xx from github, plus the transactional-update lock on SLE
+      # Micro (the OS timer can hold it for minutes) — hence the long window.
+      retries: "{{ 20 if rke2_transactional.stat.exists else 3 }}"
+      delay: "{{ 30 if rke2_transactional.stat.exists else 20 }}"
+      until: rke2_install_result.rc == 0
 
     - name: Remove install script
       ansible.builtin.file:
@@ -86,7 +131,7 @@
         dest: /usr/local
         remote_src: true
       become: true
-      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
 
     - name: Copy RKE2 images tarball
       ansible.builtin.copy:
@@ -104,7 +149,7 @@
         mode: '0755'
         remote_src: true
       become: true
-      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
 
     - name: Run RKE2 airgap install script
       ansible.builtin.command:
@@ -112,9 +157,33 @@
       environment:
         INSTALL_RKE2_TYPE: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
       become: true
-      when: not rke2_binary.stat.exists or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
+      when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_airgap_install_result
       changed_when: rke2_airgap_install_result.rc == 0
+
+- name: Reboot to activate the transactional snapshot
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+    # sshd accepts logins before /home mounts; check the SSH user's home.
+    test_command: >-
+      test -d "$(getent passwd {{ ansible_user | quote }} | cut -d: -f6)"
+  become: true
+  when:
+    - rke2_transactional.stat.exists
+    - rke2_install_result is defined
+    - rke2_install_result is changed
+    - rke2_installer_method != 'tar'
+
+- name: Install the RKE2 SELinux policy on SUSE hosts
+  ansible.builtin.include_role:
+    name: suse_selinux_policy
+  vars:
+    suse_selinux_product: rke2
+    suse_selinux_channel: "{{ rke2_channel }}"
+    suse_selinux_policy_install: "{{ rke2_install_selinux_policy | default(true) }}"
+    suse_selinux_rpm_site: "{{ rke2_selinux_rpm_site }}"
+    suse_selinux_testing_rpm_site: "{{ rke2_selinux_testing_rpm_site }}"
+    suse_selinux_installer_repo_file: /etc/zypp/repos.d/rancher-rke2.repo
 
 - name: Enable RKE2 service
   ansible.builtin.systemd:

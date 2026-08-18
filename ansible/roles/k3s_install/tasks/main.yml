@@ -83,6 +83,16 @@
     - k3s_selinux_policy_install.rc is defined
     - k3s_selinux_policy_install.rc != 0
 
+- name: Install the K3s SELinux policy on SUSE hosts
+  ansible.builtin.include_role:
+    name: suse_selinux_policy
+  vars:
+    suse_selinux_product: k3s
+    suse_selinux_channel: "{{ k3s_channel }}"
+    suse_selinux_policy_install: "{{ k3s_install_selinux_policy | default(true) }}"
+    suse_selinux_rpm_site: "{{ k3s_selinux_rpm_site }}"
+    suse_selinux_testing_rpm_site: "{{ k3s_selinux_testing_rpm_site }}"
+
 - name: Generate K3s configuration from template
   template:
     src: k3s-config.yaml.j2
@@ -145,6 +155,43 @@
         - crictl
         - ctr
 
+    # The later install script runs with INSTALL_K3S_SKIP_DOWNLOAD=true, which
+    # also skips upstream's chcon — a pre-placed binary would stay mislabeled.
+    - name: Restore the SELinux context on the K3s binary
+      ansible.builtin.shell: |
+        command -v restorecon >/dev/null 2>&1 || exit 0
+        restorecon -v {{ k3s_bin_dir }}/k3s
+      register: _k3s_binary_relabel
+      changed_when: _k3s_binary_relabel.stdout | default('') | length > 0
+
+    - name: Read the K3s binary SELinux context on SUSE
+      ansible.builtin.command:
+        cmd: stat -c %C {{ k3s_bin_dir }}/k3s
+      register: _k3s_binary_selinux_ctx
+      changed_when: false
+      when: suse_selinux_module_loaded | default(false) | bool
+
+    - name: Verify the K3s binary SELinux label on SUSE
+      ansible.builtin.assert:
+        that:
+          - "'container_runtime_exec_t' in _k3s_binary_selinux_ctx.stdout"
+        fail_msg: >-
+          K3s binary at {{ k3s_bin_dir }}/k3s is mislabeled:
+          {{ _k3s_binary_selinux_ctx.stdout | default('unknown') }}
+      when: suse_selinux_module_loaded | default(false) | bool
+
+    # curl | sh hides curl failures (empty input exits 0), so download the
+    # script with its own retries and execute it as a separate step.
+    - name: Download the K3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: '0755'
+      register: _k3s_script_download
+      retries: 3
+      delay: 15
+      until: _k3s_script_download is succeeded
+
     - name: Register K3s systemd service via install script
       ansible.builtin.shell: |
         export INSTALL_K3S_SKIP_DOWNLOAD="true"
@@ -153,9 +200,14 @@
         {% if k3s_node_type == 'agent' %}
         export INSTALL_K3S_EXEC="agent"
         {% endif %}
-        curl -sfL https://get.k3s.io | sh -
+        sh /tmp/k3s-install.sh
       register: _k3s_service_register
       changed_when: true
+
+    - name: Remove the K3s install script
+      ansible.builtin.file:
+        path: /tmp/k3s-install.sh
+        state: absent
 
 # --- Commit hash: fallback to install script (requires GITHUB_TOKEN) ---
 - name: Check if k3s binary already exists
@@ -175,6 +227,16 @@
           Commit hash installs use the upstream install script (requires GITHUB_TOKEN).
           For full checksum verification, prefer a version tag instead.
 
+    - name: Download the K3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: '0755'
+      register: _k3s_commit_script_download
+      retries: 3
+      delay: 15
+      until: _k3s_commit_script_download is succeeded
+
     - name: Install K3s via install script
       ansible.builtin.shell: |
         export INSTALL_K3S_COMMIT="{{ kubernetes_version }}"
@@ -182,9 +244,17 @@
         {% if k3s_node_type == 'agent' %}
         export INSTALL_K3S_EXEC="agent"
         {% endif %}
-        curl -sfL https://get.k3s.io | sh -
+        sh /tmp/k3s-install.sh
       register: _k3s_commit_install_result
       changed_when: true
+      retries: 3
+      delay: 20
+      until: _k3s_commit_install_result.rc == 0
+
+    - name: Remove the K3s install script
+      ansible.builtin.file:
+        path: /tmp/k3s-install.sh
+        state: absent
 
 # --- Systemd service ---
 - name: Enable and start K3s service

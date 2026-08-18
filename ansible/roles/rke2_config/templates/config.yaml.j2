@@ -3,9 +3,15 @@
 # Node: {{ inventory_hostname }}
 # Role: {{ rke2_node_role }}
 
+{% set _cni = _rke2_effective_cni | default(rke2_cni | default('')) %}
+{% set _acfg = _rke2_effective_additional_config | default(rke2_additional_config | default({})) %}
+{% set _scfg = _rke2_effective_server_config | default(rke2_server_config | default({})) %}
 {% if rke2_node_role == 'master' or 'cp' in node_roles or 'etcd' in node_roles %}
 # Server node configuration
-{% for key, value in rke2_server_config.items() %}
+{% if _cni | length > 0 %}
+cni: {{ _cni }}
+{% endif %}
+{% for key, value in _scfg.items() %}
 {% if value is string %}
 {{ key }}: {{ value }}
 {% elif value is sequence and value is not string %}
@@ -68,10 +74,10 @@ disable:
 {% endfor %}
 {% endif %}
 
-{% if rke2_additional_config | length > 0 %}
+{% if _acfg | length > 0 %}
 # Additional configuration.
 # External datastore: pass `datastore-endpoint: <conn-string>` here (or via
 # server flags). RKE2 switches to kine automatically when it's set — no explicit
 # etcd-disable is needed. The connection string's case/colons are preserved.
-{{ rke2_additional_config | to_nice_yaml(indent=2, sort_keys=false) | trim }}
+{{ _acfg | to_nice_yaml(indent=2, sort_keys=false) | trim }}
 {% endif %}
