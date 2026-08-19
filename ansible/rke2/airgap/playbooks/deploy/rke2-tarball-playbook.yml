@@ -264,13 +264,13 @@
       ansible.builtin.debug:
         msg: "Installing kubectl version {{ k8s_version }} to match RKE2 {{ rke2_version }}"
 
-    - name: Download kubectl binary with SHA256 verification
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/download-kubectl.yml"
-      vars:
-        kubectl_version: "{{ k8s_version }}"
+    - name: Install kubectl on bastion from the cluster's bundled binary (airgap-safe)
+      # Shared task: fetch /var/lib/rancher/rke2/bin/kubectl from the first
+      # cluster node (airgap-safe), with an opt-in dl.k8s.io fallback.
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/install-kubectl-from-cluster.yml"
 
     - name: Verify kubectl installation
-      ansible.builtin.command: /usr/local/bin/kubectl version --client
+      ansible.builtin.command: "{{ kubectl_dest | default('/usr/local/bin/kubectl') }} version --client"
       register: kubectl_version
       changed_when: false
 
@@ -338,7 +338,7 @@
       become: false
 
     - name: Test kubectl connectivity
-      ansible.builtin.command: kubectl get nodes -o wide
+      ansible.builtin.command: "{{ kubectl_dest | default('/usr/local/bin/kubectl') }} get nodes -o wide"
       # Using command instead of shell because we need to set environment variables
       environment:
         KUBECONFIG: /root/.kube/config

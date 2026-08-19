@@ -141,3 +141,19 @@ rancher_system_default_registry: "<PRIVATE_REGISTRY_URL>"
 #   extraEnv:
 #     - name: CATTLE_UI_OFFLINE_PREFERRED
 #       value: true
+
+# Airgap UI extension support (opt-in)
+# Mirrors rancher/ui-plugin-charts on the bastion (via the airgap_rke2_ui_plugin_mirror
+# role) so airgapped Rancher can install UI extensions (e.g. NeuVector) with no
+# github.com egress. When enabled, add-downstream-cluster.yml injects the mirror URL
+# into the controller's cattle-config.yaml (rancher_cattle_config_file).
+# Mirror address overrides (ui_plugin_mirror_host/_port/_dest/_branch) are documented
+# in the role README: ansible/roles/airgap_rke2_ui_plugin_mirror/README.md
+enable_ui_plugin_mirror: false
+
+# kubectl setup (bastion)
+# kubectl is installed by copying the binary bundled with RKE2 on the first cluster
+# node (airgap-safe). The dl.k8s.io download fallback is opt-in because get_url's
+# timeout does not bound DNS resolution, so it can stall indefinitely in airgap.
+# Enable only where egress and DNS are known-good.
+kubectl_dl_fallback: false

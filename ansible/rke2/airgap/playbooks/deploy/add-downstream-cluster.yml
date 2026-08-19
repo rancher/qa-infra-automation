@@ -211,6 +211,61 @@
         regexp: "https://127\\.0\\.0\\.1:6443"
         replace: 'https://{{ hostvars[groups[downstream][0]]["ansible_host"] }}:6443'
 
+
+    # Airgap UI extension support: inject the bastion's ui-plugin-charts mirror
+    # URL into cattle-config.yaml so the NeuVector suite creates the
+    # rancher-ui-plugins ClusterRepo from the mirror instead of github.com
+    # (unreachable from the airgap cluster). Mirrors the URL published by the
+    # airgap_rke2_ui_plugin_mirror role.
+    - name: Resolve mirror host (honor ui_plugin_mirror_host when pinned)
+      # Same resolution as the airgap_rke2_ui_plugin_mirror role: pinned host
+      # when set (DNS name / other interface / cross-VPC), else the bastion's
+      # primary private IPv4.
+      when: enable_ui_plugin_mirror | default(false) | bool
+      ansible.builtin.set_fact:
+        downstream_ui_plugin_mirror_host: "{{ (ui_plugin_mirror_host | default('') | trim | length > 0) | ternary(ui_plugin_mirror_host, ansible_default_ipv4.address | default(inventory_hostname)) }}"
+
+    - name: Compute ui-plugin-charts mirror URL
+      when: enable_ui_plugin_mirror | default(false) | bool
+      ansible.builtin.set_fact:
+        downstream_ui_plugin_mirror_url: "http://{{ downstream_ui_plugin_mirror_host }}:{{ ui_plugin_mirror_port | default(8080) }}/{{ (ui_plugin_mirror_dest | default('/srv/git/ui-plugin-charts.git')) | basename }}"
+
+    - name: Inject ui-plugin-charts mirror URL into cattle config
+      when:
+        - enable_ui_plugin_mirror | default(false) | bool
+        - rancher_cattle_config_file | default('') | length > 0
+      delegate_to: localhost
+      become: false
+      block:
+        - name: Read existing cattle config (mirror URL)
+          ansible.builtin.slurp:
+            src: "{{ rancher_cattle_config_file }}"
+          register: mirror_cattle_config_content
+
+        - name: Parse cattle config (mirror URL)
+          ansible.builtin.set_fact:
+            mirror_cattle_config: "{{ mirror_cattle_config_content.content | b64decode | from_yaml }}"
+
+        - name: Merge mirror URL into neuvectorTest
+          ansible.builtin.set_fact:
+            mirror_cattle_config_updated: >-
+              {{ mirror_cattle_config | combine({
+                'neuvectorTest': (mirror_cattle_config.neuvectorTest | default({})) | combine({
+                  'uiPluginChartsURL': downstream_ui_plugin_mirror_url,
+                  'uiPluginChartsBranch': ui_plugin_mirror_branch | default('main')
+                })
+              }, recursive=True) }}
+
+        - name: Write updated cattle config (mirror URL)
+          ansible.builtin.copy:
+            content: "{{ mirror_cattle_config_updated | to_nice_yaml(indent=2) }}"
+            dest: "{{ rancher_cattle_config_file }}"
+            mode: '0644'
+
+        - name: Display mirror URL injection
+          ansible.builtin.debug:
+            msg: "Injected {{ downstream_ui_plugin_mirror_url }} (branch {{ ui_plugin_mirror_branch | default('main') }}) into {{ rancher_cattle_config_file }} as neuvectorTest.uiPluginChartsURL/uiPluginChartsBranch"
+
     - name: Check if python3-pip is already installed
       ansible.builtin.command: python3 -m pip --version
       register: pip_check
@@ -255,17 +310,54 @@
         RANCHER_INSECURE: true
 
     - name: Wait for agent deployment to be ready
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: Deployment
-        name: cattle-cluster-agent
-        namespace: cattle-system
-        wait: true
-        wait_timeout: 300
-        kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
-        wait_condition:
-          type: Available
-          status: "True"
+      block:
+        - name: Wait for cattle-cluster-agent Deployment to be Available
+          # kubectl, not k8s_info: the apt python-kubernetes client sets no
+          # per-request timeout, so a stalled connection to the downstream
+          # apiserver wedges the module forever (wait_timeout only applies
+          # between polls). kubectl bounds every request via --request-timeout.
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - --namespace=cattle-system
+              - rollout
+              - status
+              - deployment/cattle-cluster-agent
+              - --timeout=600s
+          changed_when: false
+      rescue:
+        - name: Dump cattle-system deployment, pods, and events
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - --namespace=cattle-system
+              - get
+              - deploy,pods,events
+              - -o
+              - wide
+          changed_when: false
+          failed_when: false
+
+        - name: Describe the agent pod for image-pull or crash details
+          # Shell is required to pipe the pod name from get into describe.
+          ansible.builtin.shell: |
+            kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s -n cattle-system \
+              get pod -l app=cattle-cluster-agent -o name | head -1 | xargs -r -I{} \
+              kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s -n cattle-system describe {}
+          changed_when: false
+          failed_when: false
+
+        - name: Fail with a pointer to the diagnostics above
+          ansible.builtin.fail:
+            msg: >-
+              cattle-cluster-agent did not become Available within 600s on the
+              downstream cluster. See the deployment/pod/events output above for the
+              cause (typical: agent image pull through the private registry, or the
+              agent cannot reach https://{{ fqdn }} from the downstream nodes).
 
     - name: Check if imported cluster is ready
       ansible.builtin.uri:

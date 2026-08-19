@@ -111,6 +111,9 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/add-downstream-clus
 | `cluster_name` / `DOWNSTREAM_CLUSTER_NAME` | No | Fully custom cluster name; if unset a random `<prefix>-<suffix>` is generated |
 | `downstream_cluster_name_prefix` / `DOWNSTREAM_CLUSTER_NAME_PREFIX` | No | Prefix for the generated name (default `ansible-created`) |
 | `downstream_private_registry_url` | No | Private registry written to the imported cluster's `importedConfig.privateRegistryUrl` (default empty) |
+| `enable_ui_plugin_mirror` | No | Opt-in gate for the UI-extension mirror wiring: injects the bastion's ui-plugin-charts mirror URL into `cattle-config.yaml` (`neuvectorTest.uiPluginChartsURL`/`uiPluginChartsBranch`) so the NeuVector suite's `rancher-ui-plugins` ClusterRepo points at the mirror instead of github.com (default `false`; see the [`airgap_rke2_ui_plugin_mirror` role](../../../../roles/airgap_rke2_ui_plugin_mirror/)) |
+| `ui_plugin_mirror_host` / `ui_plugin_mirror_port` / `ui_plugin_mirror_dest` / `ui_plugin_mirror_branch` | No | Mirror address and branch published to the cluster — resolved exactly like the `airgap_rke2_ui_plugin_mirror` role (defaults: bastion private IPv4 / `8080` / `/srv/git/ui-plugin-charts.git` / `main`) |
+| `rancher_cattle_config_file` | No | Controller-local `cattle-config.yaml` to inject the mirror URL into; the injection block is skipped when unset |
 
 The import manifest's agent image is derived from Rancher's `system-default-registry`
 setting (set at Rancher deploy time via `rancher_system_default_registry`), so the
