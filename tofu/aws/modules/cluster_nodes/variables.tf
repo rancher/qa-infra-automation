@@ -27,16 +27,6 @@ variable "nodes" {
     instance_type = optional(string) # Override global instance_type for this node group
   }))
 }
-variable "bastion_node" {
-  description = "The index of the node that will be used as a bastion host for SSH access to the cluster nodes."
-  type        = number
-  default     = 0
-}
-variable "aws_bastion_subnet" {
-  description = "The subnet ID where the bastion host will be created. This subnet should have routes in place for internet access."
-  type        = string
-  default     = ""
-}
 variable "airgap_setup" {
   type        = bool
   default     = false
