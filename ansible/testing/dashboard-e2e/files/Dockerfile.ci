@@ -1,12 +1,24 @@
 # renovate: datasource=docker depName=cypress/factory
 FROM cypress/factory:7.3.1@sha256:beb1107f12f2b9a0950d15ee5188f4fe9f049c620960ce3440accacbbc659afa
 
+# Provided automatically by BuildKit; falls back to dpkg on legacy builders.
+ARG TARGETARCH
+
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes
 ENV KUBECTL_VERSION=v1.33.10
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes digestVersion=v1.33.10
-ENV KUBECTL_SUM=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db524e3f5
+ENV KUBECTL_SUM_AMD64=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db524e3f5
+ENV KUBECTL_SUM_ARM64=e9494229893ccddc81065275c0e5f21167518ab939f0e95aecb649fb4b41c112
 
-RUN wget -q "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -O /tmp/kubectl && \
+# Install kubectl for the build architecture. amd64 (Linux CI) and arm64
+# (Apple Silicon) are both verified against their pinned checksum.
+RUN ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
+    case "${ARCH}" in \
+      amd64) KUBECTL_SUM="${KUBECTL_SUM_AMD64}" ;; \
+      arm64) KUBECTL_SUM="${KUBECTL_SUM_ARM64}" ;; \
+      *) echo "Unsupported arch: ${ARCH}" >&2; exit 1 ;; \
+    esac && \
+    wget -q "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -O /tmp/kubectl && \
     echo "${KUBECTL_SUM}  /tmp/kubectl" | sha256sum -c - && \
     mv /tmp/kubectl /bin/kubectl && \
     chmod +x /bin/kubectl
@@ -18,6 +30,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /root/.kube
 
+# `COPY --chmod` is a BuildKit-only flag and the Jenkins agents build with the
+# legacy builder, so the mode is set in a separate step that both builders
+# accept. Mode 644 is required because local runs start the container with
+# `--user`, and that non-root user has to read the kubeconfig.
 COPY imported_config /root/.kube/config
+RUN chmod 644 /root/.kube/config
 
 ENTRYPOINT ["bash", "cypress/jenkins/cypress.sh"]

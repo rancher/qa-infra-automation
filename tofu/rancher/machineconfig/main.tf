@@ -16,7 +16,11 @@ resource "rancher2_machine_config_v2" "rancher2_machine_config_v2" {
       subnet_id                  = try(var.node_config.aws_subnet, null)
       vpc_id                     = try(var.node_config.aws_vpc, null)
       zone                       = try(var.node_config.aws_availability_zone, null)
-      access_key                 = try(var.node_config.access_key, null)
+      access_key                 = try(var.node_config.aws_access_key, null)
+      # When security groups are given as IDs (sg-*), docker-machine must be told
+      # to use them as-is rather than treating them as names of groups to create.
+      # Auto-detect sg-* IDs unless aws_security_group_readonly is set explicitly.
+      security_group_readonly    = try(var.node_config.aws_security_group_readonly, anytrue([for sg in try(var.node_config.aws_security_group, []) : can(regex("^sg-[0-9a-f]+$", tostring(sg)))]) ? true : null)
       block_duration_minutes     = try(var.node_config.aws_block_duration_minutes, null)
       device_name                = try(var.node_config.aws_device_name, null)
       encrypt_ebs_volume         = try(var.node_config.aws_encrypt_ebs_volume, null)
@@ -33,8 +37,7 @@ resource "rancher2_machine_config_v2" "rancher2_machine_config_v2" {
       request_spot_instance      = try(var.node_config.aws_request_spot_instance, null)
       retries                    = try(var.node_config.aws_retries, null)
       root_size                  = try(var.node_config.aws_volume_size, null)
-      secret_key                 = try(var.node_config.secret_key, null)
-      security_group_readonly    = try(var.node_config.aws_security_group_readonly, null)
+      secret_key                 = try(var.node_config.aws_secret_key, null)
       session_token              = try(var.node_config.aws_session_token, null)
       spot_price                 = try(var.node_config.aws_spot_price, null)
       ssh_user                   = try(var.node_config.aws_ssh_user, null)

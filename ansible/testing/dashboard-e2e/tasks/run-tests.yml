@@ -12,8 +12,15 @@
 
 - name: Run Cypress tests in Docker
   ansible.builtin.shell: |
+    USER_ARG=""
+    HOST_UID="{{ lookup('env', 'HOST_UID') }}"
+    HOST_GID="{{ lookup('env', 'HOST_GID') }}"
+    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
+      USER_ARG="--user $HOST_UID:$HOST_GID -e HOME=/tmp -e KUBECONFIG=/root/.kube/config"
+    fi
     docker run --rm -t --init \
       --name "cypress-{{ executor_tag }}-{{ prefix | default('local') | lower | regex_replace('[^a-z0-9_.-]', '-') }}-{{ rancher_host | default('dashboard-e2e') | lower | regex_replace('[^a-z0-9_.-]', '-') }}" \
+      $USER_ARG \
       --shm-size=2g \
       --env-file "{{ workspace_dir }}/.env" \
       -e NODE_PATH="" \
@@ -31,8 +38,29 @@
 
 - name: Fix dashboard permissions after Docker run
   ansible.builtin.shell: |
-    chown -R "$(id -u):$(id -g)" "{{ dashboard_dir }}" 2>/dev/null || true
+    HOST_UID="{{ lookup('env', 'HOST_UID') }}"
+    HOST_GID="{{ lookup('env', 'HOST_GID') }}"
+    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
+      chown -R "$HOST_UID:$HOST_GID" "{{ dashboard_dir }}" 2>/dev/null || true
+    fi
   changed_when: false
+
+# cypress.sh points ./node_modules at cypress/node_modules. Left behind in a
+# local checkout it would send a later root `yarn install` into the test tree.
+# Only the link this run created is removed, never a developer's own directory.
+- name: Stat the node_modules link in the checkout
+  ansible.builtin.stat:
+    path: "{{ dashboard_dir }}/node_modules"
+    follow: false
+  register: _node_modules_link
+
+- name: Remove the node_modules link the run created
+  ansible.builtin.file:
+    path: "{{ dashboard_dir }}/node_modules"
+    state: absent
+  when:
+    - _node_modules_link.stat.islnk | default(false)
+    - _node_modules_link.stat.lnk_target | default('') == 'cypress/node_modules'
 
 - name: Set test exit code
   ansible.builtin.set_fact:
@@ -62,5 +90,5 @@
     msg: >-
       Cypress tests {{ 'PASSED' if cypress_exit_code | int == 0 else 'FAILED' }}
       (exit code: {{ cypress_exit_code }}){{
-      ' — results.xml copied to ' + workspace_dir + '/results.xml'
+      '. results.xml copied to ' + workspace_dir + '/results.xml'
       if results_xml.stat.exists else '' }}

@@ -1,0 +1,152 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  vars:
+    # clusterctl version to download and verify. Override in vars.yaml if needed.
+    clusterctl_version: "{{ clusterctl_version | default('1.13.3') }}"
+
+  tasks:
+    - name: Check if kubeconfig file exists
+      stat:
+        path: "{{ kubeconfig_file }}"
+      register: kubeconfig_file_stat
+
+    - name: Fail if kubeconfig file does not exist
+      fail:
+        msg: "kubeconfig file '{{ kubeconfig_file }}' does not exist."
+      when: not kubeconfig_file_stat.stat.exists
+
+    - name: Download clusterctl binary with SHA256 verification
+      ansible.builtin.include_role:
+        name: download_verify
+      vars:
+        dv_artifact_url: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v{{ clusterctl_version }}/clusterctl-linux-amd64"
+        dv_dest: "{{ playbook_dir }}/clusterctl"
+        dv_checksum_format: "github_release"
+        dv_github_repo: "kubernetes-sigs/cluster-api"
+        dv_github_release_asset_name: "clusterctl-linux-amd64"
+        dv_github_release_tag: "v{{ clusterctl_version }}"
+        dv_mode: "0755"
+
+    - name: Run clusterctl init with rancher-fleet addon
+      ansible.builtin.command:
+        cmd: ./clusterctl init --addon rancher-fleet
+        chdir: "{{ playbook_dir }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig_file }}"
+
+    - name: Fetch cert-manager manifest
+      ansible.builtin.uri:
+        url: https://github.com/jetstack/cert-manager/releases/download/v1.21.0/cert-manager.yaml
+        method: GET
+        return_content: true
+        body_format: raw
+      register: cert_manager_manifest
+
+    - name: Apply cert-manager
+      kubernetes.core.k8s:
+        state: present
+        resource_definition: "{{ cert_manager_manifest.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Add capi-operator helm repo
+      kubernetes.core.helm_repository:
+        name: capi-operator
+        repo_url: https://kubernetes-sigs.github.io/cluster-api-operator
+
+    - name: Install capi-operator with rancher-fleet addon enabled
+      kubernetes.core.helm:
+        name: capi-operator
+        chart_ref: capi-operator/cluster-api-operator
+        release_namespace: capi-operator-system
+        create_namespace: true
+        update_repo_cache: true
+        kubeconfig: "{{ kubeconfig_file }}"
+        values:
+          addon:
+            rancher-fleet:
+              enabled: true
+      register: capi_operator_install_result
+      failed_when:
+        - capi_operator_install_result is failed
+        - "'Internal error occurred: failed calling webhook' not in (capi_operator_install_result.msg | default('') ~ capi_operator_install_result.stderr | default(''))"
+
+    - name: Verify capi-operator deployment is available
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: capi-operator-cluster-api-operator
+        namespace: capi-operator-system
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 30
+      register: capi_operator_deployment
+      failed_when: capi_operator_deployment.resources | length == 0
+
+    - name: Apply CAPI providers
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        src: "{{ capiconfig_file }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+      register: capi_provider_result
+      retries: 5
+      delay: 30
+      until: capi_provider_result is succeeded
+    
+    - name: Fetch clusterclass
+      ansible.builtin.uri:
+        url: "{{ clusterclass_url }}"
+        method: GET
+        return_content: true
+        body_format: raw
+      register: clusterclass
+      when: clusterclass_url is defined and clusterclass_url != ''
+
+    - name: Apply cluster class
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        resource_definition: "{{ clusterclass.content }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+      when: clusterclass_url is defined and clusterclass_url != ''
+
+    - name: Apply CAPI cluster
+      kubernetes.core.k8s:
+        namespace: default
+        state: present
+        src: "{{ capiclusterconfig_file }}"
+        kubeconfig: "{{ kubeconfig_file }}"
+
+    - name: Wait for CAPI MachineDeployment matching capi_pool_name to be created
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: MachineDeployment
+        namespace: default
+        kubeconfig: "{{ kubeconfig_file }}"
+      register: capi_machinedeployments
+      until: capi_machinedeployments.resources | selectattr('metadata.name', 'search', capi_pool_name) | list | length > 0
+      retries: 5
+      delay: 60
+
+    - name: Resolve MachineDeployment name matching capi_pool_name
+      ansible.builtin.set_fact:
+        capi_machinedeployment_name: "{{ capi_machinedeployments.resources | selectattr('metadata.name', 'search', capi_pool_name) | map(attribute='metadata.name') | first }}"
+
+    - name: Wait for CAPI cluster be ready
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: MachineDeployment
+        name: "{{ capi_machinedeployment_name }}"
+        namespace: default
+        kubeconfig: "{{ kubeconfig_file }}"
+        wait: yes
+        wait_timeout: 1800
+        wait_condition:
+          type: Ready 

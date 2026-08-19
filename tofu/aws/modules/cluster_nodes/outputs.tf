@@ -3,8 +3,8 @@ output "fqdn" {
 }
 
 output "kube_api_host" {
-  value       = aws_instance.node[local.node_names[local.first_etcd_index].name].public_ip
-  description = "The public IP address of the first etcd node, or 'No etcd node found'."
+  value       = aws_instance.node[local.node_names[local.first_master_index].name].public_ip
+  description = "Public IP of the cluster-init / master node: first etcd-having node if any, otherwise first cp-having node (cp-only + external datastore topology)."
 }
 
 output "instance_public_ips" {
@@ -17,7 +17,7 @@ output "cluster_nodes_json" {
   value = jsonencode({
     type = "cluster_nodes"
     metadata = {
-      kube_api_host   = aws_instance.node[local.node_names[local.first_etcd_index].name].public_ip
+      kube_api_host   = aws_instance.node[local.node_names[local.first_master_index].name].public_ip
       fqdn            = aws_route53_record.aws_route53.fqdn
       ssh_user        = var.aws_ssh_user
       ssh_private_key = var.private_ssh_key
@@ -31,4 +31,9 @@ output "cluster_nodes_json" {
       }
     ]
   })
+}
+
+output "ssh_security_group_id" {
+  description = "ID of the dedicated SSH security group created when create_ssh_security_group=true; null otherwise."
+  value       = var.create_ssh_security_group ? aws_security_group.ssh[0].id : null
 }

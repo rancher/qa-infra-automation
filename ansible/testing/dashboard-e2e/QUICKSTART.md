@@ -12,7 +12,7 @@ Choose your scenario below and follow the numbered steps.
 
 You need:
 
-- **Docker** or **Podman** — installed and running
+- **Docker** or **Podman**, installed and running
 - **git**
 - **Windows only:** a
   [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) terminal
@@ -22,7 +22,7 @@ admin password ready.
 
 ---
 
-## 1 — Clone the repo
+## 1. Clone the repo
 
 ```bash
 git clone https://github.com/rancher/qa-infra-automation.git
@@ -31,7 +31,7 @@ cd qa-infra-automation/ansible/testing/dashboard-e2e
 
 ---
 
-## 2 — Create your config
+## 2. Create your config
 
 ```bash
 cp vars.yaml.example vars.yaml
@@ -39,7 +39,7 @@ $EDITOR vars.yaml
 ```
 
 <details>
-<summary><strong>Minimal config — existing Rancher</strong></summary>
+<summary><strong>Minimal config for an existing Rancher</strong></summary>
 
 Use this when you already have a Rancher instance running:
 
@@ -61,7 +61,7 @@ dashboard_branch: "master"
 </details>
 
 <details>
-<summary><strong>Minimal config — provision new infra</strong></summary>
+<summary><strong>Minimal config to provision new infra</strong></summary>
 
 Use this to spin up a fresh AWS cluster with Rancher:
 
@@ -89,7 +89,7 @@ See [`vars.yaml.example`](vars.yaml.example) for all available options. Chart-re
 
 ---
 
-## 3 — Run
+## 3. Run
 
 ### Existing Rancher
 
@@ -112,7 +112,7 @@ See [`vars.yaml.example`](vars.yaml.example) for all available options. Chart-re
 
 ---
 
-## 4 — Iterate
+## 4. Iterate
 
 The most common workflow is to set up once, then re-run tests as you
 tweak `cypress_tags` or dashboard code.
@@ -142,7 +142,7 @@ tweak `cypress_tags` or dashboard code.
 
 ---
 
-## 5 — Check results
+## 5. Check results
 
 ```bash
 # JUnit XML
@@ -185,8 +185,8 @@ open dashboard/cypress/reports/html/index.html 2>/dev/null || \
 
 | Tags | What they test |
 | --- | --- |
-| `@generic` | Login, home, about — no clusters needed |
-| `@adminUser` | Admin workflows — needs default Rancher setup |
+| `@generic` | Login, home, about. No clusters needed |
+| `@adminUser` | Admin workflows. Needs default Rancher setup |
 | `@standardUser` | Standard-user permissions |
 | `@adminUser+@vai` | Multiple tags combined |
 | `@bypass+@generic` | Skip auto-filtering (`+-@prime`/`+-@noVai`) |

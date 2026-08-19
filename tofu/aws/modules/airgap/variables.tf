@@ -2,19 +2,35 @@ variable "user_id" {}
 variable "ssh_key" {}
 variable "ssh_key_name" {}
 variable "aws_access_key" {
-  type       = string
-  sensitive  = true
+  type      = string
+  sensitive = true
+  default   = null // Optional. When null the AWS provider uses its standard credential chain (~/.aws/credentials, AWS_PROFILE, env vars, SSO, IMDS).
 }
 variable "aws_secret_key" {
   type      = string
   sensitive = true
+  default   = null // Optional. See aws_access_key.
 }
 variable "aws_region" {}
 variable "aws_ami" {}
 variable "aws_hostname_prefix" {}
 variable "aws_route53_zone" {}
 variable "aws_ssh_user" {}
-variable "aws_security_group" { type = list(string) }
+variable "aws_security_group" {
+  description = "Optional list of pre-existing security group IDs to attach to every instance. When empty (the default) the module provisions its own security group inside var.aws_vpc."
+  type        = list(string)
+  default     = []
+}
+variable "allowed_ssh_cidr" {
+  description = "CIDR blocks allowed to reach SSH (tcp/22) on the bastion and cluster nodes. Defaults to anywhere; restrict to your operator/admin ranges in production."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+variable "allowed_lb_cidr" {
+  description = "CIDR blocks allowed to reach the NLB listener ports (80, 443, 6443, 9345) that the load balancers forward on to the rancher nodes. Defaults to anywhere for an internet-facing deployment."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
 variable "aws_vpc" {}
 variable "aws_volume_size" {}
 variable "aws_subnet_airgap" {

@@ -54,7 +54,7 @@
   register: tofu_rancher_result
   async: 600
   poll: 0
-  changed_when: true
+  changed_when: false
   when: job_type == 'recurring'
 
 - name: Write importcluster tfvars
@@ -89,7 +89,7 @@
   register: tofu_import_result
   async: 600
   poll: 0
-  changed_when: true
+  changed_when: false
   when: create_initial_clusters | bool
 
 - name: Write customnode tfvars
@@ -124,7 +124,7 @@
   register: tofu_custom_result
   async: 600
   poll: 0
-  changed_when: true
+  changed_when: false
   when: create_initial_clusters | bool
 
 - name: Wait for rancher-server tofu apply
@@ -135,6 +135,9 @@
   retries: 60
   delay: 10
   failed_when: tofu_rancher_status.finished | bool and tofu_rancher_status.rc | default(1) != 0
+  changed_when: >-
+    tofu_rancher_status.finished | bool and
+    '0 added, 0 changed, 0 destroyed' not in (tofu_rancher_status.stdout | default(''))
   when: job_type == 'recurring'
 
 - name: Wait for importcluster tofu apply
@@ -145,6 +148,9 @@
   retries: 60
   delay: 10
   failed_when: tofu_import_status.finished | bool and tofu_import_status.rc | default(1) != 0
+  changed_when: >-
+    tofu_import_status.finished | bool and
+    '0 added, 0 changed, 0 destroyed' not in (tofu_import_status.stdout | default(''))
   when: create_initial_clusters | bool
 
 - name: Wait for customnode tofu apply
@@ -155,6 +161,9 @@
   retries: 60
   delay: 10
   failed_when: tofu_custom_status.finished | bool and tofu_custom_status.rc | default(1) != 0
+  changed_when: >-
+    tofu_custom_status.finished | bool and
+    '0 added, 0 changed, 0 destroyed' not in (tofu_custom_status.stdout | default(''))
   when: create_initial_clusters | bool
 
 - name: Dump rancher-server cluster_nodes_json
@@ -188,6 +197,26 @@
 - name: Set rancher_host from cluster_nodes_json metadata
   ansible.builtin.set_fact:
     rancher_host: "{{ (rancher_nodes_slurp.content | b64decode | from_json).metadata.fqdn }}"
+  when: job_type == 'recurring'
+
+# Our security group rules only allow traffic between nodes when it uses
+# their internal (private) IP addresses, not their public ones. New nodes
+# were trying to join the cluster using the master's public IP, which the
+# security group blocks, so we use its private IP instead.
+- name: Extract rancher-server master private IP
+  ansible.builtin.set_fact:
+    rancher_master_private_ip: >-
+      {{ ((rancher_nodes_slurp.content | b64decode | from_json).nodes
+          | selectattr('name', 'equalto', 'master')
+          | map(attribute='private_ip') | list | first) }}
+  when: job_type == 'recurring'
+
+- name: Point rancher-server node joins at the master's private IP
+  ansible.builtin.lineinfile:
+    path: "{{ outputs_dir }}/inventory-rancher-server/inventory.yml"
+    regexp: '^(\s*kube_api_host:\s*).*$'
+    line: '\g<1>{{ rancher_master_private_ip }}'
+    backrefs: true
   when: job_type == 'recurring'
 
 - name: Dump importcluster cluster_nodes_json

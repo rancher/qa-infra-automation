@@ -1,5 +1,5 @@
 ---
-# Main orchestrator — see README.md for usage and configuration.
+# Main orchestrator. See README.md for usage and configuration.
 #
 # Stages (controlled via --tags / --skip-tags):
 #   provision  →  EC2 + DNS + K3s + Rancher
@@ -27,7 +27,8 @@
     # Paths
     qa_infra_dir: "{{ lookup('env', 'QA_INFRA_DIR') | default(playbook_dir | dirname | dirname | dirname, true) }}"
     outputs_dir: "{{ workspace_dir }}/outputs"
-    dashboard_dir: "{{ workspace_dir }}/dashboard"
+    docker_context_dir: "{{ outputs_dir }}/docker-context"
+    dashboard_dir: "{{ dashboard_src | default(workspace_dir + '/dashboard') }}"
     host_dashboard_dir: "{{ lookup('env', 'HOST_DASHBOARD_DIR') | default(dashboard_dir, true) }}"
     workspace_dir: "{{ lookup('env', 'WORKSPACE') | default(playbook_dir, true) }}"
     tofu_module: "{{ qa_infra_dir }}/tofu/aws/modules/cluster_nodes"
@@ -47,6 +48,19 @@
 
     # Executor-scoped image tag (prevents concurrent Jenkins builds from clobbering each other)
     executor_tag: "{{ lookup('env', 'EXECUTOR_NUMBER') | default('0', true) }}"
+
+    # Packages cypress.sh and grep-filter.ts load at run time inside the
+    # container. Every checkout declares them, so they are installed from
+    # cypress/yarn.lock and nothing is added at run time.
+    _runtime_deps:
+      - cypress
+      - "@cypress/grep"
+      - cypress-mochawesome-reporter
+      - cypress-multi-reporters
+      - mocha-junit-reporter
+      - junit-report-merger
+      - find-test-names
+      - globby
 
   pre_tasks:
     - name: Create outputs directory
@@ -145,7 +159,7 @@
 
     - name: Display pipeline info
       ansible.builtin.debug:
-        msg: "Dashboard E2E Pipeline — job_type={{ job_type }}, image_tag={{ rancher_image_tag }}, prefix={{ prefix }}"
+        msg: "Dashboard E2E Pipeline: job_type={{ job_type }}, image_tag={{ rancher_image_tag }}, prefix={{ prefix }}"
       tags: [always]
 
     - name: Set phase flags
@@ -161,7 +175,7 @@
           REPO="{{ rancher_helm_repo }}"
           case "${TAGS}" in
             *@bypass*)
-              TAGS=$(echo "${TAGS}" | sed 's/@bypass//g' | tr -s '+' | sed 's/^+//;s/+$//;s/+-$//')
+              TAGS=$(echo "${TAGS}" | sed 's/@bypass//g')
               ;;
             *)
               case "${REPO}" in
@@ -175,6 +189,12 @@
               case "${TAGS}" in *@noVai*) ;; *) TAGS="${TAGS}+-@noVai" ;; esac
               ;;
           esac
+          # Collapse repeated separators and trim stray leading/trailing ones.
+          # Without this an empty cypress_tags yields "+-@prime+-@noVai", which
+          # @cypress/grep parses as matching no test at all. Applied to both
+          # branches so the value written to .env and notification_values.txt is
+          # the same one the runner ends up using.
+          TAGS=$(echo "${TAGS}" | tr -s '+' | sed 's/^+//;s/+$//;s/+-$//')
           echo "${TAGS}"
       register: adjusted_tags
       changed_when: false

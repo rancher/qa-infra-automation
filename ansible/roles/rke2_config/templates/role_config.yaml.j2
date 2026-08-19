@@ -1,0 +1,37 @@
+# Role-specific RKE2 config drop-in; RKE2 merges with /etc/rancher/rke2/config.yaml.
+# DTF reads this file in internal/report/report.go to classify split-role nodes.
+{% if 'cp' in node_roles and 'etcd' not in node_roles %}
+disable-etcd: true
+{% elif 'etcd' in node_roles and 'cp' not in node_roles %}
+disable-apiserver: true
+disable-controller-manager: true
+disable-scheduler: true
+{% endif %}
+
+node-label:
+{% if 'etcd' in node_roles %}
+  - role-etcd=true
+{% endif %}
+{% if 'cp' in node_roles %}
+  - role-control-plane=true
+{% endif %}
+{% if 'worker' in node_roles %}
+  - role-worker=true
+{% endif %}
+{% if node_roles | length == 0 %}
+  - role-etcd=true
+  - role-control-plane=true
+  - role-worker=true
+{% endif %}
+
+{% set _has_cp_taint = ('cp' in node_roles) and ('worker' not in node_roles) %}
+{% set _has_etcd_taint = ('etcd' in node_roles) and ('worker' not in node_roles) %}
+{% if _has_cp_taint or _has_etcd_taint %}
+node-taint:
+{% if _has_cp_taint %}
+  - node-role.kubernetes.io/control-plane:NoSchedule
+{% endif %}
+{% if _has_etcd_taint %}
+  - node-role.kubernetes.io/etcd:NoExecute
+{% endif %}
+{% endif %}

@@ -89,3 +89,13 @@
       when:
         - ansible_facts['services']['rke2-agent.service'] is defined
         - ansible_facts['services']['rke2-agent.service']['state'] == 'running'
+
+
+- name: Mirror ui-plugin-charts on the bastion (airgap UI extension installs)
+  hosts: bastion
+  become: true
+  gather_facts: true
+  roles:
+    - role: airgap_rke2_ui_plugin_mirror
+      tags:
+        - ui-plugin-mirror

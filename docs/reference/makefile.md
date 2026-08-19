@@ -12,6 +12,8 @@ Override these with `make <target> VAR=value`:
 | `ENV` | `default` | `default`, `airgap`, `proxy` | Deployment environment |
 | `PROVIDER` | `aws` | `aws`, `gcp`, `harvester` | Infrastructure provider |
 | `EXTRA_VARS` | (empty) | any | Extra Ansible variables passed with `--extra-vars` |
+| `TARGET_GROUP` | (empty) | `rancher`, `downstream`, any group | Airgap inventory group to target (translates to `--extra-vars target=<group>`) |
+| `ENABLE_UI_PLUGIN_MIRROR` | `no` | `yes`, `no` | Airgap opt-in: include the standalone `ui-plugin-mirror` step in `all`/`setup-from-infra` (stands up the `ui-plugin-charts` HTTP mirror on the bastion). Ignored unless `ENV=airgap` |
 
 **Example:**
 
@@ -30,8 +32,47 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 | `make infra-up` | Create infrastructure and generate Ansible inventory |
 | `make infra-down` | Destroy infrastructure (with confirmation prompt) |
 | `make infra-output` | Show Tofu outputs |
-| `make infra-ls` | List all active infrastructure across all modules/workspaces |
-| `make infra-nuke` | Destroy ALL active infrastructure (end-of-day cleanup) |
+| `make infra-ls` | List all active infrastructure across all modules/workspaces (scans **local** state only) |
+| `make infra-nuke` | Destroy ALL active infrastructure (end-of-day cleanup; **local** state only) |
+| `make infra-ls-remote` | List **remote** (S3-backed) workspaces with resources for the current module |
+| `make infra-nuke-remote` | Destroy all **remote** (S3-backed) workspaces for the current module |
+| `make infra-empty-folders` | Remove empty workspace **folders** (0-resource state files) from the current module's bucket (`DELETE=yes`, `PURGE=yes`, `NUKE_FILTER=`) |
+
+#### Local vs. remote state cleanup
+
+`infra-ls` / `infra-scan` / `infra-nuke` scan **only local** `terraform.tfstate`
+files. When a module uses the S3 backend (the default in this repo), those local
+files don't exist — so those targets silently find nothing. For S3-backed state
+use the `*-remote` variants (backed by `tofu/scripts/remote-state.sh`), which
+read state directly from S3 per workspace:
+
+```bash
+# List every workspace that has live resources in the current module's bucket
+make infra-ls-remote                       # or ENV=airgap for the airgap module
+make infra-ls-remote NUKE_FILTER='dnew'    # scope to workspaces matching a regex
+
+# Destroy every remote workspace with resources (type 'nuke' to confirm)
+make infra-nuke-remote
+make infra-nuke-remote DRY_RUN=yes         # preview only
+
+# Remove leftover empty workspace folders (states with 0 resources).
+# After infra-nuke-remote, each destroyed workspace leaves an empty state
+# object behind — this deletes those objects so the folders vanish from S3.
+make infra-empty-folders NUKE_FILTER='dnew'              # list yours (read-only)
+make infra-empty-folders NUKE_FILTER='dnew' DELETE=yes  # delete the empty states
+make infra-empty-folders DELETE=yes PURGE=yes           # delete ALL objects under each folder
+
+# Remove STALE folders: state lists resources that are already gone in AWS
+# (e.g. a workspace whose infra was destroyed by CI, or where `tofu destroy`
+# errored due to a region mismatch). Verifies each workspace's instances in the
+# state's real region before removing; only confirmed-stale ones are deleted.
+make infra-stale-folders                                # scan (read-only)
+make infra-stale-folders DELETE=yes                     # remove the stale states
+```
+
+`infra-nuke-remote` runs `tofu destroy` per workspace and needs the variables
+each workspace was built with (`-var-file=terraform.tfvars` by default; override
+with `VAR_FILE=`). See `tofu/scripts/README.md` for the full script reference.
 
 ### Cluster Deployment (Ansible)
 
@@ -41,14 +82,17 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 | `make agents` | Set up additional agent nodes (airgap) |
 | `make registry` | Configure private registry on cluster nodes (airgap) |
 | `make rancher` | Deploy Rancher onto the cluster |
+| `make downstream` | Register an existing airgap cluster into Rancher as a downstream (`ENV=airgap` only; use `TARGET_GROUP=<group>`, e.g. `TARGET_GROUP=downstream`, to name the group) |
 | `make upgrade-cluster` | Upgrade Kubernetes version |
 | `make kubectl-setup` | Set up kubectl on the bastion host (airgap) |
+| `make ui-plugin-mirror` | Mirror `rancher/ui-plugin-charts` on the bastion over HTTP for airgap UI extension installs (`ENV=airgap`) |
 
 ### Utilities
 
 | Target | Description |
 |--------|-------------|
 | `make status` | Show cluster node and Rancher pod status |
+| `make rancher-info` | Display Rancher login information (URL, admin password, API token) |
 | `make test-ssh` | Test SSH connectivity to all nodes |
 | `make ssh-bastion` | SSH into the bastion host (airgap) |
 | `make ping` | Ansible ping all hosts |
@@ -64,6 +108,7 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 |--------|-------------|
 | `make all` | Full setup: infra-up → cluster → rancher |
 | `make setup-from-infra` | Cluster + rancher (infra already exists) |
+| `make airgap-downstream` | Airgap multi-cluster: RKE2 on `downstream` + `rancher` groups, deploy Rancher, register downstream (`ENV=airgap` only) |
 
 ## Common Invocations
 
@@ -77,6 +122,9 @@ make all DISTRO=k3s
 # RKE2 airgap on AWS
 make all ENV=airgap
 
+# RKE2 airgap + stand up the ui-plugin-charts bastion mirror (UI extension installs)
+make all ENV=airgap ENABLE_UI_PLUGIN_MIRROR=yes
+
 # Just the cluster (no Rancher)
 make infra-up && make cluster
 
@@ -89,11 +137,29 @@ make cluster DISTRO=k3s
 # Check what's running
 make status
 
-# Destroy everything
+# Show Rancher URL, admin password, and API token
+make rancher-info
+
+# Destroy everything (local state only)
 make infra-nuke
+
+# Destroy everything stored in the S3 backend
+make infra-nuke-remote AUTO_APPROVE=yes
+
+# Remove empty workspace folders (states with 0 resources; bucket stays intact)
+make infra-empty-folders NUKE_FILTER='dnew' DELETE=yes
 
 # Pass extra Ansible variables
 make cluster EXTRA_VARS="kubernetes_version=v1.34.2+rke2r1"
+
+# Airgap: install RKE2 on a specific node group
+make cluster ENV=airgap TARGET_GROUP=downstream
+
+# Airgap: full Rancher + downstream cluster workflow
+make airgap-downstream ENV=airgap
+
+# Airgap: register an already-running cluster into Rancher
+make downstream ENV=airgap TARGET_GROUP=downstream
 ```
 
 ## How Variables Determine Paths
@@ -109,4 +175,17 @@ For example, `DISTRO=rke2 ENV=airgap PROVIDER=aws` maps to:
 - Tofu: `tofu/aws/modules/airgap/`
 - Ansible: `ansible/rke2/airgap/`
 - Cluster playbook: `ansible/rke2/airgap/playbooks/deploy/rke2-tarball-playbook.yml`
-- Rancher playbook: `ansible/rke2/airgap/playbooks/deploy/rancher-helm-deploy-playbook.yml`
+- Rancher playbook: `ansible/rke2/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml`
+- Downstream playbook: `ansible/rke2/airgap/playbooks/deploy/add-downstream-cluster.yml`
+
+## Airgap Multi-Cluster (`TARGET_GROUP`)
+
+Airgap deployments can provision multiple node groups (e.g. `rancher` + `downstream`) by setting `node_groups` in `terraform.tfvars`. The `TARGET_GROUP` variable selects which group a target operates on:
+
+| `TARGET_GROUP` value | Effect |
+|----------------------|--------|
+| (unset) | Use each playbook's default group (typically `rancher`) |
+| `rancher` | Explicitly target the `rancher` group |
+| `downstream` | Target the `downstream` group |
+
+The `make airgap-downstream` target orchestrates the full sequence (install RKE2 on both groups → deploy Rancher → register the downstream cluster). See [Import a downstream cluster on airgap](../import_cluster_on_airgap.md) for the complete guide.

@@ -44,6 +44,6 @@
     - name: Verify IPv6 internet access is blocked
       ansible.builtin.command: ping -6 2606:4700:4700::1111 -c 5
       register: ping_ipv6_result
-      when: ansible_all_ipv6_addresses | length > 0
+      when: ansible_facts.all_ipv6_addresses | length > 0
       failed_when: ping_ipv6_result.rc == 0
       changed_when: false

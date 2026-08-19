@@ -1,0 +1,176 @@
+---
+# Mirror rancher/ui-plugin-charts on the airgap bastion so an airgapped Rancher
+# server can install UI extensions (e.g. NeuVector) with no github.com egress.
+#
+# Transport: SMART HTTP via Apache + git-http-backend. Rancher's catalog
+# controller clones with --depth=1 (shallow); dumb HTTP cannot do shallow
+# clones ("dumb http transport does not support shallow capabilities"), so a
+# real git-smart-HTTP server is required.
+- name: Mirror ui-plugin-charts on the bastion
+  when: enable_ui_plugin_mirror | default(false) | bool
+  block:
+    - name: Ensure required packages are installed (git, apache2)
+      ansible.builtin.package:
+        name:
+          - git
+          - apache2
+        state: present
+
+    - name: Compute parent directory of the mirror
+      ansible.builtin.set_fact:
+        ui_plugin_mirror_parent: "{{ ui_plugin_mirror_dest | dirname }}"
+
+    - name: Ensure mirror parent directory exists
+      ansible.builtin.file:
+        path: "{{ ui_plugin_mirror_parent }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check if mirror already exists
+      ansible.builtin.stat:
+        path: "{{ ui_plugin_mirror_dest }}/HEAD"
+      register: ui_plugin_mirror_repo
+
+    - name: Clone ui-plugin-charts as a mirror
+      ansible.builtin.command:
+        cmd: git clone --mirror {{ ui_plugin_mirror_src }} {{ ui_plugin_mirror_dest }}
+      when: not ui_plugin_mirror_repo.stat.exists
+
+    - name: Update mirror on re-run (keep current)
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} remote update --prune
+      when: ui_plugin_mirror_repo.stat.exists
+      changed_when: false
+
+    - name: Verify requested branch exists in the mirror
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} rev-parse --verify refs/heads/{{ ui_plugin_mirror_branch }}
+      register: ui_plugin_mirror_branch_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if requested branch is absent from the mirror
+      ansible.builtin.fail:
+        msg: >-
+          Branch '{{ ui_plugin_mirror_branch }}' not found in mirror of
+          {{ ui_plugin_mirror_src }}. Check available branches upstream.
+      when: ui_plugin_mirror_branch_check.rc != 0
+
+    - name: Read current mirror HEAD
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} symbolic-ref HEAD
+      register: ui_plugin_mirror_head
+      changed_when: false
+
+    - name: Point mirror HEAD at the requested branch
+      ansible.builtin.command:
+        cmd: git --git-dir={{ ui_plugin_mirror_dest }} symbolic-ref HEAD refs/heads/{{ ui_plugin_mirror_branch }}
+      when: (ui_plugin_mirror_head.stdout | trim) != ('refs/heads/' ~ ui_plugin_mirror_branch)
+
+    # The mirror is owned by root; git-http-backend runs as the web server user
+    # (www-data). git 2.35.2+ refuses cross-user repo access ("dubious
+    # ownership"), so allow it system-wide (the bastion only serves our mirror).
+    - name: Check system git safe.directory
+      ansible.builtin.command: git config --system --get-all safe.directory
+      register: ui_plugin_safe_dir
+      changed_when: false
+      failed_when: false
+
+    - name: Permit git-http-backend to serve the root-owned mirror
+      ansible.builtin.command: git config --system --add safe.directory '*'
+      when: "'*' not in ui_plugin_safe_dir.stdout_lines"
+
+    # Supersede any earlier dumb-HTTP (python http.server) unit from this role.
+    - name: Stop and disable obsolete dumb-HTTP python service
+      ansible.builtin.systemd:
+        name: ui-plugin-mirror-http.service
+        state: stopped
+        enabled: false
+      failed_when: false
+      notify: Reload systemd daemon
+
+    - name: Remove obsolete dumb-HTTP systemd unit file
+      ansible.builtin.file:
+        path: /etc/systemd/system/ui-plugin-mirror-http.service
+        state: absent
+      notify: Reload systemd daemon
+
+    - name: Install Apache smart-HTTP vhost for git-http-backend
+      ansible.builtin.template:
+        src: ui-plugin-mirror.apache.conf.j2
+        dest: /etc/apache2/conf-available/ui-plugin-mirror.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart apache2
+
+    - name: Enable ui-plugin-mirror apache conf
+      ansible.builtin.command: a2enconf ui-plugin-mirror
+      args:
+        creates: /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+      notify: Restart apache2
+
+    # mod_cgi needs the prefork MPM; under mpm_event, mod_cgid fails to reach
+    # its CGI daemon ("unable to connect to cgi daemon") when serving git-http-backend.
+    - name: Disable Apache event MPM
+      ansible.builtin.command: a2dismod mpm_event
+      args:
+        removes: /etc/apache2/mods-enabled/mpm_event.load
+      notify: Restart apache2
+
+    - name: Disable cgid module (use mod_cgi under prefork)
+      ansible.builtin.command: a2dismod cgid
+      args:
+        removes: /etc/apache2/mods-enabled/cgid.load
+      notify: Restart apache2
+
+    - name: Enable prefork MPM and cgi/alias/env modules
+      ansible.builtin.command: "a2enmod {{ item }}"
+      args:
+        creates: "/etc/apache2/mods-enabled/{{ item }}.load"
+      loop:
+        - mpm_prefork
+        - cgi
+        - alias
+        - env
+      notify: Restart apache2
+
+    - name: Ensure apache2 is enabled and running
+      ansible.builtin.service:
+        name: apache2
+        enabled: true
+        state: started
+
+    - name: Resolve mirror host (auto-detect bastion private IP when not pinned)
+      ansible.builtin.set_fact:
+        ui_plugin_mirror_host: "{{ (ui_plugin_mirror_host | default('') | trim | length > 0) | ternary(ui_plugin_mirror_host, ansible_default_ipv4.address | default(inventory_hostname)) }}"
+
+    - name: Compute the mirror URL
+      ansible.builtin.set_fact:
+        ui_plugin_mirror_url: "http://{{ ui_plugin_mirror_host }}:{{ ui_plugin_mirror_port }}/{{ ui_plugin_mirror_dest | basename }}"
+
+    - name: Display mirror URL
+      ansible.builtin.debug:
+        msg: "ui-plugin-charts mirror served (smart HTTP) at {{ ui_plugin_mirror_url }} (branch {{ ui_plugin_mirror_branch }})"
+
+    - name: Build cattle-config.yaml snippet lines
+      ansible.builtin.set_fact:
+        ui_plugin_cattle_config_lines:
+          - "neuvectorTest:"
+          - "  uiPluginChartsURL: {{ ui_plugin_mirror_url }}"
+          - "  uiPluginChartsBranch: {{ ui_plugin_mirror_branch }}"
+          - "  skipUIExtension: false"
+
+    - name: Display cattle-config.yaml snippet for NeuVector UI extension
+      ansible.builtin.debug:
+        msg: "Mirror ready. Add the following to cattle-config.yaml (CATTLE_TEST_CONFIG):"
+
+    - name: Show cattle-config.yaml snippet
+      ansible.builtin.debug:
+        var: ui_plugin_cattle_config_lines
+
+    - name: skipUIExtension note
+      ansible.builtin.debug:
+        msg: "skipUIExtension must be false - it defaults to true in airgap, which skips the install."

@@ -14,6 +14,9 @@
     # Kubeconfig location - from env or default to RKE2 playbook output
     kubeconfig_file: "{{ lookup('env', 'KUBECONFIG_FILE') | default(playbook_dir + '/../rke2/default/kubeconfig.yaml', true) }}"
 
+    bootstrap_password_final: "{{ lookup('env', 'RANCHER_BOOTSTRAP_PASSWORD') | default(bootstrap_password, true) }}"
+    password_final: "{{ lookup('env', 'RANCHER_PASSWORD') | default(password, true) }}"
+
     # Use default values if not defined in vars.yaml
     rancher_chart_repo_final: "{{ rancher_chart_repo | default('rancher-latest') }}"
     rancher_chart_repo_url_final: "{{ rancher_chart_repo_url | default('https://releases.rancher.com/server-charts/latest') }}"
@@ -115,22 +118,27 @@
       debug:
         msg: "Connected! Found {{ ns_info.resources | length }} namespaces. Kubernetes version: {{ k8s_cluster_version }}"
 
+    - name: Normalize cert-manager version (strip leading 'v' if present)
+      ansible.builtin.set_fact:
+        cert_manager_version_final: "{{ cert_manager_version | regex_replace('^[vV]', '') }}"
+      when: cert_manager_version != ""
+
     - name: Download cert-manager CRDs with SHA256 verification
       include_role:
         name: download_verify
       vars:
-        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.crds.yaml"
-        dv_dest: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
+        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version_final }}/cert-manager.crds.yaml"
+        dv_dest: "/tmp/cert-manager-crds-{{ cert_manager_version_final }}.yaml"
         dv_checksum_format: "github_release"
         dv_github_repo: "cert-manager/cert-manager"
         dv_github_release_asset_name: "cert-manager.crds.yaml"
-        dv_github_release_tag: "v{{ cert_manager_version }}"
+        dv_github_release_tag: "v{{ cert_manager_version_final }}"
       when: cert_manager_version != ""
 
     - name: Install cert-manager CRDs
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: "/tmp/cert-manager-crds-{{ cert_manager_version }}.yaml"
+        src: "/tmp/cert-manager-crds-{{ cert_manager_version_final }}.yaml"
         state: present
       retries: 5
       delay: 30
@@ -140,18 +148,18 @@
       include_role:
         name: download_verify
       vars:
-        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version }}/cert-manager.yaml"
-        dv_dest: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
+        dv_artifact_url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ cert_manager_version_final }}/cert-manager.yaml"
+        dv_dest: "/tmp/cert-manager-{{ cert_manager_version_final }}.yaml"
         dv_checksum_format: "github_release"
         dv_github_repo: "cert-manager/cert-manager"
         dv_github_release_asset_name: "cert-manager.yaml"
-        dv_github_release_tag: "v{{ cert_manager_version }}"
+        dv_github_release_tag: "v{{ cert_manager_version_final }}"
       when: cert_manager_version != ""
 
     - name: Install cert-manager
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_file }}"
-        src: "/tmp/cert-manager-{{ cert_manager_version }}.yaml"
+        src: "/tmp/cert-manager-{{ cert_manager_version_final }}.yaml"
         state: present
         wait: true
         wait_timeout: 300
@@ -271,7 +279,7 @@
           --namespace cattle-system
           {{ ('--version ' + rancher_chart_version) if rancher_chart_version else '' }}
           --set hostname={{ fqdn }}
-          --set bootstrapPassword={{ bootstrap_password }}
+          --set bootstrapPassword={{ bootstrap_password_final }}
           --kubeconfig {{ kubeconfig_file }}
       register: rancher_dry_run
       changed_when: false
@@ -304,7 +312,7 @@
       set_fact:
         rancher_helm_values:
           hostname: "{{ fqdn }}"
-          bootstrapPassword: "{{ bootstrap_password }}"
+          bootstrapPassword: "{{ bootstrap_password_final }}"
           rancherImageTag: "{{ (rancher_image_tag == 'latest') | ternary('head', rancher_image_tag | default(omit)) }}"
           replicas: "{{ node_info.resources | length }}"
 
@@ -417,8 +425,8 @@
         name: rancher_auth
       vars:
         rancher_url: "https://{{ fqdn }}"
-        rancher_token_password: "{{ bootstrap_password }}"
-        rancher_permanent_password: "{{ password }}"
+        rancher_token_password: "{{ bootstrap_password_final }}"
+        rancher_permanent_password: "{{ password_final }}"
         rancher_token_output_file: "{{ playbook_dir }}/generated.tfvars"
         rancher_token_output_format: "tfvars"
       when: rancher_version != ""

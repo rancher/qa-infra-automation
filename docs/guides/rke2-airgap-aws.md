@@ -192,7 +192,7 @@ For more, see the [airgap troubleshooting section](../../ansible/rke2/airgap/REA
 
 ## Next Steps
 
-- [Import a downstream cluster](../../docs/import_cluster_on_airgap.md) into an airgapped Rancher
+- **[Import a downstream cluster](../import_cluster_on_airgap.md)** into an airgapped Rancher — now a single command: `make airgap-downstream ENV=airgap`
 - [Upgrade RKE2](../../ansible/rke2/airgap/docs/configuration/RKE2_UPGRADE_GUIDE.md) in an airgap environment
 - [CNI configuration options](../../ansible/rke2/airgap/docs/configuration/CNI_CONFIGURATION_GUIDE.md)
 - [Full airgap reference](../../ansible/rke2/airgap/README.md)

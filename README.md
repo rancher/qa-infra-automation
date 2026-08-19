@@ -28,6 +28,17 @@ make all    # provisions infra → deploys RKE2 → installs Rancher
 
 For an airgap deployment: `make all ENV=airgap`. For K3s: `make all DISTRO=k3s`.
 
+To provision an airgap Rancher **and** register a downstream cluster in one go:
+
+```bash
+# 1. Configure  tofu/aws/modules/airgap/terraform.tfvars  with node_groups = { rancher = 3, downstream = 3 }
+# 2. Configure  ansible/rke2/airgap/inventory/group_vars/all.yml
+
+make airgap-downstream ENV=airgap    # RKE2 on both groups → Rancher → register downstream
+```
+
+See the [import cluster on airgap guide](docs/import_cluster_on_airgap.md) for details.
+
 See [prerequisites](docs/prerequisites.md) first.
 
 ## Documentation

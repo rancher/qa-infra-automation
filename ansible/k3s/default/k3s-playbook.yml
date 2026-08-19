@@ -32,10 +32,12 @@
           use_terraform: false
         when: not tfstate_file_stat.stat.exists
 
-      - name: Set fqdn content from env or vars when not using terraform
+      - name: Set fqdn content from env when not using terraform
         ansible.builtin.set_fact:
-          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn if fqdn is defined else (kube_api_host if kube_api_host is defined else ''), true) }}"
-        when: not tfstate_file_stat.stat.exists
+          fqdn: "{{ lookup('env', 'FQDN') }}"
+        when:
+          - not tfstate_file_stat.stat.exists
+          - lookup('env', 'FQDN') | length > 0
 
     - name: Validate required variables
       assert:
@@ -138,11 +140,33 @@
       run_once: true
       become: false
 
+    # Pick first cp-having host for kubeconfig URL — split-role master may be etcd-only and have no apiserver.
+    - name: Pick a kube-apiserver-bearing host for the kubeconfig server URL
+      set_fact:
+        kube_api_apiserver_host: >-
+          {{ (groups['all'] | map('extract', hostvars)
+              | selectattr('node_roles', 'defined')
+              | selectattr('node_roles', 'contains', 'cp')
+              | map(attribute='ansible_host') | list | first)
+            | default(kube_api_host, true) }}
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    # Prefer a real fqdn for kubeconfig; otherwise use a cp-bearing host since split-role master may be etcd-only.
+    - name: Compute kubeconfig server URL
+      set_fact:
+        kubeconfig_server_url: "https://{{ fqdn | default(kube_api_apiserver_host, true) }}:6443"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    # Match any server: line — k3s_install role may have rewritten 127.0.0.1 to master IP before we slurped.
     - name: Update kubeconfig server address
       lineinfile:
         path: "{{ kubeconfig_file }}"
-        regexp: '^\s+server:\s+https://127\.0\.0\.1:6443'
-        line: "    server: https://{{ fqdn | default(kube_api_host) }}:6443"
+        regexp: '^\s*server:\s+https://[^\s]+'
+        line: "    server: {{ kubeconfig_server_url }}"
       delegate_to: localhost
       run_once: true
       become: false

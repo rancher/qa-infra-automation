@@ -12,9 +12,32 @@ SHELL := /bin/bash
 DISTRO       ?= rke2
 ENV          ?= default
 PROVIDER     ?= aws
-WORKSPACE    ?= default
+WORKSPACE     ?= default
+# Target inventory group for airgap cluster installs (e.g. rancher, downstream).
+# Leave empty to use each playbook's default (rancher).
+TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
-AUTO_APPROVE ?= no
+AUTO_APPROVE  ?= no
+# Opt-in: include the standalone ui-plugin-mirror step in `all`/`setup-from-infra`
+# (airgap only). Default off so ordinary airgap runs are unaffected.
+ENABLE_UI_PLUGIN_MIRROR ?= no
+ifeq ($(ENV),airgap)
+ifeq ($(ENABLE_UI_PLUGIN_MIRROR),yes)
+UI_PLUGIN_MIRROR_TARGET := ui-plugin-mirror
+else
+UI_PLUGIN_MIRROR_TARGET :=
+endif
+else
+UI_PLUGIN_MIRROR_TARGET :=
+endif
+
+# Downstream cluster via the Rancher API (tofu/rancher/cluster).
+# Your downstream cluster vars (kubernetes_version, machine_pools,
+# cloud_provider, node_config, ...). See tofu/rancher/cluster/vars.tfvars.
+DOWNSTREAM_TFVARS ?=
+# fqdn + api_key written by the Rancher install. Override if your Rancher
+# outputs live elsewhere.
+RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
@@ -28,10 +51,11 @@ CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
 REGISTRY_TARGET  :=
 else ifeq ($(ENV),airgap)
-TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
-CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
-RANCHER_PLAYBOOK := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
-REGISTRY_TARGET  := registry
+TOFU_DIR            := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
+RANCHER_PLAYBOOK    := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
+DOWNSTREAM_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/add-downstream-cluster.yml
+REGISTRY_TARGET     := registry
 else ifeq ($(ENV),dualstack)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/$(DISTRO)-playbook-dualstack.yml
@@ -45,8 +69,20 @@ RANCHER_PLAYBOOK := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deplo
 REGISTRY_TARGET  :=
 endif
 
+# Extra --extra-vars for selecting a target inventory group (airgap multi-cluster).
+# Applies to targets that install on a node group (cluster, downstream).
+ifdef TARGET_GROUP
+TARGET_EXTRA_VARS := --extra-vars "target=$(TARGET_GROUP)"
+else
+TARGET_EXTRA_VARS :=
+endif
+
 # Kubeconfig written by the cluster role; rancher needs to know where it is.
 KUBECONFIG_FILE := $(CURDIR)/$(ANSIBLE_DIR)/kubeconfig.yaml
+
+# Tofu module that calls the Rancher API to create a managed downstream cluster.
+# Separate from TOFU_DIR, which is the raw-VM infrastructure module.
+DOWNSTREAM_TOFU_DIR := tofu/rancher/cluster
 
 # Ansible settings
 export ANSIBLE_HOST_KEY_CHECKING := False
@@ -71,6 +107,7 @@ help: ## Show this help message
 	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy, dualstack)"
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo "  WORKSPACE = $(WORKSPACE)    (tofu workspace name)"
+	@echo "  TARGET_GROUP = $(if $(TARGET_GROUP),$(TARGET_GROUP),<unset>)  (airgap node group, e.g. rancher/downstream; required for 'downstream')"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws WORKSPACE=myworkspace"
 	@echo "At the moment this only supports rke2, default/airgap/dualstack, and aws"
@@ -88,7 +125,7 @@ help: ## Show this help message
 	@echo "  cp $(ANSIBLE_DIR)/inventory/group_vars/all.yml.template $(GROUP_VARS)"
 	@echo ""
 	@echo "BACKEND MANAGEMENT:"
-	@echo "  backend-s3          Configure S3 backend (requires BUCKET= KEY= REGION=)"
+	@echo "  backend-s3          Configure S3 backend (BUCKET= REGION= required; KEY= optional)"
 	@echo "  backend-local       Configure local backend (optional: PATH=)"
 	@echo "  backend-init        Run tofu init in current module"
 	@echo ""
@@ -109,17 +146,32 @@ help: ## Show this help message
 	@echo "  infra-ls            List ALL active infrastructure across every module/workspace"
 	@echo "  infra-scan          Detailed scan of all infrastructure with resource counts"
 	@echo "  infra-nuke          Destroy ALL active infrastructure (end-of-day cleanup)"
+	@echo "  infra-ls-remote     List remote (S3-backed) workspaces with resources (current module)"
+	@echo "  infra-nuke-remote   Destroy all remote (S3-backed) workspaces for the current module"
+	@echo "  infra-empty-folders Remove empty workspace folders (0-resource states) from the current module's bucket"
+	@echo "  infra-stale-folders  Remove STALE workspace folders (resources gone in AWS) — verified against AWS"
 	@echo ""
 	@echo "CLUSTER (Ansible):"
 	@echo "  cluster             Install Kubernetes cluster"
 	@echo "  agents              Setup additional agent nodes"
 	@echo "  registry            Configure private registry on cluster nodes"
 	@echo "  rancher             Deploy Rancher to cluster"
+	@echo "  downstream          Register an airgap cluster into Rancher (requires ENV=airgap and TARGET_GROUP=downstream)"
+	@echo ""
+	@echo "RANCHER DOWNSTREAM CLUSTER (TOFU - managed by the Rancher API):"
+	@echo "  downstream-tofu          Create/apply a Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... required)"
+	@echo "  downstream-tofu-plan     Plan downstream cluster changes"
+	@echo "  downstream-tofu-destroy  Destroy the downstream cluster (AUTO_APPROVE=yes to skip prompt)"
+	@echo "  downstream-tofu-output   Show downstream cluster tofu outputs"
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
+	@echo "  ui-plugin-mirror   Mirror ui-plugin-charts on the bastion (airgap UI extension installs)"
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
+	@echo "  images              List all container images and tags running in the cluster"
+	@echo "  images-digests      List pulled image digests (true versions behind mutable tags)"
+	@echo "  rancher-info        Display Rancher login information (URL, admin password, API token)"
 	@echo "  test-ssh            Test SSH connectivity to all nodes"
 	@echo "  ssh-bastion         SSH to bastion host"
 	@echo "  ping                Ping all hosts"
@@ -130,16 +182,22 @@ help: ## Show this help message
 	@echo "COMBINED WORKFLOWS:"
 	@echo "  all                 Full setup: infrastructure + cluster + Rancher"
 	@echo "  setup-from-infra    Setup cluster + Rancher (infra already exists)"
+	@echo "  airgap-downstream   Airgap: downstream+ rancher RKE2, Rancher, then register downstream"
 	@echo ""
 	@echo "EXAMPLES:"
+	@echo "  make infra-nuke-remote                      # destroy all S3-backed workspaces (current module)"
+	@echo "  make infra-empty-folders NUKE_FILTER='dnew'      # list YOUR empty workspace folders"
+	@echo "  make infra-stale-folders                         # find stale state (infra gone in AWS)"
 	@echo "  make all                                    # RKE2 default on AWS (default)"
 	@echo "  make all ENV=airgap                         # RKE2 airgap on AWS"
+	@echo "  make airgap-downstream ENV=airgap           # Airgap Rancher + downstream cluster"
+	@echo "  make downstream-tofu DOWNSTREAM_TFVARS=tofu/rancher/cluster/vars.tfvars  # Rancher-managed downstream cluster"
 	@echo "  make all DISTRO=k3s                         # K3s default on AWS"
 	@echo "  make cluster ENV=airgap                     # Just RKE2 airgap cluster"
 	@echo "  make status                                 # Check current cluster"
 	@echo ""
 	@echo "Backend Configuration:"
-	@echo "  make backend-s3 BUCKET=my-bucket KEY=my-key REGION=us-east-1"
+	@echo "  make backend-s3 BUCKET=my-bucket REGION=us-east-1   # KEY optional, defaults to <PROVIDER>/<ENV>/terraform.tfstate"
 	@echo "  make backend-local PATH=terraform.tfstate"
 	@echo ""
 	@echo "Workspace Examples:"
@@ -225,14 +283,16 @@ check-tofu-dir:
 # ============================================================================
 
 .PHONY: backend-s3
-backend-s3: ## Configure S3 backend for current module (use BUCKET= KEY= REGION=)
-	@if [ -z "$(BUCKET)" ] || [ -z "$(KEY)" ] || [ -z "$(REGION)" ]; then \
-		echo "Error: BUCKET, KEY, and REGION are required"; \
-		echo "Usage: make backend-s3 BUCKET=my-bucket KEY=my-key REGION=us-east-1 [DYNAMODB_TABLE=table] [ENCRYPT=true]"; \
+backend-s3: ## Configure S3 backend (BUCKET= REGION= required; KEY= optional, defaults to <PROVIDER>/<ENV>/terraform.tfstate)
+	@if [ -z "$(BUCKET)" ] || [ -z "$(REGION)" ]; then \
+		echo "Error: BUCKET and REGION are required"; \
+		echo "Usage: make backend-s3 BUCKET=my-bucket REGION=us-east-1 [KEY=<provider>/<env>/terraform.tfstate] [DYNAMODB_TABLE=table] [ENCRYPT=true]"; \
+		echo "  KEY is optional; if omitted it defaults to $(PROVIDER)/$(ENV)/terraform.tfstate so each ENV gets isolated state."; \
 		exit 1; \
 	fi
-	@echo "Configuring S3 backend for $(TOFU_DIR)..."
-	@(cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh s3 --bucket "$(BUCKET)" --key "$(KEY)" --region "$(REGION)" $(if $(DYNAMODB_TABLE),--dynamodb-table "$(DYNAMODB_TABLE)") $(if $(ENCRYPT),--encrypt "$(ENCRYPT)"))
+	@key="$(if $(KEY),$(KEY),$(PROVIDER)/$(ENV)/terraform.tfstate)"; \
+	echo "Configuring S3 backend for $(TOFU_DIR) with key '$$key' ..."; \
+	cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh s3 --bucket "$(BUCKET)" --key "$$key" --region "$(REGION)" $(if $(DYNAMODB_TABLE),--dynamodb-table "$(DYNAMODB_TABLE)") $(if $(ENCRYPT),--encrypt "$(ENCRYPT)")
 
 .PHONY: backend-local
 backend-local: ## Configure local backend for current module (use STATE_PATH=terraform.tfstate)
@@ -310,6 +370,32 @@ workspace-inspect: check-tofu-dir ## Show detailed info about current workspace
 # INFRASTRUCTURE (TOFU)
 # ============================================================================
 
+.PHONY: check-state-env
+check-state-env: check-tofu-dir ## Abort if current state looks like a different ENV (wrong ENV, or shared state key + same workspace)
+	@cd $(TOFU_DIR) && \
+	if [ "$(WORKSPACE)" != "default" ]; then \
+		if ! tofu workspace select "$(WORKSPACE)" >/dev/null 2>&1; then \
+			echo "NOTE: could not select workspace '$(WORKSPACE)' (it may not exist or the backend is not initialized); skipping ENV state check."; \
+			exit 0; \
+		fi; \
+	fi; \
+	state_modules=$$(tofu state list 2>/dev/null | grep -oE '^module\.[a-z_0-9]+' | sed 's/^module\.//' | sort -u); \
+	if [ -n "$$state_modules" ] && [ "$(IGNORE_ENV_MISMATCH)" != "yes" ]; then \
+		config_modules=$$(grep -hoE 'module "[a-z_0-9]+"' *.tf 2>/dev/null | sed 's/module "\(.*\)"/\1/' | sort -u); \
+		overlap=$$(comm -12 <(printf '%s\n' "$$state_modules") <(printf '%s\n' "$$config_modules")); \
+		if [ -z "$$overlap" ]; then \
+			echo ""; \
+			echo "ERROR: state / ENV mismatch - the current state looks like a DIFFERENT environment than ENV=$(ENV)."; \
+			echo "  State has module(s), NONE of which are defined in $(TOFU_DIR):"; \
+			echo "$$state_modules" | sed 's/^/    module./'; \
+			echo "  Usually this means the wrong ENV, or a shared state key used with the same workspace."; \
+			echo "  List candidates with 'make infra-ls', then re-run with the correct ENV, e.g.:"; \
+			echo "    make $(MAKECMDGOALS) ENV=airgap   (or ENV=default / ENV=proxy)"; \
+			echo "  Override when you are certain: make $(MAKECMDGOALS) IGNORE_ENV_MISMATCH=yes"; \
+			exit 1; \
+		fi; \
+	fi
+
 .PHONY: infra-init
 infra-init: check-prereqs check-tofu-dir ## Initialize Tofu
 	@echo "Initializing Tofu for $(PROVIDER)/$(ENV)/$(WORKSPACE)..."
@@ -320,12 +406,12 @@ infra-init: check-prereqs check-tofu-dir ## Initialize Tofu
 	fi
 
 .PHONY: infra-plan
-infra-plan: infra-init ## Plan infrastructure changes
+infra-plan: infra-init check-state-env ## Plan infrastructure changes
 	@echo "Planning infrastructure for workspace '$(WORKSPACE)'..."
 	cd $(TOFU_DIR) && tofu plan -var-file=terraform.tfvars
 
 .PHONY: infra-up
-infra-up: infra-init ## Create infrastructure (generates Ansible inventory automatically)
+infra-up: infra-init check-state-env ## Create infrastructure (generates Ansible inventory automatically)
 	@echo "Creating $(PROVIDER) infrastructure for $(ENV)/$(WORKSPACE)..."
 	cd $(TOFU_DIR) && tofu apply -var-file=terraform.tfvars -auto-approve
 	@echo "Generating Ansible inventory..."
@@ -348,7 +434,7 @@ infra-up: infra-init ## Create infrastructure (generates Ansible inventory autom
 	@[ -f "$(INVENTORY)" ] && echo "" && echo "Infrastructure created. Inventory generated at $(INVENTORY)" || (echo "Error: Inventory generation failed" && exit 1)
 
 .PHONY: infra-down
-infra-down: check-tofu-dir ## Destroy infrastructure
+infra-down: check-tofu-dir check-state-env ## Destroy infrastructure
 	@echo "═══════════════════════════════════════════════════════════════"
 	@echo "  Infrastructure Destroy - $(PROVIDER)/$(ENV)/$(WORKSPACE)"
 	@echo "═══════════════════════════════════════════════════════════════"
@@ -371,7 +457,9 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 		echo ""; \
 		echo "Current workspace: $$(tofu workspace show)"; \
 		echo ""; \
-		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; else read -p "Continue anyway? [y/N] " confirm; fi; \
+		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; \
+		elif [ ! -t 0 ]; then echo "  ERROR: stdin is not a TTY and AUTO_APPROVE is not 'yes'"; echo "  Re-run with: make infra-down AUTO_APPROVE=yes"; exit 1; \
+		else read -p "Continue anyway? [y/N] " confirm; fi; \
 		[ "$$confirm" = "y" ] || exit 1; \
 	else \
 		tofu state list 2>/dev/null | head -10 | sed 's/^/  /'; \
@@ -381,11 +469,28 @@ infra-down: check-tofu-dir ## Destroy infrastructure
 		echo ""; \
 		echo "Total: $$resources resource(s)"; \
 		echo ""; \
-		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; else read -p "Destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure? [y/N] " confirm; fi; \
+		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; \
+		elif [ ! -t 0 ]; then echo "  ERROR: stdin is not a TTY and AUTO_APPROVE is not 'yes'"; echo "  Re-run with: make infra-down AUTO_APPROVE=yes"; exit 1; \
+		else read -p "Destroy all $(PROVIDER)/$(ENV)/$(WORKSPACE) infrastructure? [y/N] " confirm; fi; \
 		[ "$$confirm" = "y" ] || exit 1; \
 	fi)
 	@echo ""
 	@echo "Destroying..."
+	@if [ "$(PROVIDER)" = "aws" ]; then \
+		cd $(TOFU_DIR) && \
+		creds_ok=0; \
+		[ -n "$$TF_VAR_aws_access_key" ] && creds_ok=1; \
+		[ -n "$$AWS_ACCESS_KEY_ID" ] && creds_ok=1; \
+		[ -n "$$AWS_PROFILE" ] && creds_ok=1; \
+		grep -qE '^[[:space:]]*aws_access_key[[:space:]]*=' terraform.tfvars 2>/dev/null && creds_ok=1; \
+		[ -f "$${AWS_SHARED_CREDENTIALS_FILE:-$$HOME/.aws/credentials}" ] && creds_ok=1; \
+		if [ "$$creds_ok" != "1" ]; then \
+			echo "WARNING: no AWS credentials detected via env vars, AWS_PROFILE, or shared credentials file."; \
+			echo "  The AWS provider may still authenticate via IMDS (instance profile) or web identity, so proceeding."; \
+			echo "  If the destroy fails, set one of: TF_VAR_aws_access_key, AWS_ACCESS_KEY_ID, AWS_PROFILE,"; \
+			echo "  ~/.aws/credentials, or aws_access_key in $(CURDIR)/$(TOFU_DIR)/terraform.tfvars."; \
+		fi; \
+	fi
 	cd $(TOFU_DIR) && tofu destroy -var-file=terraform.tfvars -auto-approve
 	@echo ""
 	@echo "✓ Destroy complete"
@@ -500,6 +605,59 @@ infra-nuke: ## Destroy ALL active infrastructure across all modules (end-of-day 
 		echo "All infrastructure destroyed."; \
 	fi
 
+.PHONY: infra-ls-remote
+infra-ls-remote: ## List remote (S3-backed) workspaces with resources for the current module
+	@$(CURDIR)/tofu/scripts/remote-state.sh list \
+		--module "$(TOFU_DIR)" \
+		$(if $(BUCKET),--bucket "$(BUCKET)") \
+		$(if $(KEY),--key "$(KEY)") \
+		$(if $(REGION),--region "$(REGION)") \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)")
+
+# NOTE on why infra-nuke is not enough: it scans ONLY local state files
+#   (`find tofu -name "terraform.tfstate"`). With an S3 backend there are no
+#   local state files, so infra-nuke finds nothing. infra-nuke-remote reads
+#   state directly from the S3 backend and destroys per-workspace.
+#
+# Override the module/backend with BUCKET= KEY= REGION=, scope with NUKE_FILTER
+# (regex on workspace name, e.g. NUKE_FILTER='jenkins_e2e_.*'). To clean up
+# leftover empty workspace folders afterwards, use 'make infra-empty-folders'.
+.PHONY: infra-nuke-remote
+infra-nuke-remote: ## Destroy all remote (S3-backed) workspaces for the current module
+	@$(CURDIR)/tofu/scripts/remote-state.sh destroy \
+		--module "$(TOFU_DIR)" \
+		$(if $(BUCKET),--bucket "$(BUCKET)") \
+		$(if $(KEY),--key "$(KEY)") \
+		$(if $(REGION),--region "$(REGION)") \
+		$(if $(VAR_FILE),--var-file "$(VAR_FILE)") \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)") \
+		$(if $(filter yes,$(DRY_RUN)),--dry-run) \
+		$(if $(filter yes,$(AUTO_APPROVE)),--auto-approve)
+
+.PHONY: infra-empty-folders
+infra-empty-folders: ## Remove empty workspace folders (0-resource states) from the current module's bucket
+	@$(CURDIR)/tofu/scripts/remote-state.sh empty-folders \
+		--module "$(TOFU_DIR)" \
+		$(if $(BUCKET),--bucket "$(BUCKET)") \
+		$(if $(KEY),--key "$(KEY)") \
+		$(if $(REGION),--region "$(REGION)") \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)") \
+		$(if $(filter yes,$(PURGE)),--purge) \
+		$(if $(filter yes,$(DELETE)),--delete) \
+		$(if $(filter yes,$(AUTO_APPROVE)),--auto-approve)
+
+.PHONY: infra-stale-folders
+infra-stale-folders: ## Remove STALE workspace folders (state lists resources that are gone in AWS) — verified
+	@$(CURDIR)/tofu/scripts/remote-state.sh stale-folders \
+		--module "$(TOFU_DIR)" \
+		$(if $(BUCKET),--bucket "$(BUCKET)") \
+		$(if $(KEY),--key "$(KEY)") \
+		$(if $(REGION),--region "$(REGION)") \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)") \
+		$(if $(filter yes,$(PURGE)),--purge) \
+		$(if $(filter yes,$(DELETE)),--delete) \
+		$(if $(filter yes,$(AUTO_APPROVE)),--auto-approve)
+
 # ============================================================================
 # CLUSTER DEPLOYMENT (ANSIBLE)
 # ============================================================================
@@ -511,10 +669,10 @@ bootstrap-python: check-inventory ## Bootstrap Python 3.9+ on target nodes
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: cluster
-cluster: check-inventory bootstrap-python ## Install Kubernetes cluster
-	@echo "Installing $(DISTRO) cluster ($(ENV) environment)..."
+cluster: check-inventory bootstrap-python ## Install Kubernetes cluster (use TARGET_GROUP=downstream for airgap multi-cluster)
+	@echo "Installing $(DISTRO) cluster ($(ENV) environment$(if $(TARGET_GROUP), on '$(TARGET_GROUP)' group,))..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) $(CLUSTER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) $(CLUSTER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) $(TARGET_EXTRA_VARS)
 
 .PHONY: agents
 agents: check-inventory ## Setup additional agent nodes
@@ -545,6 +703,104 @@ kubectl-setup: check-inventory ## Setup kubectl access on bastion
 	@echo "Setting up kubectl access..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-kubectl-access.yml -v $(ANSIBLE_EXTRA_VARS)
+
+.PHONY: ui-plugin-mirror
+ui-plugin-mirror: check-inventory ## Mirror ui-plugin-charts on the bastion for airgap UI extension installs (ENV=airgap)
+	@echo "Mirroring ui-plugin-charts on the bastion..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/ui-plugin-mirror-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+
+.PHONY: downstream
+downstream: check-inventory ## Register an existing airgap cluster into Rancher as a downstream (requires ENV=airgap and TARGET_GROUP, e.g. TARGET_GROUP=downstream)
+	@if [ "$(ENV)" != "airgap" ]; then \
+		echo "ERROR: 'downstream' target only applies to ENV=airgap"; exit 1; \
+	fi
+	@if [ -z "$(TARGET_GROUP)" ]; then \
+		echo "ERROR: 'downstream' requires TARGET_GROUP (the inventory group of the cluster to register into Rancher)."; \
+		echo "       Example: make downstream ENV=airgap TARGET_GROUP=downstream"; \
+		exit 1; \
+	fi
+	@if [ -z "$(DOWNSTREAM_PLAYBOOK)" ] || [ ! -f "$(DOWNSTREAM_PLAYBOOK)" ]; then \
+		echo "ERROR: downstream playbook not found: $(DOWNSTREAM_PLAYBOOK)"; exit 1; \
+	fi
+	@echo "Registering '$(TARGET_GROUP)' cluster into Rancher as downstream..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(DOWNSTREAM_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) $(TARGET_EXTRA_VARS)
+
+# ============================================================================
+# RANCHER DOWNSTREAM CLUSTER (TOFU)
+# ============================================================================
+# Creates a Rancher-managed downstream cluster by calling the Rancher API via
+# the tofu/rancher/cluster module. This is distinct from the infra modules
+# (TOFU_DIR), which only provision raw VMs. Required inputs:
+#   * DOWNSTREAM_TFVARS - your cluster vars (kubernetes_version, machine_pools,
+#                         cloud_provider, node_config, ...). See
+#                         tofu/rancher/cluster/vars.tfvars for a sample.
+#   * RANCHER_TFVARS    - fqdn + api_key written by the Rancher install
+#                         (ansible/rancher/default-ha/generated.tfvars).
+# Override WORKSPACE to manage multiple downstream clusters independently,
+# and AUTO_APPROVE=yes to skip prompts (CI).
+
+# Paths are made absolute because the tofu targets cd into DOWNSTREAM_TOFU_DIR before running.
+DOWNSTREAM_VAR_FILES := -var-file=$(abspath $(DOWNSTREAM_TFVARS)) -var-file=$(abspath $(RANCHER_TFVARS))
+
+.PHONY: check-downstream-tofu
+check-downstream-tofu: check-prereqs ## Validate downstream tofu inputs (DOWNSTREAM_TFVARS + RANCHER_TFVARS)
+	@if [ ! -d "$(DOWNSTREAM_TOFU_DIR)" ]; then \
+		echo "Error: downstream tofu module not found: $(DOWNSTREAM_TOFU_DIR)"; exit 1; \
+	fi
+	@if [ -z "$(DOWNSTREAM_TFVARS)" ]; then \
+		echo "Error: DOWNSTREAM_TFVARS is required (your downstream cluster vars)."; \
+		echo "       Example: make downstream-tofu DOWNSTREAM_TFVARS=tofu/rancher/cluster/vars.tfvars"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(DOWNSTREAM_TFVARS)" ]; then \
+		echo "Error: DOWNSTREAM_TFVARS not found: $(DOWNSTREAM_TFVARS)"; exit 1; \
+	fi
+	@if [ ! -f "$(RANCHER_TFVARS)" ]; then \
+		echo "Error: Rancher generated.tfvars not found at $(RANCHER_TFVARS)."; \
+		echo "       Install/refresh Rancher first (e.g. 'make rancher') or override: RANCHER_TFVARS=<path>"; \
+		exit 1; \
+	fi
+
+.PHONY: downstream-tofu-init
+downstream-tofu-init: check-downstream-tofu ## Initialize Tofu for the downstream cluster module (selects/creates WORKSPACE)
+	@echo "Initializing Tofu for $(DOWNSTREAM_TOFU_DIR) (workspace '$(WORKSPACE)')..."
+	@cd $(DOWNSTREAM_TOFU_DIR) && tofu init
+	@if [ "$(WORKSPACE)" != "default" ]; then \
+		echo "Selecting/creating workspace '$(WORKSPACE)'..."; \
+		cd $(DOWNSTREAM_TOFU_DIR) && { tofu workspace select $(WORKSPACE) || tofu workspace new $(WORKSPACE); }; \
+	fi
+
+.PHONY: downstream-tofu-plan
+downstream-tofu-plan: downstream-tofu-init ## Plan downstream cluster changes
+	@echo "Planning downstream cluster for workspace '$(WORKSPACE)'..."
+	cd $(DOWNSTREAM_TOFU_DIR) && tofu plan $(DOWNSTREAM_VAR_FILES)
+
+.PHONY: downstream-tofu
+downstream-tofu: downstream-tofu-init ## Create/apply the Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... required)
+	@echo "Applying downstream cluster for workspace '$(WORKSPACE)'..."
+	cd $(DOWNSTREAM_TOFU_DIR) && tofu apply $(DOWNSTREAM_VAR_FILES) $(if $(filter yes,$(AUTO_APPROVE)),-auto-approve)
+
+.PHONY: downstream-tofu-destroy
+downstream-tofu-destroy: downstream-tofu-init ## Destroy the downstream cluster (AUTO_APPROVE=yes to skip prompt)
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  Downstream Cluster Destroy - workspace '$(WORKSPACE)'"
+	@echo "═══════════════════════════════════════════════════════════════"
+	@cd $(DOWNSTREAM_TOFU_DIR) && \
+		resources=$$(tofu state list 2>/dev/null | wc -l); \
+		echo "Resources in state: $$resources"; \
+		if [ "$(AUTO_APPROVE)" = "yes" ]; then confirm="y"; \
+		elif [ ! -t 0 ]; then echo "  ERROR: stdin is not a TTY and AUTO_APPROVE is not 'yes'"; echo "  Re-run with: make downstream-tofu-destroy AUTO_APPROVE=yes"; exit 1; \
+		else read -p "Destroy downstream cluster in workspace '$(WORKSPACE)'? [y/N] " confirm; fi; \
+		[ "$$confirm" = "y" ] || { echo "Aborted."; exit 1; }
+	cd $(DOWNSTREAM_TOFU_DIR) && tofu destroy $(DOWNSTREAM_VAR_FILES) -auto-approve
+	@echo ""
+	@echo "✓ Downstream cluster destroyed"
+
+.PHONY: downstream-tofu-output
+downstream-tofu-output: downstream-tofu-init ## Show downstream cluster tofu outputs
+	cd $(DOWNSTREAM_TOFU_DIR) && tofu output
 
 # ============================================================================
 # UTILITIES
@@ -579,6 +835,42 @@ status: check-inventory ## Show cluster status
 		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
 		echo "Run 'make cluster' first to deploy the cluster."; \
 	fi
+
+.PHONY: images
+images: check-inventory ## List all container images and tags running in the cluster
+	@echo "Container Images ($(DISTRO)/$(ENV)):"
+	@echo ""
+	@set -o pipefail; if [ "$(ENV)" = "airgap" ]; then \
+		echo "(airgap: reporting the cluster configured on the bastion — see 'make kubectl-setup')"; \
+		export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible -i $(INVENTORY) bastion -m shell -a "command -v kubectl >/dev/null 2>&1 && kubectl get pods -A -o jsonpath='{..image}' | tr -s '[[:space:]]' '\n' | sort -u" || echo "Could not list images — is kubectl set up on the bastion? Run 'make kubectl-setup' first."; \
+	elif [ -f "$(KUBECONFIG_FILE)" ]; then \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -A -o jsonpath='{..image}' | tr -s '[[:space:]]' '\n' | sort -u || echo "Could not list images"; \
+	else \
+		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
+		echo "Run 'make cluster' first to deploy the cluster."; \
+		exit 1; \
+	fi
+
+.PHONY: images-digests
+images-digests: check-inventory ## List pulled image digests (true versions behind mutable tags)
+	@echo "Container Image Digests ($(DISTRO)/$(ENV)):"
+	@echo ""
+	@set -o pipefail; if [ "$(ENV)" = "airgap" ]; then \
+		echo "(airgap: reporting the cluster configured on the bastion — see 'make kubectl-setup')"; \
+		export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible -i $(INVENTORY) bastion -m shell -a "command -v kubectl >/dev/null 2>&1 && kubectl get pods -A -o jsonpath='{..imageID}' | tr -s '[[:space:]]' '\n' | sort -u | grep -v '^$$'" || echo "Could not list images — is kubectl set up on the bastion? Run 'make kubectl-setup' first."; \
+	elif [ -f "$(KUBECONFIG_FILE)" ]; then \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -A -o jsonpath='{..imageID}' | tr -s '[[:space:]]' '\n' | sort -u | grep -v '^$$' || echo "Could not list images"; \
+	else \
+		echo "No kubeconfig found at $(KUBECONFIG_FILE)"; \
+		echo "Run 'make cluster' first to deploy the cluster."; \
+		exit 1; \
+	fi
+
+.PHONY: rancher-info
+rancher-info: ## Display Rancher login information (URL, admin password, API token)
+	@python3 scripts/show_rancher_info.py --env $(ENV) --distro $(DISTRO) --root $(CURDIR)
 
 .PHONY: ssh-bastion
 ssh-bastion: check-inventory ## SSH to bastion host
@@ -615,18 +907,44 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster $(REGISTRY_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
+
+.PHONY: airgap-downstream
+airgap-downstream: check-inventory ## Full airgap multi-cluster: downstream RKE2 + rancher RKE2 + Rancher + register downstream
+	@if [ "$(ENV)" != "airgap" ]; then \
+		echo "ERROR: 'airgap-downstream' requires ENV=airgap"; exit 1; \
+	fi
+	@echo ""
+	@echo "==> [1/5] Installing $(DISTRO) on downstream group..."
+	@$(MAKE) cluster DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=downstream
+	@echo ""
+	@echo "==> [2/5] Configuring private registry on downstream group..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+		ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-registry-config-playbook.yml -e target=downstream -v $(ANSIBLE_EXTRA_VARS)
+	@echo ""
+	@echo "==> [3/5] Installing $(DISTRO) on rancher group..."
+	@$(MAKE) cluster DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=rancher
+	@echo ""
+	@echo "==> [4/5] Deploying Rancher on rancher group..."
+	# Intentionally clear TARGET_GROUP so the Rancher deploy step never inherits a
+	# stray target group from the command line or an earlier step in this flow.
+	@$(MAKE) rancher DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=
+	@echo ""
+	@echo "==> [5/5] Registering downstream cluster into Rancher..."
+	@$(MAKE) downstream DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=downstream
+	@echo ""
+	@echo "Airgap Rancher + downstream cluster setup complete!"
 
 # ============================================================================
 # DEBUG

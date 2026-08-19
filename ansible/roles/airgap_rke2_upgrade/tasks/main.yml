@@ -29,7 +29,7 @@
 
     - name: Create backup directory
       ansible.builtin.file:
-        path: /opt/rke2-backup-{{ ansible_date_time.epoch }}
+        path: /opt/rke2-backup-{{ ansible_facts.date_time.epoch }}
         state: directory
         mode: "0755"
       become: true
@@ -37,7 +37,7 @@
     - name: Backup current RKE2 configuration
       ansible.builtin.copy:
         src: "{{ item }}"
-        dest: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/"
+        dest: "/opt/rke2-backup-{{ ansible_facts.date_time.epoch }}/"
         remote_src: true
         backup: true
         mode: preserve
@@ -159,7 +159,7 @@
         - name: Backup current RKE2 binaries
           ansible.builtin.copy:
             src: /usr/local/bin/rke2
-            dest: /opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup
+            dest: /opt/rke2-backup-{{ ansible_facts.date_time.epoch }}/rke2-binary-backup
             remote_src: true
             mode: "0755"
           become: true
@@ -268,7 +268,7 @@
 
             - name: Restore backup binary if available
               ansible.builtin.copy:
-                src: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/rke2-binary-backup"
+                src: "/opt/rke2-backup-{{ ansible_facts.date_time.epoch }}/rke2-binary-backup"
                 dest: /usr/local/bin/rke2
                 remote_src: true
                 mode: "0755"
@@ -277,7 +277,7 @@
 
             - name: Restore configuration
               ansible.builtin.copy:
-                src: "/opt/rke2-backup-{{ ansible_date_time.epoch }}/config.yaml"
+                src: "/opt/rke2-backup-{{ ansible_facts.date_time.epoch }}/config.yaml"
                 dest: /etc/rancher/rke2/config.yaml
                 remote_src: true
                 mode: "0644"
@@ -295,7 +295,7 @@
               ansible.builtin.debug:
                 msg: |
                   RKE2 upgrade failed and rollback attempted.
-                  Check the backup directory: /opt/rke2-backup-{{ ansible_date_time.epoch }}
+                  Check the backup directory: /opt/rke2-backup-{{ ansible_facts.date_time.epoch }}
                   Manual intervention may be required.
 
         - name: Re-raise the original error

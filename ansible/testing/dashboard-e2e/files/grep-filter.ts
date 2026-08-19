@@ -20,25 +20,74 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
-const globby = require('globby') as { sync: (patterns: string[], opts: { cwd: string; ignore: string[]; absolute: boolean }) => string[] };
-const { getTestNames } = require('find-test-names') as { getTestNames: (text: string) => { tests: Array<{ tags: string[] }> } };
-const { parseGrep, shouldTestRun } = require('@cypress/grep/src/utils') as {
-  parseGrep: (title: string | null, tags: string) => unknown;
-  shouldTestRun: (parsed: unknown, title: string | null, tags: string[]) => boolean;
+// A checkout that does not declare these fails here with a bare module
+// resolution stack trace, which reads as a broken script rather than an
+// incomplete checkout. Name the package and the consequence instead.
+const requireOrExplain = (moduleName: string): unknown => {
+  try {
+    return require(moduleName);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException | undefined)?.code === 'MODULE_NOT_FOUND') {
+      console.error(`[grep-filter] '${ moduleName }' is not installed in this checkout.`);
+      console.error('[grep-filter] Spec pre-selection needs it, so tag filtering cannot run.');
+      console.error('[grep-filter] It is installed from cypress/yarn.lock, so the checkout has');
+      console.error('[grep-filter] to declare it. release-2.14 and newer do.');
+      process.exit(1);
+    }
+    throw e;
+  }
 };
+
+const globby = requireOrExplain('globby') as { sync: (patterns: string[], opts: { cwd: string; ignore: string[]; absolute: boolean }) => string[] };
+const { getTestNames } = requireOrExplain('find-test-names') as { getTestNames: (text: string) => { tests: Array<{ tags: string[] }> } };
+
+// Resolve utils.js dynamically relative to the main entrypoint to bypass exports encapsulation in v6
+let parseGrep: (title: string | null, tags: string) => unknown;
+let shouldTestRun: (parsed: unknown, title: string | null, tags: string[]) => boolean;
+
+// Only a genuinely absent module justifies the legacy fallback. Any other error
+// is a real fault inside @cypress/grep and must surface as itself, rather than
+// being retried and reported as a misleading module-resolution failure.
+const isModuleResolutionError = (e: unknown): boolean => {
+  const code = (e as NodeJS.ErrnoException | undefined)?.code;
+
+  return code === 'MODULE_NOT_FOUND' || code === 'ERR_PACKAGE_PATH_NOT_EXPORTED';
+};
+
+try {
+  const grepMain = require.resolve('@cypress/grep');
+  const grepUtilsPath = path.join(path.dirname(grepMain), 'utils.js');
+  ({ parseGrep, shouldTestRun } = require(grepUtilsPath) as {
+    parseGrep: (title: string | null, tags: string) => unknown;
+    shouldTestRun: (parsed: unknown, title: string | null, tags: string[]) => boolean;
+  });
+} catch (e) {
+  if (!isModuleResolutionError(e)) {
+    throw e;
+  }
+
+  // Fallback to legacy path for older branches using @cypress/grep v3/v4
+  ({ parseGrep, shouldTestRun } = require('@cypress/grep/src/utils') as {
+    parseGrep: (title: string | null, tags: string) => unknown;
+    shouldTestRun: (parsed: unknown, title: string | null, tags: string[]) => boolean;
+  });
+}
 
 const grepTags: string | undefined = process.env.CYPRESS_grepTags || process.env.GREP_TAGS;
 
 if (!grepTags) {
-  // No tags specified — run all specs (output nothing so cypress.sh skips --spec)
+  // No tags specified, so run all specs (output nothing so cypress.sh skips --spec)
   process.exit(0);
 }
+
+const testSkip: string = process.env.TEST_SKIP || '';
+const skipSetup: boolean = testSkip.includes('setup') || process.env.TEST_SKIP_SETUP === 'true';
 
 // IMPORTANT: keep in sync with testDirs in cypress.config.jenkins.ts
 const testDirs: string[] = [
   'cypress/e2e/tests/priority/**/*.spec.ts',
   'cypress/e2e/tests/components/**/*.spec.ts',
-  'cypress/e2e/tests/setup/**/*.spec.ts',
+  ...(skipSetup ? [] : ['cypress/e2e/tests/setup/**/*.spec.ts']),
   'cypress/e2e/tests/pages/**/*.spec.ts',
   'cypress/e2e/tests/navigation/**/*.spec.ts',
   'cypress/e2e/tests/global-ui/**/*.spec.ts',
@@ -64,7 +113,7 @@ const matched: string[] = specFiles.filter((specFile: string) => {
     return testInfo.tests.some((info) => shouldTestRun(parsedGrep, null, info.tags));
   } catch {
     // If we can't parse it, include it so Cypress can handle it at runtime
-    console.error('grep-filter: could not parse %s — including it', specFile);
+    console.error('grep-filter: could not parse %s, including it', specFile);
 
     return true;
   }

@@ -145,7 +145,11 @@ aws_access_key        = "key"
 aws_secret_key        = "secretkey"
 aws_ami               = "ami-"
 instance_type         = "t3.xlarge"
-aws_security_group    = ["sg-"]
+# aws_security_group is optional. When omitted (or set to []) the module
+# provisions its own security group inside var.aws_vpc that opens SSH, the
+# intra-group traffic the RKE2/Rancher cluster needs, and the load balancer
+# listener ports (80, 443, 6443, 9345). Set it to reuse a pre-existing group.
+# aws_security_group  = ["sg-"]
 aws_subnet_airgap     = "subnet-0b80e9a553633f5a9" # This subnet should not allow internet connectivity
 aws_subnet_bastion    = "subnet-ee8cac86"
 aws_volume_size       = 500

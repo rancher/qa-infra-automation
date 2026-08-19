@@ -3,6 +3,7 @@ import { defineConfig } from 'cypress';
 import { removeDirectory } from 'cypress-delete-downloads-folder';
 import websocketTasks from '../../cypress/support/utils/webSocket-utils';
 import path from 'path';
+import * as os from 'os';
 
 // Required for env vars to be available in cypress
 require('dotenv').config();
@@ -26,6 +27,22 @@ const baseUrl = (process.env.TEST_BASE_URL || 'https://localhost:8005').replace(
 const DEFAULT_USERNAME = 'admin';
 const username = process.env.TEST_USERNAME || DEFAULT_USERNAME;
 const apiUrl = process.env.API || (baseUrl.endsWith('/dashboard') ? baseUrl.split('/').slice(0, -1).join('/') : baseUrl);
+
+/**
+ * Share of a single core used over a short window, matching how dashboard's
+ * own base-config.ts reports it.
+ */
+const sampleCpuPercent = (sampleMs = 100): Promise<number> => new Promise((resolve) => {
+  const startUsage = process.cpuUsage();
+  const startTime = Date.now();
+
+  setTimeout(() => {
+    const usage = process.cpuUsage(startUsage);
+    const elapsedMicroseconds = (Date.now() - startTime) * 1000;
+
+    resolve((usage.user + usage.system) / elapsedMicroseconds * 100);
+  }, sampleMs);
+});
 
 /**
  * LOGS:
@@ -59,12 +76,96 @@ if (apiUrl && !baseUrl.startsWith(apiUrl)) {
   console.log('\n ❗ API variable is different to TEST_BASE_URL - tests may fail due to authentication issues');
 }
 
-// Conditionally enable Qase reporter only if reporting is requested AND a token is present
-const qaseEnabled = (process.env.QASE_REPORT === 'true' || process.env.qase_report === 'true') && !!(process.env.QASE_AUTOMATION_TOKEN || process.env.qase_automation_token);
+// The reporter chain is resolved by name at runtime, so a missing package is a
+// hard failure inside Cypress rather than a build error here.
+// `cypress-multi-reporters`, `mocha-junit-reporter` and `cypress-qase-reporter`
+// only exist in the dashboard master dependency set. Clone runs overlay master's
+// manifests onto release branches and therefore always have them. A
+// `--dashboard-dir` run keeps the local checkout's own manifest, so a release
+// branch checkout has only `cypress-mochawesome-reporter`. Degrade to that
+// rather than failing the run.
+const canResolve = (moduleName: string): boolean => {
+  try {
+    require.resolve(moduleName);
 
-if (qaseEnabled) {
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const multiReporters = canResolve('cypress-multi-reporters') && canResolve('mocha-junit-reporter');
+
+if (!multiReporters) {
+  console.log('Reporters: cypress-multi-reporters or mocha-junit-reporter is not installed. Falling back to cypress-mochawesome-reporter. No JUnit XML will be produced.');
+}
+
+// Cypress resolves a reporter name against the project root alone, ignoring
+// NODE_PATH and nested node_modules. A root node_modules therefore breaks a
+// name `require.resolve` finds, and no JUnit XML is written at all. Hand it a
+// root relative path instead. The root comes from the entrypoint because
+// Cypress evaluates this file from its own directory.
+const projectRoot = process.env.E2E_PROJECT_ROOT || process.cwd();
+const reporterPath = (moduleName: string): string => {
+  try {
+    const relative = path.relative(projectRoot, require.resolve(moduleName));
+
+    return relative.startsWith('..') ? moduleName : relative;
+  } catch {
+    return moduleName;
+  }
+};
+
+// @cypress/grep v5+ reads its settings through the Cypress 15 `Cypress.expose`
+// API and ignores `env` entirely, so tags placed in `env` silently disable all
+// test level filtering. Cypress 11 rejects an unknown top level `expose` key,
+// so pick the one the installed pair understands. The v5+ layout exposes
+// `@cypress/grep/plugin`; v3/v4 only ship `src/plugin`.
+const grepSettings = {
+  grepFilterSpecs:  false,
+  grepOmitFiltered: true,
+  // Note: grepTags is fully calculated in the cypress.sh entrypoint
+  grepTags:         process.env.CYPRESS_grepTags || process.env.GREP_TAGS
+};
+const grepUsesExpose = canResolve('@cypress/grep/plugin');
+
+console.log(`Grep: passing filter settings through '${ grepUsesExpose ? 'expose' : 'env' }' (tags: ${ grepSettings.grepTags || 'none' })`);
+
+// Conditionally enable Qase reporter only if reporting is requested AND a token is present
+const qaseRequested = (process.env.QASE_REPORT === 'true' || process.env.qase_report === 'true') && !!(process.env.QASE_AUTOMATION_TOKEN || process.env.qase_automation_token);
+const qaseEnabled = qaseRequested && multiReporters && canResolve('cypress-qase-reporter');
+
+if (qaseRequested && !qaseEnabled) {
+  console.log('Qase: Reporting was requested but the reporter chain is unavailable in this checkout. Qase reporting is disabled for this run.');
+} else if (qaseEnabled) {
   console.log('Qase: Reporting enabled. Automation token is defined.');
 }
+
+const multiReporterOptions = {
+  reporterEnabled:                   `cypress-mochawesome-reporter, mocha-junit-reporter${ qaseEnabled ? ', cypress-qase-reporter' : '' }`,
+  mochaJunitReporterReporterOptions: {
+    mochaFile:      'cypress/jenkins/reports/junit/junit-[hash].xml',
+    toConsole:      false,
+    jenkinsMode:    true,
+    includePending: true
+  },
+  cypressMochawesomeReporterReporterOptions: { charts: false },
+  cypressQaseReporterReporterOptions:        {
+    mode:    qaseEnabled ? 'testops' : 'off',
+    debug:   process.env.QASE_DEBUG === 'true',
+    testops: {
+      api:               { token: process.env.QASE_AUTOMATION_TOKEN || process.env.qase_automation_token },
+      project:           process.env.QASE_PROJECT || process.env.qase_project || 'SANDBOX',
+      uploadAttachments: true,
+      run:               {
+        title:       `UI E2E - ${ process.env.RANCHER_IMAGE_TAG || 'unknown' } - ${ process.env.CYPRESS_grepTags || 'none' } - ${ new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC') }`,
+        description: `Rancher Version: ${ process.env.RANCHER_VERSION || 'unknown' } | Tags: ${ process.env.CYPRESS_grepTags || 'none' }`,
+        complete:    true
+      }
+    },
+    framework: { cypress: { screenshotsFolder: 'cypress/screenshots' } }
+  }
+};
 
 console.log('');
 
@@ -72,6 +173,7 @@ console.log('');
  * CONFIGURATION
  */
 export default defineConfig({
+  ...(grepUsesExpose ? { expose: grepSettings } : {}),
   projectId:             process.env.TEST_PROJECT_ID,
   defaultCommandTimeout: process.env.TEST_TIMEOUT ? +process.env.TEST_TIMEOUT : 10000,
   trashAssetsBeforeRuns: false,
@@ -81,15 +183,12 @@ export default defineConfig({
     openMode: 0
   },
   env: {
-    grepFilterSpecs:     false,
-    grepOmitFiltered:    true,
+    ...(grepUsesExpose ? {} : grepSettings),
     baseUrl,
     api:                 apiUrl,
     username,
     password:            process.env.CATTLE_BOOTSTRAP_PASSWORD || process.env.TEST_PASSWORD,
     bootstrapPassword:   process.env.CATTLE_BOOTSTRAP_PASSWORD,
-    // Note: grepTags is now fully calculated in cypress.sh entrypoint
-    grepTags:            process.env.CYPRESS_grepTags || process.env.GREP_TAGS,
     // the below env vars are only available to tests that run in Jenkins
     awsAccessKey:        process.env.AWS_ACCESS_KEY_ID,
     awsSecretKey:        process.env.AWS_SECRET_ACCESS_KEY,
@@ -106,35 +205,27 @@ export default defineConfig({
     allowFilteredCatalogSkip: process.env.CYPRESS_ALLOW_FILTERED_CATALOG_SKIP !== 'false',
   },
   // Jenkins reporters configuration jUnit and HTML
-  reporter:        'cypress-multi-reporters',
-  reporterOptions: {
-    reporterEnabled:                   `cypress-mochawesome-reporter, mocha-junit-reporter${ qaseEnabled ? ', cypress-qase-reporter' : '' }`,
-    mochaJunitReporterReporterOptions: {
-      mochaFile:      'cypress/jenkins/reports/junit/junit-[hash].xml',
-      toConsole:      false,
-      jenkinsMode:    true,
-      includePending: true
-    },
-    cypressMochawesomeReporterReporterOptions: { charts: false },
-    cypressQaseReporterReporterOptions:        {
-      mode:    qaseEnabled ? 'testops' : 'off',
-      debug:   process.env.QASE_DEBUG === 'true',
-      testops: {
-        api:               { token: process.env.QASE_AUTOMATION_TOKEN || process.env.qase_automation_token },
-        project:           process.env.QASE_PROJECT || process.env.qase_project || 'SANDBOX',
-        uploadAttachments: true,
-        run:               {
-          title:       `UI E2E - ${ process.env.RANCHER_IMAGE_TAG || 'unknown' } - ${ process.env.CYPRESS_grepTags || 'none' } - ${ new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC') }`,
-          description: `Rancher Version: ${ process.env.RANCHER_VERSION || 'unknown' } | Tags: ${ process.env.CYPRESS_grepTags || 'none' }`,
-          complete:    true
-        }
-      },
-      framework: { cypress: { screenshotsFolder: 'cypress/screenshots' } }
-    }
-  },
+  reporter:        reporterPath(multiReporters ? 'cypress-multi-reporters' : 'cypress-mochawesome-reporter'),
+  reporterOptions: multiReporters ? multiReporterOptions : { charts: false },
   e2e: {
     setupNodeEvents(on, config) {
-      require('@cypress/grep/src/plugin')(config);
+      try {
+        // v5/v6 entrypoint
+        require('@cypress/grep/plugin').plugin(config);
+      } catch (e) {
+        // Only a genuinely absent module justifies the legacy fallback. Any
+        // other error is a real fault inside the plugin and must surface as
+        // itself, rather than being retried and reported as a misleading
+        // module-resolution failure.
+        const code = (e as NodeJS.ErrnoException)?.code;
+
+        if (code !== 'MODULE_NOT_FOUND' && code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+          throw e;
+        }
+
+        // Legacy v3/v4 entrypoint
+        require('@cypress/grep/src/plugin')(config);
+      }
 
       const mochawesome = require('cypress-mochawesome-reporter/lib');
 
@@ -175,8 +266,20 @@ export default defineConfig({
         });
       }
 
-      on('after:run', async() => {
-        await mochawesome.afterRunHook();
+      on('after:run', async(results: { totalTests?: number }) => {
+        // Report generation must never decide the outcome of a run.
+        // cypress-mochawesome-reporter 3.8.2, the version release branches pin,
+        // throws `RangeError: Invalid array length` when no test matched the
+        // grep tags, which turns an empty selection into a failed run.
+        if (results && results.totalTests === 0) {
+          console.log('Reporters: no tests ran, skipping report generation. Check that the grep tags match tests in the selected spec files.');
+        } else {
+          try {
+            await mochawesome.afterRunHook();
+          } catch (e) {
+            console.error('Reporters: mochawesome report generation failed, continuing without an HTML report:', e);
+          }
+        }
         if (qaseEnabled) {
           const { afterRunHook } = require('cypress-qase-reporter/hooks');
 
@@ -189,7 +292,22 @@ export default defineConfig({
         require('../../cypress/support/plugins/accessibility').default(on, config);
       }
 
-      on('task', { removeDirectory });
+      // Older branches call this task from a shared afterEach on failure. An
+      // unhandled task throws in the hook and skips the rest of the spec.
+      // master guards the call behind Cypress.env('hasHostStats'), so leaving
+      // that flag unset keeps master on the path it already takes.
+      on('task', {
+        removeDirectory,
+        getHostStats: async() => {
+          const totalMem = os.totalmem();
+          const usedMem = totalMem - os.freemem();
+
+          return {
+            memory:     `${ (usedMem / 1024 / 1024).toFixed(2) }MB (${ (usedMem / totalMem * 100).toFixed(2) }%)`,
+            processCpu: `${ (await sampleCpuPercent()).toFixed(2) }%`
+          };
+        }
+      });
       websocketTasks(on, config);
 
       require('cypress-terminal-report/src/installLogsPrinter')(on, {
@@ -205,11 +323,12 @@ export default defineConfig({
       return config;
     },
     fixturesFolder:               'cypress/e2e/blueprints',
-    experimentalSessionAndOrigin: true,
+    // Cypress 11 needs this to accept a suite level testIsolation. Cypress 12
+    // removed it. grep v5+ resolving means the checkout is on Cypress 15.
+    ...(grepUsesExpose ? {} : { experimentalSessionAndOrigin: true }),
     specPattern:                  testDirs,
     baseUrl
   },
-  video:               false,
-  videoCompression:    25,
-  videoUploadOnPasses: false,
+  video:            false,
+  videoCompression: 25,
 });
