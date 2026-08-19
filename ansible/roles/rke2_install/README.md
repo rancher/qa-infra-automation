@@ -20,6 +20,9 @@ For airgap installation:
 - RKE2 tarball available on target or control node
 - RKE2 images tarball available
 - RKE2 install script available
+- On SELinux-enabled SUSE hosts, `rke2-selinux` must already be installed and
+  loaded. The role verifies this prerequisite without contacting an RPM site
+  and fails before service enablement when it is missing.
 
 ## Role Variables
 
@@ -39,6 +42,9 @@ Variables defined in `defaults/main.yml`:
 | `rke2_airgap_install_script` | `""` | Path to install script for airgap |
 | `rke2_start_on_boot` | `true` | Enable RKE2 service to start on boot |
 | `rke2_start_after_install` | `false` | Start RKE2 immediately after install |
+| `rke2_install_selinux_policy` | `true` | Install and verify `rke2-selinux` on online SELinux-enabled SUSE hosts; verify the preinstalled policy without network access in airgap mode |
+| `rke2_selinux_rpm_site` | `rpm.rancher.io` | RPM host used for stable/latest SUSE SELinux policy installs |
+| `rke2_selinux_testing_rpm_site` | `rpm-testing.rancher.io` | RPM host used for testing-channel SUSE SELinux policy installs |
 
 ## Dependencies
 
@@ -136,6 +142,7 @@ The airgap method:
 **Requirements:**
 - Pre-downloaded tarballs available on target or Ansible control node
 - Sufficient disk space for images (~2-4 GB)
+- A preinstalled and loaded `rke2-selinux` policy on SELinux-enabled SUSE hosts
 
 ## Version Pinning
 

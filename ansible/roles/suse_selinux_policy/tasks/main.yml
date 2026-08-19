@@ -38,6 +38,11 @@
                regex('(?m)^(ID|VARIANT_ID)="?(sle-micro|sl-micro|sle-micro-rancher|transactional)"?$')))
              else 'microos' }}
 
+    - name: Resolve requested Rancher {{ suse_selinux_product }} common repository alias
+      ansible.builtin.set_fact:
+        suse_selinux_requested_common_alias: >-
+          rancher-{{ suse_selinux_product }}-common-{{ suse_selinux_rpm_channel }}
+
     - name: Gather installed package facts on SUSE
       ansible.builtin.package_facts:
         manager: auto
@@ -55,8 +60,21 @@
              (suse_selinux_modules.stdout_lines |
               select('match', '^' ~ suse_selinux_product ~ '(\s|$)') | list | length > 0) }}
 
+    - name: Verify the offline SUSE {{ suse_selinux_product }}-selinux prerequisite
+      ansible.builtin.assert:
+        that:
+          - suse_selinux_ready | bool
+        fail_msg: >-
+          Offline installation requires a preinstalled and loaded
+          {{ suse_selinux_product }}-selinux policy on SELinux-enabled SUSE hosts.
+          Install the policy and its dependencies from the offline image or an
+          internal repository before running this playbook.
+      when: suse_selinux_offline | bool
+
     - name: Install a valid {{ suse_selinux_product }}-selinux policy on SUSE
-      when: not suse_selinux_ready | bool
+      when:
+        - not suse_selinux_offline | bool
+        - not suse_selinux_ready | bool
       block:
         # Stop the OS auto-update timer so it cannot race the policy install;
         # permanent disable is opt-in (suse_disable_update_timer) for BYO hosts.
@@ -91,32 +109,79 @@
         - name: Find existing Rancher {{ suse_selinux_product }} common repositories
           ansible.builtin.find:
             paths: /etc/zypp/repos.d
-            patterns: "rancher-{{ suse_selinux_product }}-common*.repo"
+            # Repository identity comes from the section alias, not its filename.
+            patterns: "*.repo"
             file_type: file
+            contains: '^\[rancher-{{ suse_selinux_product }}-common-[^]]+\]'
           register: suse_selinux_repositories
-
-        - name: Remove existing Rancher {{ suse_selinux_product }} common repositories
-          ansible.builtin.file:
-            path: "{{ item.path }}"
-            state: absent
-          loop: "{{ suse_selinux_repositories.files }}"
-          loop_control:
-            label: "{{ item.path }}"
 
         - name: Check the installer-managed repository file
           ansible.builtin.stat:
             path: "{{ suse_selinux_installer_repo_file }}"
           register: suse_selinux_installer_repo
-        # The official installer may have written the same common alias inside
-        # its own repo file — strip that section to avoid duplicate aliases.
-        - name: Drop the common section from the installer-managed repository
-          ansible.builtin.replace:
-            path: "{{ suse_selinux_installer_repo_file }}"
-            regexp: '(?ms)^\[rancher-{{ suse_selinux_product }}-common-[^\]]*\].*?(?=^\[|\Z)'
-            replace: ''
+          when: suse_selinux_installer_repo_file != ''
+
+        - name: Read the installer-managed repository file
+          ansible.builtin.slurp:
+            src: "{{ suse_selinux_installer_repo_file }}"
+          register: suse_selinux_installer_repo_content
           when:
             - suse_selinux_installer_repo_file != ''
             - suse_selinux_installer_repo.stat.exists | default(false)
+
+        - name: Record existing Rancher {{ suse_selinux_product }} common repositories
+          ansible.builtin.set_fact:
+            suse_selinux_existing_common_repositories: >-
+              {{ suse_selinux_repositories.files | map(attribute='path') | list }}
+
+        - name: Record the installer-managed common repository
+          ansible.builtin.set_fact:
+            suse_selinux_existing_common_repositories: >-
+              {{ (suse_selinux_existing_common_repositories +
+                  [suse_selinux_installer_repo_file]) | unique | list }}
+          when: >-
+            ((suse_selinux_installer_repo_content.content | default('') | b64decode)
+             is regex('(?m)^\[rancher-' ~ suse_selinux_product ~ '-common-[^]]+\]'))
+
+        - name: Read existing Rancher {{ suse_selinux_product }} common repositories
+          ansible.builtin.slurp:
+            src: "{{ item }}"
+          loop: "{{ suse_selinux_existing_common_repositories }}"
+          register: suse_selinux_existing_common_repository_contents
+
+        - name: Initialize existing Rancher {{ suse_selinux_product }} common aliases
+          ansible.builtin.set_fact:
+            suse_selinux_existing_common_aliases: []
+
+        - name: Record existing Rancher {{ suse_selinux_product }} common aliases
+          ansible.builtin.set_fact:
+            suse_selinux_existing_common_aliases: >-
+              {{ suse_selinux_existing_common_aliases +
+                 ((item.content | b64decode) |
+                  regex_findall('(?m)^\[(rancher-' ~ suse_selinux_product ~
+                                '-common-[^]]+)\]')) }}
+          loop: "{{ suse_selinux_existing_common_repository_contents.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+        - name: Reject duplicate Rancher {{ suse_selinux_product }} common aliases
+          ansible.builtin.assert:
+            that:
+              - >-
+                suse_selinux_existing_common_aliases | length ==
+                suse_selinux_existing_common_aliases | unique | length
+            fail_msg: >-
+              Duplicate Rancher {{ suse_selinux_product }} common aliases were found:
+              {{ suse_selinux_existing_common_aliases | join(', ') }}.
+              Reconcile the duplicate aliases explicitly; existing repository
+              files are never deleted automatically.
+
+        - name: Preserve existing Rancher {{ suse_selinux_product }} common repositories
+          ansible.builtin.debug:
+            msg: >-
+              Using existing repository configuration from:
+              {{ suse_selinux_existing_common_repositories | join(', ') }}
+          when: suse_selinux_existing_common_repositories | length > 0
 
         - name: Ensure the SELinux RPM state directory exists
           ansible.builtin.file:
@@ -125,31 +190,44 @@
             mode: "0755"
           when: not suse_selinux_transactional.stat.exists
 
-        - name: Import the Rancher RPM signing key
-          ansible.builtin.rpm_key:
-            key: "https://{{ suse_selinux_resolved_rpm_site }}/public.key"
-            state: present
-          when: not suse_selinux_transactional.stat.exists
-
         - name: Configure the Rancher {{ suse_selinux_product }} common repository
           ansible.builtin.copy:
-            dest: "/etc/zypp/repos.d/rancher-{{ suse_selinux_product }}-common.repo"
+            dest: "/etc/zypp/repos.d/{{ suse_selinux_requested_common_alias }}.repo"
             mode: "0644"
             content: |
-              [rancher-{{ suse_selinux_product }}-common-{{ suse_selinux_rpm_channel }}]
+              [{{ suse_selinux_requested_common_alias }}]
               name=Rancher {{ suse_selinux_product | upper }} Common ({{ suse_selinux_rpm_channel }})
               baseurl=https://{{ suse_selinux_resolved_rpm_site }}/{{ suse_selinux_product }}/{{ suse_selinux_rpm_channel }}/common/{{ suse_selinux_rpm_variant }}/noarch
               enabled=1
               gpgcheck=1
               repo_gpgcheck=0
               gpgkey=https://{{ suse_selinux_resolved_rpm_site }}/public.key
+          when: suse_selinux_requested_common_alias not in suse_selinux_existing_common_aliases
+
+        - name: Refresh the selected Rancher {{ suse_selinux_product }} common repository
+          ansible.builtin.command:
+            argv:
+              - zypper
+              - --non-interactive
+              - --gpg-auto-import-keys
+              - refresh
+              - "{{ suse_selinux_requested_common_alias }}"
+          when: not suse_selinux_transactional.stat.exists
+          changed_when: false
 
         - name: Install {{ suse_selinux_product }}-selinux from the Rancher repository
-          community.general.zypper:
-            name: "{{ suse_selinux_product }}-selinux"
-            state: present
-            update_cache: true
+          ansible.builtin.command:
+            argv:
+              - zypper
+              - --non-interactive
+              - --gpg-auto-import-keys
+              - install
+              - --from
+              - "{{ suse_selinux_requested_common_alias }}"
+              - "{{ suse_selinux_product }}-selinux"
           when: not suse_selinux_transactional.stat.exists
+          register: suse_selinux_zypper_install
+          changed_when: suse_selinux_zypper_install.rc == 0
 
         # rpm-state must exist inside the SAME snapshot the rpm installs into
         # (the SELinux macro needs it), so it is created within the transaction.
@@ -159,7 +237,7 @@
               transactional-update --no-selfupdate -d -n run sh -c
               'mkdir -p /var/lib/rpm-state;
               rpm -q {{ suse_selinux_product }}-selinux >/dev/null 2>&1 && zypper -n remove {{ suse_selinux_product }}-selinux;
-              zypper -n --gpg-auto-import-keys install {{ suse_selinux_product }}-selinux'
+              zypper --non-interactive --gpg-auto-import-keys install --from {{ suse_selinux_requested_common_alias }} {{ suse_selinux_product }}-selinux'
           when: suse_selinux_transactional.stat.exists
           register: suse_selinux_tu_install
           changed_when: suse_selinux_tu_install.rc == 0

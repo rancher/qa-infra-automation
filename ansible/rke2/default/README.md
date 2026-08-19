@@ -38,6 +38,8 @@ Each role can be executed independently using Ansible tags, enabling selective e
 - `kube_api_host`
 - `fqdn`
 - `cni`
+- `server_flags` / `worker_flags` (preferred YAML mappings)
+- `rke2_cni` / `rke2_additional_config` (legacy-compatible aliases, still honored)
 
 **Tags:** `config`, `rke2`
 
@@ -56,6 +58,7 @@ Each role can be executed independently using Ansible tags, enabling selective e
 - `rke2_airgap_tarball` (required for airgap, path to RKE2 tarball on remote host)
 - `rke2_airgap_images_tarball` (optional, path to RKE2 images tarball)
 - `rke2_airgap_install_script` (required for airgap, path to install script on remote host)
+- `rke2_install_selinux_policy` (installs on online SUSE hosts; verifies the preinstalled policy without network access in airgap mode)
 
 **Tags:** `install`, `rke2`
 

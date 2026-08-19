@@ -9,6 +9,9 @@ suse_selinux_testing_rpm_site: "rpm-testing.rancher.io"
 # (the RKE2 script writes rancher-rke2.repo); empty = nothing to reconcile.
 suse_selinux_installer_repo_file: ""
 suse_selinux_policy_install: true
+# Offline mode never configures or contacts an RPM repository. On an
+# SELinux-enabled host the package and module must already be installed.
+suse_selinux_offline: false
 
 # Keep the SUSE auto-update timer disabled after the run (opt-in; by default
 # the timer is only stopped during the policy install and restored afterwards).

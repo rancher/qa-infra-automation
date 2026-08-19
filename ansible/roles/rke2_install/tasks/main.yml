@@ -174,7 +174,7 @@
     - rke2_install_result is changed
     - rke2_installer_method != 'tar'
 
-- name: Install the RKE2 SELinux policy on SUSE hosts
+- name: Ensure the RKE2 SELinux policy on SUSE hosts
   ansible.builtin.include_role:
     name: suse_selinux_policy
   vars:
@@ -184,6 +184,9 @@
     suse_selinux_rpm_site: "{{ rke2_selinux_rpm_site }}"
     suse_selinux_testing_rpm_site: "{{ rke2_selinux_testing_rpm_site }}"
     suse_selinux_installer_repo_file: /etc/zypp/repos.d/rancher-rke2.repo
+    suse_selinux_offline: "{{ rke2_install_method == 'airgap' }}"
+  when:
+    - rke2_install_selinux_policy | bool
 
 - name: Enable RKE2 service
   ansible.builtin.systemd:
