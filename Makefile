@@ -53,7 +53,7 @@ export ANSIBLE_HOST_KEY_CHECKING := False
 
 # Validate configuration
 VALID_DISTROS   := rke2 k3s
-VALID_ENVS      := airgap default proxy dualstack ipv6
+VALID_ENVS      := airgap default proxy dualstack
 VALID_PROVIDERS := aws gcp harvester
 
 # ============================================================================
@@ -68,12 +68,12 @@ help: ## Show this help message
 	@echo ""
 	@echo "Current Configuration:"
 	@echo "  DISTRO   = $(DISTRO)      (options: rke2, k3s)"
-	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy, dualstack, ipv6)"
+	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy, dualstack)"
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo "  WORKSPACE = $(WORKSPACE)    (tofu workspace name)"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws WORKSPACE=myworkspace"
-	@echo "At the moment this only supports rke2, default/airgap/dualstack/ipv6, and aws"
+	@echo "At the moment this only supports rke2, default/airgap/dualstack, and aws"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. Configure $(TOFU_DIR)/terraform.tfvars"
