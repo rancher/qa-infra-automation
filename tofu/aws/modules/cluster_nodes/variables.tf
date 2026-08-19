@@ -46,10 +46,12 @@ variable "nodes" {
     error_message = "At least one node group must include the \"cp\" role with count > 0. K3s/RKE2 clusters need a real control-plane node."
   }
 }
+
 variable "airgap_setup" {
   type        = bool
   default     = false
 }
+
 variable "proxy_setup" {
   type        = bool
   default     = false
