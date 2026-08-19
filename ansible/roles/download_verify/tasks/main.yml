@@ -19,6 +19,8 @@
     dest: "{{ _dv_checksum_file }}"
     mode: "0644"
     timeout: "{{ dv_timeout }}"
+  register: _dv_checksum_download
+  until: _dv_checksum_download is succeeded
   retries: "{{ dv_retries }}"
   delay: "{{ dv_delay }}"
   when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'
@@ -92,6 +94,7 @@
     timeout: "{{ dv_timeout }}"
     return_content: true
   register: _dv_github_release
+  until: _dv_github_release is succeeded
   retries: "{{ dv_retries }}"
   delay: "{{ dv_delay }}"
   when:
@@ -126,9 +129,10 @@
     dest: "{{ dv_dest }}"
     mode: "{{ dv_mode }}"
     timeout: "{{ dv_timeout }}"
+  register: _dv_download_result
+  until: _dv_download_result is succeeded
   retries: "{{ dv_retries }}"
   delay: "{{ dv_delay }}"
-  register: _dv_download_result
   when: dv_checksum_format == 'github_release'
 
 - name: Compute SHA256 of downloaded artifact
@@ -189,9 +193,10 @@
     checksum: "sha256:{{ _dv_expected_checksum }}"
     mode: "{{ dv_mode }}"
     timeout: "{{ dv_timeout }}"
+  register: _dv_download_result
+  until: _dv_download_result is succeeded
   retries: "{{ dv_retries }}"
   delay: "{{ dv_delay }}"
-  register: _dv_download_result
   when: dv_checksum_format == 'github_release'
 
 - name: Download artifact with checksum verification (non-release formats)
@@ -201,9 +206,10 @@
     checksum: "sha256:{{ _dv_expected_checksum }}"
     mode: "{{ dv_mode }}"
     timeout: "{{ dv_timeout }}"
+  register: _dv_download_result
+  until: _dv_download_result is succeeded
   retries: "{{ dv_retries }}"
   delay: "{{ dv_delay }}"
-  register: _dv_download_result
   when: dv_checksum_format != 'github_release'
 
 - name: Post-download SHA256 verification

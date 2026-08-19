@@ -39,7 +39,7 @@ dv_checksum_cache_dir: "/tmp/download_verify_cache"
 
 # Download settings
 dv_mode: "0644"
-dv_timeout: 300
+dv_timeout: 60
 dv_retries: 3
 dv_delay: 10
 
