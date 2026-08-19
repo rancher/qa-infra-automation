@@ -100,21 +100,39 @@
           server_flags/worker_flags must be YAML mappings ('key: value' lines),
           not command-line flags
       tags: ['config', 'rke2']
-  roles:
-    - role: rke2_config
+
+    # Resolve compatibility inputs before role params take precedence over
+    # vars_files/group_vars. Explicit rke2_* variables retain their historical
+    # behavior; cni and server_flags/worker_flags remain the preferred interface.
+    - name: Resolve RKE2 configuration inputs
+      ansible.builtin.set_fact:
+        _rke2_playbook_cni: >-
+          {{ rke2_cni if rke2_cni is defined else (cni | default('')) }}
+        _rke2_playbook_additional_config: >-
+          {{ rke2_additional_config
+             if rke2_additional_config is defined
+             else (((server_flags
+                     if (rke2_node_role == 'master' or
+                         'cp' in (node_roles | default([])) or
+                         'etcd' in (node_roles | default([])))
+                     else worker_flags) | default('') | from_yaml) or {}) }}
+      tags: ['config', 'rke2']
+  tasks:
+    # Keep this dynamic: a static role declaration exposes rke2_config defaults
+    # to pre_tasks, making rke2_cni/rke2_additional_config always look defined.
+    - name: Generate RKE2 configuration
+      ansible.builtin.include_role:
+        name: rke2_config
+        apply:
+          tags: ['config', 'rke2']
       vars:
         # cni wins over a cni inside rke2_additional_config, with one
         # historical exception: calico (the role default) yields to it.
         # Empty keeps the RKE2 default (no cni key rendered).
-        rke2_cni: "{{ cni | default('') }}"
+        rke2_cni: "{{ _rke2_playbook_cni }}"
         # server_flags/worker_flags are YAML scalars merged into the node's
         # config.yaml; an explicit rke2_additional_config extra-var (DTF) wins.
-        rke2_additional_config: >-
-          {{ ((server_flags
-               if (rke2_node_role == 'master' or
-                   'cp' in (node_roles | default([])) or
-                   'etcd' in (node_roles | default([])))
-               else worker_flags) | default('') | from_yaml) or {} }}
+        rke2_additional_config: "{{ _rke2_playbook_additional_config }}"
       tags: ['config', 'rke2']
 
 - hosts: all

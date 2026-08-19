@@ -63,11 +63,26 @@ def _playbook_config_vars():
     with open(PLAYBOOK_PATH, encoding="utf-8") as playbook_file:
         plays = yaml.safe_load(playbook_file)
     for play in plays:
-        for role in play.get("roles", []):
-            if isinstance(role, dict) and role.get("role") == "rke2_config":
-                return role["vars"]
+        for task in play.get("tasks", []) or []:
+            include = task.get("ansible.builtin.include_role", {})
+            if include.get("name") == "rke2_config":
+                return task["vars"]
 
-    raise AssertionError("rke2_config role vars not found in rke2-playbook.yml")
+    raise AssertionError("rke2_config include vars not found in rke2-playbook.yml")
+
+
+def _playbook_config_input_task():
+    """Return the playbook task that resolves legacy and preferred inputs."""
+    with open(PLAYBOOK_PATH, encoding="utf-8") as playbook_file:
+        plays = yaml.safe_load(playbook_file)
+    for play in plays:
+        for task in play.get("pre_tasks", []) or []:
+            if task.get("name") == "Resolve RKE2 configuration inputs":
+                task = dict(task)
+                task.pop("tags", None)
+                return task
+
+    raise AssertionError("RKE2 configuration input resolver not found")
 
 
 def _resolve_cni_task():
@@ -261,8 +276,15 @@ class TestCNIPrecedence(unittest.TestCase):
     def test_server_flags_reach_config_through_playbook(self):
         """vars.yaml server_flags/worker_flags land in the rendered config."""
         config_vars = _playbook_config_vars()
-        additional_expr = config_vars["rke2_additional_config"]
+        resolve_inputs = _playbook_config_input_task()
         resolve_task = _resolve_cni_task()
+        bind_role_params = {
+            "name": "Bind resolved playbook inputs to role parameters",
+            "ansible.builtin.set_fact": {
+                "rke2_cni": config_vars["rke2_cni"],
+                "rke2_additional_config": config_vars["rke2_additional_config"],
+            },
+        }
 
         cases = [
             (
@@ -291,19 +313,83 @@ class TestCNIPrecedence(unittest.TestCase):
                 merged = dict(BASE_VARS)
                 merged.update(facts)
                 merged.update(flags)
-                merged.update(
-                    {"rke2_cni": "", "rke2_additional_config": additional_expr}
-                )
                 play = {
                     "name": f"server_flags contract: {case}",
                     "hosts": "localhost",
                     "gather_facts": False,
                     "vars": merged,
                     "tasks": [
+                        resolve_inputs,
+                        bind_role_params,
                         resolve_task,
                         *RENDER_TASKS,
                         {
                             "name": "Verify flags landed",
+                            "ansible.builtin.assert": {"that": checks},
+                        },
+                    ],
+                }
+                result = self._run(play)
+                self.assertEqual(
+                    result.returncode, 0, msg=result.stdout + result.stderr
+                )
+
+    def test_playbook_preserves_legacy_and_preferred_inputs(self):
+        """Role params must not shadow vars.yaml/group_vars compatibility inputs."""
+        resolve_inputs = _playbook_config_input_task()
+        cases = [
+            (
+                "legacy rke2_cni",
+                {"rke2_cni": "cilium"},
+                ["_rke2_playbook_cni == 'cilium'"],
+            ),
+            (
+                "preferred cni",
+                {"cni": "canal"},
+                ["_rke2_playbook_cni == 'canal'"],
+            ),
+            (
+                "legacy additional config wins over server flags",
+                {
+                    "rke2_additional_config": {"profile": "cis"},
+                    "server_flags": "profile: default",
+                },
+                ["_rke2_playbook_additional_config.profile == 'cis'"],
+            ),
+            (
+                "server flags remain the fallback",
+                {"server_flags": "profile: cis"},
+                ["_rke2_playbook_additional_config.profile == 'cis'"],
+            ),
+            (
+                "worker flags remain the agent fallback",
+                {
+                    "rke2_node_role": "agent",
+                    "node_roles": ["worker"],
+                    "worker_flags": "protect-kernel-defaults: true",
+                },
+                [
+                    "_rke2_playbook_additional_config['protect-kernel-defaults'] == true"
+                ],
+            ),
+        ]
+
+        for case, variables, checks in cases:
+            with self.subTest(case=case):
+                play_vars = {
+                    "rke2_node_role": "master",
+                    "node_roles": [],
+                }
+                play_vars.update(variables)
+                play = {
+                    "name": f"Playbook input precedence: {case}",
+                    "hosts": "localhost",
+                    "gather_facts": False,
+                    "vars": play_vars,
+                    "tasks": [
+                        resolve_inputs,
+                        {
+                            "name": "Verify resolved playbook inputs",
                             "ansible.builtin.assert": {"that": checks},
                         },
                     ],
