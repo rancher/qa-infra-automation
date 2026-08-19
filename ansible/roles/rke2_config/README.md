@@ -20,7 +20,7 @@ Variables defined in `defaults/main.yml`:
 |----------|---------|-------------|
 | `rke2_config_dir` | `/etc/rancher/rke2` | RKE2 configuration directory |
 | `rke2_token_file` | `{{ rke2_config_dir }}/token` | Path to cluster join token file |
-| `rke2_cni` | `calico` | Container Network Interface to use |
+| `rke2_cni` | `calico` | CNI written into config.yaml; `""` omits the key (RKE2 default). Any value other than `calico` wins over a `cni` set via `rke2_additional_config`; a `cni` in additional config overrides the historical `calico` default. Agents never render `cni` (server-only option). |
 | `rke2_server_config` | See defaults | Configuration for server nodes |
 | `rke2_agent_config` | See defaults | Configuration for agent nodes |
 | `rke2_disable_components` | `[]` | List of components to disable |
@@ -29,8 +29,8 @@ Variables defined in `defaults/main.yml`:
 ### Server Configuration Defaults
 
 ```yaml
+# cni is rendered separately from rke2_cni when set (empty = RKE2 default)
 rke2_server_config:
-  cni: "{{ rke2_cni }}"
   tls-san:
     - "{{ fqdn }}"
   write-kubeconfig-mode: "0644"
@@ -81,8 +81,8 @@ With custom server configuration:
   roles:
     - role: rke2_config
       vars:
+        rke2_cni: cilium
         rke2_server_config:
-          cni: "{{ rke2_cni }}"
           tls-san:
             - "{{ fqdn }}"
             - "api.example.com"

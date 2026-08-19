@@ -6,3 +6,7 @@ rke2_required_packages:
   - tar
   - curl
   - wget
+
+# Keep the SUSE auto-update timer disabled after the run (opt-in; by default
+# the timer is only stopped during installs and restored afterwards).
+suse_disable_update_timer: false
