@@ -19,17 +19,28 @@ PLAYBOOK_PATH = os.path.join(
 )
 
 
-def _role_vars(role_name):
-    """Return the vars dict of the given role invocation in rke2-playbook.yml."""
+def _role_invocation(role_name):
+    """Return a static or dynamic role invocation from rke2-playbook.yml."""
     with open(PLAYBOOK_PATH, encoding="utf-8") as playbook_file:
         plays = yaml.safe_load(playbook_file)
     for play in plays:
         for role in play.get("roles", []):
             if isinstance(role, dict) and role.get("role") == role_name:
-                if "vars" in role:
-                    return role["vars"]
+                return role
+        for task in play.get("tasks", []) or []:
+            include = task.get("ansible.builtin.include_role", {})
+            if include.get("name") == role_name:
+                return task
 
-    raise AssertionError(f"role {role_name} with vars not found in rke2-playbook.yml")
+    raise AssertionError(f"role {role_name} not found in rke2-playbook.yml")
+
+
+def _role_vars(role_name):
+    """Return the vars dict of the given role invocation."""
+    invocation = _role_invocation(role_name)
+    if "vars" not in invocation:
+        raise AssertionError(f"role {role_name} has no invocation vars")
+    return invocation["vars"]
 
 
 def _cis_resolve_task():
@@ -244,9 +255,18 @@ class TestInstallMethodContract(unittest.TestCase):
 
     def test_cni_is_wired_to_rke2_config_role(self):
         """The playbook must hand the top-level `cni` var to rke2_config as rke2_cni."""
-        config_vars = _role_vars("rke2_config")
+        invocation = _role_invocation("rke2_config")
+        include = invocation.get("ansible.builtin.include_role", {})
+        self.assertEqual(include.get("name"), "rke2_config")
+        self.assertEqual(include.get("apply", {}).get("tags"), ["config", "rke2"])
+
+        config_vars = invocation["vars"]
         self.assertIn("rke2_cni", config_vars)
-        self.assertEqual(config_vars["rke2_cni"], "{{ cni | default('') }}")
+        self.assertEqual(config_vars["rke2_cni"], "{{ _rke2_playbook_cni }}")
+        self.assertEqual(
+            config_vars["rke2_additional_config"],
+            "{{ _rke2_playbook_additional_config }}",
+        )
 
 
 if __name__ == "__main__":
