@@ -20,7 +20,7 @@
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tasks/install-kubectl-from-cluster.yml"
 
     - name: Verify kubectl installation
-      ansible.builtin.command: kubectl version --client
+      ansible.builtin.command: "{{ kubectl_dest | default('/usr/local/bin/kubectl') }} version --client"
       register: kubectl_version_output
       changed_when: false
 
@@ -92,7 +92,7 @@
       become: false
 
     - name: Test kubectl connectivity
-      ansible.builtin.command: kubectl get nodes -o wide
+      ansible.builtin.command: "{{ kubectl_dest | default('/usr/local/bin/kubectl') }} get nodes -o wide"
       environment:
         KUBECONFIG: /root/.kube/config
       register: kubectl_test
