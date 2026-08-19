@@ -45,9 +45,7 @@
           - kubernetes_version | length > 0
           - kube_api_host is defined
           - kube_api_host | length > 0
-          - cni is defined
-          - cni | length > 0
-        fail_msg: "Required variables not defined. Please ensure kubernetes_version, kube_api_host, and cni are set in vars.yaml or environment variables"
+        fail_msg: "Required variables not defined. Please ensure kubernetes_version and kube_api_host are set in vars.yaml or environment variables"
 
 - hosts: all
   name: Setup nodes - RKE2 prerequisites
@@ -72,9 +70,7 @@
           - kubernetes_version | length > 0
           - kube_api_host is defined
           - kube_api_host | length > 0
-          - cni is defined
-          - cni | length > 0
-        fail_msg: "Required variables not defined. Set kubernetes_version, kube_api_host, and cni in vars.yaml or inventory all.vars"
+        fail_msg: "Required variables not defined. Set kubernetes_version and kube_api_host in vars.yaml or inventory all.vars"
       run_once: true
   roles:
     - role: rke2_setup
@@ -88,11 +84,37 @@
     - vars.yaml
   vars:
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  pre_tasks:
+    # from_yaml turns CLI-style flags ('--disable=traefik') into a plain string,
+    # which would blow up later in combine — reject them up front.
+    - name: Validate server_flags/worker_flags are YAML mappings
+      ansible.builtin.assert:
+        that:
+          - >-
+            (server_flags | default('') | from_yaml) is none or
+            (server_flags | default('') | from_yaml) is mapping
+          - >-
+            (worker_flags | default('') | from_yaml) is none or
+            (worker_flags | default('') | from_yaml) is mapping
+        fail_msg: >-
+          server_flags/worker_flags must be YAML mappings ('key: value' lines),
+          not command-line flags
+      tags: ['config', 'rke2']
   roles:
     - role: rke2_config
       vars:
-        rke2_server_flags: "{{ server_flags | from_yaml | default({}) }}"
-        rke2_agent_flags: "{{ agent_flags | from_yaml | default({}) }}"
+        # cni wins over a cni inside rke2_additional_config, with one
+        # historical exception: calico (the role default) yields to it.
+        # Empty keeps the RKE2 default (no cni key rendered).
+        rke2_cni: "{{ cni | default('') }}"
+        # server_flags/worker_flags are YAML scalars merged into the node's
+        # config.yaml; an explicit rke2_additional_config extra-var (DTF) wins.
+        rke2_additional_config: >-
+          {{ ((server_flags
+               if (rke2_node_role == 'master' or
+                   'cp' in (node_roles | default([])) or
+                   'etcd' in (node_roles | default([])))
+               else worker_flags) | default('') | from_yaml) or {} }}
       tags: ['config', 'rke2']
 
 - hosts: all
@@ -103,12 +125,32 @@
     - vars.yaml
   vars:
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  pre_tasks:
+    # Fail fast on typos (e.g. 'rmp') before the mapping below silently
+    # normalizes them to an online install with the automatic method.
+    - name: Validate install_method
+      ansible.builtin.assert:
+        that:
+          - install_method | default('') in ['', 'online', 'airgap', 'rpm', 'tar']
+        fail_msg: >-
+          install_method must be one of online, airgap, rpm or tar
+          (got '{{ install_method | default('') }}')
+      tags: ['install', 'rke2']
   roles:
     - role: rke2_install
       vars:
         rke2_version: "{{ kubernetes_version }}"
         rke2_channel: "{{ channel | default('stable') }}"
-        rke2_install_method: "{{ install_method | default('online') }}"
+        # install_method accepts both contracts: online|airgap picks the role's
+        # network mode; rpm|tar picks the upstream installer method (online).
+        rke2_install_method: >-
+          {{ install_method
+             if install_method | default('') in ['online', 'airgap']
+             else 'online' }}
+        rke2_installer_method: >-
+          {{ install_method
+             if install_method | default('') in ['rpm', 'tar']
+             else '' }}
       tags: ['install', 'rke2']
 
 - hosts: all
@@ -122,13 +164,20 @@
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
     # Build the config RKE2 actually reads. DTF forwards SERVER_FLAGS through
-    # rke2_additional_config, while manual users may set rke2_server_config or
-    # rke2_agent_config directly, so the CIS checks must inspect both sources.
+    # rke2_additional_config (which keeps precedence); manual users may set
+    # server_flags/worker_flags or rke2_server_config/rke2_agent_config, so the
+    # CIS checks recompute the flags mapping here — --tags cluster included.
     - name: CIS | Resolve effective config
       set_fact:
         _rke2_is_server: "{{ rke2_node_role == 'master' or 'cp' in (node_roles | default([])) or 'etcd' in (node_roles | default([])) }}"
-        _rke2_srv_eff: "{{ rke2_server_config | default({}) | combine(rke2_additional_config | default({})) }}"
-        _rke2_agt_eff: "{{ rke2_agent_config | default({}) | combine(rke2_additional_config | default({})) }}"
+        _rke2_srv_eff: >-
+          {{ rke2_server_config | default({}) |
+             combine(rke2_additional_config |
+                     default((server_flags | default('') | from_yaml) or {})) }}
+        _rke2_agt_eff: >-
+          {{ rke2_agent_config | default({}) |
+             combine(rke2_additional_config |
+                     default((worker_flags | default('') | from_yaml) or {})) }}
       tags: ['cluster', 'rke2']
 
     # CIS needs sysctls wherever the effective profile is cis. Servers may also

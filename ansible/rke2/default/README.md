@@ -52,6 +52,7 @@ Each role can be executed independently using Ansible tags, enabling selective e
 - `rke2_version` (from `kubernetes_version`, default: `""` — installs latest stable)
 - `rke2_channel` (from `channel`, default: `stable`)
 - `rke2_install_method` (default: `online`; options: `online`, `airgap`)
+- `rke2_installer_method` (default: `''` — auto; options: `rpm`, `tar`; set via `install_method: rpm|tar`)
 - `rke2_airgap_tarball` (required for airgap, path to RKE2 tarball on remote host)
 - `rke2_airgap_images_tarball` (optional, path to RKE2 images tarball)
 - `rke2_airgap_install_script` (required for airgap, path to install script on remote host)
@@ -153,8 +154,8 @@ For manual setup, see [QUICKSTART.md](./QUICKSTART.md) for the expected inventor
 kubernetes_version: 'v1.28.15+rke2r1'  # Used by: rke2_config, rke2_install
 kubeconfig_file: './kubeconfig.yaml'   # Used by: rke2_cluster, rke2_health_check
 
-# Network Configuration (Required)
-cni: 'calico'                           # Used by: rke2_config (CNI plugin: calico, canal, cilium)
+# Network Configuration (Optional — empty keeps the RKE2 default CNI)
+# cni: 'calico'                         # Used by: rke2_config (CNI plugin: calico, canal, cilium)
 
 # Infrastructure Variables (Required if not using Terraform)
 # These are automatically loaded from Terraform state if available
@@ -163,8 +164,8 @@ cni: 'calico'                           # Used by: rke2_config (CNI plugin: cali
 
 # Optional Variables
 channel: 'stable'                       # Used by: rke2_install (RKE2 channel: stable, latest, testing)
-install_method: 'online'               # Used by: rke2_install (installation method: online, airgap)
+install_method: 'online'               # Used by: rke2_install (online, airgap; or rpm, tar to force the online installer method)
 
 # Advanced Configuration (Optional)
-# server_flags: '--disable=traefik'    # Used by: rke2_config (additional server flags)
-# worker_flags: '--node-label=type=worker'  # Used by: rke2_config (additional worker flags)
+# server_flags: "profile: cis"          # Used by: rke2_config (YAML mapping merged into config.yaml)
+# worker_flags: "protect-kernel-defaults: true"  # Used by: rke2_config (YAML mapping merged into config.yaml)

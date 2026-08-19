@@ -28,7 +28,8 @@ Variables defined in `defaults/main.yml`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `rke2_version` | `""` (latest stable) | Specific RKE2 version to install |
-| `rke2_install_method` | `online` | Installation method: `online` or `airgap` |
+| `rke2_install_method` | `online` | Network mode: `online` or `airgap` |
+| `rke2_installer_method` | `""` (auto) | Upstream installer method for online installs: `rpm` or `tar` (sets `INSTALL_RKE2_METHOD`) |
 | `rke2_install_script_url` | `https://get.rke2.io` | URL to download install script |
 | `rke2_channel` | `stable` | Release channel: `stable`, `latest`, or `testing` |
 | `rke2_bin_dir` | `/usr/local/bin` | Directory for RKE2 binary |
