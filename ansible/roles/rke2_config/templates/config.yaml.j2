@@ -31,9 +31,25 @@
 {% endif %}
 {% endfor %}
 
+{% if rke2_server_flags | length > 0 %}
+# Additional server node configurations
+{% for key, value in rke2_server_flags.items() %}
+{% if value is string %}
+{{ key }}: {{ value }}
+{% elif value is sequence and value is not string %}
+{{ key }}:
+{% for item in value %}
+  - {{ item }}
+{% endfor %}
+{% else %}
+{{ key }}: {{ value }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
 {% if rke2_node_role != 'master' %}
 # Join to existing cluster
-server: https://{{ kube_api_host }}:9345
+server: https://{% if ':' in kube_api_host and '[' not in kube_api_host %}[{{ kube_api_host }}]{% else %}{{ kube_api_host }}{% endif %}:9345
 {% endif %}
 
 {% if rke2_token is defined and rke2_token != '' %}
@@ -52,7 +68,27 @@ disable-scheduler: true
 
 {% else %}
 # Agent node configuration
+# Join to existing cluster
+server: https://{% if ':' in kube_api_host and '[' not in kube_api_host %}[{{ kube_api_host }}]{% else %}{{ kube_api_host }}{% endif %}:9345
+
 {% for key, value in rke2_agent_config.items() %}
+{% if key != 'server' %}
+{% if value is string %}
+{{ key }}: {{ value }}
+{% elif value is sequence and value is not string %}
+{{ key }}:
+{% for item in value %}
+  - {{ item }}
+{% endfor %}
+{% else %}
+{{ key }}: {{ value }}
+{% endif %}
+{% endif %}
+{% endfor %}
+
+{% if rke2_agent_flags | length > 0 %}
+# Additional agent node configurations
+{% for key, value in rke2_agent_flags.items() %}
 {% if value is string %}
 {{ key }}: {{ value }}
 {% elif value is sequence and value is not string %}
@@ -64,6 +100,7 @@ disable-scheduler: true
 {{ key }}: {{ value }}
 {% endif %}
 {% endfor %}
+{% endif %}
 
 {% if rke2_token is defined and rke2_token != '' %}
 token: {{ rke2_token }}

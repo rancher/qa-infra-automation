@@ -82,6 +82,24 @@ def validate_cluster_nodes(data: dict) -> None:
             if field not in node:
                 raise ValueError(f"Node missing required field '{field}': {node}")
 
+def validate_dualstack(data: dict) -> None:
+    required_metadata = {"kube_api_host", "fqdn", "ssh_user", "bastion_ip", "bastion_dns"}
+    missing = required_metadata - set(data.get("metadata", {}).keys())
+    if missing:
+        raise ValueError(f"dualstack JSON missing metadata fields: {missing}")
+
+    known_roles = {"etcd", "cp", "worker"}
+    for node in data.get("nodes", []):
+        unknown = set(node.get("roles", [])) - known_roles
+        if unknown:
+            raise ValueError(
+                f"Node '{node['name']}' has unknown roles: {unknown}. "
+                f"Known roles: {known_roles}"
+            )
+        for field in ("name", "roles", "public_ip", "private_ip", "ipv6"):
+            if field not in node:
+                raise ValueError(f"Node missing required field '{field}': {node}")
+
 
 def validate_airgap(data: dict) -> None:
     required = {
@@ -192,6 +210,138 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     return yaml.dump(inventory, default_flow_style=False, sort_keys=False)
 
 
+def generate_dualstack_inventory(data: dict, schema_cfg: dict) -> str:
+    """Generate inventory YAML for dualstack input type."""
+    metadata = data["metadata"]
+    nodes = data["nodes"]
+    ip_field = schema_cfg.get("ip_field", "public_ip")
+    default_key = metadata.get("ssh_private_key")
+    groups_cfg = schema_cfg.get("groups", {})
+    bastion_ip = metadata.get("bastion_ip", "")
+    bastion_user = metadata.get("bastion_user", metadata.get("ssh_user"))
+
+    # Build groups: each node is assigned to groups based on its roles
+    groups: dict[str, list[dict]] = {name: [] for name in groups_cfg}
+
+    for node in nodes:
+        node_roles = set(node["roles"])
+        for group_name, group_def in groups_cfg.items():
+            required_roles = set(group_def.get("roles", []))
+            if required_roles & node_roles:  # node has at least one matching role
+                groups[group_name].append(node)
+
+    # Apply first_only constraint
+    for group_name, group_def in groups_cfg.items():
+        if group_def.get("first_only") and groups[group_name]:
+            groups[group_name] = [groups[group_name][0]]
+
+    # Ensure mutual exclusivity: each node belongs to only one group (first match wins)
+    node_to_group: dict[str, str] = {}
+    for group_name, group_nodes in groups.items():
+        for n in group_nodes:
+            node_to_group.setdefault(n["name"], group_name)
+
+    # Rebuild groups with mutually exclusive membership
+    groups = {name: [] for name in groups_cfg}
+    for node_name, group_name in node_to_group.items():
+        node = next(n for n in nodes if n["name"] == node_name)
+        groups[group_name].append(node)
+
+    # Configure proxy arguments if a bastion exists
+    if bastion_ip:
+        common_args = (
+            "-o ProxyCommand='ssh -i {{ ansible_ssh_private_key_file }} -W \"[%h]:%p\" "
+            "{{ bastion_user }}@{{ bastion_host }} "
+            "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' "
+            "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        )
+    else:
+        common_args = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+    # Build inventory structure
+    inventory: dict = {
+        "all": {
+            "vars": {
+                "ansible_ssh_common_args": common_args,
+                "ansible_user": metadata["ssh_user"],
+                "kube_api_host": metadata["kube_api_host"],
+                "fqdn": metadata["fqdn"],
+            },
+            "hosts": {},
+            "children": {
+                "bastion": {
+                    "hosts": {}
+                }
+            },
+        }
+    }
+
+    if bastion_ip:
+        inventory["all"]["vars"]["bastion_host"] = bastion_ip
+        inventory["all"]["vars"]["bastion_user"] = bastion_user
+        inventory["all"]["vars"]["bastion_dns"] = metadata.get("bastion_dns", "")
+        inventory["all"]["children"]["bastion"]["hosts"]["bastion-node"] = {
+            "ansible_host": "{{ bastion_host }}",
+            "ansible_user": "{{ bastion_user }}",
+            "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        }
+
+    if default_key:
+        inventory["all"]["vars"]["ansible_ssh_private_key_file"] = default_key
+
+    # Create reverse mapping: node name -> group for role determination
+    node_to_group: dict[str, str] = {}
+    for group_name, group_nodes in groups.items():
+        for n in group_nodes:
+            node_to_group[n["name"]] = group_name
+
+    # Add all nodes to the 'all' hosts section
+    for node in nodes:
+        node_roles = node["roles"]
+        group = node_to_group.get(node["name"])
+        if group == "master":
+            rke2_node_role = "master"
+        elif any(r in node_roles for r in ("cp", "etcd")):
+            rke2_node_role = "server"
+        else:
+            rke2_node_role = "agent"
+            
+        # Determine connection IP: use public IPv4 if available, fallback to IPv6
+        target_ip = node.get(ip_field)
+        if not target_ip:
+            target_ip = node.get("ipv6")
+
+        host_entry = {
+            "ansible_host": target_ip,
+            "ansible_host_ipv6": node.get("ipv6", ""),
+            "node_roles": node_roles,
+            "rke2_node_role": rke2_node_role,
+        }
+
+        node_key = node.get("ssh_private_key")
+        if node_key:
+            host_entry["ansible_ssh_private_key_file"] = node_key
+        elif default_key:
+            host_entry["ansible_ssh_private_key_file"] = default_key
+
+        inventory["all"]["hosts"][node["name"]] = host_entry
+
+    # Add named groups
+    for group_name, group_nodes in groups.items():
+        if not group_nodes:
+            continue
+        inventory["all"]["children"][group_name] = {
+            "hosts": {
+                node["name"]: {
+                    "ansible_host": node.get(ip_field) or node.get("ipv6"),
+                    "ansible_host_ipv6": node.get("ipv6", "")
+                } for node in group_nodes
+            }
+        }
+
+    return yaml.dump(inventory, default_flow_style=False, sort_keys=False)
+
+
 def generate_airgap_inventory(data: dict) -> str:
     """Generate inventory YAML for airgap input type."""
     bastion_host = data["bastion_host"]
@@ -293,7 +443,7 @@ def main() -> None:
     parser.add_argument(
         "--env",
         required=True,
-        choices=["airgap", "default", "proxy"],
+        choices=["airgap", "default", "proxy", "dualstack"],
         help="Environment type",
     )
     parser.add_argument(
@@ -325,12 +475,15 @@ def main() -> None:
         )
         sys.exit(1)
 
-    if input_type == "cluster_nodes":
+    if input_type == "cluster_nodes" and args.env != "dualstack":
         validate_cluster_nodes(data)
         inventory_yaml = generate_cluster_nodes_inventory(data, distro_schema)
     elif input_type == "airgap":
         validate_airgap(data)
         inventory_yaml = generate_airgap_inventory(data)
+    elif input_type == "dualstack" or (input_type == "cluster_nodes" and args.env == "dualstack"):
+        validate_dualstack(data)
+        inventory_yaml = generate_dualstack_inventory(data, distro_schema)
     else:
         print(f"Error: Unknown input type '{input_type}'", file=sys.stderr)
         sys.exit(1)
