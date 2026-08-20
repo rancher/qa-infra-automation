@@ -37,7 +37,8 @@ ARG UV_SUM_AMD64=8b40cf16b849634b81a530a3d0a0bcae5f24996ef9ae782976fd69b6266d3b8
 ARG UV_SUM_ARM64=8ecec82cb9a744d5fabff6d16d7777218a7730f699d2aa0d2f751c17858e2efa
 
 RUN apk add --no-cache \
-      git curl unzip xxd openssh-client docker-cli gcompat
+      git curl unzip xxd openssh-client docker-cli gcompat \
+    && chmod 666 /etc/passwd /etc/group
 
 # uv (uses x86_64/aarch64 naming)
 # Fallback to uname when TARGETARCH is unset (legacy builder without BuildKit)
@@ -103,4 +104,16 @@ RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" \
 WORKDIR /playbook
 COPY . .
 
-ENTRYPOINT ["ansible-playbook", "dashboard-e2e-playbook.yml"]
+# Entrypoint wrapper: registers non-root UIDs (e.g. macOS 501) dynamically in /etc/passwd
+COPY <<-"EOF" /entrypoint.sh
+#!/bin/sh
+set -e
+if ! getent passwd "$(id -u)" >/dev/null 2>&1; then
+    echo "user:x:$(id -u):$(id -g):user:${HOME:-/tmp}:/bin/sh" >> /etc/passwd
+fi
+exec "$@"
+EOF
+
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh", "ansible-playbook", "dashboard-e2e-playbook.yml"]
