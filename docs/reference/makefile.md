@@ -13,7 +13,7 @@ Override these with `make <target> VAR=value`:
 | `PROVIDER` | `aws` | `aws`, `gcp`, `harvester` | Infrastructure provider |
 | `EXTRA_VARS` | (empty) | any | Extra Ansible variables passed with `--extra-vars` |
 | `TARGET_GROUP` | (empty) | `rancher`, `downstream`, any group | Airgap inventory group to target (translates to `--extra-vars target=<group>`) |
-| `ENABLE_UI_PLUGIN_MIRROR` | `no` | `yes`, `no` | Airgap opt-in: include the standalone `ui-plugin-mirror` step in `all`/`setup-from-infra` (stands up the `ui-plugin-charts` HTTP mirror on the bastion). Ignored unless `ENV=airgap` |
+| `ENABLE_UI_PLUGIN_MIRROR` | `no` | `yes`, `no` | Airgap opt-in: include the standalone `ui-plugin-mirror` step in `all`/`setup-from-infra` (stands up the `ui-plugin-charts` HTTP mirror on the bastion). When the downstream registration stage also runs with `enable_ui_plugin_mirror=true`, it injects the bastion mirror URL/branch into `neuvectorTest` in `cattle-config.yaml`. Ignored unless `ENV=airgap` |
 
 **Example:**
 

@@ -152,6 +152,46 @@
           ansible.builtin.set_fact:
             cattle_config: "{{ cattle_config_content.content | b64decode | from_yaml }}"
 
+        # Opt-in, same gate as the airgap_rke2_ui_plugin_mirror role. The role ran
+        # in an earlier ansible-playbook invocation (registry config or the
+        # standalone mirror playbook), so its set_fact ui_plugin_mirror_url is out
+        # of scope here; read the local fact it persisted on the bastion instead
+        # and inject it below. This makes the stock NeuVector airgap
+        # CATTLE_TEST_CONFIG work: without uiPluginChartsURL the suite falls back
+        # to cloning github.com from the airgapped Rancher server, which cannot
+        # succeed.
+        - name: Read ui-plugin-charts mirror fact from the bastion
+          when: enable_ui_plugin_mirror | default(false) | bool
+          block:
+            - name: Validate bastion group exists
+              ansible.builtin.assert:
+                that:
+                  - groups['bastion'] is defined
+                  - groups['bastion'] | length > 0
+                fail_msg: >-
+                  enable_ui_plugin_mirror is on but the 'bastion' group is empty;
+                  the mirror URL cannot be read
+
+            - name: Read the mirror local fact on the bastion
+              ansible.builtin.slurp:
+                src: /etc/ansible/facts.d/ui_plugin_mirror.fact
+              delegate_to: "{{ groups['bastion'][0] }}"
+              register: ui_plugin_mirror_fact_raw
+
+            - name: Parse the mirror fact
+              ansible.builtin.set_fact:
+                ui_plugin_mirror_fact: "{{ ui_plugin_mirror_fact_raw.content | b64decode | from_json }}"
+
+            - name: Fail when the mirror fact is missing or has no URL
+              ansible.builtin.fail:
+                msg: >-
+                  enable_ui_plugin_mirror is on but no ui_plugin_mirror fact with a
+                  'url' was found on bastion host '{{ groups['bastion'][0] }}'.
+                  Run the airgap_rke2_ui_plugin_mirror role first (make ui-plugin-mirror
+                  ENV=airgap, or the registry step with enable_ui_plugin_mirror=true),
+                  then re-run this playbook.
+              when: (ui_plugin_mirror_fact.url | default('')) | length == 0
+
         - name: Update cattle config with downstream cluster name
           ansible.builtin.set_fact:
             cattle_config_updated: >-
@@ -161,6 +201,21 @@
                 })
               }, recursive=True) }}
 
+        # Skipped unless enable_ui_plugin_mirror is on, so gate-off runs produce a
+        # byte-identical cattle-config.yaml (clusterName injection only).
+        - name: Inject bastion ui-plugin-charts mirror into neuvectorTest
+          ansible.builtin.set_fact:
+            cattle_config_updated: >-
+              {{ cattle_config_updated | combine({
+                'neuvectorTest': (cattle_config_updated.neuvectorTest | default({})) | combine(
+                  {'uiPluginChartsURL': ui_plugin_mirror_fact.url}
+                  | combine({'uiPluginChartsBranch': ui_plugin_mirror_fact.branch}
+                            if (ui_plugin_mirror_fact.branch | default('') | trim | length > 0)
+                            else {})
+                )
+              }, recursive=True) }}
+          when: enable_ui_plugin_mirror | default(false) | bool
+
         - name: Write updated cattle config
           ansible.builtin.copy:
             content: "{{ cattle_config_updated | to_nice_yaml(indent=2) }}"
@@ -169,7 +224,10 @@
 
         - name: Display cattle config update status
           ansible.builtin.debug:
-            msg: "Updated {{ rancher_cattle_config_file }} with clusterName: {{ cluster_name }}"
+            msg: >-
+              Updated {{ rancher_cattle_config_file }} with clusterName: {{ cluster_name }}
+              {{ ('and neuvectorTest.uiPluginChartsURL: ' ~ ui_plugin_mirror_fact.url)
+                 if (enable_ui_plugin_mirror | default(false) | bool) else '' }}
 
 - hosts: bastion
   gather_facts: true
