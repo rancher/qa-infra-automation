@@ -144,6 +144,7 @@ help: ## Show this help message
 	@echo "  infra-nuke-remote   Destroy all remote (S3-backed) workspaces for the current module"
 	@echo "  infra-empty-folders Remove empty workspace folders (0-resource states) from the current module's bucket"
 	@echo "  infra-stale-folders  Remove STALE workspace folders (resources gone in AWS) — verified against AWS"
+	@echo "  infra-empty-buckets Remove EMPTY S3 buckets (0 objects) account-wide; scope with NUKE_FILTER"
 	@echo ""
 	@echo "CLUSTER (Ansible):"
 	@echo "  cluster             Install Kubernetes cluster"
@@ -182,6 +183,7 @@ help: ## Show this help message
 	@echo "  make infra-nuke-remote                      # destroy all S3-backed workspaces (current module)"
 	@echo "  make infra-empty-folders NUKE_FILTER='dnew'      # list YOUR empty workspace folders"
 	@echo "  make infra-stale-folders                         # find stale state (infra gone in AWS)"
+	@echo "  make infra-empty-buckets DELETE=yes NUKE_FILTER='dnew-'  # delete YOUR empty state buckets"
 	@echo "  make all                                    # RKE2 default on AWS (default)"
 	@echo "  make all ENV=airgap                         # RKE2 airgap on AWS"
 	@echo "  make airgap-downstream ENV=airgap           # Airgap Rancher + downstream cluster"
@@ -649,6 +651,19 @@ infra-stale-folders: ## Remove STALE workspace folders (state lists resources th
 		$(if $(REGION),--region "$(REGION)") \
 		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)") \
 		$(if $(filter yes,$(PURGE)),--purge) \
+		$(if $(filter yes,$(DELETE)),--delete) \
+		$(if $(filter yes,$(AUTO_APPROVE)),--auto-approve)
+
+# NOTE: the targets above prune state OBJECTS inside the module's backend
+#   bucket — none of them delete BUCKETS. Leftover 0-object state buckets
+#   accumulate in the account (one per abandoned test setup); this target
+#   finds every verifiably-empty bucket and removes it. The module's own
+#   backend bucket and any 'do-not-delete-*' bucket are always protected.
+.PHONY: infra-empty-buckets
+infra-empty-buckets: ## Remove EMPTY S3 buckets (0 objects) account-wide; scope with NUKE_FILTER='...'
+	@$(CURDIR)/tofu/scripts/remote-state.sh empty-buckets \
+		--module "$(TOFU_DIR)" \
+		$(if $(NUKE_FILTER),--filter "$(NUKE_FILTER)") \
 		$(if $(filter yes,$(DELETE)),--delete) \
 		$(if $(filter yes,$(AUTO_APPROVE)),--auto-approve)
 
