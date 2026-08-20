@@ -1,0 +1,38 @@
+---
+# Handlers for rke2_windows_agent role
+#
+# Restarting rke2 tears down and re-creates the HNS external network the CNI
+# binds to the host's physical NIC, so the SSH session usually dies mid-call.
+# ansible.windows.win_service has no timeout of its own and would block on the
+# half-open socket until the SSH keepalives in ansible.cfg give up, so the
+# restart is fired and forgotten, the connection re-established, and the service
+# state confirmed afterwards.
+#
+# All three tasks are guarded on rke2_windows_agent_was_running - the service
+# having been up *before* this run's changes. On a first install config.yaml is
+# written before the service exists, so the freshly started service already has
+# it and a restart would risk the disconnect for no benefit.
+
+- name: Restart the RKE2 Windows agent
+  ansible.windows.win_shell: Restart-Service -Name '{{ rke2_windows_service_name }}' -Force
+  async: 120
+  poll: 0
+  when: rke2_windows_agent_was_running | default(false) | bool
+  listen: restart rke2 windows agent
+
+- name: Wait for the Windows agent host to come back after the restart
+  ansible.builtin.wait_for_connection:
+    delay: 15
+    timeout: "{{ rke2_windows_wait_timeout }}"
+  when: rke2_windows_agent_was_running | default(false) | bool
+  listen: restart rke2 windows agent
+
+- name: Confirm the RKE2 service is running again
+  ansible.windows.win_service_info:
+    name: "{{ rke2_windows_service_name }}"
+  register: rke2_windows_service_post
+  until: rke2_windows_service_post.exists and rke2_windows_service_post.services[0].state == 'running'
+  retries: 12
+  delay: 10
+  when: rke2_windows_agent_was_running | default(false) | bool
+  listen: restart rke2 windows agent
