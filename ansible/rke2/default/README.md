@@ -4,13 +4,17 @@ This playbook deploys an RKE2 Kubernetes cluster using a **role-based architectu
 
 ## Architecture
 
-The playbook is organized into **5 sequential roles** that handle distinct phases of cluster deployment:
+The playbook is organized into **6 sequential roles** that handle distinct phases of cluster deployment:
 
 1. **rke2_setup** - Prepares nodes by installing required OS packages (zypper/yum/apt depending on OS family)
 2. **rke2_config** - Generates RKE2 configuration files for server and agent nodes
 3. **rke2_install** - Installs RKE2 binaries using online (script) or airgap (tarball) installation methods
 4. **rke2_cluster** - Forms the cluster by starting services in sequence (master → servers → agents) with token distribution
-5. **rke2_health_check** - Validates cluster health: API server responsiveness, node readiness, system pod status, and etcd health
+5. **rke2_windows_agent** - Joins Windows Server agents, if the inventory has any (skipped otherwise)
+6. **rke2_health_check** - Validates cluster health: API server responsiveness, node readiness, system pod status, and etcd health
+
+Roles 1-4 run against `all:!windows_workers`: they are `become: true` and use systemd and
+dnf/zypper, so Windows hosts are excluded and handled by `rke2_windows_agent` instead.
 
 Each role can be executed independently using Ansible tags, enabling selective execution, debugging, and re-running specific phases without redeploying the entire cluster.
 
@@ -61,6 +65,20 @@ Each role can be executed independently using Ansible tags, enabling selective e
 - `rke2_install_selinux_policy` (installs on online SUSE hosts; verifies the preinstalled policy without network access in airgap mode)
 
 **Tags:** `install`, `rke2`
+
+### rke2_windows_agent
+**Purpose:** Install RKE2 on Windows Server agents and join them to the cluster
+**Tasks:**
+- Enables the Windows Containers feature (rebooting if needed)
+- Writes `C:\etc\rancher\rke2\config.yaml` with the server URL, join token and node labels
+- Runs `install.ps1`, then registers and starts the `rke2` Windows service
+
+**Requires** `cni` to be `calico` or `flannel`; the playbook hard-fails on anything else
+when Windows hosts are present, because Canal (the RKE2 default) has no Windows support.
+Runs only against the `windows_workers` inventory group. See the
+[Windows agent guide](../../../docs/guides/rke2-windows-agent-aws.md).
+
+**Tags:** `windows`, `rke2`
 
 ### rke2_cluster
 **Purpose:** Form the Kubernetes cluster
@@ -129,6 +147,7 @@ The role-based architecture supports selective execution using Ansible tags. Thi
 - `config` - RKE2 configuration file generation
 - `install` - RKE2 binary installation
 - `cluster` - Cluster formation and token distribution
+- `windows` - Windows agent installation and join (no-op without `windows_workers` hosts)
 - `health` - Health checks and validation
 - `rke2` - All RKE2-related tasks (shorthand for all above)
 

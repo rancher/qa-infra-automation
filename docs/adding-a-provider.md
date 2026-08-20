@@ -67,6 +67,14 @@ output "cluster_nodes_json" {
 | `nodes[].roles` | list(string) | Roles from input. Valid values: `etcd`, `cp`, `worker` |
 | `nodes[].public_ip` | string | Public IP — used by Ansible as `ansible_host` |
 | `nodes[].private_ip` | string | Private IP — available but not used in standard deploys |
+| `nodes[].os` | string | Optional. `linux` or `windows`; absent means `linux`. Emit it only if your provider supports Windows agents |
+| `nodes[].ssh_user` | string | Optional per-node override of `metadata.ssh_user`. Windows agents use `Administrator` |
+
+> **Windows nodes are opt-in.** `os` is optional precisely so providers that predate
+> Windows support need no changes. If you do emit `os: "windows"`, the node must carry
+> `roles: ["worker"]` only — RKE2 has no Windows server role — and it must be reachable
+> over OpenSSH with PowerShell as the default shell, since Ansible does not use WinRM
+> here. See `tofu/aws/modules/cluster_nodes/main.tf` for a reference `user_data`.
 
 > **Why `"master"`?** The inventory schema and Ansible roles identify the initial cluster node
 > by the group name `master`. The bridge script assigns `node_type: master` to any node
