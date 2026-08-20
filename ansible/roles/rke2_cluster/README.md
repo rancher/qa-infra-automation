@@ -174,7 +174,7 @@ This role orchestrates cluster formation in the following sequence:
 
 The role automatically determines service type based on:
 
-**Master node** (` == 'master'`):
+**Master node** (`node_type == 'master'`):
 - First node in the cluster
 - Starts first to generate token
 - Runs rke2-server service

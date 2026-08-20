@@ -1,0 +1,49 @@
+---
+# Default variables for rke2_windows_agent role
+
+# RKE2 version to install (leave empty for the channel's latest)
+rke2_windows_version: ""
+
+# RKE2 channel (stable, latest, testing). Only consulted when the version is empty.
+rke2_windows_channel: stable
+
+# Windows install script URL (floating, used when rke2_windows_version is empty)
+rke2_windows_install_script_url: https://raw.githubusercontent.com/rancher/rke2/master/install.ps1
+
+# Version-pinned install script URL template (used when rke2_windows_version is set).
+# Mirrors rke2_install's Linux behaviour: fetch install.ps1 from the matching git
+# tag rather than master, so the installer and the release cannot drift apart.
+rke2_windows_install_script_versioned_url: "https://raw.githubusercontent.com/rancher/rke2/{{ rke2_windows_version }}/install.ps1"
+
+# Windows paths. install.ps1 extracts under a "tar prefix" (default C:/usr/local)
+# and RKE2 itself reads config from C:\etc\rancher\rke2 - these are the Windows
+# analogues of /usr/local and /etc/rancher/rke2, not configurable server-side.
+rke2_windows_config_dir: 'C:\etc\rancher\rke2'
+rke2_windows_tar_prefix: 'C:/usr/local'
+rke2_windows_bin_dir: 'C:\usr\local\bin'
+rke2_windows_data_dir: 'C:\var\lib\rancher\rke2'
+
+# Scratch directory for the downloaded installer. A literal path rather than
+# ansible_env.TEMP so the role does not depend on facts having been gathered.
+rke2_windows_temp_dir: 'C:\Windows\Temp'
+
+# Name of the Windows service registered by `rke2.exe agent service --add`
+rke2_windows_service_name: rke2
+
+# Extra node labels, as "key=value" strings. role-worker=true is always applied,
+# matching the Linux role_config.yaml drop-in.
+rke2_windows_node_labels: []
+
+# Address the node advertises. Leave empty to let RKE2 autodetect.
+rke2_windows_node_ip: ""
+
+# Interface used for the VXLAN VTEP. Required on multi-NIC / teamed hosts, where
+# autodetection can pick the wrong adapter and the overlay silently blackholes.
+# Exported as the machine-scoped VXLAN_ADAPTER environment variable.
+rke2_windows_vxlan_adapter: ""
+
+# Additional configuration options (merged into config.yaml)
+rke2_windows_additional_config: {}
+
+# Seconds to wait for the agent service to come up
+rke2_windows_wait_timeout: 900

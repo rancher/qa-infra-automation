@@ -10,6 +10,7 @@
 #         <group_name>:
 #           roles:      [list of roles to include]
 #           first_only: true  (optional, include only the first matching node)
+#           os:         linux | windows  (optional; omit to match any OS)
 
 rke2:
   default:
@@ -21,10 +22,19 @@ rke2:
       master:
         roles_priority: [[etcd], [cp]]
         first_only: true
+        os: linux
       servers:
         roles: [etcd, cp]
+        os: linux
       workers:
         roles: [worker]
+        os: linux
+      # Windows can only ever be an RKE2 agent. Kept in its own group so the
+      # Linux plays can exclude it with `hosts: all:!windows_workers` — they are
+      # all `become: true` and use systemd/dnf/zypper, which do not exist there.
+      windows_workers:
+        roles: [worker]
+        os: windows
       # 'all' is implicit in Ansible and includes every host
 
   airgap:
@@ -38,10 +48,15 @@ k3s:
     ip_field: public_ip
     groups:
       # Prefer etcd (embedded etcd); fall back to cp (external-datastore topology — needs datastore-endpoint via server_flags).
+      # K3s has no Windows support, so every group is pinned to linux; a windows
+      # node in a k3s inventory matches nothing and the generator errors out.
       master:
         roles_priority: [[etcd], [cp]]
         first_only: true
+        os: linux
       servers:
         roles: [etcd, cp]
+        os: linux
       workers:
         roles: [worker]
+        os: linux
