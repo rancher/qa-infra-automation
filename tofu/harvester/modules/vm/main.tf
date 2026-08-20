@@ -4,8 +4,8 @@ locals {
   temp_node_names = flatten([
     for node_group in var.nodes : [
       for i in range(node_group.count) : {
-        name      = "${join("-", node_group.role)}-${i}"
-        role      = node_group.role
+        name = "${join("-", node_group.role)}-${i}"
+        role = node_group.role
         is_server = false
       }
     ]

@@ -14,7 +14,7 @@ variable "ssh_private_key_output_path" {
 
 variable "cloud_init" {
   description = "valid cloud-init that applies to each node. Default updates Ubuntu."
-  default     = <<-EOT
+  default = <<-EOT
     #cloud-config
     package_update: true
     package_upgrade: true
