@@ -10,3 +10,7 @@ collections:
     version: "1.6.2"
   - name: amazon.aws
     version: "8.2.0"
+  # win_* modules for RKE2 Windows agents. Reached over SSH with
+  # ansible_shell_type=powershell, so pywinrm is not required.
+  - name: ansible.windows
+    version: "3.7.0"

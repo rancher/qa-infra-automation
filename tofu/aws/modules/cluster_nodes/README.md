@@ -65,10 +65,61 @@ The `nodes` variable defines cluster node groups. Each group accepts:
 | `count` | number | Yes | Number of instances |
 | `role` | list(string) | Yes | Node roles: `["etcd"]`, `["cp"]`, `["worker"]`, or combined like `["etcd", "cp", "worker"]` |
 | `instance_type` | string | No | Override the global `instance_type` for this node group |
+| `os` | string | No | `linux` (default) or `windows` |
 
-The first node in the first group with `etcd` role becomes the `master` node.
+The first node in the first group with `etcd` role becomes the `master` node. Windows
+groups are numbered separately as `windows-worker-N` and take no part in master
+selection.
 
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
+
+### Windows agents
+
+Set `os = "windows"` on a node group to launch Windows Server RKE2 agents. RKE2 has no
+Windows server role, so those groups must declare `role = ["worker"]` and at least one
+**linux** group must still carry `cp`; both are enforced by `variables.tf` validations.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `aws_ami_windows` | `null` | **Required for Windows groups.** Windows Server 2019/2022 LTSC AMI |
+| `instance_type_windows` | `null` | **Required for Windows groups.** Windows + containerd needs more than a Linux worker; `t3.xlarge` is a reasonable floor |
+| `aws_volume_size_windows` | `50` | Root volume GiB. The Windows AMI's own 30 GiB default has no room for the RKE2 container images |
+| `aws_volume_type_windows` | falls back to `aws_volume_type` | Root volume type |
+| `aws_windows_ssh_user` | `Administrator` | SSH user placed in `cluster_nodes_json` |
+| `windows_enable_rdp` | `false` | Open TCP 3389 to `ssh_allowed_cidrs` for interactive debugging |
+
+When any Windows group is present the module also creates a `-windows` security group
+allowing **UDP 4789** (Calico/Flannel VXLAN overlay) and TCP 10250 (kubelet) from the VPC
+CIDR, and attaches it to *both* the Linux and Windows instances — VXLAN is bidirectional,
+so a rule on the Windows node alone is not enough.
+
+The Windows `user_data` installs OpenSSH Server, sets PowerShell as the default shell,
+writes `public_ssh_key` into `C:\ProgramData\ssh\administrators_authorized_keys`, and
+enables the Containers feature with a reboot. Writing the key by hand is not optional:
+EC2 Windows AMIs use the key pair *only* to encrypt the Administrator password, so
+without it Ansible's key-based SSH cannot authenticate.
+
+For RDP or console debugging, the Administrator password is exported separately:
+
+```bash
+tofu output -json windows_administrator_passwords
+```
+
+It is deliberately **not** in `cluster_nodes_json` — the documented flow pipes that output
+to a temp file, which would leave a plaintext password on disk and in CI logs. The output
+is empty unless `private_ssh_key` is set.
+
+```terraform
+aws_ami_windows       = "ami-0abcdef1234567890"   # Windows Server 2022 LTSC
+instance_type_windows = "t3.xlarge"
+nodes = [
+  { count = 1, role = ["etcd", "cp", "worker"] },
+  { count = 1, role = ["worker"], os = "windows" },
+]
+```
+
+Follow up with the [Windows agent guide](../../../../docs/guides/rke2-windows-agent-aws.md)
+for the Ansible side; the cluster's CNI must be `calico` or `flannel`.
 
 ### SSH access (avoiding prefix-list propagation lag)
 

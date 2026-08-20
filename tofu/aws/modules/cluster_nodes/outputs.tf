@@ -32,24 +32,38 @@ output "cluster_nodes_json" {
       [
         for name, instance in aws_instance.node : {
           name       = name
-          roles      = local.linux_instances_map[name].role # References your master/cp mappings
+          roles      = local.instances_map[name].role # References your master/cp mappings
           public_ip  = instance.public_ip
           private_ip = instance.private_ip
           os         = "linux"
         }
       ],
-      # Windows nodes
+      # Windows nodes. No password here on purpose: the documented flow is
+      # `tofu output -raw cluster_nodes_json > /tmp/nodes.json`, which would write
+      # a plaintext Administrator password to disk and into CI logs. Ansible
+      # reaches Windows over SSH with the same key as the Linux nodes; the
+      # password is available separately via windows_administrator_passwords.
       [
         for name, instance in aws_instance.windows : {
           name       = name
-          roles      = ["worker"]
+          roles      = local.windows_instances_map[name].roles
           public_ip  = instance.public_ip
           private_ip = instance.private_ip
+          ssh_user   = var.aws_windows_ssh_user
           os         = "windows"
         }
       ]
     )
   })
+}
+
+output "windows_administrator_passwords" {
+  description = "Decrypted Administrator password per Windows agent, for RDP/console debugging only. Empty unless private_ssh_key is set - rsadecrypt(file(...)) would otherwise fail at plan time on the \"\" default."
+  sensitive   = true
+  value = var.private_ssh_key != "" ? {
+    for name, instance in aws_instance.windows :
+    name => rsadecrypt(instance.password_data, file(var.private_ssh_key))
+  } : {}
 }
 
 output "ssh_security_group_id" {

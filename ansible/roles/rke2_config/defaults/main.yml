@@ -11,6 +11,17 @@ rke2_token_file: "{{ rke2_config_dir }}/token"
 # calico default; the shared playbook passes '' (no cni key -> RKE2 default).
 rke2_cni: calico
 
+# Directory RKE2 servers auto-apply manifests from on first start
+rke2_manifests_dir: /var/lib/rancher/rke2/server/manifests
+
+# Opt-in HelmChartConfig valuesContent for the bundled CNI chart, as a YAML
+# string. Empty means "use the chart defaults", which is what mixed
+# Linux/Windows clusters want: rke2-calico already ships bgp: Disabled,
+# encapsulation: VXLAN and strictAffinity: true. Set this only to tune MTU,
+# pod CIDRs, or the VXLAN adapter. Applied on servers before first start -
+# RKE2 only auto-applies manifests it finds at startup.
+rke2_cni_values_content: ""
+
 # Default RKE2 configuration for server nodes
 rke2_server_config:
   tls-san:
