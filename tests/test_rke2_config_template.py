@@ -28,7 +28,7 @@ class TestRKE2ConfigTemplate(unittest.TestCase):
               hosts: localhost
               gather_facts: false
               vars:
-                rke2_node_role: master
+                node_type: master
                 node_roles: []
                 rke2_server_config: {{}}
                 rke2_agent_config: {{}}

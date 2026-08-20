@@ -75,6 +75,32 @@
   become: true
   notify: restart rke2
 
+# Opt-in CNI tuning. Must land before the server's first start: RKE2 only
+# auto-applies what is already in the manifests dir when it comes up.
+- name: Apply CNI HelmChartConfig
+  when:
+    - rke2_cni_values_content | length > 0
+    - node_type in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles
+  block:
+    - name: Ensure RKE2 server manifests directory exists
+      ansible.builtin.file:
+        path: "{{ rke2_manifests_dir }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      become: true
+
+    - name: Generate CNI HelmChartConfig manifest
+      ansible.builtin.template:
+        src: cni_helmchartconfig.yaml.j2
+        dest: "{{ rke2_manifests_dir }}/rke2-{{ rke2_cni }}-config.yaml"
+        mode: '0644'
+        owner: root
+        group: root
+      become: true
+      notify: restart rke2
+
 - name: Display config file location
   ansible.builtin.debug:
     msg: "RKE2 configuration written to {{ rke2_config_dir }}/config.yaml"

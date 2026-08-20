@@ -33,7 +33,7 @@ TEMPLATE_PATH = os.path.join(
 )
 
 BASE_VARS = {
-    "rke2_node_role": "master",
+    "node_type": "master",
     "node_roles": [],
     "rke2_server_config": {},
     "rke2_agent_config": {},
@@ -289,7 +289,7 @@ class TestCNIPrecedence(unittest.TestCase):
         cases = [
             (
                 "server node uses server_flags",
-                {"rke2_node_role": "master", "node_roles": []},
+                {"node_type": "master", "node_roles": []},
                 {"server_flags": "profile: cis\ncni: calico"},
                 [
                     "rendered_config['cni'] == 'calico'",
@@ -299,7 +299,7 @@ class TestCNIPrecedence(unittest.TestCase):
             ),
             (
                 "worker node uses worker_flags",
-                {"rke2_node_role": "agent", "node_roles": ["worker"]},
+                {"node_type": "agent", "node_roles": ["worker"]},
                 {"worker_flags": "profile: cis", "server_flags": "cni: calico"},
                 [
                     "rendered_config['profile'] == 'cis'",
@@ -364,7 +364,7 @@ class TestCNIPrecedence(unittest.TestCase):
             (
                 "worker flags remain the agent fallback",
                 {
-                    "rke2_node_role": "agent",
+                    "node_type": "agent",
                     "node_roles": ["worker"],
                     "worker_flags": "protect-kernel-defaults: true",
                 },
@@ -377,7 +377,7 @@ class TestCNIPrecedence(unittest.TestCase):
         for case, variables, checks in cases:
             with self.subTest(case=case):
                 play_vars = {
-                    "rke2_node_role": "master",
+                    "node_type": "master",
                     "node_roles": [],
                 }
                 play_vars.update(variables)

@@ -160,6 +160,17 @@ rke2_channel: latest  # or testing
 
 Leave `rke2_version` empty to install the latest from the selected channel.
 
+## Installing from a commit
+
+Setting `rke2_version` to a 40-hex-char commit hash (online installs only) installs
+that unreleased CI build instead of a released version: `INSTALL_RKE2_COMMIT` is
+set instead of `INSTALL_RKE2_VERSION`/`INSTALL_RKE2_CHANNEL`. These builds have no
+release checksum and `rke2 --version` doesn't reliably echo the full SHA, so
+idempotency for a commit install is "binary already exists" rather than a version
+string match — re-run with a different commit hash on a node that already has
+*some* rke2 binary and it will **not** reinstall. Remove `/usr/local/bin/rke2`
+first if you need to force it. Prefer a version tag when one is available.
+
 ## Node Type Detection
 
 The role automatically determines whether to install RKE2 server or agent based on:
