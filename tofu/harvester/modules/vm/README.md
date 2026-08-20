@@ -38,6 +38,15 @@ This module deploys resources required to get a VM via harvester, with the optio
 
 Refer to `variables.tf` for a list of configurable variables.
 
+### SSH key handling
+
+`ssh_key` is optional. If you provide it, it's used as-is 
+If you leave it unset (or set to `""`), the module automatically generates a
+new SSH key pair, uses the public key for the VMs, and writes the private key
+to `id_rsa` (and `id_rsa.pub`) inside this module's directory. Set
+`ssh_private_key_output_path` to change where the generated private key is
+written.
+
 ## Outputs
 
 Refer to `outputs.tf` for a list of exported values.
