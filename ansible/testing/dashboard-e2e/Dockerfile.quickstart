@@ -19,8 +19,8 @@ ARG TOFU_SUM_AMD64=901121681e751574d739de5208cad059eddf9bd739b575745cf9e3c961b28
 ARG TOFU_SUM_ARM64=1b79f8fe3cbf7ac0540507bb6bd0ecab1675c78393bbf492867eaabb79840eec
 
 # renovate: datasource=github-release-attachments depName=helm/helm
-ARG HELM_VERSION=v3.17.3
-# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=v3.17.3
+ARG HELM_VERSION=v4.2.4
+# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=v4.2.4
 ARG HELM_SUM_AMD64=ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd
 ARG HELM_SUM_ARM64=7944e3defd386c76fd92d9e6fec5c2d65a323f6fadc19bfb5e704e3eee10348e
 
