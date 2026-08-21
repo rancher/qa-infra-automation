@@ -51,6 +51,22 @@
   ansible.builtin.set_fact:
     rancher_url_normalized: "{{ rancher_url_resolved | regex_replace('/$', '') }}"
 
+- name: Validate permanent password meets Rancher minimum length
+  # Fail fast with an actionable message instead of three opaque HTTP 422
+  # 'Password must be at least N characters' retries from the setpassword call.
+  ansible.builtin.assert:
+    that:
+      - rancher_permanent_password | length >= rancher_password_min_length | int
+    fail_msg: >-
+      rancher_permanent_password is {{ rancher_permanent_password | length }} characters,
+      but the Rancher setpassword API requires at least {{ rancher_password_min_length }}.
+      Rancher accepts a shorter password as bootstrapPassword during Helm install, so this
+      only surfaces later at the set-permanent-password step. Set rancher_admin_password
+      (RANCHER_BOOTSTRAP_PASSWORD in the Jenkins pipelines) to at least
+      {{ rancher_password_min_length }} characters.
+    success_msg: "Permanent password length OK (>= {{ rancher_password_min_length }} characters)"
+  when: rancher_permanent_password | default('') | length > 0
+
 - name: Display token generation configuration
   ansible.builtin.debug:
     msg: |

@@ -10,6 +10,21 @@
     repo_root: "{{ playbook_dir | dirname | dirname | dirname | dirname | dirname }}"
 
   pre_tasks:
+    - name: Validate admin password length before deploying
+      # Rancher (v2.13+) rejects setpassword calls with passwords shorter than 12
+      # characters, but accepts the same short value as bootstrapPassword at Helm
+      # install time — so a short password only fails ~20 minutes into provisioning,
+      # at the rancher_auth set-permanent-password step, with an opaque HTTP 422.
+      # Fail here instead, before any cluster work starts.
+      ansible.builtin.assert:
+        that:
+          - rancher_admin_password | default('') | length >= 12
+        fail_msg: >-
+          rancher_admin_password is {{ rancher_admin_password | default('') | length }}
+          characters; the Rancher API requires at least 12. Set RANCHER_BOOTSTRAP_PASSWORD
+          (which feeds rancher_admin_password in the Jenkins pipelines) to a value of at
+          least 12 characters — the pipeline default 'rancherrocks' qualifies.
+      when: rancher_admin_password | default('') | length > 0
     - name: Check if kubectl is available
       ansible.builtin.stat:
         path: "{{ kubeconfig_path }}"
