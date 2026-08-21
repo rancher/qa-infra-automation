@@ -277,6 +277,8 @@
           RANCHER_CHART_URL={{ rancher_chart_url | default('') }}
           RANCHER_HELM_REPO={{ rancher_helm_repo }}
           CYPRESS_TAGS={{ cypress_tags }}
+          KUBERNETES_VERSION={{ k3s_kubernetes_version | default('') }}
+          DASHBOARD_BRANCH={{ target_branch | default('') | trim }}
         dest: "{{ workspace_dir }}/notification_values.txt"
         mode: "0644"
       tags: [always]
