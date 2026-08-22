@@ -140,6 +140,11 @@
       run_once: true
       become: false
 
+    - name: Show path to kubeconfig
+      debug:
+        msg: "Kubeconfig content saved to {{ kubeconfig_file }}"
+      run_once: true
+
     # Pick first cp-having host for kubeconfig URL — split-role master may be etcd-only and have no apiserver.
     - name: Pick a kube-apiserver-bearing host for the kubeconfig server URL
       set_fact:
@@ -190,14 +195,12 @@
       slurp:
         src: "{{ node_token_file }}"
       delegate_to: localhost
-      run_once: true
       become: false
       register: node_token_file_content
 
     - name: Set node_token fact from file content
       set_fact:
         node_token: "{{ node_token_file_content.content | b64decode | trim }}"
-      run_once: true
       delegate_to: localhost
 
     - name: Create K3s server manifests directory on server nodes
