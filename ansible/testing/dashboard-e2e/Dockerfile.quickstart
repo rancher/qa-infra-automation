@@ -31,9 +31,9 @@ ARG KUBECTL_SUM_AMD64=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db5
 ARG KUBECTL_SUM_ARM64=e9494229893ccddc81065275c0e5f21167518ab939f0e95aecb649fb4b41c112
 
 # renovate: datasource=github-release-attachments depName=astral-sh/uv
-ARG UV_VERSION=0.11.3
-# renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.11.3
-ARG UV_SUM_AMD64=8b40cf16b849634b81a530a3d0a0bcae5f24996ef9ae782976fd69b6266d3b8e
+ARG UV_VERSION=0.12.5
+# renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.12.5
+ARG UV_SUM_AMD64=a4742988791c9aeae68c78150d6cba762062ad2a47e53738c2779d2b596bfcdb
 ARG UV_SUM_ARM64=8ecec82cb9a744d5fabff6d16d7777218a7730f699d2aa0d2f751c17858e2efa
 
 RUN apk add --no-cache \
