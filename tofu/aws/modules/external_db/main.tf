@@ -70,7 +70,7 @@ resource "aws_db_instance" "db" {
   engine                 = local.external_db
   engine_version         = var.external_db_version
   instance_class         = var.instance_class
-  name                   = var.db_name
+  db_name                = var.db_name
   parameter_group_name   = var.db_group_name != "" ? var.db_group_name : null
   username               = var.db_username
   password               = var.db_password
