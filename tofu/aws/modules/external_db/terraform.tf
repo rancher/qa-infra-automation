@@ -3,8 +3,8 @@ terraform {
   required_providers {
     aws = {
       source = "hashicorp/aws"
-      # Match the cluster_nodes/qainfra stack (aws 3.x). aws_db_instance uses
-      # `name` for the DB name in 3.x (`db_name` only exists in >= 4.0).
+      # Match the cluster_nodes/qainfra stack (aws 6.x). aws_db_instance takes
+      # the DB name via `db_name` (`name` was removed in >= 6.0).
       version = "~> 6.0"
     }
     random = {
