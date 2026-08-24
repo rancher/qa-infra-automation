@@ -1,10 +1,12 @@
 # Harvester
 
 Ansible playbooks for operating Harvester itself and for deploying RKE2 +
-Rancher onto nodes that already exist (for example VMs provisioned by hand
-or via the Harvester UI/API). This directory does **not** provision
-infrastructure — there is currently no `tofu/harvester` module and no
-inventory-generation step here; bring your own inventory.
+Rancher onto nodes that already exist (for example VMs provisioned by hand,
+via the Harvester UI/API, or with the [`tofu/harvester/modules/vm`](../../tofu/harvester/modules/vm)
+OpenTofu module). This directory does **not** provision infrastructure or
+generate an inventory itself — apply the Tofu module (or otherwise bring up
+your nodes) and provide your own Ansible inventory before running the
+playbooks below.
 
 ## Playbooks
 
@@ -38,11 +40,10 @@ In addition to the [general ansible prereqs](../README.md):
   (`KUBE_API_HOST`, `FQDN`), or a terraform state file — see
   `ansible/rke2/default/rke2-playbook.yml` for the lookup order.
 * `vars.yaml` files in each playbook's own directory (loaded relative to
-  `playbook_dir`, so `ansible/harvester/vars.yaml` itself is **not** used by
-  `harvester-rancher-playbook.yml` — see [vars.yaml.example](./vars.yaml.example)
-  in this directory for details):
-  * `ansible/rke2/default/vars.yaml` (RKE2 install settings — copy from
-    `vars.yaml.example` in that directory)
+  `playbook_dir` — `ansible/harvester/vars.yaml` itself is **not** used by
+  `harvester-rancher-playbook.yml`; see the comment at the top of that file
+  for details):
+  * `ansible/rke2/default/vars.yaml` (RKE2 install settings)
   * `ansible/rancher/default-ha/vars.yaml` (Rancher chart/version settings —
     see that directory's [QUICKSTART.md](../rancher/default-ha/QUICKSTART.md)
     for a template)
