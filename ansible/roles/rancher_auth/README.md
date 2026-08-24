@@ -111,9 +111,13 @@ Environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `rancher_permanent_password` | `""` | If set (non-empty), sets this as the permanent password after first login |
+| `rancher_password_min_length` | `12` | Minimum length enforced for `rancher_permanent_password` (Rancher v2.13+ `setpassword` API minimum). The role fails fast with an actionable message instead of retrying into an HTTP 422 |
 
 Note: The permanent password is only set when `rancher_permanent_password` is defined and non-empty.
 This replaces the previous `rancher_set_permanent_password` boolean flag.
+Rancher accepts a shorter value as `bootstrapPassword` during Helm install, so an under-length
+password only fails later, at the set-password step — the role's pre-flight assert surfaces it
+immediately.
 
 ### API Configuration
 
