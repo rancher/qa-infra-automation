@@ -29,3 +29,8 @@ rancher_cattle_config_file: ""  # If set, updates this file with the token
 # Optional: Set permanent password after first login
 # If rancher_permanent_password is defined and non-empty, the permanent password will be set
 rancher_permanent_password: ""
+
+# Minimum password length enforced by the Rancher setpassword API (Rancher v2.13+).
+# A shorter password is silently accepted as bootstrapPassword at Helm install time
+# but rejected later with HTTP 422 'Password must be at least 12 characters'.
+rancher_password_min_length: 12
