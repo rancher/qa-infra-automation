@@ -27,6 +27,8 @@ all.yml
 .idea/
 .kube/
 *.pem
+id_rsa
+id_rsa.pub
 ansible/chaos/experiments/*.yml
 .inventory-manifest.json
 ansible/rke2/airgap/inventory/group_vars/all.yml
