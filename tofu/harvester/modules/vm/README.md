@@ -38,6 +38,19 @@ This module deploys resources required to get a VM via harvester, with the optio
 
 Refer to `variables.tf` for a list of configurable variables.
 
+### SSH key handling
+
+`ssh_key` is optional. If you provide it, it's used as-is 
+If you leave it unset (or set to `""`), the module automatically generates a
+new SSH key pair, uses the public key for the VMs, and writes the private key
+to `id_rsa` (and `id_rsa.pub`) inside this module's directory. Set
+`ssh_private_key_output_path` to change the *directory* the generated private
+key is written to. The filename must stay `id_rsa` (i.e. only the directory
+portion of the path may change) — the repository's root `.gitignore` only
+matches the bare `id_rsa`/`id_rsa.pub` filenames, so renaming the file would
+risk accidentally committing a private key. This is enforced by a
+`validation` block on `ssh_private_key_output_path` in `variables.tf`.
+
 ## Outputs
 
 Refer to `outputs.tf` for a list of exported values.
