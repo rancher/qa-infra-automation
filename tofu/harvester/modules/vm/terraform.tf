@@ -10,7 +10,7 @@ terraform {
     }
     ansible = {
       source  = "ansible/ansible"
-      version = ">=1.3.0"
+      version = ">= 1.3.0"
     }
     tls = {
       source  = "hashicorp/tls"
