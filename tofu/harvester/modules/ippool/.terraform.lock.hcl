@@ -2,14 +2,17 @@
 # Manual edits may be lost in future updates.
 
 provider "registry.opentofu.org/harvester/harvester" {
-  version     = "1.7.1"
+  version     = "1.8.2"
   constraints = ">= 1.6.0"
   hashes = [
-    "h1:6cZcXs/gkruSGDPgf0OxeYWLO7m+TM8d1TELZXrSC7o=",
-    "zh:3ab9c4f10315bb674d5f0b25cfe3e5c673c9172cdc54ef53a039823395cfa0d6",
-    "zh:a89c20cb5248793c96ccf8a5a0a41f17a9ee61bf9d9b35320b1c973b32124cd6",
-    "zh:b623902abd84689563946d29fe6212e7a7baad42e3c3857ef3611e5fdd99e660",
-    "zh:babc5423271112b44ae3f1dc4f78c10b947d08e4e95671310c1ae30b143013eb",
+    "h1:91Qklt90BNHGQe0QIgNf6u5r4rUqDReCF3Reoxc7ZK8=",
+    "h1:Iuybul8sgofPPt9naAy2eZooZt/VAsQExttPR3kxmy0=",
+    "h1:RRId2veOYRdifXDauzf5QCqML88GaVr6WmihP+249+8=",
+    "h1:n9ZmmlN0o5eYRUl2ZUejXeU/XNiGxVsj6dJUMLZ+foQ=",
+    "zh:acdc6161f71ae03603263a6d99b246d8a494ba17961ef0d57def7b89576ce9c9",
+    "zh:b9045794645bd45608decd0930de2e474396688954e008ca9b35ef971dd57031",
+    "zh:c96262f984ed6037685c5b479701158eb266ae9bc750aa33f12f35e266b962c8",
+    "zh:f8b08fd012d52f3cf19f122bd22291d90ae74cea1772354d44f917b04f98e10d",
   ]
 }
 
