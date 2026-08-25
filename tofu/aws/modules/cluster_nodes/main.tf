@@ -27,6 +27,18 @@ locals {
     if contains(node.role, "cp")
   }
   cp_node_count = length(local.cp_nodes)
+
+  # Self-provision VPC/subnet when omitted. Mirrors the SG idiom below.
+  create_vpc    = var.aws_vpc == null
+  create_subnet = var.aws_subnet == null
+
+  vpc_id    = local.create_vpc ? aws_vpc.ephemeral[0].id : var.aws_vpc
+  subnet_id = local.create_subnet ? aws_subnet.ephemeral[0].id : var.aws_subnet
+  vpc_cidr_block = local.create_vpc ? aws_vpc.ephemeral[0].cidr_block : data.aws_vpc.selected[0].cidr_block
+
+  # Self-provision the main security group the same way when none is supplied.
+  create_security_group = length(var.aws_security_group) == 0
+  security_group_ids    = local.create_security_group ? [aws_security_group.ephemeral[0].id] : var.aws_security_group
 }
 
 variable "registry_ip" {
@@ -50,6 +62,116 @@ resource "aws_key_pair" "ssh_public_key" {
   public_key = file(var.public_ssh_key)
 }
 
+# Ephemeral network (created when var.aws_vpc/var.aws_subnet are null).
+resource "aws_vpc" "ephemeral" {
+  count                = local.create_vpc ? 1 : 0
+  cidr_block           = var.ephemeral_vpc_cidr
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-vpc"
+  }
+}
+
+data "aws_availability_zones" "available" {
+  count = local.create_subnet ? 1 : 0
+  state = "available"
+}
+
+resource "aws_subnet" "ephemeral" {
+  count                   = local.create_subnet ? 1 : 0
+  vpc_id                  = local.vpc_id
+  cidr_block              = var.ephemeral_subnet_cidr
+  availability_zone       = data.aws_availability_zones.available[0].names[0]
+  map_public_ip_on_launch = var.airgap_setup ? false : true
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-subnet"
+  }
+}
+
+resource "aws_internet_gateway" "ephemeral" {
+  count  = local.create_vpc ? 1 : 0
+  vpc_id = aws_vpc.ephemeral[0].id
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-igw"
+  }
+}
+
+resource "aws_route_table" "ephemeral" {
+  count  = local.create_vpc ? 1 : 0
+  vpc_id = aws_vpc.ephemeral[0].id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.ephemeral[0].id
+  }
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-rt"
+  }
+}
+
+resource "aws_route_table_association" "ephemeral" {
+  # Only needed when we created our own route table (create_vpc); a subnet
+  # added to an existing VPC uses its main route table automatically.
+  count          = local.create_vpc && local.create_subnet ? 1 : 0
+  subnet_id      = aws_subnet.ephemeral[0].id
+  route_table_id = aws_route_table.ephemeral[0].id
+}
+
+# Main security group, self-provisioned when var.aws_security_group is empty.
+# Mirrors tofu/aws/modules/airgap's aws_security_group.airgap: SSH, full
+# intra-group traffic, and the RKE2/Rancher NLB listener ports.
+resource "aws_security_group" "ephemeral" {
+  count       = local.create_security_group ? 1 : 0
+  name        = "tf-${var.aws_hostname_prefix}-sg"
+  description = "Ephemeral security group for ${var.aws_hostname_prefix} (created because var.aws_security_group was empty)"
+  vpc_id      = local.vpc_id
+
+  ingress {
+    description = "SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "All traffic between instances in this security group"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+  }
+
+  dynamic "ingress" {
+    for_each = toset(["80", "443", "6443", "9345"])
+    content {
+      description = "RKE2/Rancher NLB listener ${ingress.value}"
+      from_port   = tonumber(ingress.value)
+      to_port     = tonumber(ingress.value)
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
+  egress {
+    description = "Allow all egress"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-sg"
+  }
+}
+
+
 # Dedicated SSH security group with stable CIDR rules.
 #
 # Why this exists: when SSH access for the jumpbox/bastion is granted ONLY via a
@@ -68,7 +190,7 @@ resource "aws_security_group" "ssh" {
   count       = var.create_ssh_security_group ? 1 : 0
   name        = "tf-${var.aws_hostname_prefix}-ssh"
   description = "Stable SSH (22) access for ${var.aws_hostname_prefix} (avoids prefix-list propagation lag)."
-  vpc_id      = var.aws_vpc
+  vpc_id      = local.vpc_id
 
   dynamic "ingress" {
     for_each = length(var.ssh_allowed_cidrs) > 0 ? [1] : []
@@ -86,7 +208,7 @@ resource "aws_security_group" "ssh" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.selected.cidr_block]
+    cidr_blocks = [local.vpc_cidr_block]
   }
 
   egress {
@@ -107,8 +229,8 @@ resource "aws_instance" "node" {
   ami = var.aws_ami
   instance_type = each.value.instance_type != null ? each.value.instance_type : var.instance_type
   key_name = aws_key_pair.ssh_public_key.key_name
-  vpc_security_group_ids = compact(concat(var.aws_security_group, var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : []))
-  subnet_id = var.aws_subnet
+  vpc_security_group_ids = compact(concat(local.security_group_ids, var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : []))
+  subnet_id = local.subnet_id
   associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
 
   ebs_block_device {
@@ -156,7 +278,7 @@ resource "aws_lb" "aws_nlb" {
   count = local.cp_node_count  > 1 ? 1 : 0
   internal = false
   load_balancer_type = "network"
-  subnets = [var.aws_subnet]
+  subnets = [local.subnet_id]
   name = "${var.aws_hostname_prefix}-nlb"
 }
 
@@ -164,7 +286,7 @@ resource "aws_lb_target_group" "aws_tg_80" {
   count = local.cp_node_count  > 1 ? 1 : 0
   port = 80
   protocol = "TCP"
-  vpc_id = var.aws_vpc
+  vpc_id = local.vpc_id
   name = "${var.aws_hostname_prefix}-tg-80"
   health_check {
         protocol = "HTTP"
@@ -182,7 +304,7 @@ resource "aws_lb_target_group" "aws_tg_443" {
   count = local.cp_node_count  > 1 ? 1 : 0
   port = 443
   protocol = "TCP"
-  vpc_id = var.aws_vpc
+  vpc_id = local.vpc_id
   name = "${var.aws_hostname_prefix}-tg-443"
   health_check {
         protocol = "HTTP"
@@ -200,7 +322,7 @@ resource "aws_lb_target_group" "aws_tg_6443" {
   count = local.cp_node_count  > 1 ? 1 : 0
   port = 6443
   protocol = "TCP"
-  vpc_id = var.aws_vpc
+  vpc_id = local.vpc_id
   name = "${var.aws_hostname_prefix}-tg-6443"
   health_check {
         protocol = "HTTP"
@@ -218,7 +340,7 @@ resource "aws_lb_target_group" "aws_tg_9345" {
   count = local.cp_node_count  > 1 ? 1 : 0
   port = 9345
   protocol = "TCP"
-  vpc_id = var.aws_vpc
+  vpc_id = local.vpc_id
   name = "${var.aws_hostname_prefix}-tg-9345"
   health_check {
         protocol = "HTTP"
@@ -289,7 +411,10 @@ data "aws_route53_zone" "selected" {
   private_zone = false
 }
 
-# Used to auto-allow SSH from the VPC's own CIDR in the dedicated SSH SG above.
+# Used to auto-allow SSH from the VPC's own CIDR in the dedicated SSH SG above,
+# only when the caller supplied a pre-existing VPC (the ephemeral aws_vpc.ephemeral
+# resource already exposes its own cidr_block directly, see local.vpc_cidr_block).
 data "aws_vpc" "selected" {
-  id = var.aws_vpc
+  count = local.create_vpc ? 0 : 1
+  id    = var.aws_vpc
 }

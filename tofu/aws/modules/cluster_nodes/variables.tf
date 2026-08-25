@@ -18,12 +18,24 @@ variable "private_ssh_key" {
   default     = ""
 }
 variable "aws_security_group" {
-  type = list(string)
+  description = "Optional list of pre-existing security group IDs to attach to every instance. When empty (the default) the module provisions its own ephemeral VPC/subnet/security group instead (created and destroyed alongside everything else)."
+  type        = list(string)
+  default     = []
 }
-variable "aws_vpc" {}
+variable "aws_vpc" {
+  description = "Optional pre-existing VPC ID. When null (the default) the module provisions its own ephemeral VPC instead."
+  type        = string
+  default     = null
+  nullable    = true
+}
 variable "aws_volume_size" {}
 variable "aws_volume_type" {}
-variable "aws_subnet" {}
+variable "aws_subnet" {
+  description = "Optional pre-existing subnet ID. When null (the default) the module provisions its own ephemeral subnet instead."
+  type        = string
+  default     = null
+  nullable    = true
+}
 variable "instance_type" {}
 variable "nodes" {
   description = "Configuration for product nodes."
@@ -61,4 +73,16 @@ variable "ssh_allowed_cidrs" {
     ])
     error_message = "ssh_allowed_cidrs must not contain 0.0.0.0/0 or ::/0 (world-open SSH is not permitted). Use specific /32 or narrower CIDRs."
   }
+}
+
+variable "ephemeral_vpc_cidr" {
+  description = "CIDR block for the self-provisioned ephemeral VPC, used only when var.aws_vpc is null."
+  type        = string
+  default     = "10.100.0.0/16"
+}
+
+variable "ephemeral_subnet_cidr" {
+  description = "CIDR block for the self-provisioned ephemeral subnet, used only when var.aws_subnet is null."
+  type        = string
+  default     = "10.100.1.0/24"
 }

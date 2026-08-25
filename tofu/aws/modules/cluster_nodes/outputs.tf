@@ -37,3 +37,18 @@ output "ssh_security_group_id" {
   description = "ID of the dedicated SSH security group created when create_ssh_security_group=true; null otherwise."
   value       = var.create_ssh_security_group ? aws_security_group.ssh[0].id : null
 }
+
+output "vpc_id" {
+  description = "The VPC ID in use — either var.aws_vpc if supplied, or the ephemerally created VPC."
+  value       = local.vpc_id
+}
+
+output "subnet_id" {
+  description = "The subnet ID in use — either var.aws_subnet if supplied, or the ephemerally created subnet."
+  value       = local.subnet_id
+}
+
+output "security_group_ids" {
+  description = "The security group IDs in use — either var.aws_security_group if supplied, or the ephemerally created security group."
+  value       = local.security_group_ids
+}

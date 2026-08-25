@@ -4,6 +4,140 @@ provider "rancher2" {
   insecure  = var.insecure
 }
 
+# Only relevant when cloud_provider == "aws"; unused otherwise.
+provider "aws" {
+  region     = try(var.node_config.aws_region, "us-east-1")
+  access_key = try(var.node_config.aws_access_key, null)
+  secret_key = try(var.node_config.aws_secret_key, null)
+}
+
+locals {
+  # Self-provision VPC/subnet/SG when omitted (aws only). Mirrors cluster_nodes/airgap.
+  create_vpc             = var.cloud_provider == "aws" && try(var.node_config.aws_vpc, null) == null
+  create_subnet          = var.cloud_provider == "aws" && try(var.node_config.aws_subnet, null) == null
+  create_security_group  = var.cloud_provider == "aws" && length(try(var.node_config.aws_security_group, [])) == 0
+
+  vpc_id             = local.create_vpc ? aws_vpc.ephemeral[0].id : try(var.node_config.aws_vpc, null)
+  subnet_id          = local.create_subnet ? aws_subnet.ephemeral[0].id : try(var.node_config.aws_subnet, null)
+  security_group_ids = local.create_security_group ? [aws_security_group.ephemeral[0].id] : try(var.node_config.aws_security_group, [])
+
+  # Overlay resolved vpc/subnet/sg back into node_config for aws only.
+  effective_node_config = var.cloud_provider == "aws" ? merge(var.node_config, {
+    aws_vpc            = local.vpc_id
+    aws_subnet         = local.subnet_id
+    aws_security_group = local.security_group_ids
+  }) : var.node_config
+}
+
+# Ephemeral network (aws only, created when vpc/subnet omitted).
+
+resource "aws_vpc" "ephemeral" {
+  count                = local.create_vpc ? 1 : 0
+  cidr_block           = var.ephemeral_vpc_cidr
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = {
+    Name = "${var.generate_name}-ephemeral-vpc"
+  }
+}
+
+data "aws_availability_zones" "available" {
+  count = local.create_subnet ? 1 : 0
+  state = "available"
+}
+
+resource "aws_subnet" "ephemeral" {
+  count                   = local.create_subnet ? 1 : 0
+  vpc_id                  = local.vpc_id
+  cidr_block              = var.ephemeral_subnet_cidr
+  availability_zone       = data.aws_availability_zones.available[0].names[0]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "${var.generate_name}-ephemeral-subnet"
+  }
+}
+
+resource "aws_internet_gateway" "ephemeral" {
+  count  = local.create_vpc ? 1 : 0
+  vpc_id = aws_vpc.ephemeral[0].id
+
+  tags = {
+    Name = "${var.generate_name}-ephemeral-igw"
+  }
+}
+
+resource "aws_route_table" "ephemeral" {
+  count  = local.create_vpc ? 1 : 0
+  vpc_id = aws_vpc.ephemeral[0].id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.ephemeral[0].id
+  }
+
+  tags = {
+    Name = "${var.generate_name}-ephemeral-rt"
+  }
+}
+
+resource "aws_route_table_association" "ephemeral" {
+  # Only needed when we created our own route table (create_vpc); a subnet
+  # added to an existing VPC uses its main route table automatically.
+  count          = local.create_vpc && local.create_subnet ? 1 : 0
+  subnet_id      = aws_subnet.ephemeral[0].id
+  route_table_id = aws_route_table.ephemeral[0].id
+}
+
+# Mirrors tofu/aws/modules/airgap's self-provisioned SG: SSH, full intra-group
+# traffic, and the RKE2/Rancher NLB listener ports, plus unrestricted egress.
+resource "aws_security_group" "ephemeral" {
+  count       = local.create_security_group ? 1 : 0
+  name        = "${var.generate_name}-ephemeral-sg"
+  description = "Ephemeral security group for ${var.generate_name} (created because node_config.aws_security_group was empty)"
+  vpc_id      = local.vpc_id
+
+  ingress {
+    description = "SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "All traffic between instances in this security group"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+  }
+
+  dynamic "ingress" {
+    for_each = toset(["80", "443", "6443", "9345"])
+    content {
+      description = "LB listener ${ingress.value}"
+      from_port   = tonumber(ingress.value)
+      to_port     = tonumber(ingress.value)
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
+  egress {
+    description = "All outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.generate_name}-ephemeral-sg"
+  }
+}
+
 resource "random_string" "suffix" {
   length  = 3
   upper   = false
@@ -16,7 +150,7 @@ module "rancher2_cloud_credential" {
 
   name = "${var.cloud_provider}-${random_string.suffix.result}"
   cloud_provider = var.cloud_provider
-  node_config = var.node_config
+  node_config = local.effective_node_config
   fqdn = var.fqdn
 
   create_new = var.create_new
@@ -27,7 +161,7 @@ module "rancher2_cloud_credential" {
 module "rancher2_machine_config_v2" {
   source = "../machineconfig"
   cloud_provider = var.cloud_provider
-  node_config = var.node_config
+  node_config = local.effective_node_config
 
   count                    = var.create_new ? 1 : 0
   generate_name            = var.generate_name

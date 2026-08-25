@@ -49,6 +49,24 @@ variable "node_config" {
   nullable    = false
   sensitive   = true
   description = "(Optional/Computed) Cloud provider-specific configuration object (object with optional attributes for those defined here https://registry.terraform.io/providers/rancher/rancher2/7.0.0/docs/resources/node_template#argument-reference)"
+
+  validation {
+    # Required for the ephemeral network and the amazonec2_config node driver.
+    condition     = var.cloud_provider != "aws" || try(var.node_config.aws_region, null) != null
+    error_message = "node_config.aws_region is required when cloud_provider = \"aws\"."
+  }
+}
+
+variable "ephemeral_vpc_cidr" {
+  type        = string
+  default     = "10.101.0.0/16"
+  description = "CIDR block for the ephemeral VPC created when cloud_provider=\"aws\" and node_config.aws_vpc/aws_subnet are omitted. Mirrors tofu/aws/modules/cluster_nodes's self-provisioning behavior."
+}
+
+variable "ephemeral_subnet_cidr" {
+  type        = string
+  default     = "10.101.1.0/24"
+  description = "CIDR block for the ephemeral subnet created when cloud_provider=\"aws\" and node_config.aws_vpc/aws_subnet are omitted."
 }
 
 variable "node_taints" {
