@@ -23,7 +23,7 @@
 # `ansible` metapackage.
 # NOTE: ansible/testing/dashboard-e2e independently pins ansible-core<2.17 via
 # uv; 2.21.1 is newer than that suite's cap.
-ansible-core==2.21.1
+ansible-core==2.21.3
 
 # Used by scripts/generate_inventory.py
 pyyaml==6.0.2
