@@ -12,6 +12,13 @@
     "release/v2.11"
   ],
   "prHourlyLimit": 2,
+  "platformAutomerge": true,
+  "automerge": false,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "minimumReleaseAge": "3 days",
+    "labels": ["security"]
+  },
   "packageRules": [
     {
       "description": "Apply Rancher 2.15 update constraints to branch release/v2.15. Adapt baseBranchPatterns and matchBaseBranches if this repository uses different release branch names.",
@@ -57,6 +64,25 @@
       "extends": [
         "github>rancher/renovate-config//rancher-2.11#release"
       ]
+    },
+    {
+      "description": "Automerge security/vulnerability patch updates only after the fix has been out for 3+ days. Requires 1 PR approval, enforced via GitHub branch protection.",
+      "matchJsonata": [
+        "$exists(vulnerabilityFixVersion) and updateType = 'patch'"
+      ],
+      "minimumReleaseAge": "3 days",
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "labels": ["security", "automerge"]
+    },
+    {
+      "description": "Security minor/major updates are already denied by the top-level automerge:false default; flag them for manual review.",
+      "matchJsonata": [
+        "$exists(vulnerabilityFixVersion) and updateType in ['minor', 'major']"
+      ],
+      "automerge": false,
+      "labels": ["security", "needs-review"]
     }
   ]
 }
