@@ -19,6 +19,7 @@ These vendor-neutral guidelines apply to every AI agent, automated reviewer, and
 - Keep changes focused on the requested behavior. Do not mix unrelated refactors, formatting, or dependency updates.
 - Treat module inputs, outputs, state addresses, inventory fields, environment variables, CLI behavior, generated files, and documented paths as public contracts.
 - This repository has downstream consumers. Until contract tests cover those integrations, preserve existing behavior and interfaces by default.
+- Known consumers to check include `rancher/tests`, `rancher/distros-test-framework`, and Jenkins jobs that invoke this repository's modules, inventories, or playbooks.
 - Search for in-repository and downstream consumers before changing a contract. Never infer that an unused local symbol has no external users.
 - A breaking change requires explicit approval, a migration path, documentation, and tests covering both the intended break and its failure mode.
 - Prefer the smallest reversible change that solves the root cause.
@@ -55,6 +56,10 @@ ANSIBLE_CONFIG=ansible/k3s/default/ansible.cfg \
 
 Add focused integration or live validation when the changed behavior requires it. Reuse the activated `.venv` on later runs.
 
+For changed Ansible content, syntax-check each affected playbook and run `ansible-lint <changed-playbook-or-role>`. When a representative inventory and credentials are available and check mode is supported, also run `ansible-playbook --check -i <inventory> <playbook>`; otherwise report that validation as unverified.
+
+Every change to inventory generation, including `scripts/generate_inventory.py`, `ansible/_inventory-schema.yaml`, or its OpenTofu output contract, must run `python -m unittest discover -s tests -p 'test_generate_inventory.py'`.
+
 For changed OpenTofu files, run `tofu fmt -check <changed-file-or-module>`. Also run `tofu -chdir=<module> init -backend=false` and `tofu -chdir=<module> validate` for each changed module.
 
 Do not format the entire repository to fix unrelated legacy files. Follow the setup and focused-test commands in the [Copilot workspace instructions](.github/copilot-instructions.md).
@@ -89,7 +94,7 @@ Do not format the entire repository to fix unrelated legacy files. Follow the se
 ## Commits and Pull Requests
 
 - Use concise, imperative commit and pull-request titles that describe the behavior changed.
-- Keep each commit focused and make the pull-request description state what changed, why, risk, validation, and downstream impact.
+- Keep each commit focused. Use a detailed, informative pull-request description that explains what changed, why it is needed, risk, validation, and downstream impact.
 
 ## Handoff
 
