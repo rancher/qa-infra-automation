@@ -73,8 +73,10 @@ provisions its own equivalent instead:
 * A VPC (`ephemeral_vpc_cidr`, default `10.101.0.0/16`)
 * A public subnet (`ephemeral_subnet_cidr`, default `10.101.1.0/24`) with an
   internet gateway + route table
-* A security group opening SSH (22), full intra-group traffic, and the
-  RKE2/Rancher NLB listener ports (80, 443, 6443, 9345)
+* A security group opening SSH (22) from `ephemeral_ssh_cidrs` (default `[]`
+  — no SSH ingress at all unless the caller opts in with specific CIDRs),
+  full intra-group traffic, and the RKE2/Rancher NLB listener ports (80, 443,
+  6443, 9345)
 
 This mirrors the same self-provisioning idiom used by
 `tofu/aws/modules/cluster_nodes` and `tofu/aws/modules/airgap`: nothing is

@@ -21,6 +21,7 @@ variable "aws_security_group" {
   description = "Optional list of pre-existing security group IDs to attach to every instance. When empty (the default) the module provisions its own ephemeral VPC/subnet/security group instead (created and destroyed alongside everything else)."
   type        = list(string)
   default     = []
+  nullable    = false
 }
 variable "aws_vpc" {
   description = "Optional pre-existing VPC ID. When null (the default) the module provisions its own ephemeral VPC instead."
@@ -35,6 +36,13 @@ variable "aws_subnet" {
   type        = string
   default     = null
   nullable    = true
+
+  validation {
+    # A supplied subnet must belong to a supplied VPC (mismatched VPCs fail at apply time,
+    # since security groups/subnets/NLB target groups must all be in the same VPC).
+    condition     = var.aws_subnet == null || var.aws_vpc != null
+    error_message = "aws_vpc must be set when aws_subnet is set (the subnet's VPC must match the VPC used for security groups and NLB target groups)."
+  }
 }
 variable "instance_type" {}
 variable "nodes" {
@@ -72,6 +80,20 @@ variable "ssh_allowed_cidrs" {
       c != "0.0.0.0/0" && c != "::/0"
     ])
     error_message = "ssh_allowed_cidrs must not contain 0.0.0.0/0 or ::/0 (world-open SSH is not permitted). Use specific /32 or narrower CIDRs."
+  }
+}
+
+variable "ephemeral_ssh_cidrs" {
+  description = "CIDR blocks allowed SSH (22) access to the ephemeral security group created when var.aws_security_group is empty. Defaults to no SSH ingress at all; the caller must opt in with specific CIDRs (e.g. [\"45.33.107.248/32\"])."
+  type        = list(string)
+  default     = []
+  validation {
+    # Reject world-open SSH, same policy as ssh_allowed_cidrs above.
+    condition = alltrue([
+      for c in var.ephemeral_ssh_cidrs :
+      c != "0.0.0.0/0" && c != "::/0"
+    ])
+    error_message = "ephemeral_ssh_cidrs must not contain 0.0.0.0/0 or ::/0 (world-open SSH is not permitted). Use specific /32 or narrower CIDRs."
   }
 }
 

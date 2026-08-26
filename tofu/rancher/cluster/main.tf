@@ -15,11 +15,11 @@ locals {
   # Self-provision VPC/subnet/SG when omitted (aws only). Mirrors cluster_nodes/airgap.
   create_vpc             = var.cloud_provider == "aws" && try(var.node_config.aws_vpc, null) == null
   create_subnet          = var.cloud_provider == "aws" && try(var.node_config.aws_subnet, null) == null
-  create_security_group  = var.cloud_provider == "aws" && length(try(var.node_config.aws_security_group, [])) == 0
+  create_security_group  = var.cloud_provider == "aws" && try(length(var.node_config.aws_security_group), 0) == 0
 
   vpc_id             = local.create_vpc ? aws_vpc.ephemeral[0].id : try(var.node_config.aws_vpc, null)
   subnet_id          = local.create_subnet ? aws_subnet.ephemeral[0].id : try(var.node_config.aws_subnet, null)
-  security_group_ids = local.create_security_group ? [aws_security_group.ephemeral[0].id] : try(var.node_config.aws_security_group, [])
+  security_group_ids = local.create_security_group ? [aws_security_group.ephemeral[0].id] : try(tolist(var.node_config.aws_security_group), [])
 
   # Overlay resolved vpc/subnet/sg back into node_config for aws only.
   effective_node_config = var.cloud_provider == "aws" ? merge(var.node_config, {
@@ -98,12 +98,15 @@ resource "aws_security_group" "ephemeral" {
   description = "Ephemeral security group for ${var.generate_name} (created because node_config.aws_security_group was empty)"
   vpc_id      = local.vpc_id
 
-  ingress {
-    description = "SSH from anywhere"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = var.ephemeral_ssh_cidrs
+    content {
+      description = "SSH (22) from ${ingress.value}"
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = [ingress.value]
+    }
   }
 
   ingress {

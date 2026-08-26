@@ -85,9 +85,11 @@ defaults to `[]`), the module provisions its own equivalent instead:
 * A public subnet (`ephemeral_subnet_cidr`, default `10.100.1.0/24`) with an
   internet gateway + route table, so instances keep getting public IPs exactly
   as before (unless `airgap_setup`/`proxy_setup` is set)
-* A security group opening SSH (22), full intra-group traffic, and the
-  RKE2/Rancher NLB listener ports (80, 443, 6443, 9345) — the same port matrix
-  a manually-supplied `aws_security_group` is expected to already allow
+* A security group opening SSH (22) from `ephemeral_ssh_cidrs` (default `[]`
+  — no SSH ingress at all unless the caller opts in with specific CIDRs),
+  full intra-group traffic, and the RKE2/Rancher NLB listener ports (80, 443,
+  6443, 9345) — the same port matrix a manually-supplied `aws_security_group`
+  is expected to already allow
 
 This follows the same self-provisioning idiom already used by
 `tofu/aws/modules/airgap`'s security group and by this module's own

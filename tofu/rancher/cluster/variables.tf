@@ -55,6 +55,12 @@ variable "node_config" {
     condition     = var.cloud_provider != "aws" || try(var.node_config.aws_region, null) != null
     error_message = "node_config.aws_region is required when cloud_provider = \"aws\"."
   }
+
+  validation {
+    # A supplied subnet must belong to a supplied VPC (mismatched VPCs fail at apply time).
+    condition     = var.cloud_provider != "aws" || try(var.node_config.aws_subnet, null) == null || try(var.node_config.aws_vpc, null) != null
+    error_message = "node_config.aws_vpc must be set when node_config.aws_subnet is set (the subnet must belong to the VPC used by security groups and other resources)."
+  }
 }
 
 variable "ephemeral_vpc_cidr" {
@@ -67,6 +73,21 @@ variable "ephemeral_subnet_cidr" {
   type        = string
   default     = "10.101.1.0/24"
   description = "CIDR block for the ephemeral subnet created when cloud_provider=\"aws\" and node_config.aws_vpc/aws_subnet are omitted."
+}
+
+variable "ephemeral_ssh_cidrs" {
+  type        = list(string)
+  default     = []
+  description = "CIDR blocks allowed SSH (22) access to the ephemeral security group created when cloud_provider=\"aws\" and node_config.aws_security_group is empty. Defaults to no SSH ingress at all; the caller must opt in with specific CIDRs (e.g. [\"45.33.107.248/32\"])."
+
+  validation {
+    # Reject world-open SSH, same policy as tofu/aws/modules/cluster_nodes's ssh_allowed_cidrs.
+    condition = alltrue([
+      for c in var.ephemeral_ssh_cidrs :
+      c != "0.0.0.0/0" && c != "::/0"
+    ])
+    error_message = "ephemeral_ssh_cidrs must not contain 0.0.0.0/0 or ::/0 (world-open SSH is not permitted). Use specific /32 or narrower CIDRs."
+  }
 }
 
 variable "node_taints" {

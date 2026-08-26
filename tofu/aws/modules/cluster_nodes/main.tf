@@ -131,12 +131,15 @@ resource "aws_security_group" "ephemeral" {
   description = "Ephemeral security group for ${var.aws_hostname_prefix} (created because var.aws_security_group was empty)"
   vpc_id      = local.vpc_id
 
-  ingress {
-    description = "SSH from anywhere"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = var.ephemeral_ssh_cidrs
+    content {
+      description = "SSH (22) from ${ingress.value}"
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = [ingress.value]
+    }
   }
 
   ingress {
