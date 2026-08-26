@@ -37,6 +37,8 @@ make all DISTRO=k3s ENV=default PROVIDER=aws
 | `make infra-ls-remote` | List **remote** (S3-backed) workspaces with resources for the current module |
 | `make infra-nuke-remote` | Destroy all **remote** (S3-backed) workspaces for the current module |
 | `make infra-empty-folders` | Remove empty workspace **folders** (0-resource state files) from the current module's bucket (`DELETE=yes`, `PURGE=yes`, `NUKE_FILTER=`) |
+| `make infra-stale-folders` | Remove **stale** workspace folders (state lists resources already gone in AWS; verified per-workspace) (`DELETE=yes`, `NUKE_FILTER=`) |
+| `make infra-empty-buckets` | Remove **EMPTY S3 buckets** (0 objects) account-wide (`DELETE=yes`, `NUKE_FILTER=`); protects the module's backend bucket and `do-not-delete-*` |
 
 #### Local vs. remote state cleanup
 
@@ -68,6 +70,16 @@ make infra-empty-folders DELETE=yes PURGE=yes           # delete ALL objects und
 # state's real region before removing; only confirmed-stale ones are deleted.
 make infra-stale-folders                                # scan (read-only)
 make infra-stale-folders DELETE=yes                     # remove the stale states
+
+# Remove EMPTY buckets: none of the targets above deletes buckets — they prune
+# state objects inside the module's backend bucket only. This scans EVERY
+# bucket in the account, lists the ones that verifiably contain 0 objects, and
+# (with DELETE=yes) deletes them. The module's backend bucket and any
+# do-not-delete-* bucket are always protected; buckets that can't be verified
+# are skipped. Always scope with NUKE_FILTER in shared accounts.
+make infra-empty-buckets                                 # list empty buckets (read-only)
+make infra-empty-buckets NUKE_FILTER='^dnew-'            # list only yours
+make infra-empty-buckets NUKE_FILTER='^dnew-' DELETE=yes # delete only yours
 ```
 
 `infra-nuke-remote` runs `tofu destroy` per workspace and needs the variables
