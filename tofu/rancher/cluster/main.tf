@@ -21,12 +21,16 @@ locals {
   subnet_id          = local.create_subnet ? aws_subnet.ephemeral[0].id : try(var.node_config.aws_subnet, null)
   security_group_ids = local.create_security_group ? [aws_security_group.ephemeral[0].id] : try(var.node_config.aws_security_group, [])
 
-  # Overlay resolved vpc/subnet/sg back into node_config for aws only.
-  effective_node_config = var.cloud_provider == "aws" ? merge(var.node_config, {
-    aws_vpc            = local.vpc_id
-    aws_subnet         = local.subnet_id
-    aws_security_group = local.security_group_ids
-  }) : var.node_config
+  # Overlay resolved vpc/subnet/sg back into node_config. Always merge (rather
+  # than branching between merge(...) and var.node_config) to avoid
+  # "Inconsistent conditional result types" errors, since node_config is typed
+  # `any` and the two ternary branches would otherwise have differing object
+  # types. For non-aws providers these keys are no-ops (unused downstream).
+  effective_node_config = merge(var.node_config, {
+    aws_vpc            = var.cloud_provider == "aws" ? local.vpc_id : try(var.node_config.aws_vpc, null)
+    aws_subnet         = var.cloud_provider == "aws" ? local.subnet_id : try(var.node_config.aws_subnet, null)
+    aws_security_group = var.cloud_provider == "aws" ? local.security_group_ids : try(var.node_config.aws_security_group, [])
+  })
 }
 
 # Ephemeral network (aws only, created when vpc/subnet omitted).
