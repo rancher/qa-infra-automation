@@ -7,7 +7,7 @@ This module deploys a downstream cluster on your rancher setup
 * An api_key from your rancher setup
 * tofu installed on your client machine
 * valid credentials to a provider that works with rancher's node drivers (i.e. aws, harvester)
-* For `cloud_provider = "aws"`: `node_config.aws_vpc`/`aws_subnet`/`aws_security_group` are optional. If omitted, this module provisions its own ephemeral VPC, public subnet, internet gateway, route table, and security group — created on `apply` and destroyed on `destroy`, alongside every other resource (see "Ephemeral networking" below).
+* For `cloud_provider = "aws"`: `node_config.aws_vpc`/`aws_subnet` are required (pre-existing). `node_config.aws_security_group` is optional — if omitted, this module provisions its own ephemeral security group, created on `apply` and destroyed on `destroy`, alongside every other resource (see "Ephemeral networking" below).
 
 ## Usage
 
@@ -64,28 +64,27 @@ cluster). The targets validate that both var files exist before invoking tofu.
 ## Outputs
 Refer to [outputs.tf](./outputs.tf) for a list of exported values.
 
-## Ephemeral networking (AWS only)
+## Ephemeral networking (AWS only — security group)
 
-When `cloud_provider = "aws"` and `node_config.aws_vpc`/`aws_subnet` are left
-unset (and/or `node_config.aws_security_group` is omitted/empty), this module
-provisions its own equivalent instead:
+`node_config.aws_vpc`/`aws_subnet` are required (pre-existing) when
+`cloud_provider = "aws"`. When `node_config.aws_security_group` is left
+unset/empty, this module provisions its own equivalent instead:
 
-* A VPC (`ephemeral_vpc_cidr`, default `10.101.0.0/16`)
-* A public subnet (`ephemeral_subnet_cidr`, default `10.101.1.0/24`) with an
-  internet gateway + route table
 * A security group opening SSH (22), full intra-group traffic, and the
   RKE2/Rancher NLB listener ports (80, 443, 6443, 9345)
 
 This mirrors the same self-provisioning idiom used by
 `tofu/aws/modules/cluster_nodes` and `tofu/aws/modules/airgap`: nothing is
-created unless the caller omits the corresponding `node_config` field, and
+created unless the caller omits `node_config.aws_security_group`, and
 whatever is created is destroyed automatically on `tofu destroy` along with
 the rest of this module's resources.
 
-Bring-your-own VPC/subnet/SG (the previous, still-supported behavior) remains
-available — just set `node_config.aws_vpc`/`aws_subnet`/`aws_security_group`
-as before. The IDs actually used are exported via this module's `vpc_id`,
-`subnet_id`, and `security_group_ids` outputs.
+Bring-your-own SG (the previous, still-supported behavior) remains
+available — just set `node_config.aws_security_group` as before. The
+security group name actually used is exported via this module's
+`security_group_names` output. The ephemeral security group is always passed
+downstream by name (not id), matching amazonec2_config's expected
+`security_group` format.
 
 ## Sample `vars.tfvars`
 this will highly depend on the selected provider. This example includes options for aws. Sensitive info is omitted.
@@ -109,8 +108,10 @@ node_config = {
   aws_ami = "ami-0e01311d1f112d4d0"
 
   aws_instance_type = "t3a.2xlarge"
-  # aws_vpc, aws_subnet, aws_security_group omitted -> module creates its own
-  # ephemeral VPC/subnet/security group, destroyed automatically on `destroy`.
+  aws_vpc    = "vpc-xxxxxxxx"
+  aws_subnet = "subnet-xxxxxxxx"
+  # aws_security_group omitted -> module creates its own ephemeral security
+  # group, destroyed automatically on `destroy`.
 
   aws_availability_zone = "b"
   aws_region    = "us-west-1"
@@ -128,7 +129,7 @@ cloud_provider = "aws"
 insecure = true
 ```
 
-### Bring your own VPC/subnet/security group
+### Bring your own security group
 
 ```tofu
 node_config = {

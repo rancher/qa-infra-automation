@@ -12,90 +12,27 @@ provider "aws" {
 }
 
 locals {
-  # Self-provision VPC/subnet/SG when omitted (aws only). Mirrors cluster_nodes/airgap.
-  create_vpc             = var.cloud_provider == "aws" && try(var.node_config.aws_vpc, null) == null
-  create_subnet          = var.cloud_provider == "aws" && try(var.node_config.aws_subnet, null) == null
+  # Self-provision SG when omitted (aws only). Mirrors cluster_nodes/airgap.
   create_security_group  = var.cloud_provider == "aws" && length(try(var.node_config.aws_security_group, [])) == 0
 
-  vpc_id             = local.create_vpc ? aws_vpc.ephemeral[0].id : try(var.node_config.aws_vpc, null)
-  subnet_id          = local.create_subnet ? aws_subnet.ephemeral[0].id : try(var.node_config.aws_subnet, null)
-  security_group_ids = local.create_security_group ? [aws_security_group.ephemeral[0].id] : try(var.node_config.aws_security_group, [])
+  vpc_id               = try(var.node_config.aws_vpc, null)
+  subnet_id            = try(var.node_config.aws_subnet, null)
+  # amazonec2_config.security_group expects group *names* (docker-machine looks
+  # up/creates by name); an sg-* id here would force security_group_readonly
+  # auto-detection in the machineconfig module into "existing id" mode.
+  security_group_names = local.create_security_group ? [aws_security_group.ephemeral[0].name] : try(var.node_config.aws_security_group, [])
 
-  # Overlay resolved vpc/subnet/sg back into node_config. Always merge (rather
-  # than branching between merge(...) and var.node_config) to avoid
-  # "Inconsistent conditional result types" errors, since node_config is typed
-  # `any` and the two ternary branches would otherwise have differing object
-  # types. For non-aws providers these keys are no-ops (unused downstream).
+  # Overlay resolved sg back into node_config. Always merge (rather than
+  # branching between merge(...) and var.node_config) to avoid "Inconsistent
+  # conditional result types" errors, since node_config is typed `any` and the
+  # two ternary branches would otherwise have differing object types. For
+  # non-aws providers this key is a no-op (unused downstream).
   effective_node_config = merge(var.node_config, {
-    aws_vpc            = var.cloud_provider == "aws" ? local.vpc_id : try(var.node_config.aws_vpc, null)
-    aws_subnet         = var.cloud_provider == "aws" ? local.subnet_id : try(var.node_config.aws_subnet, null)
-    aws_security_group = var.cloud_provider == "aws" ? local.security_group_ids : try(var.node_config.aws_security_group, [])
+    aws_security_group = var.cloud_provider == "aws" ? local.security_group_names : try(var.node_config.aws_security_group, [])
   })
 }
 
-# Ephemeral network (aws only, created when vpc/subnet omitted).
-
-resource "aws_vpc" "ephemeral" {
-  count                = local.create_vpc ? 1 : 0
-  cidr_block           = var.ephemeral_vpc_cidr
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-
-  tags = {
-    Name = "${var.generate_name}-ephemeral-vpc"
-  }
-}
-
-data "aws_availability_zones" "available" {
-  count = local.create_subnet ? 1 : 0
-  state = "available"
-}
-
-resource "aws_subnet" "ephemeral" {
-  count                   = local.create_subnet ? 1 : 0
-  vpc_id                  = local.vpc_id
-  cidr_block              = var.ephemeral_subnet_cidr
-  availability_zone       = data.aws_availability_zones.available[0].names[0]
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name = "${var.generate_name}-ephemeral-subnet"
-  }
-}
-
-resource "aws_internet_gateway" "ephemeral" {
-  count  = local.create_vpc ? 1 : 0
-  vpc_id = aws_vpc.ephemeral[0].id
-
-  tags = {
-    Name = "${var.generate_name}-ephemeral-igw"
-  }
-}
-
-resource "aws_route_table" "ephemeral" {
-  count  = local.create_vpc ? 1 : 0
-  vpc_id = aws_vpc.ephemeral[0].id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.ephemeral[0].id
-  }
-
-  tags = {
-    Name = "${var.generate_name}-ephemeral-rt"
-  }
-}
-
-resource "aws_route_table_association" "ephemeral" {
-  # Only needed when we created our own route table (create_vpc); a subnet
-  # added to an existing VPC uses its main route table automatically.
-  count          = local.create_vpc && local.create_subnet ? 1 : 0
-  subnet_id      = aws_subnet.ephemeral[0].id
-  route_table_id = aws_route_table.ephemeral[0].id
-}
-
-# Mirrors tofu/aws/modules/airgap's self-provisioned SG: SSH, full intra-group
-# traffic, and the RKE2/Rancher NLB listener ports, plus unrestricted egress.
+# Ephemeral security group (aws only, created when node_config.aws_security_group omitted).
 resource "aws_security_group" "ephemeral" {
   count       = local.create_security_group ? 1 : 0
   name        = "${var.generate_name}-ephemeral-sg"

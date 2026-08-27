@@ -28,13 +28,9 @@ locals {
   }
   cp_node_count = length(local.cp_nodes)
 
-  # Self-provision VPC/subnet when omitted. Mirrors the SG idiom below.
-  create_vpc    = var.aws_vpc == null
-  create_subnet = var.aws_subnet == null
-
-  vpc_id    = local.create_vpc ? aws_vpc.ephemeral[0].id : var.aws_vpc
-  subnet_id = local.create_subnet ? aws_subnet.ephemeral[0].id : var.aws_subnet
-  vpc_cidr_block = local.create_vpc ? aws_vpc.ephemeral[0].cidr_block : data.aws_vpc.selected[0].cidr_block
+  vpc_id         = var.aws_vpc
+  subnet_id      = var.aws_subnet
+  vpc_cidr_block = data.aws_vpc.selected.cidr_block
 
   # Self-provision the main security group the same way when none is supplied.
   create_security_group = length(var.aws_security_group) == 0
@@ -60,66 +56,6 @@ resource "random_id" "cluster_id" {
 resource "aws_key_pair" "ssh_public_key" {
   key_name = "tf-key-${var.aws_hostname_prefix}-${random_id.cluster_id.hex}"
   public_key = file(var.public_ssh_key)
-}
-
-# Ephemeral network (created when var.aws_vpc/var.aws_subnet are null).
-resource "aws_vpc" "ephemeral" {
-  count                = local.create_vpc ? 1 : 0
-  cidr_block           = var.ephemeral_vpc_cidr
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-
-  tags = {
-    Name = "tf-${var.aws_hostname_prefix}-vpc"
-  }
-}
-
-data "aws_availability_zones" "available" {
-  count = local.create_subnet ? 1 : 0
-  state = "available"
-}
-
-resource "aws_subnet" "ephemeral" {
-  count                   = local.create_subnet ? 1 : 0
-  vpc_id                  = local.vpc_id
-  cidr_block              = var.ephemeral_subnet_cidr
-  availability_zone       = data.aws_availability_zones.available[0].names[0]
-  map_public_ip_on_launch = var.airgap_setup ? false : true
-
-  tags = {
-    Name = "tf-${var.aws_hostname_prefix}-subnet"
-  }
-}
-
-resource "aws_internet_gateway" "ephemeral" {
-  count  = local.create_vpc ? 1 : 0
-  vpc_id = aws_vpc.ephemeral[0].id
-
-  tags = {
-    Name = "tf-${var.aws_hostname_prefix}-igw"
-  }
-}
-
-resource "aws_route_table" "ephemeral" {
-  count  = local.create_vpc ? 1 : 0
-  vpc_id = aws_vpc.ephemeral[0].id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.ephemeral[0].id
-  }
-
-  tags = {
-    Name = "tf-${var.aws_hostname_prefix}-rt"
-  }
-}
-
-resource "aws_route_table_association" "ephemeral" {
-  # Only needed when we created our own route table (create_vpc); a subnet
-  # added to an existing VPC uses its main route table automatically.
-  count          = local.create_vpc && local.create_subnet ? 1 : 0
-  subnet_id      = aws_subnet.ephemeral[0].id
-  route_table_id = aws_route_table.ephemeral[0].id
 }
 
 # Main security group, self-provisioned when var.aws_security_group is empty.
@@ -411,10 +347,7 @@ data "aws_route53_zone" "selected" {
   private_zone = false
 }
 
-# Used to auto-allow SSH from the VPC's own CIDR in the dedicated SSH SG above,
-# only when the caller supplied a pre-existing VPC (the ephemeral aws_vpc.ephemeral
-# resource already exposes its own cidr_block directly, see local.vpc_cidr_block).
+# Used to auto-allow SSH from the VPC's own CIDR in the dedicated SSH SG above.
 data "aws_vpc" "selected" {
-  count = local.create_vpc ? 0 : 1
-  id    = var.aws_vpc
+  id = var.aws_vpc
 }

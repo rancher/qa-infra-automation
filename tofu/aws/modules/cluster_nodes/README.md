@@ -6,12 +6,11 @@ This module deploys a set of cluster nodes on AWS.
 
 * AWS account configured with appropriate credentials.
 * Terraform installed.
-* Optional: a pre-existing VPC, Subnet, and Security Group. If you don't
-  provide `aws_vpc`/`aws_subnet`/`aws_security_group`, the module provisions
-  its own ephemeral VPC, public subnet, internet gateway, route table, and
-  security group — created fresh on `apply` and destroyed on `destroy`,
-  alongside every other resource in this module (see "Ephemeral networking"
-  below).
+* A pre-existing VPC and Subnet (`aws_vpc`/`aws_subnet` are required).
+  Optional: a pre-existing Security Group. If you don't provide
+  `aws_security_group`, the module provisions its own ephemeral security
+  group — created fresh on `apply` and destroyed on `destroy`, alongside every
+  other resource in this module (see "Ephemeral networking" below).
 
 ## Usage
 
@@ -75,16 +74,12 @@ The first node in the first group with `etcd` role becomes the `master` node.
 
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
 
-### Ephemeral networking (VPC/subnet/security group)
+### Ephemeral networking (security group)
 
-`aws_vpc`, `aws_subnet`, and `aws_security_group` are all optional. When any of
-them is left unset (`aws_vpc`/`aws_subnet` default to `null`, `aws_security_group`
-defaults to `[]`), the module provisions its own equivalent instead:
+`aws_vpc` and `aws_subnet` are required (pre-existing). `aws_security_group`
+is optional — when left unset (defaults to `[]`), the module provisions its
+own equivalent instead:
 
-* A VPC (`ephemeral_vpc_cidr`, default `10.100.0.0/16`)
-* A public subnet (`ephemeral_subnet_cidr`, default `10.100.1.0/24`) with an
-  internet gateway + route table, so instances keep getting public IPs exactly
-  as before (unless `airgap_setup`/`proxy_setup` is set)
 * A security group opening SSH (22), full intra-group traffic, and the
   RKE2/Rancher NLB listener ports (80, 443, 6443, 9345) — the same port matrix
   a manually-supplied `aws_security_group` is expected to already allow
@@ -96,10 +91,9 @@ omits the corresponding variable, and whatever is created is destroyed
 automatically on `terraform destroy` along with the rest of the module's
 resources — no separate cleanup step, no shared/long-lived network to manage.
 
-Bring-your-own VPC/subnet/SG (the previous, still-supported behavior) is
-useful when you need the nodes to land in a specific pre-existing network
-(e.g. one with VPC peering or a Direct Connect route already configured);
-just pass `aws_vpc`, `aws_subnet`, and/or `aws_security_group` as before.
+Bring-your-own SG (the previous, still-supported behavior) is useful when you
+need the nodes to use a specific pre-existing security group; just pass
+`aws_security_group` as before.
 
 The IDs actually used (whichever path was taken) are exported via the
 `vpc_id`, `subnet_id`, and `security_group_ids` outputs.
@@ -141,7 +135,7 @@ Refer to `outputs.tf` for a list of exported values.
 
 ## Sample `terraform.tfvars`
 
-### All-in-one (simplest — ephemeral VPC/subnet/security group)
+### All-in-one (simplest — ephemeral security group)
 
 ```terraform
 aws_access_key        = "key"
@@ -150,8 +144,10 @@ aws_region            = "us-west-1"
 aws_route53_zone      = "qa.rancher.space"
 aws_ami               = "ami-"
 instance_type         = "t3a.medium"
-# aws_vpc, aws_subnet, aws_security_group omitted -> module creates its own
-# ephemeral VPC/subnet/security group, destroyed automatically on `destroy`.
+aws_vpc               = "vpc-xxxxxxxx"
+aws_subnet            = "subnet-xxxxxxxx"
+# aws_security_group omitted -> module creates its own ephemeral security
+# group, destroyed automatically on `destroy`.
 airgap_setup          = false
 proxy_setup           = false
 aws_volume_size       = 40
