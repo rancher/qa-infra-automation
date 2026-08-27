@@ -37,4 +37,11 @@ RUN mkdir -p /root/.kube
 COPY imported_config /root/.kube/config
 RUN chmod 644 /root/.kube/config
 
+# Berry branches run yarn@4 via corepack (cypress.sh). Pin the corepack that
+# Node 24 ships, matching the dashboard PR; classic branches keep Yarn 1.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# renovate: datasource=npm depName=corepack
+ENV COREPACK_VERSION=0.34.6
+RUN npm install -g "corepack@${COREPACK_VERSION}"
+
 ENTRYPOINT ["bash", "cypress/jenkins/cypress.sh"]
