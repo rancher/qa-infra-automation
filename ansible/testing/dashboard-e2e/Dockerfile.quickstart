@@ -25,7 +25,7 @@ ARG HELM_SUM_AMD64=ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f
 ARG HELM_SUM_ARM64=7944e3defd386c76fd92d9e6fec5c2d65a323f6fadc19bfb5e704e3eee10348e
 
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes
-ARG KUBECTL_VERSION=v1.33.10
+ARG KUBECTL_VERSION=v1.37.0
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes digestVersion=v1.33.10
 ARG KUBECTL_SUM_AMD64=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db524e3f5
 ARG KUBECTL_SUM_ARM64=e9494229893ccddc81065275c0e5f21167518ab939f0e95aecb649fb4b41c112

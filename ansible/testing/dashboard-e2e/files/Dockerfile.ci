@@ -5,7 +5,7 @@ FROM cypress/factory:8.4.0@sha256:949eca692b414848576bd3b21d6df42cf393dff62d5b5b
 ARG TARGETARCH
 
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes
-ENV KUBECTL_VERSION=v1.33.10
+ENV KUBECTL_VERSION=v1.37.0
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes digestVersion=v1.33.10
 ENV KUBECTL_SUM_AMD64=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db524e3f5
 ENV KUBECTL_SUM_ARM64=e9494229893ccddc81065275c0e5f21167518ab939f0e95aecb649fb4b41c112
