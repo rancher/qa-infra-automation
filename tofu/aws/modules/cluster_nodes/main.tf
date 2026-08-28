@@ -8,7 +8,7 @@ locals {
         is_server     = false
         instance_type = node_group.instance_type
       }
-    ]
+    ] if node_group.os == "linux"
   ])
   # Master = first etcd, fall back to first cp (cp-only + external datastore). try() avoids index() errors when role absent.
   first_etcd_index   = try(index([for node in local.temp_node_names : contains(node.role, "etcd")], true), -1)
@@ -27,6 +27,34 @@ locals {
     if contains(node.role, "cp")
   }
   cp_node_count = length(local.cp_nodes)
+
+  # Map used for the linux aws_instance for_each engine
+  instances_map = {
+    for node in local.node_names : node.name => node
+  }
+
+  # Windows node logic. Windows is agent-only in RKE2, so the role is always
+  # ["worker"] regardless of what the group declares (variables.tf enforces it).
+  #
+  # Names are numbered over the FLATTENED list, not per group: numbering inside
+  # the inner loop restarts at 0 for every Windows group, so two Windows groups
+  # would produce two "windows-worker-0" keys and silently collapse into a
+  # single instance via the for_each map below.
+  windows_nodes_unnamed = flatten([
+    for group in var.nodes : [
+      for i in range(group.count) : { roles = ["worker"] }
+    ] if group.os == "windows"
+  ])
+  windows_temp_nodes = [
+    for i, node in local.windows_nodes_unnamed :
+    merge(node, { name = "windows-worker-${i}" })
+  ]
+
+  # Map used for the windows aws_instance for_each engine
+  windows_instances_map = {
+    for node in local.windows_temp_nodes : node.name => node
+  }
+  has_windows_nodes = length(local.windows_instances_map) > 0
 }
 
 variable "registry_ip" {
@@ -107,7 +135,11 @@ resource "aws_instance" "node" {
   ami = var.aws_ami
   instance_type = each.value.instance_type != null ? each.value.instance_type : var.instance_type
   key_name = aws_key_pair.ssh_public_key.key_name
-  vpc_security_group_ids = compact(concat(var.aws_security_group, var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : []))
+  vpc_security_group_ids = compact(concat(
+    var.aws_security_group,
+    var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : [],
+    local.has_windows_nodes ? [aws_security_group.windows_overlay[0].id] : [],
+  ))
   subnet_id = var.aws_subnet
   associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
 
@@ -123,37 +155,159 @@ resource "aws_instance" "node" {
     Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
   }
 }
+# Overlay/kubelet traffic for mixed Linux+Windows clusters. Attached to BOTH
+# instance types because VXLAN is bidirectional: a rule on the Windows node
+# alone does not let its traffic reach the Linux pods.
+# See https://docs.rke2.io/install/requirements - Windows needs UDP 4789 for the
+# Calico/Flannel VXLAN overlay on top of the standard RKE2 port matrix.
+resource "aws_security_group" "windows_overlay" {
+  count       = local.has_windows_nodes ? 1 : 0
+  name        = "tf-${var.aws_hostname_prefix}-windows"
+  description = "VXLAN overlay + kubelet for Windows agents in ${var.aws_hostname_prefix}."
+  vpc_id      = var.aws_vpc
+
+  ingress {
+    description = "Calico/Flannel VXLAN overlay"
+    from_port   = 4789
+    to_port     = 4789
+    protocol    = "udp"
+    cidr_blocks = [data.aws_vpc.selected.cidr_block]
+  }
+
+  ingress {
+    description = "kubelet"
+    from_port   = 10250
+    to_port     = 10250
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.selected.cidr_block]
+  }
+
+  dynamic "ingress" {
+    for_each = (var.windows_enable_rdp && length(var.ssh_allowed_cidrs) > 0) ? [1] : []
+    content {
+      description = "RDP for interactive debugging"
+      from_port   = 3389
+      to_port     = 3389
+      protocol    = "tcp"
+      cidr_blocks = var.ssh_allowed_cidrs
+    }
+  }
+
+  egress {
+    description = "Allow all egress"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-windows"
+  }
+}
+
+resource "aws_instance" "windows" {
+  for_each      = local.windows_instances_map
+  ami           = var.aws_ami_windows
+  instance_type = var.instance_type_windows
+  subnet_id     = var.aws_subnet
+  # Same SG set as the Linux nodes, plus the overlay SG. The dedicated SSH SG in
+  # particular matters more here than anywhere else: Windows nodes are the
+  # slowest to become reachable, so they are the likeliest to hit the
+  # prefix-list propagation lag it exists to work around.
+  vpc_security_group_ids = compact(concat(
+    var.aws_security_group,
+    var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : [],
+    [aws_security_group.windows_overlay[0].id],
+  ))
+  key_name                    = aws_key_pair.ssh_public_key.key_name
+  associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
+  # Kept for RDP debugging; surfaced only via the sensitive
+  # windows_administrator_passwords output, never in cluster_nodes_json.
+  get_password_data = true
+
+  root_block_device {
+    volume_size           = coalesce(var.aws_volume_size_windows, 50)
+    volume_type           = coalesce(var.aws_volume_type_windows, var.aws_volume_type)
+    encrypted             = true
+    delete_on_termination = true
+  }
+
+  # EC2 Windows AMIs use the key pair only to encrypt the Administrator
+  # password - unlike Linux they do NOT install the public key anywhere. So the
+  # key has to be written into administrators_authorized_keys by hand or
+  # ansible_ssh_private_key_file can never authenticate.
+  #
+  # The Containers feature is enabled here rather than left entirely to Ansible
+  # so its mandatory reboot happens before Ansible first connects. The
+  # rke2_windows_agent role still enables it idempotently for BYO nodes.
+  user_data = <<-EOF
+    <powershell>
+    $ErrorActionPreference = "Stop"
+
+    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+    Set-Service -Name sshd -StartupType Automatic
+    Start-Service sshd
+
+    New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
+
+    $authorizedKeys = "C:\ProgramData\ssh\administrators_authorized_keys"
+    Set-Content -Path $authorizedKeys -Value '${trimspace(file(var.public_ssh_key))}' -Encoding ascii
+    icacls.exe $authorizedKeys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
+    Restart-Service sshd
+
+    Enable-WindowsOptionalFeature -Online -FeatureName Containers -All -NoRestart
+    Restart-Computer -Force
+    </powershell>
+  EOF
+
+  lifecycle {
+    precondition {
+      condition     = var.aws_ami_windows != null
+      error_message = "aws_ami_windows must be set when var.nodes contains a group with os = \"windows\"."
+    }
+    precondition {
+      condition     = var.instance_type_windows != null
+      error_message = "instance_type_windows must be set when var.nodes contains a group with os = \"windows\"."
+    }
+  }
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
+    OS   = "windows"
+  }
+}
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
-  for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
+  for_each = (local.cp_node_count > 1 && var.create_lb) ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_80[0].arn
   target_id = aws_instance.node[each.key].id
   port = 80
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_443" {
-  for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
+  for_each = (local.cp_node_count > 1 && var.create_lb) ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_443[0].arn
   target_id = aws_instance.node[each.key].id
   port = 443
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_9345" {
-  for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
+  for_each = (local.cp_node_count > 1 && var.create_lb) ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_9345[0].arn
   target_id = aws_instance.node[each.key].id
   port = 9345
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_6443" {
-  for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
+  for_each = (local.cp_node_count > 1 && var.create_lb) ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_6443[0].arn
   target_id = aws_instance.node[each.key].id
   port = 6443
 }
 
 resource "aws_lb" "aws_nlb" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   internal = false
   load_balancer_type = "network"
   subnets = [var.aws_subnet]
@@ -161,7 +315,7 @@ resource "aws_lb" "aws_nlb" {
 }
 
 resource "aws_lb_target_group" "aws_tg_80" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   port = 80
   protocol = "TCP"
   vpc_id = var.aws_vpc
@@ -179,7 +333,7 @@ resource "aws_lb_target_group" "aws_tg_80" {
 }
 
 resource "aws_lb_target_group" "aws_tg_443" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   port = 443
   protocol = "TCP"
   vpc_id = var.aws_vpc
@@ -197,7 +351,7 @@ resource "aws_lb_target_group" "aws_tg_443" {
 }
 
 resource "aws_lb_target_group" "aws_tg_6443" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   port = 6443
   protocol = "TCP"
   vpc_id = var.aws_vpc
@@ -215,7 +369,7 @@ resource "aws_lb_target_group" "aws_tg_6443" {
 }
 
 resource "aws_lb_target_group" "aws_tg_9345" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   port = 9345
   protocol = "TCP"
   vpc_id = var.aws_vpc
@@ -233,7 +387,7 @@ resource "aws_lb_target_group" "aws_tg_9345" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_80" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port = "80"
   protocol = "TCP"
@@ -244,7 +398,7 @@ resource "aws_lb_listener" "aws_nlb_listener_80" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_443" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port = "443"
   protocol = "TCP"
@@ -255,7 +409,7 @@ resource "aws_lb_listener" "aws_nlb_listener_443" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_6443" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port = "6443"
   protocol = "TCP"
@@ -266,7 +420,7 @@ resource "aws_lb_listener" "aws_nlb_listener_6443" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_9345" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port = "9345"
   protocol = "TCP"
@@ -279,9 +433,9 @@ resource "aws_lb_listener" "aws_nlb_listener_9345" {
 resource "aws_route53_record" "aws_route53" {
   zone_id = data.aws_route53_zone.selected.zone_id
   name = var.aws_hostname_prefix
-  type = local.cp_node_count > 1 ? "CNAME" : "A"
+  type = (local.cp_node_count > 1 && var.create_lb) ? "CNAME" : "A"
   ttl = "300"
-  records = local.cp_node_count > 1 ? [aws_lb.aws_nlb[0].dns_name] : [aws_instance.node[keys(local.cp_nodes)[0]].public_ip]
+  records = (local.cp_node_count > 1 && var.create_lb) ? [aws_lb.aws_nlb[0].dns_name] : [aws_instance.node[keys(local.cp_nodes)[0]].public_ip]
 }
 
 data "aws_route53_zone" "selected" {

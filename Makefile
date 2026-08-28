@@ -675,7 +675,7 @@ infra-empty-buckets: ## Remove EMPTY S3 buckets (0 objects) account-wide; scope 
 bootstrap-python: check-inventory ## Bootstrap Python 3.9+ on target nodes
 	@echo "Bootstrapping Python on target nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) --limit 'all:!windows_workers' ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: cluster
 cluster: check-inventory bootstrap-python ## Install Kubernetes cluster (use TARGET_GROUP=downstream for airgap multi-cluster)
@@ -688,6 +688,16 @@ agents: check-inventory ## Setup additional agent nodes
 	@echo "Setting up agent nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-agent-nodes.yml -v $(ANSIBLE_EXTRA_VARS)
+
+.PHONY: windows-agents
+windows-agents: check-inventory ## Join Windows agents (windows_workers group) to an existing RKE2 cluster
+	@if [ "$(DISTRO)" != "rke2" ]; then \
+		echo "ERROR: Windows agents are only supported on DISTRO=rke2"; exit 1; \
+	fi
+	@echo "Joining Windows agents to the cluster..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-windows-agent-nodes.yml -v \
+		--extra-vars "@$(ANSIBLE_DIR)/vars.yaml" $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: rancher
 rancher: check-inventory ## Deploy Rancher to cluster

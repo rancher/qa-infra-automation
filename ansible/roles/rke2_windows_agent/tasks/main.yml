@@ -1,0 +1,202 @@
+---
+# Main tasks for rke2_windows_agent role
+# Installs RKE2 on a Windows Server host and joins it to an existing cluster as
+# an agent. Windows has no server role in RKE2, so config + install + service are
+# collapsed into a single role rather than the rke2_config/rke2_install/
+# rke2_cluster split used for Linux.
+
+- name: Verify prerequisites for the Windows agent
+  ansible.builtin.assert:
+    that:
+      - node_os | default('windows') == 'windows'
+      - kube_api_host is defined and kube_api_host | length > 0
+      - rke2_token is defined and rke2_token | length > 0
+      - cni | default('canal') in ['calico', 'flannel']
+    fail_msg: >-
+      rke2_windows_agent requires a Windows host, a reachable kube_api_host, a
+      cluster token, and cni set to calico or flannel. RKE2's default CNI (canal)
+      has no Windows support - a Windows agent joined to a canal cluster comes up
+      NotReady and never recovers.
+
+- name: Display node configuration info
+  ansible.builtin.debug:
+    msg: "Joining Windows agent {{ inventory_hostname }} to https://{{ kube_api_host }}:9345 (CNI: {{ cni }})"
+
+# Sampled before anything is changed, and used for two things: skipping the
+# non-idempotent `agent service --add` below, and deciding whether the restart
+# handler has any work to do. On a first install the config is written before
+# the service exists, so the freshly registered service already reads it and a
+# restart would only risk the disconnect described in handlers/main.yml.
+- name: Check the RKE2 service state before making changes
+  ansible.windows.win_service_info:
+    name: "{{ rke2_windows_service_name }}"
+  register: rke2_windows_service_pre
+
+- name: Record whether the agent was already running
+  ansible.builtin.set_fact:
+    rke2_windows_agent_was_running: >-
+      {{ rke2_windows_service_pre.exists
+         and rke2_windows_service_pre.services[0].state == 'running' }}
+
+# Windows Server Containers is a prerequisite for containerd and its install
+# needs a reboot. The AWS user_data already does this, so on Tofu-provisioned
+# nodes both tasks are no-ops; they exist for bring-your-own hosts.
+- name: Ensure the Containers feature is installed
+  ansible.windows.win_feature:
+    name: Containers
+    state: present
+    include_sub_features: true
+  register: rke2_windows_containers_feature
+
+- name: Reboot to complete the Containers feature install
+  ansible.windows.win_reboot:
+    reboot_timeout: "{{ rke2_windows_wait_timeout }}"
+  when: rke2_windows_containers_feature.reboot_required
+
+- name: Ensure RKE2 directories exist
+  ansible.windows.win_file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ rke2_windows_config_dir }}"
+    - "{{ rke2_windows_bin_dir }}"
+    - "{{ rke2_windows_data_dir }}\\bin"
+    - "{{ rke2_windows_data_dir }}\\agent\\images"
+
+# install.ps1 drops rke2.exe in bin_dir; the CNI/kubelet binaries RKE2 unpacks at
+# runtime land in data_dir\bin. Both must be on the machine PATH for
+# `rke2.exe agent service --add` and for interactive troubleshooting.
+- name: Add RKE2 directories to the machine PATH
+  ansible.windows.win_path:
+    name: PATH
+    elements:
+      - "{{ rke2_windows_bin_dir }}"
+      - "{{ rke2_windows_data_dir }}\\bin"
+    scope: machine
+    state: present
+
+- name: Set the VXLAN adapter for the overlay
+  ansible.windows.win_environment:
+    name: VXLAN_ADAPTER
+    value: "{{ rke2_windows_vxlan_adapter }}"
+    level: machine
+    state: present
+  when: rke2_windows_vxlan_adapter | length > 0
+  notify: restart rke2 windows agent
+
+- name: Generate RKE2 config.yaml
+  ansible.windows.win_template:
+    src: config.yaml.j2
+    dest: "{{ rke2_windows_config_dir }}\\config.yaml"
+  notify: restart rke2 windows agent
+
+# Version guard, mirroring rke2_install/tasks/main.yml: skip the download and the
+# installer entirely when the requested version is already on disk.
+- name: Check if RKE2 is already installed
+  ansible.windows.win_stat:
+    path: "{{ rke2_windows_bin_dir }}\\rke2.exe"
+  register: rke2_windows_binary
+
+- name: Get installed RKE2 version
+  ansible.windows.win_command: "{{ rke2_windows_bin_dir }}\\rke2.exe --version"
+  register: rke2_windows_installed_version
+  changed_when: false
+  failed_when: false
+  when: rke2_windows_binary.stat.exists
+
+# A commit build has no release checksum to compare against and `rke2.exe
+# --version` does not reliably echo the full SHA, so - matching k3s_install's
+# commit path - re-install is only triggered by the binary being absent, never
+# by a version-string mismatch.
+- name: Detect if the RKE2 version is a commit hash
+  ansible.builtin.set_fact:
+    _rke2_windows_is_commit: "{{ rke2_windows_version is match('^[0-9a-f]{40}$') }}"
+
+- name: Determine whether RKE2 needs installing
+  ansible.builtin.set_fact:
+    rke2_windows_needs_install: >-
+      {{ not rke2_windows_binary.stat.exists
+         or (rke2_windows_version != '' and not _rke2_windows_is_commit
+             and rke2_windows_version not in (rke2_windows_installed_version.stdout | default(''))) }}
+
+- name: Install RKE2
+  when: rke2_windows_needs_install | bool
+  block:
+    - name: Select install script URL (version-pinned when available)
+      ansible.builtin.set_fact:
+        _rke2_windows_script_url: >-
+          {{ (rke2_windows_version != '')
+             | ternary(rke2_windows_install_script_versioned_url, rke2_windows_install_script_url) }}
+
+    - name: Warn about commit hash install security
+      ansible.builtin.debug:
+        msg: >-
+          Commit hash installs use unsigned CI build artifacts rather than
+          checksummed GitHub releases. Prefer a version tag when possible.
+      when: _rke2_windows_is_commit
+
+    - name: Download RKE2 install script
+      ansible.windows.win_get_url:
+        url: "{{ _rke2_windows_script_url }}"
+        dest: "{{ rke2_windows_temp_dir }}\\rke2-install.ps1"
+
+    # Unlike the Linux install.sh, install.ps1 takes parameters rather than
+    # INSTALL_RKE2_* environment variables. -Type only accepts "agent".
+    - name: Run RKE2 install script
+      ansible.windows.win_shell: >-
+        & "{{ rke2_windows_temp_dir }}\rke2-install.ps1"
+        -Type agent
+        -TarPrefix "{{ rke2_windows_tar_prefix }}"
+        -AgentImagesDir "{{ rke2_windows_data_dir }}\agent\images"
+        {% if _rke2_windows_is_commit %}-Commit "{{ rke2_windows_version }}"
+        {%- elif rke2_windows_version != '' %}-Version "{{ rke2_windows_version }}"
+        {%- else %}-Channel "{{ rke2_windows_channel }}"{% endif %}
+      register: rke2_windows_install_result
+      changed_when: rke2_windows_install_result.rc == 0
+      notify: restart rke2 windows agent
+
+    - name: Remove install script
+      ansible.windows.win_file:
+        path: "{{ rke2_windows_temp_dir }}\\rke2-install.ps1"
+        state: absent
+
+# install.ps1 only unpacks the binaries; registering the service is a separate,
+# non-idempotent step that errors out if the service already exists. Only the
+# installer creates rke2.exe, so a service that did not exist before this run
+# cannot have appeared since - the pre-run sample above is still accurate.
+- name: Register the RKE2 agent service
+  ansible.windows.win_command: "{{ rke2_windows_bin_dir }}\\rke2.exe agent service --add"
+  when: not rke2_windows_service_pre.exists
+  register: rke2_windows_service_add
+  changed_when: rke2_windows_service_add.rc == 0
+
+- name: Start the RKE2 agent service
+  ansible.windows.win_service:
+    name: "{{ rke2_windows_service_name }}"
+    start_mode: auto
+    state: started
+  register: rke2_windows_service_start
+
+# Once the agent is up the CNI attaches an HNS external network to the physical
+# NIC, which drops every established TCP connection to the host - including this
+# one. Absorb that here rather than letting the next task die on a half-open
+# socket; `until` cannot save a task that is already blocked inside a module.
+- name: Wait for the host to come back after the CNI attaches to the NIC
+  ansible.builtin.wait_for_connection:
+    delay: 15
+    timeout: "{{ rke2_windows_wait_timeout }}"
+  when: rke2_windows_service_start is changed
+
+- name: Wait for the agent to write its kubelet kubeconfig
+  ansible.windows.win_stat:
+    path: "{{ rke2_windows_data_dir }}\\agent\\kubelet.kubeconfig"
+  register: rke2_windows_kubelet_kubeconfig
+  until: rke2_windows_kubelet_kubeconfig.stat.exists
+  retries: "{{ (rke2_windows_wait_timeout | int / 15) | round | int }}"
+  delay: 15
+
+- name: Display join completion
+  ansible.builtin.debug:
+    msg: >-
+      RKE2 Windows agent running on {{ inventory_hostname }}. Verify from a
+      control-plane node with: kubectl get node {{ inventory_hostname }} -o wide

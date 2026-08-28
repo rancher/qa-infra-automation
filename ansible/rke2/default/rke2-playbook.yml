@@ -47,7 +47,21 @@
           - kube_api_host | length > 0
         fail_msg: "Required variables not defined. Please ensure kubernetes_version and kube_api_host are set in vars.yaml or environment variables"
 
-- hosts: all
+    # Fail here rather than 20 minutes later on a NotReady node: only Calico and
+    # Flannel support Windows agents. RKE2's default, Canal, does not, and a
+    # Windows node joined to a Canal cluster never becomes Ready.
+    # https://docs.rke2.io/install/requirements
+    - name: Validate CNI supports Windows when Windows agents are present
+      assert:
+        that:
+          - cni in ['calico', 'flannel']
+        fail_msg: >-
+          Inventory contains Windows agents ({{ groups['windows_workers'] | join(', ') }})
+          but cni is '{{ cni }}'. RKE2 supports Windows only with 'calico' or 'flannel';
+          canal (the RKE2 default) has no Windows support. Set cni in vars.yaml.
+      when: groups['windows_workers'] | default([]) | length > 0
+
+- hosts: all:!windows_workers
   name: Setup nodes - RKE2 prerequisites
   become: true
   gather_facts: false
@@ -76,7 +90,10 @@
     - role: rke2_setup
       tags: ['setup', 'rke2']
 
-- hosts: all
+# Plays below are Linux-only: they are `become: true` and use systemd, dnf/zypper
+# and /etc/sysctl.d. Windows agents are excluded here and handled by their own
+# play further down, after the control plane is up.
+- hosts: all:!windows_workers
   name: Generate RKE2 configuration files
   become: true
   gather_facts: true
@@ -135,7 +152,7 @@
         rke2_additional_config: "{{ _rke2_playbook_additional_config }}"
       tags: ['config', 'rke2']
 
-- hosts: all
+- hosts: all:!windows_workers
   name: Install RKE2 binaries
   become: true
   gather_facts: true
@@ -171,7 +188,7 @@
              else '' }}
       tags: ['install', 'rke2']
 
-- hosts: all
+- hosts: all:!windows_workers
   name: Form RKE2 cluster
   become: true
   gather_facts: true
@@ -187,7 +204,7 @@
     # CIS checks recompute the flags mapping here — --tags cluster included.
     - name: CIS | Resolve effective config
       set_fact:
-        _rke2_is_server: "{{ rke2_node_role == 'master' or 'cp' in (node_roles | default([])) or 'etcd' in (node_roles | default([])) }}"
+        _rke2_is_server: "{{ node_type == 'master' or 'cp' in (node_roles | default([])) or 'etcd' in (node_roles | default([])) }}"
         _rke2_srv_eff: >-
           {{ rke2_server_config | default({}) |
              combine(rke2_additional_config |
@@ -324,6 +341,62 @@
       vars:
         rke2_kubeconfig_dest: "{{ playbook_dir }}/kubeconfig.yaml"
       tags: ['cluster', 'rke2']
+
+# The Windows plays run only when the inventory has Windows agents, and must sit
+# before the health check: rke2_health_check fails the run unless every node in
+# the inventory is Ready.
+- hosts: master
+  name: Read cluster join token for Windows agents
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  tasks:
+    # rke2_cluster already sets this fact when it runs in the same invocation.
+    # Re-reading it here keeps the Windows play working for `--tags windows` and
+    # for the standalone setup-windows-agent-nodes.yml playbook.
+    - name: Read cluster token from master
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/rke2/server/node-token
+      register: master_token_content
+      when:
+        - groups['windows_workers'] | default([]) | length > 0
+        - rke2_cluster_token is not defined
+      tags: ['windows', 'rke2']
+
+    - name: Set cluster token fact
+      ansible.builtin.set_fact:
+        rke2_cluster_token: "{{ master_token_content['content'] | b64decode | trim }}"
+      when:
+        - groups['windows_workers'] | default([]) | length > 0
+        - rke2_cluster_token is not defined
+      tags: ['windows', 'rke2']
+
+- hosts: windows_workers
+  name: Join Windows agents to the RKE2 cluster
+  # Deferred like the Linux plays: Windows nodes reboot once during user_data to
+  # finish enabling the Containers feature, so gathering up front can race them.
+  gather_facts: false
+  vars_files:
+    - vars.yaml
+  pre_tasks:
+    - name: Wait for SSH to become available
+      ansible.builtin.wait_for_connection:
+        delay: 10
+        timeout: 900
+      tags: ['windows', 'rke2']
+    - name: Gather facts
+      ansible.builtin.setup:
+      tags: ['windows', 'rke2']
+  roles:
+    - role: rke2_windows_agent
+      vars:
+        rke2_windows_version: "{{ kubernetes_version }}"
+        rke2_windows_channel: "{{ channel | default('stable') }}"
+        rke2_token: "{{ hostvars[groups['master'][0]]['rke2_cluster_token'] }}"
+      tags: ['windows', 'rke2']
 
 - hosts: localhost
   connection: local

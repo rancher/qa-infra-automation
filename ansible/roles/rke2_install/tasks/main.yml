@@ -65,9 +65,31 @@
 - name: Online installation
   when: rke2_install_method == "online"
   block:
+    # A commit build has no release checksum to compare against and `rke2
+    # --version` does not reliably echo the full SHA, so - matching
+    # k3s_install's commit path - re-install is only triggered by the binary
+    # being absent, never by a version-string mismatch.
+    - name: Detect if the RKE2 version is a commit hash
+      ansible.builtin.set_fact:
+        _rke2_is_commit: "{{ rke2_version is match('^[0-9a-f]{40}$') }}"
+
     - name: Select install script URL (version-pinned when available)
       ansible.builtin.set_fact:
         _rke2_script_url: "{{ (rke2_version != '') | ternary(rke2_install_script_versioned_url, rke2_install_script_url) }}"
+
+    - name: Determine whether RKE2 needs installing
+      ansible.builtin.set_fact:
+        _rke2_needs_install: >-
+          {{ not rke2_binary.stat.exists
+             or (rke2_version != '' and not _rke2_is_commit
+                 and rke2_version not in rke2_installed_version.stdout) }}
+
+    - name: Warn about commit hash install security
+      ansible.builtin.debug:
+        msg: >-
+          Commit hash installs use unsigned CI build artifacts rather than
+          checksummed GitHub releases. Prefer a version tag when possible.
+      when: _rke2_is_commit and _rke2_needs_install
 
     - name: Download RKE2 install script
       ansible.builtin.get_url:
@@ -85,12 +107,12 @@
       ansible.builtin.command:
         cmd: /tmp/rke2-install.sh
       environment:
+        INSTALL_RKE2_COMMIT: "{{ rke2_version if _rke2_is_commit else omit }}"
         INSTALL_RKE2_VERSION: "{{ rke2_version if rke2_version != '' else omit }}"
-        INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
+        INSTALL_RKE2_CHANNEL: "{{ omit if _rke2_is_commit else rke2_channel }}"
         INSTALL_RKE2_METHOD: "{{ rke2_installer_method if rke2_installer_method != '' else omit }}"
-        INSTALL_RKE2_TYPE: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
+        INSTALL_RKE2_TYPE: "{% if node_type in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
       become: true
-      when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_install_result
       changed_when: rke2_install_result.rc == 0
       # Transient 5xx from github, plus the transactional-update lock on SLE
@@ -155,7 +177,7 @@
       ansible.builtin.command:
         cmd: /tmp/rke2-install.sh
       environment:
-        INSTALL_RKE2_TYPE: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
+        INSTALL_RKE2_TYPE: "{% if node_type in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}server{% else %}agent{% endif %}"
       become: true
       when: rke2_existing_binary == '' or (rke2_version != '' and rke2_version not in rke2_installed_version.stdout)
       register: rke2_airgap_install_result
@@ -190,14 +212,14 @@
 
 - name: Enable RKE2 service
   ansible.builtin.systemd:
-    name: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"
+    name: "{% if node_type in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"
     enabled: "{{ rke2_start_on_boot }}"
     daemon_reload: true
   become: true
 
 - name: Start RKE2 service (if configured)
   ansible.builtin.systemd:
-    name: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"
+    name: "{% if node_type in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"
     state: started
   become: true
   when: rke2_start_after_install
