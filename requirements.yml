@@ -3,7 +3,7 @@ collections:
   - name: kubernetes.core
     version: "5.0.0"
   - name: community.general
-    version: "10.1.0"
+    version: "13.3.0"
   - name: cloud.terraform
     version: "2.2.0"
   - name: ansible.posix
