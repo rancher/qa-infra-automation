@@ -8,6 +8,14 @@
     rancher_public_hostname: "{{ external_lb_hostname | default(rancher_hostname) }}"
     kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
     repo_root: "{{ playbook_dir | dirname | dirname | dirname | dirname | dirname }}"
+    # cattle-config.yaml enriched by this deploy (host/adminToken, and the
+    # ui-plugin-charts mirror URL when one is being served). Defaults to a file
+    # rendered from ansible/_cattle-config.yaml.template; set
+    # rancher_cattle_config_file to an existing file (make EXTRA_VARS or -e) to
+    # enrich your own CATTLE_TEST_CONFIG instead — the render is skipped and
+    # that file is never overwritten from the template.
+    cattle_config_generated: "{{ repo_root }}/generated_config/cattle-config.yaml"
+    rancher_cattle_config_file: "{{ cattle_config_generated }}"
 
   pre_tasks:
     - name: Validate admin password length before deploying
@@ -202,15 +210,101 @@
         mode: "0700"
       delegate_to: localhost
 
+    - name: Ensure generated_config directory exists
+      ansible.builtin.file:
+        path: "{{ repo_root }}/generated_config"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      when: rancher_cattle_config_file == cattle_config_generated
+
+    - name: Render cattle-config.yaml from the base template
+      # Skipped when rancher_cattle_config_file points at a pre-existing
+      # (BYO) config, which is then only enriched, never overwritten. rancher_auth
+      # injects rancher.host/adminToken below; add-downstream-cluster.yml can keep
+      # enriching the same file (rancher.clusterName).
+      ansible.builtin.template:
+        src: "{{ repo_root }}/ansible/_cattle-config.yaml.template"
+        dest: "{{ cattle_config_generated }}"
+        mode: "0600"
+      delegate_to: localhost
+      when: rancher_cattle_config_file == cattle_config_generated
+
     - name: Configure Rancher admin user and generate API token
       ansible.builtin.include_role:
         name: rancher_auth
       vars:
         rancher_url: "https://{{ rancher_private_hostname }}"
+        # API calls go through the internal LB, but rancher.host in the cattle
+        # config must be the public DNS name (external_lb_hostname) — test
+        # suites reach Rancher from outside the airgap VPC.
+        rancher_cattle_config_host: "{{ rancher_public_hostname }}"
         rancher_token_password: "{{ rancher_bootstrap_password }}"
         rancher_permanent_password: "{{ rancher_admin_password }}"
         rancher_token_output_file: "{{ repo_root }}/tmp/rancher-admin-token.json"
         rancher_token_output_format: "json"
+
+    - name: Check for the ui-plugin-charts mirror fact on the bastion
+      # The fact is written by the airgap_rke2_ui_plugin_mirror role, so its
+      # presence means a mirror is actually being served (make ui-plugin-mirror,
+      # or make all ENABLE_UI_PLUGIN_MIRROR=yes, which order the mirror step
+      # before the Rancher deploy).
+      ansible.builtin.stat:
+        path: /etc/ansible/facts.d/ui_plugin_mirror.fact
+      register: ui_mirror_fact_stat
+
+    - name: Inject bastion ui-plugin-charts mirror into the cattle config
+      # Mirrors the injection in add-downstream-cluster.yml, plus
+      # skipUIExtension: false — the NeuVector suite defaults it to true in
+      # airgap, which would skip the extension install and make the injected
+      # URL pointless (see the airgap_rke2_ui_plugin_mirror role README).
+      when: ui_mirror_fact_stat.stat.exists
+      block:
+        - name: Read the mirror local fact
+          ansible.builtin.slurp:
+            src: /etc/ansible/facts.d/ui_plugin_mirror.fact
+          register: ui_mirror_fact_raw
+
+        - name: Parse the mirror fact
+          ansible.builtin.set_fact:
+            ui_mirror_fact: "{{ ui_mirror_fact_raw.content | b64decode | from_json }}"
+
+        - name: Fail when the mirror fact has no URL
+          ansible.builtin.fail:
+            msg: >-
+              Found /etc/ansible/facts.d/ui_plugin_mirror.fact on the bastion but it
+              carries no 'url'. Re-run make ui-plugin-mirror ENV=airgap to rewrite it.
+          when: (ui_mirror_fact.url | default('')) | length == 0
+
+        - name: Read the cattle config
+          ansible.builtin.slurp:
+            src: "{{ rancher_cattle_config_file }}"
+          register: generated_cattle_config_raw
+          delegate_to: localhost
+
+        - name: Merge neuvectorTest mirror settings into the cattle config
+          ansible.builtin.set_fact:
+            generated_cattle_config: >-
+              {{ (generated_cattle_config_raw.content | b64decode | from_yaml) | combine({
+                'neuvectorTest': ((generated_cattle_config_raw.content | b64decode | from_yaml).neuvectorTest | default({})) | combine({
+                  'uiPluginChartsURL': ui_mirror_fact.url,
+                  'uiPluginChartsBranch': ui_mirror_fact.branch | default('main'),
+                  'skipUIExtension': false
+                })
+              }, recursive=True) }}
+
+        - name: Write the updated cattle config
+          ansible.builtin.copy:
+            content: "{{ generated_cattle_config | to_nice_yaml(indent=2) }}"
+            dest: "{{ rancher_cattle_config_file }}"
+            mode: "0600"
+          delegate_to: localhost
+
+        - name: Display mirror injection
+          ansible.builtin.debug:
+            msg: >-
+              Injected {{ ui_mirror_fact.url }} (branch {{ ui_mirror_fact.branch | default('main') }})
+              into {{ rancher_cattle_config_file }} as neuvectorTest.uiPluginChartsURL
 
     - name: Set Rancher server URL
       ansible.builtin.uri:
@@ -276,4 +370,5 @@
           - "  Service Type:   {{ rancher_service_info.resources[0].spec.type }}"
           - ""
           - "  Token file:     {{ repo_root }}/tmp/rancher-admin-token.json"
+          - "  Cattle config:  {{ rancher_cattle_config_file }}"
           - "  Summary file:   /home/{{ ansible_user }}/rancher-deployment-summary.txt"

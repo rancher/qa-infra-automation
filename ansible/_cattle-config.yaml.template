@@ -1,0 +1,20 @@
+# Base cattle-config.yaml template.
+#
+# The Rancher deploy playbooks render this file to
+# <repo-root>/generated_config/cattle-config.yaml on every deploy, then enrich
+# it in place:
+#   rancher.host / rancher.adminToken  injected by the rancher_auth role right
+#                                      after token generation
+#   rancher.clusterName                injected by add-downstream-cluster.yml
+#                                      when a downstream cluster is registered
+#   neuvectorTest.uiPluginChartsURL / uiPluginChartsBranch / skipUIExtension
+#                                      injected when the bastion's
+#                                      ui-plugin-charts mirror is being served
+#                                      (airgap; see the airgap_rke2_ui_plugin_mirror
+#                                      role)
+#
+# The result is consumed as CATTLE_TEST_CONFIG by the Rancher test suites.
+# Re-deploys regenerate the file from scratch; re-running downstream
+# registration re-adds clusterName. Do not commit the rendered copy — it holds
+# an API token.
+rancher: {}

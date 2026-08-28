@@ -13,7 +13,7 @@ Override these with `make <target> VAR=value`:
 | `PROVIDER` | `aws` | `aws`, `gcp`, `harvester` | Infrastructure provider |
 | `EXTRA_VARS` | (empty) | any | Extra Ansible variables passed with `--extra-vars` |
 | `TARGET_GROUP` | (empty) | `rancher`, `downstream`, any group | Airgap inventory group to target (translates to `--extra-vars target=<group>`) |
-| `ENABLE_UI_PLUGIN_MIRROR` | `no` | `yes`, `no` | Airgap opt-in: include the standalone `ui-plugin-mirror` step in `all`/`setup-from-infra` (stands up the `ui-plugin-charts` HTTP mirror on the bastion). When the downstream registration stage also runs with `enable_ui_plugin_mirror=true`, it injects the bastion mirror URL/branch into `neuvectorTest` in `cattle-config.yaml`. Ignored unless `ENV=airgap` |
+| `ENABLE_UI_PLUGIN_MIRROR` | `no` | `yes`, `no` | Airgap opt-in: include the standalone `ui-plugin-mirror` step in `all`/`setup-from-infra`/`airgap-downstream` (stands up the `ui-plugin-charts` HTTP mirror on the bastion, always ordered before the Rancher deploy). When the downstream registration stage also runs with `enable_ui_plugin_mirror=true`, it injects the bastion mirror URL/branch into `neuvectorTest` in `cattle-config.yaml`. Ignored unless `ENV=airgap` |
 
 **Example:**
 
@@ -98,6 +98,18 @@ with `VAR_FILE=`). See `tofu/scripts/README.md` for the full script reference.
 | `make upgrade-cluster` | Upgrade Kubernetes version |
 | `make kubectl-setup` | Set up kubectl on the bastion host (airgap) |
 | `make ui-plugin-mirror` | Mirror `rancher/ui-plugin-charts` on the bastion over HTTP for airgap UI extension installs (`ENV=airgap`) |
+
+#### Generated `cattle-config.yaml`
+
+`make rancher` — and therefore `make all`, `setup-from-infra`, and `airgap-downstream` — renders `ansible/_cattle-config.yaml.template` to `generated_config/cattle-config.yaml` on the controller and enriches it in place: `rancher.host` and `rancher.adminToken` from the deploy itself, `neuvectorTest.uiPluginChartsURL`/`uiPluginChartsBranch`/`skipUIExtension: false` when the bastion's ui-plugin-charts mirror is being served (airgap), and `rancher.clusterName` later via `make downstream`. The file holds an API token, so it is gitignored — pass it to the test suites as `CATTLE_TEST_CONFIG`.
+
+Already have a `cattle-config.yaml` (e.g. a checked-in `CATTLE_TEST_CONFIG`)? Point the deploy at it instead — the template render is skipped and your file is only enriched, never overwritten:
+
+```bash
+make rancher EXTRA_VARS="rancher_cattle_config_file=/abs/path/cattle-config.yaml"
+```
+
+The file must already exist on the controller (the run fails fast with a clear message otherwise), and `make downstream` accepts the same variable, so one setting routes host, adminToken, the mirror URL, and clusterName into your file.
 
 ### Utilities
 

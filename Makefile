@@ -942,7 +942,14 @@ airgap-downstream: check-inventory ## Full airgap multi-cluster: downstream RKE2
 	@echo ""
 	@echo "==> [3/5] Installing $(DISTRO) on rancher group..."
 	@$(MAKE) cluster DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER) TARGET_GROUP=rancher
-	@echo ""
+
+	# Standalone ui-plugin-charts mirror (opt-in, same gate as 'all'/'setup-from-infra').
+	# Must run before the Rancher deploy: add-downstream/[4/5] inject the mirror URL
+	# into the cattle config only when the bastion mirror fact exists.
+	@if [ -n "$(UI_PLUGIN_MIRROR_TARGET)" ]; then \
+		echo "==> Standing up ui-plugin-charts mirror on the bastion (ENABLE_UI_PLUGIN_MIRROR=yes)..."; \
+		$(MAKE) $(UI_PLUGIN_MIRROR_TARGET) DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER); \
+	fi
 	@echo "==> [4/5] Deploying Rancher on rancher group..."
 	# Intentionally clear TARGET_GROUP so the Rancher deploy step never inherits a
 	# stray target group from the command line or an earlier step in this flow.
