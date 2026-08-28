@@ -59,7 +59,6 @@ resource "aws_key_pair" "ssh_public_key" {
 }
 
 # Main security group, self-provisioned when var.aws_security_group is empty.
-# Mirrors tofu/aws/modules/airgap's aws_security_group.airgap: SSH, full
 # intra-group traffic, and the RKE2/Rancher NLB listener ports.
 resource "aws_security_group" "ephemeral" {
   count       = local.create_security_group ? 1 : 0

@@ -68,23 +68,7 @@ Refer to [outputs.tf](./outputs.tf) for a list of exported values.
 
 `node_config.aws_vpc`/`aws_subnet` are required (pre-existing) when
 `cloud_provider = "aws"`. When `node_config.aws_security_group` is left
-unset/empty, this module provisions its own equivalent instead:
-
-* A security group opening SSH (22), full intra-group traffic, and the
-  RKE2/Rancher NLB listener ports (80, 443, 6443, 9345)
-
-This mirrors the same self-provisioning idiom used by
-`tofu/aws/modules/cluster_nodes` and `tofu/aws/modules/airgap`: nothing is
-created unless the caller omits `node_config.aws_security_group`, and
-whatever is created is destroyed automatically on `tofu destroy` along with
-the rest of this module's resources.
-
-Bring-your-own SG (the previous, still-supported behavior) remains
-available — just set `node_config.aws_security_group` as before. The
-security group name actually used is exported via this module's
-`security_group_names` output. The ephemeral security group is always passed
-downstream by name (not id), matching amazonec2_config's expected
-`security_group` format.
+unset/empty, this module provisions its own equivalent instead
 
 ## Sample `vars.tfvars`
 this will highly depend on the selected provider. This example includes options for aws. Sensitive info is omitted.
@@ -108,12 +92,12 @@ node_config = {
   aws_ami = "ami-0e01311d1f112d4d0"
 
   aws_instance_type = "t3a.2xlarge"
-  aws_vpc    = "vpc-xxxxxxxx"
-  aws_subnet = "subnet-xxxxxxxx"
   # aws_security_group omitted -> module creates its own ephemeral security
   # group, destroyed automatically on `destroy`.
 
+  aws_subnet = "subnet-123"
   aws_availability_zone = "b"
+  aws_vpc = "vpc-123"
   aws_region    = "us-west-1"
 
   aws_volume_size   = 50
@@ -127,31 +111,4 @@ api_key =  ""
 
 cloud_provider = "aws"
 insecure = true
-```
-
-### Bring your own security group
-
-```tofu
-node_config = {
-  aws_access_key = ""
-  aws_secret_key= ""
-
-  aws_ami = "ami-0e01311d1f112d4d0"
-
-  aws_instance_type = "t3a.2xlarge"
-  aws_security_group = ["rancher-nodes"]
-  # Security group IDs (sg-*) are auto-detected and treated as read-only.
-  # Only set aws_security_group_readonly = true explicitly when reusing
-  # existing groups by NAME, so docker-machine doesn't try to create them.
-
-  aws_subnet = "subnet-123"
-  aws_availability_zone = "b"
-  aws_vpc = "vpc-123"
-  aws_region    = "us-west-1"
-
-  aws_volume_size   = 50
-  aws_volume_type   = "gp3"
-  aws_hostname_prefix  = "tf"
-  aws_route53_zone  = "qa.rancher.space"
-}
 ```

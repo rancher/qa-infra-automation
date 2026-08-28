@@ -78,25 +78,7 @@ The first node in the first group with `etcd` role becomes the `master` node.
 
 `aws_vpc` and `aws_subnet` are required (pre-existing). `aws_security_group`
 is optional — when left unset (defaults to `[]`), the module provisions its
-own equivalent instead:
-
-* A security group opening SSH (22), full intra-group traffic, and the
-  RKE2/Rancher NLB listener ports (80, 443, 6443, 9345) — the same port matrix
-  a manually-supplied `aws_security_group` is expected to already allow
-
-This follows the same self-provisioning idiom already used by
-`tofu/aws/modules/airgap`'s security group and by this module's own
-`create_ssh_security_group` option: nothing is created unless the caller
-omits the corresponding variable, and whatever is created is destroyed
-automatically on `terraform destroy` along with the rest of the module's
-resources — no separate cleanup step, no shared/long-lived network to manage.
-
-Bring-your-own SG (the previous, still-supported behavior) is useful when you
-need the nodes to use a specific pre-existing security group; just pass
-`aws_security_group` as before.
-
-The IDs actually used (whichever path was taken) are exported via the
-`vpc_id`, `subnet_id`, and `security_group_ids` outputs.
+own equivalent instead
 
 ### SSH access (avoiding prefix-list propagation lag)
 
@@ -144,8 +126,8 @@ aws_region            = "us-west-1"
 aws_route53_zone      = "qa.rancher.space"
 aws_ami               = "ami-"
 instance_type         = "t3a.medium"
-aws_vpc               = "vpc-xxxxxxxx"
-aws_subnet            = "subnet-xxxxxxxx"
+aws_vpc               = "vpc-"
+aws_subnet            = "subnet-"
 # aws_security_group omitted -> module creates its own ephemeral security
 # group, destroyed automatically on `destroy`.
 airgap_setup          = false

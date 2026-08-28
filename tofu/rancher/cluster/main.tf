@@ -12,21 +12,13 @@ provider "aws" {
 }
 
 locals {
-  # Self-provision SG when omitted (aws only). Mirrors cluster_nodes/airgap.
+  # Self-provision SG when omitted (aws only).
   create_security_group  = var.cloud_provider == "aws" && length(try(var.node_config.aws_security_group, [])) == 0
 
   vpc_id               = try(var.node_config.aws_vpc, null)
   subnet_id            = try(var.node_config.aws_subnet, null)
-  # amazonec2_config.security_group expects group *names* (docker-machine looks
-  # up/creates by name); an sg-* id here would force security_group_readonly
-  # auto-detection in the machineconfig module into "existing id" mode.
   security_group_names = local.create_security_group ? [aws_security_group.ephemeral[0].name] : try(var.node_config.aws_security_group, [])
 
-  # Overlay resolved sg back into node_config. Always merge (rather than
-  # branching between merge(...) and var.node_config) to avoid "Inconsistent
-  # conditional result types" errors, since node_config is typed `any` and the
-  # two ternary branches would otherwise have differing object types. For
-  # non-aws providers this key is a no-op (unused downstream).
   effective_node_config = merge(var.node_config, {
     aws_security_group = var.cloud_provider == "aws" ? local.security_group_names : try(var.node_config.aws_security_group, [])
   })
