@@ -68,7 +68,16 @@ Refer to [outputs.tf](./outputs.tf) for a list of exported values.
 
 `node_config.aws_vpc`/`aws_subnet` are required (pre-existing) when
 `cloud_provider = "aws"`. When `node_config.aws_security_group` is left
-unset/empty, this module provisions its own equivalent instead
+unset/empty, this module provisions its own equivalent instead:
+
+* A security group opening SSH (22) and the LB listener ports (80, 443, 6443,
+  9345) to `ephemeral_sg_ingress_cidrs` (required, no default — must be
+  specific /32s or narrower CIDRs; `0.0.0.0/0`/`::/0` are rejected), plus full
+  intra-group traffic
+* Egress restricted to `ephemeral_sg_egress_cidrs` (defaults to the VPC's own
+  CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
+  additional specific CIDRs if nodes need broader outbound access, e.g. via a
+  NAT gateway/proxy)
 
 ## Sample `vars.tfvars`
 this will highly depend on the selected provider. This example includes options for aws. Sensitive info is omitted.
@@ -105,6 +114,8 @@ node_config = {
   aws_hostname_prefix  = "tf"
   aws_route53_zone  = "qa.rancher.space"
 }
+# Top-level module inputs (not part of node_config) for the ephemeral SG:
+ephemeral_sg_ingress_cidrs = ["203.0.113.10/32"]   # jumpbox/bastion/office CIDR(s) for SSH + LB ports
 
 fqdn = "https://rancher-setup.example"
 api_key =  ""

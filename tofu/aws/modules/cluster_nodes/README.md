@@ -78,7 +78,16 @@ The first node in the first group with `etcd` role becomes the `master` node.
 
 `aws_vpc` and `aws_subnet` are required (pre-existing). `aws_security_group`
 is optional — when left unset (defaults to `[]`), the module provisions its
-own equivalent instead
+own equivalent instead:
+
+* A security group opening SSH (22) and the RKE2/Rancher NLB listener ports
+  (80, 443, 6443, 9345) to `ephemeral_sg_ingress_cidrs` (required, no default —
+  must be specific /32s or narrower CIDRs; `0.0.0.0/0`/`::/0` are rejected),
+  plus full intra-group traffic
+* Egress restricted to `ephemeral_sg_egress_cidrs` (defaults to the VPC's own
+  CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
+  additional specific CIDRs if nodes need broader outbound access, e.g. via a
+  NAT gateway/proxy)
 
 ### SSH access (avoiding prefix-list propagation lag)
 
@@ -130,6 +139,7 @@ aws_vpc               = "vpc-"
 aws_subnet            = "subnet-"
 # aws_security_group omitted -> module creates its own ephemeral security
 # group, destroyed automatically on `destroy`.
+ephemeral_sg_ingress_cidrs = ["203.0.113.10/32"]   # jumpbox/bastion/office CIDR(s) for SSH + NLB ports
 airgap_setup          = false
 proxy_setup           = false
 aws_volume_size       = 40

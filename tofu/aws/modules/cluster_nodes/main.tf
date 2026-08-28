@@ -35,6 +35,9 @@ locals {
   # Self-provision the main security group the same way when none is supplied.
   create_security_group = length(var.aws_security_group) == 0
   security_group_ids    = local.create_security_group ? [aws_security_group.ephemeral[0].id] : var.aws_security_group
+
+  # Egress CIDRs for the ephemeral SGs: caller-supplied, or the VPC's own CIDR by default.
+  ephemeral_sg_egress_cidrs = coalesce(var.ephemeral_sg_egress_cidrs, [local.vpc_cidr_block])
 }
 
 variable "registry_ip" {
@@ -67,11 +70,11 @@ resource "aws_security_group" "ephemeral" {
   vpc_id      = local.vpc_id
 
   ingress {
-    description = "SSH from anywhere"
+    description = "SSH from allowed CIDRs"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.ephemeral_sg_ingress_cidrs
   }
 
   ingress {
@@ -89,16 +92,16 @@ resource "aws_security_group" "ephemeral" {
       from_port   = tonumber(ingress.value)
       to_port     = tonumber(ingress.value)
       protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
+      cidr_blocks = var.ephemeral_sg_ingress_cidrs
     }
   }
 
   egress {
-    description = "Allow all egress"
+    description = "Egress to allowed CIDRs"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = local.ephemeral_sg_egress_cidrs
   }
 
   tags = {
@@ -147,11 +150,11 @@ resource "aws_security_group" "ssh" {
   }
 
   egress {
-    description = "Allow all egress"
+    description = "Egress to allowed CIDRs"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = local.ephemeral_sg_egress_cidrs
   }
 
   tags = {

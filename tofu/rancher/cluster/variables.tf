@@ -104,6 +104,32 @@ variable "labels" {
 }
 
 
+variable "ephemeral_sg_ingress_cidrs" {
+  description = "IPv4 CIDRs allowed SSH (22) and the LB listener ports (80, 443, 6443, 9345) on the self-provisioned ephemeral security group (aws only, used when node_config.aws_security_group is empty). Must not be 0.0.0.0/0/::/0 - use specific /32s or narrower CIDRs (jumpbox, bastion, office, VPC CIDR, etc.)."
+  type        = list(string)
+  validation {
+    condition = alltrue([
+      for c in var.ephemeral_sg_ingress_cidrs :
+      c != "0.0.0.0/0" && c != "::/0"
+    ])
+    error_message = "ephemeral_sg_ingress_cidrs must not contain 0.0.0.0/0 or ::/0 (world-open ingress is not permitted). Use specific /32 or narrower CIDRs."
+  }
+}
+
+variable "ephemeral_sg_egress_cidrs" {
+  description = "IPv4 CIDRs allowed on egress from the self-provisioned ephemeral security group (aws only, used when node_config.aws_security_group is empty). Defaults to the VPC's own CIDR (node_config.aws_vpc). Must not be 0.0.0.0/0/::/0 - extend with additional specific CIDRs if nodes need broader outbound access (e.g. via a NAT gateway/proxy)."
+  type        = list(string)
+  default     = null
+  validation {
+    condition = var.ephemeral_sg_egress_cidrs == null || alltrue([
+      for c in var.ephemeral_sg_egress_cidrs :
+      c != "0.0.0.0/0" && c != "::/0"
+    ])
+    error_message = "ephemeral_sg_egress_cidrs must not contain 0.0.0.0/0 or ::/0 (world-open egress is not permitted). Use specific CIDRs."
+  }
+}
+
+
 variable fqdn {}
 variable api_key {}
 variable insecure {

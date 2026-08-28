@@ -19,9 +19,18 @@ locals {
   subnet_id            = try(var.node_config.aws_subnet, null)
   security_group_names = local.create_security_group ? [aws_security_group.ephemeral[0].name] : try(var.node_config.aws_security_group, [])
 
+  # Egress CIDRs for the ephemeral SG: caller-supplied, or the VPC's own CIDR by default.
+  ephemeral_sg_egress_cidrs = coalesce(var.ephemeral_sg_egress_cidrs, local.create_security_group ? [data.aws_vpc.selected[0].cidr_block] : [])
+
   effective_node_config = merge(var.node_config, {
     aws_security_group = var.cloud_provider == "aws" ? local.security_group_names : try(var.node_config.aws_security_group, [])
   })
+}
+
+# Used to compute the ephemeral SG's default egress CIDR (the VPC's own CIDR).
+data "aws_vpc" "selected" {
+  count = local.create_security_group ? 1 : 0
+  id    = local.vpc_id
 }
 
 # Ephemeral security group (aws only, created when node_config.aws_security_group omitted).
@@ -32,11 +41,11 @@ resource "aws_security_group" "ephemeral" {
   vpc_id      = local.vpc_id
 
   ingress {
-    description = "SSH from anywhere"
+    description = "SSH from allowed CIDRs"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.ephemeral_sg_ingress_cidrs
   }
 
   ingress {
@@ -54,16 +63,16 @@ resource "aws_security_group" "ephemeral" {
       from_port   = tonumber(ingress.value)
       to_port     = tonumber(ingress.value)
       protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
+      cidr_blocks = var.ephemeral_sg_ingress_cidrs
     }
   }
 
   egress {
-    description = "All outbound traffic"
+    description = "Egress to allowed CIDRs"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = local.ephemeral_sg_egress_cidrs
   }
 
   tags = {
