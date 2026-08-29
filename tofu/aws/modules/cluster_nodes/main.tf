@@ -85,29 +85,19 @@ resource "aws_security_group" "ephemeral" {
     self        = true
   }
 
+  # RKE2/Rancher LB health checks and node-to-node traffic on 80/443/6443/9345
+  # are addressed via each node's PUBLIC IP, even between nodes in the same
+  # VPC/SG - that traffic egresses out through the IGW and re-enters via the
+  # destination's public IP, so it arrives tagged with the SOURCE NODE'S
+  # PUBLIC IP (not the VPC CIDR, and not var.ephemeral_sg_ingress_cidrs,
+  # which is the runner's IP). Since node public IPs aren't known ahead of
+  # instance creation (would create a circular dependency with this SG),
+  # these ports must accept 0.0.0.0/0 on ingress; egress already has the
+  # matching 0.0.0.0/0 exceptions.
   dynamic "ingress" {
     for_each = toset(["80", "443", "6443", "9345"])
     content {
-      description = "RKE2/Rancher NLB listener ${ingress.value}"
-      from_port   = tonumber(ingress.value)
-      to_port     = tonumber(ingress.value)
-      protocol    = "tcp"
-      cidr_blocks = var.ephemeral_sg_ingress_cidrs
-    }
-  }
-
-  # RKE2 cluster join/API traffic (6443/9345) is addressed via each node's
-  # PUBLIC IP, even between nodes in the same VPC/SG - that traffic egresses
-  # out through the IGW and re-enters via the destination's public IP, so it
-  # arrives tagged with the SOURCE NODE'S PUBLIC IP (not the VPC CIDR, and
-  # not var.ephemeral_sg_ingress_cidrs, which is the runner's IP). Since
-  # node public IPs aren't known ahead of instance creation (would create a
-  # circular dependency with this SG), these ports must accept 0.0.0.0/0 on
-  # ingress; egress already has the matching 0.0.0.0/0 exception below.
-  dynamic "ingress" {
-    for_each = toset(["6443", "9345"])
-    content {
-      description = "RKE2 cluster join/API via node public IPs ${ingress.value}"
+      description = "RKE2/Rancher LB/API via node public IPs ${ingress.value}"
       from_port   = tonumber(ingress.value)
       to_port     = tonumber(ingress.value)
       protocol    = "tcp"

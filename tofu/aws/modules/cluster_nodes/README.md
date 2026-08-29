@@ -80,9 +80,7 @@ The first node in the first group with `etcd` role becomes the `master` node.
 is optional — when left unset (defaults to `[]`), the module provisions its
 own equivalent instead:
 
-* A security group opening SSH (22) and the RKE2/Rancher NLB listener ports
-  (80, 443, 6443, 9345) to `ephemeral_sg_ingress_cidrs` (required, no default —
-  must be specific /32s or narrower CIDRs; `0.0.0.0/0`/`::/0` are rejected),
+* A security group opening SSH (22, restricted to `ephemeral_sg_ingress_cidrs`),
   plus full intra-group traffic
 * Egress restricted to `ephemeral_sg_egress_cidrs` (defaults to the VPC's own
   CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
@@ -99,14 +97,15 @@ own equivalent instead:
   the same VPC/SG, so these ports must be reachable outbound to
   `0.0.0.0/0` (not just the VPC CIDR) or joining server/agent nodes will
   time out waiting on the master's `/cacerts` endpoint.
-* Inbound exception on TCP/6443 and TCP/9345 allowing `0.0.0.0/0` (in
-  addition to `ephemeral_sg_ingress_cidrs`) — node-to-node join/API traffic
-  addressed via public IPs egresses out through the IGW and re-enters
+* Inbound exception on TCP/80, TCP/443, TCP/6443, and TCP/9345 allowing
+  `0.0.0.0/0` (rather than `ephemeral_sg_ingress_cidrs`) — RKE2/Rancher LB
+  health checks and node-to-node join/API traffic addressed via public IPs
+  egresses out through the IGW and re-enters
   tagged with the *source node's public IP*, not the VPC CIDR and not
   `ephemeral_sg_ingress_cidrs` (the runner's IP). Node public IPs aren't
   known ahead of instance creation (referencing them here would create a
-  circular dependency with this SG), so these two ports must accept
-  `0.0.0.0/0` on ingress or join traffic is dropped even when egress is
+  circular dependency with this SG), so these ports must accept
+  `0.0.0.0/0` on ingress or LB/join traffic is dropped even when egress is
   open.
 
 ### SSH access (avoiding prefix-list propagation lag)
