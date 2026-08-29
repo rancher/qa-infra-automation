@@ -97,20 +97,21 @@ resource "aws_security_group" "ephemeral" {
   }
 
   # RKE2 cluster join/API traffic (6443/9345) is addressed via each node's
-  # PUBLIC IP, even between nodes in the same VPC/SG. That traffic hairpins
-  # out through the IGW and back in, so it arrives tagged with the source
-  # node's public IP - not var.ephemeral_sg_ingress_cidrs (the runner's IP)
-  # and not matched by the self=true intra-SG rule. Allow the VPC's own
-  # CIDR here so nodes can join the master without opening these ports to
-  # 0.0.0.0/0.
+  # PUBLIC IP, even between nodes in the same VPC/SG - that traffic egresses
+  # out through the IGW and re-enters via the destination's public IP, so it
+  # arrives tagged with the SOURCE NODE'S PUBLIC IP (not the VPC CIDR, and
+  # not var.ephemeral_sg_ingress_cidrs, which is the runner's IP). Since
+  # node public IPs aren't known ahead of instance creation (would create a
+  # circular dependency with this SG), these ports must accept 0.0.0.0/0 on
+  # ingress; egress already has the matching 0.0.0.0/0 exception below.
   dynamic "ingress" {
     for_each = toset(["6443", "9345"])
     content {
-      description = "RKE2 cluster join/API from within the VPC (public IP hairpin) ${ingress.value}"
+      description = "RKE2 cluster join/API via node public IPs ${ingress.value}"
       from_port   = tonumber(ingress.value)
       to_port     = tonumber(ingress.value)
       protocol    = "tcp"
-      cidr_blocks = [local.vpc_cidr_block]
+      cidr_blocks = ["0.0.0.0/0"]
     }
   }
 

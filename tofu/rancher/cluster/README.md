@@ -88,12 +88,15 @@ unset/empty, this module provisions its own equivalent instead:
   between nodes in the same VPC/SG, so these ports must be reachable
   outbound to `0.0.0.0/0` (not just the VPC CIDR) or joining server/agent
   nodes will time out waiting on the master's `/cacerts` endpoint.
-* Inbound exception on TCP/6443 and TCP/9345 allowing the VPC's own CIDR (in
+* Inbound exception on TCP/6443 and TCP/9345 allowing `0.0.0.0/0` (in
   addition to `ephemeral_sg_ingress_cidrs`) — node-to-node join/API traffic
-  addressed via public IPs hairpins out through the IGW and back in, so it
-  arrives tagged with the source node's public IP rather than the runner's
-  IP, and isn't matched by the intra-SG `self` rule either. Without this,
-  join traffic is dropped on ingress even when egress is open.
+  addressed via public IPs egresses out through the IGW and re-enters
+  tagged with the *source node's public IP*, not the VPC CIDR and not
+  `ephemeral_sg_ingress_cidrs` (the runner's IP). Node public IPs aren't
+  known ahead of instance creation (referencing them here would create a
+  circular dependency with this SG), so these two ports must accept
+  `0.0.0.0/0` on ingress or join traffic is dropped even when egress is
+  open.
 
 ## Sample `vars.tfvars`
 this will highly depend on the selected provider. This example includes options for aws. Sensitive info is omitted.
