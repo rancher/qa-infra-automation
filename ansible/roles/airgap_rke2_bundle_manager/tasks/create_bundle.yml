@@ -60,6 +60,13 @@
   register: bundle_check
   failed_when: not bundle_check.stat.exists
 
+- name: Write bundle version stamp for re-run caching
+  ansible.builtin.copy:
+    content: "{{ rke2_bundle_cache_key }}"
+    dest: "{{ rke2_bundle_dir }}/{{ rke2_bundle_filename }}.version"
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+
 - name: Display bundle information
   ansible.builtin.debug:
     msg: |
