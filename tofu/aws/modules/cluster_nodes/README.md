@@ -99,6 +99,12 @@ own equivalent instead:
   the same VPC/SG, so these ports must be reachable outbound to
   `0.0.0.0/0` (not just the VPC CIDR) or joining server/agent nodes will
   time out waiting on the master's `/cacerts` endpoint.
+* Inbound exception on TCP/6443 and TCP/9345 allowing the VPC's own CIDR (in
+  addition to `ephemeral_sg_ingress_cidrs`) — node-to-node join/API traffic
+  addressed via public IPs hairpins out through the IGW and back in, so it
+  arrives tagged with the source node's public IP rather than the runner's
+  IP, and isn't matched by the intra-SG `self` rule either. Without this,
+  join traffic is dropped on ingress even when egress is open.
 
 ### SSH access (avoiding prefix-list propagation lag)
 
