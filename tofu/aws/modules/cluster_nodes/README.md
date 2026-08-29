@@ -91,22 +91,28 @@ own equivalent instead:
   downloads, and container registries/DNS resolution. These are egress-only
   (no inbound access is opened) and narrowly scoped to those ports; all other
   egress remains restricted to `ephemeral_sg_egress_cidrs`.
-* Outbound-only exceptions to `0.0.0.0/0` on TCP/6443 and TCP/9345 — RKE2
-  cluster join/API traffic (`kube_api_host` per the `cluster_nodes_json`
-  contract) is addressed via each node's *public* IP, even between nodes in
-  the same VPC/SG, so these ports must be reachable outbound to
-  `0.0.0.0/0` (not just the VPC CIDR) or joining server/agent nodes will
-  time out waiting on the master's `/cacerts` endpoint.
-* Inbound exception on TCP/80, TCP/443, TCP/6443, and TCP/9345 allowing
-  `0.0.0.0/0` (rather than `ephemeral_sg_ingress_cidrs`) — RKE2/Rancher LB
-  health checks and node-to-node join/API traffic addressed via public IPs
-  egresses out through the IGW and re-enters
-  tagged with the *source node's public IP*, not the VPC CIDR and not
-  `ephemeral_sg_ingress_cidrs` (the runner's IP). Node public IPs aren't
-  known ahead of instance creation (referencing them here would create a
-  circular dependency with this SG), so these ports must accept
-  `0.0.0.0/0` on ingress or LB/join traffic is dropped even when egress is
-  open.
+* Inbound/outbound exception on TCP/80 and TCP/443 allowing `0.0.0.0/0`
+  (rather than `ephemeral_sg_ingress_cidrs`/`ephemeral_sg_egress_cidrs`) —
+  RKE2/Rancher LB health checks and node-to-node traffic addressed via public
+  IPs egresses out through the IGW and re-enters tagged with the *source
+  node's public IP*, not the VPC CIDR and not `ephemeral_sg_ingress_cidrs`
+  (the runner's IP). Node public IPs aren't known ahead of instance creation
+  (referencing them here would create a circular dependency with this SG),
+  so these LB ports must accept `0.0.0.0/0` on ingress/egress or traffic is
+  dropped.
+* RKE2 cluster join/API traffic on TCP/6443 and TCP/9345
+  (`kube_api_host` per the `cluster_nodes_json` contract) is addressed via
+  the master node's *public* IP, even between nodes in the same VPC/SG, so
+  these ports need to be reachable via that public IP rather than the VPC
+  CIDR. Unlike 80/443, the master's public IP *is* knowable within the same
+  `apply` once `aws_instance.node["master"]` exists, so 6443/9345 are scoped
+  to `${aws_instance.node["master"].public_ip}/32` — not `0.0.0.0/0` — via
+  standalone `aws_vpc_security_group_ingress_rule`/
+  `aws_vpc_security_group_egress_rule` resources (`rke2_api_ingress`/
+  `rke2_api_egress`) that depend on the master instance rather than being
+  inlined in the `aws_security_group.ephemeral` resource itself (which must
+  be created before any instance, so it cannot reference an instance
+  attribute without a cycle).
 
 ### SSH access (avoiding prefix-list propagation lag)
 
