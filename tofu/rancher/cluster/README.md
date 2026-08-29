@@ -7,7 +7,6 @@ This module deploys a downstream cluster on your rancher setup
 * An api_key from your rancher setup
 * tofu installed on your client machine
 * valid credentials to a provider that works with rancher's node drivers (i.e. aws, harvester)
-* For `cloud_provider = "aws"`: `node_config.aws_vpc`/`aws_subnet` are required (pre-existing). `node_config.aws_security_group` is optional — if omitted, this module provisions its own ephemeral security group, created on `apply` and destroyed on `destroy`, alongside every other resource (see "Ephemeral networking" below).
 
 ## Usage
 
@@ -64,46 +63,8 @@ cluster). The targets validate that both var files exist before invoking tofu.
 ## Outputs
 Refer to [outputs.tf](./outputs.tf) for a list of exported values.
 
-## Ephemeral networking (AWS only — security group)
-
-`node_config.aws_vpc`/`aws_subnet` are required (pre-existing) when
-`cloud_provider = "aws"`. When `node_config.aws_security_group` is left
-unset/empty, this module provisions its own equivalent instead:
-
-* A security group opening SSH (22) to `ephemeral_sg_ingress_cidrs`, plus —
-  when `rancher_server_security_group_id` is set — an additional SSH (22)
-  ingress rule scoped to that source security group. The *Rancher server*
-  (not the CI runner) SSHes into this node to provision it, so pass the
-  Rancher server's own security group ID here (e.g. the `cluster_nodes`
-  module's `security_group_ids`/`ssh_security_group_id` output) rather than
-  opening SSH to `0.0.0.0/0`. Plus full intra-group traffic
-* Egress restricted to `ephemeral_sg_egress_cidrs` (defaults to the VPC's own
-  CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
-  additional specific CIDRs if nodes need broader outbound access, e.g. via a
-  NAT gateway/proxy)
-* Outbound-only exceptions to `0.0.0.0/0` on TCP/80, TCP/443, TCP/53, and
-  UDP/53 — required for package managers (apt/yum), RKE2/K3s
-  downloads, and container registries/DNS resolution. These are egress-only
-  (no inbound access is opened) and narrowly scoped to those ports; all other
-  egress remains restricted to `ephemeral_sg_egress_cidrs`.
-* Outbound-only exceptions to `0.0.0.0/0` on TCP/6443 and TCP/9345 — RKE2
-  cluster join/API traffic is addressed via each node's *public* IP, even
-  between nodes in the same VPC/SG, so these ports must be reachable
-  outbound to `0.0.0.0/0` (not just the VPC CIDR) or joining server/agent
-  nodes will time out waiting on the master's `/cacerts` endpoint.
-* Inbound exception on TCP/80, TCP/443, TCP/6443, and TCP/9345 allowing
-  `0.0.0.0/0` (rather than `ephemeral_sg_ingress_cidrs`) — LB health checks
-  and node-to-node join/API traffic addressed via public IPs egresses out
-  through the IGW and re-enters
-  tagged with the *source node's public IP*, not the VPC CIDR and not
-  `ephemeral_sg_ingress_cidrs` (the runner's IP). Node public IPs aren't
-  known ahead of instance creation (referencing them here would create a
-  circular dependency with this SG), so these ports must accept
-  `0.0.0.0/0` on ingress or LB/join traffic is dropped even when egress is
-  open.
-
 ## Sample `vars.tfvars`
-this will highly depend on the selected provider. This example includes options for aws. Sensitive info is omitted.
+this will highly depend on the selected provider. This example includes options for aws. Sensitive info is omitted. 
 
 ```tofu
 
@@ -124,8 +85,10 @@ node_config = {
   aws_ami = "ami-0e01311d1f112d4d0"
 
   aws_instance_type = "t3a.2xlarge"
-  # aws_security_group omitted -> module creates its own ephemeral security
-  # group, destroyed automatically on `destroy`.
+  aws_security_group = ["rancher-nodes"] 
+  # Security group IDs (sg-*) are auto-detected and treated as read-only.
+  # Only set aws_security_group_readonly = true explicitly when reusing
+  # existing groups by NAME, so docker-machine doesn't try to create them.
 
   aws_subnet = "subnet-123"
   aws_availability_zone = "b"
@@ -137,8 +100,6 @@ node_config = {
   aws_hostname_prefix  = "tf"
   aws_route53_zone  = "qa.rancher.space"
 }
-# Top-level module inputs (not part of node_config) for the ephemeral SG:
-ephemeral_sg_ingress_cidrs = ["203.0.113.10/32"]   # jumpbox/bastion/office CIDR(s) for SSH + LB ports
 
 fqdn = "https://rancher-setup.example"
 api_key =  ""
