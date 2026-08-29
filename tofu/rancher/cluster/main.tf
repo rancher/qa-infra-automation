@@ -40,6 +40,21 @@ resource "aws_security_group" "ephemeral" {
   description = "Ephemeral security group for ${var.generate_name} (created because node_config.aws_security_group was empty)"
   vpc_id      = local.vpc_id
 
+  # SSH (22) is used by the Rancher server itself to provision this
+  # downstream node (not the CI runner). Instead of opening SSH to
+  # 0.0.0.0/0, allow it as a source security group so only traffic
+  # originating from the Rancher server's own SG is permitted.
+  dynamic "ingress" {
+    for_each = (var.rancher_server_security_group_id != null && var.rancher_server_security_group_id != "") ? [1] : []
+    content {
+      description     = "SSH from the Rancher server security group (provisions this node)"
+      from_port       = 22
+      to_port         = 22
+      protocol        = "tcp"
+      security_groups = [var.rancher_server_security_group_id]
+    }
+  }
+
   ingress {
     description = "SSH from allowed CIDRs"
     from_port   = 22

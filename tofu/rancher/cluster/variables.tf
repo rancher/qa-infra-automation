@@ -104,6 +104,12 @@ variable "labels" {
 }
 
 
+variable "rancher_server_security_group_id" {
+  description = "Security group ID attached to the Rancher server (e.g. the cluster_nodes module's ephemeral/ssh security group ID). The Rancher server uses this SG's outbound traffic to SSH into downstream nodes to provision them, so it's added as an SSH (22) ingress source on this module's ephemeral security group instead of opening SSH to 0.0.0.0/0. Required when node_config.aws_security_group is empty (i.e. the ephemeral SG is self-provisioned)."
+  type        = string
+  default     = null
+}
+
 variable "ephemeral_sg_ingress_cidrs" {
   description = "IPv4 CIDRs allowed SSH (22) and the LB listener ports (80, 443, 6443, 9345) on the self-provisioned ephemeral security group (aws only, used when node_config.aws_security_group is empty). Must not be 0.0.0.0/0/::/0 - use specific /32s or narrower CIDRs (jumpbox, bastion, office, VPC CIDR, etc.)."
   type        = list(string)

@@ -70,8 +70,13 @@ Refer to [outputs.tf](./outputs.tf) for a list of exported values.
 `cloud_provider = "aws"`. When `node_config.aws_security_group` is left
 unset/empty, this module provisions its own equivalent instead:
 
-* A security group opening SSH (22, restricted to `ephemeral_sg_ingress_cidrs`),
-  plus full intra-group traffic
+* A security group opening SSH (22) to `ephemeral_sg_ingress_cidrs`, plus —
+  when `rancher_server_security_group_id` is set — an additional SSH (22)
+  ingress rule scoped to that source security group. The *Rancher server*
+  (not the CI runner) SSHes into this node to provision it, so pass the
+  Rancher server's own security group ID here (e.g. the `cluster_nodes`
+  module's `security_group_ids`/`ssh_security_group_id` output) rather than
+  opening SSH to `0.0.0.0/0`. Plus full intra-group traffic
 * Egress restricted to `ephemeral_sg_egress_cidrs` (defaults to the VPC's own
   CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
   additional specific CIDRs if nodes need broader outbound access, e.g. via a
