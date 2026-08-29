@@ -104,6 +104,53 @@ resource "aws_security_group" "ephemeral" {
     cidr_blocks = local.ephemeral_sg_egress_cidrs
   }
 
+  # Outbound-only exceptions: nodes need internet access for package
+  # managers (apt/yum), RKE2/K3s downloads, and container registries.
+  # Narrowly scoped to HTTP/HTTPS + DNS so the rest of egress stays
+  # restricted to local.ephemeral_sg_egress_cidrs.
+  egress {
+    description = "Outbound HTTP for package repos/downloads"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Outbound HTTPS for package repos/downloads"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Outbound DNS (TCP)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Outbound DNS (UDP)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  dynamic "egress" {
+    for_each = toset(["6443", "9345"])
+    content {
+      description = "Outbound RKE2/Rancher API to masters public IP ${egress.value}"
+      from_port   = tonumber(egress.value)
+      to_port     = tonumber(egress.value)
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-sg"
   }

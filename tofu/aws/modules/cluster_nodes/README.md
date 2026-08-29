@@ -88,6 +88,17 @@ own equivalent instead:
   CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
   additional specific CIDRs if nodes need broader outbound access, e.g. via a
   NAT gateway/proxy)
+* Outbound-only exceptions to `0.0.0.0/0` on TCP/80, TCP/443, TCP/53, and
+  UDP/53 — required for package managers (apt/yum), RKE2/K3s
+  downloads, and container registries/DNS resolution. These are egress-only
+  (no inbound access is opened) and narrowly scoped to those ports; all other
+  egress remains restricted to `ephemeral_sg_egress_cidrs`.
+* Outbound-only exceptions to `0.0.0.0/0` on TCP/6443 and TCP/9345 — RKE2
+  cluster join/API traffic (`kube_api_host` per the `cluster_nodes_json`
+  contract) is addressed via each node's *public* IP, even between nodes in
+  the same VPC/SG, so these ports must be reachable outbound to
+  `0.0.0.0/0` (not just the VPC CIDR) or joining server/agent nodes will
+  time out waiting on the master's `/cacerts` endpoint.
 
 ### SSH access (avoiding prefix-list propagation lag)
 
