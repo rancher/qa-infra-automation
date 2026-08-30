@@ -102,11 +102,6 @@ This role orchestrates cluster formation in the following sequence:
 **What happens:**
 - Starts `rke2-server` service on the master node
 - Waits for RKE2 to generate the cluster token
-- Waits for master's RKE2 ports (9345 join API, 6443 supervisor API) to
-  actually be listening on `127.0.0.1` before proceeding — this closes a
-  race where other nodes could start joining before RKE2 finished
-  initializing its HTTPS listeners, causing `context deadline exceeded`
-  errors on `https://<master>:9345/cacerts`
 - Reads the token and stores it as a fact
 - Waits for the master node to reach Ready state
 
@@ -294,16 +289,6 @@ ansible all -i inventory.yml -m shell -a "grep '^token:' /etc/rancher/rke2/confi
 - Check master service: `systemctl status rke2-server`
 - Verify RKE2 data directory exists: `ls -la /var/lib/rancher/rke2/server/`
 - Check SELinux/AppArmor: `ausearch -m avc` or `dmesg | grep apparmor`
-
----
-
-**Problem:** Server/agent nodes fail to join with "context deadline exceeded" fetching `/cacerts`
-
-**Solution:**
-- This is normally the readiness race the new "Wait for master's RKE2 ... port to be listening" tasks are meant to prevent (added after master's `rke2-server` reports "started" but before its 9345/6443 listeners are actually bound)
-- If it still happens, increase `rke2_wait_timeout` — RKE2 can take longer to bind its listeners on slower instances/first boot (image pulls, cert generation)
-- Confirm the ports are reachable from other nodes: security groups/firewalls must allow 6443/9345 from the joining nodes to the master's address used in `kube_api_host`
-- Verify DNS/IP resolution of `kube_api_host` is correct and stable
 
 ---
 

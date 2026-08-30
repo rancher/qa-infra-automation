@@ -29,20 +29,6 @@
         timeout: "{{ rke2_wait_timeout }}"
       become: true
 
-    - name: Wait for master's RKE2 join/API port (9345) to be listening
-      ansible.builtin.wait_for:
-        host: "127.0.0.1"
-        port: 9345
-        timeout: "{{ rke2_wait_timeout }}"
-      become: true
-
-    - name: Wait for master's RKE2 supervisor API (6443) to be listening
-      ansible.builtin.wait_for:
-        host: "127.0.0.1"
-        port: 6443
-        timeout: "{{ rke2_wait_timeout }}"
-      become: true
-
     - name: Read cluster token from master
       ansible.builtin.slurp:
         src: "/var/lib/rancher/rke2/server/node-token"

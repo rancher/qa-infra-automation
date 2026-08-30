@@ -98,7 +98,7 @@ resource "aws_security_group" "ephemeral" {
   # on aws_instance.node["master"] - see aws_vpc_security_group_ingress_rule
   # / aws_vpc_security_group_egress_rule "rke2_api_ingress"/"rke2_api_egress".
   dynamic "ingress" {
-    for_each = toset(["80", "443"])
+    for_each = toset(["80", "443", "6443", "9345"])
     content {
       description = "RKE2/Rancher LB via node public IPs ${ingress.value}"
       from_port   = tonumber(ingress.value)
@@ -137,6 +137,22 @@ resource "aws_security_group" "ephemeral" {
   }
 
   egress {
+    description = "Outbound HTTPS for package repos/downloads"
+    from_port   = 6443
+    to_port     = 6443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  egress {
+    description = "Outbound HTTPS for package repos/downloads"
+    from_port   = 9345
+    to_port     = 9345
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
     description = "Outbound DNS (TCP)"
     from_port   = 53
     to_port     = 53
@@ -155,32 +171,6 @@ resource "aws_security_group" "ephemeral" {
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-sg"
   }
-}
-
-# RKE2 API/join (6443/9345) ingress+egress scoped to the master's own public
-# IP (kube_api_host), instead of 0.0.0.0/0. These are standalone rule
-# resources (not inline in aws_security_group.ephemeral) so they can depend
-# on aws_instance.node["master"].public_ip without creating a cycle: the SG
-# is created first, then the instances (which reference the SG id), then
-# these rules (which reference both the SG id and the master's public IP).
-resource "aws_vpc_security_group_ingress_rule" "rke2_api_ingress" {
-  for_each          = local.create_security_group ? toset(["6443", "9345"]) : toset([])
-  security_group_id = aws_security_group.ephemeral[0].id
-  description       = "RKE2/Rancher API via masters public IP ${each.value}"
-  cidr_ipv4         = "${aws_instance.node["master"].public_ip}/32"
-  from_port         = tonumber(each.value)
-  to_port           = tonumber(each.value)
-  ip_protocol       = "tcp"
-}
-
-resource "aws_vpc_security_group_egress_rule" "rke2_api_egress" {
-  for_each          = local.create_security_group ? toset(["6443", "9345"]) : toset([])
-  security_group_id = aws_security_group.ephemeral[0].id
-  description       = "Outbound RKE2/Rancher API to masters public IP ${each.value}"
-  cidr_ipv4         = "${aws_instance.node["master"].public_ip}/32"
-  from_port         = tonumber(each.value)
-  to_port           = tonumber(each.value)
-  ip_protocol       = "tcp"
 }
 
 
