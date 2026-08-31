@@ -92,7 +92,7 @@ resource "aws_security_group" "ephemeral" {
       from_port   = tonumber(ingress.value)
       to_port     = tonumber(ingress.value)
       protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
+      self = true
     }
   }
 
