@@ -97,58 +97,10 @@ resource "aws_security_group" "ephemeral" {
   }
 
   egress {
-    description = "Egress to allowed CIDRs"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = local.ephemeral_sg_egress_cidrs
-  }
-
-  egress {
-    description = "Outbound HTTP for package repos/downloads"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Outbound HTTPS for package repos/downloads"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Outbound HTTPS for package repos/downloads"
-    from_port   = 6443
-    to_port     = 6443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  
-  egress {
-    description = "Outbound HTTPS for package repos/downloads"
-    from_port   = 9345
-    to_port     = 9345
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Outbound DNS (TCP)"
-    from_port   = 53
-    to_port     = 53
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Outbound DNS (UDP)"
-    from_port   = 53
-    to_port     = 53
-    protocol    = "udp"
+    description = "Allow all outbound traffic"
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
