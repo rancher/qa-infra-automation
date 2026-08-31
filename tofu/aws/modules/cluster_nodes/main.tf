@@ -85,18 +85,6 @@ resource "aws_security_group" "ephemeral" {
     self        = true
   }
 
-  # RKE2/Rancher LB health checks and node-to-node traffic on 80/443 are
-  # addressed via each node's PUBLIC IP, even between nodes in the same
-  # VPC/SG - that traffic egresses out through the IGW and re-enters via the
-  # destination's public IP, so it arrives tagged with the SOURCE NODE'S
-  # PUBLIC IP (not the VPC CIDR, and not var.ephemeral_sg_ingress_cidrs,
-  # which is the runner's IP). Node public IPs aren't known ahead of instance
-  # creation, so these LB ports must accept 0.0.0.0/0 on ingress.
-  #
-  # 6443/9345 (RKE2 API/join) are scoped separately, below, to the master's
-  # own public IP (kube_api_host) via standalone rule resources that depend
-  # on aws_instance.node["master"] - see aws_vpc_security_group_ingress_rule
-  # / aws_vpc_security_group_egress_rule "rke2_api_ingress"/"rke2_api_egress".
   dynamic "ingress" {
     for_each = toset(["80", "443", "6443", "9345"])
     content {
@@ -116,10 +104,6 @@ resource "aws_security_group" "ephemeral" {
     cidr_blocks = local.ephemeral_sg_egress_cidrs
   }
 
-  # Outbound-only exceptions: nodes need internet access for package
-  # managers (apt/yum), RKE2/K3s downloads, and container registries.
-  # Narrowly scoped to HTTP/HTTPS + DNS so the rest of egress stays
-  # restricted to local.ephemeral_sg_egress_cidrs.
   egress {
     description = "Outbound HTTP for package repos/downloads"
     from_port   = 80

@@ -88,3 +88,4 @@ resource "rancher2_cluster_v2" "rancher2_cluster_v2" {
 data "rancher2_cluster_v2" "rancher2_cluster_v2" {
   name = rancher2_cluster_v2.rancher2_cluster_v2.name
 }
+

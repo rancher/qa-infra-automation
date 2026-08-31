@@ -100,19 +100,6 @@ own equivalent instead:
   (referencing them here would create a circular dependency with this SG),
   so these LB ports must accept `0.0.0.0/0` on ingress/egress or traffic is
   dropped.
-* RKE2 cluster join/API traffic on TCP/6443 and TCP/9345
-  (`kube_api_host` per the `cluster_nodes_json` contract) is addressed via
-  the master node's *public* IP, even between nodes in the same VPC/SG, so
-  these ports need to be reachable via that public IP rather than the VPC
-  CIDR. Unlike 80/443, the master's public IP *is* knowable within the same
-  `apply` once `aws_instance.node["master"]` exists, so 6443/9345 are scoped
-  to `${aws_instance.node["master"].public_ip}/32` — not `0.0.0.0/0` — via
-  standalone `aws_vpc_security_group_ingress_rule`/
-  `aws_vpc_security_group_egress_rule` resources (`rke2_api_ingress`/
-  `rke2_api_egress`) that depend on the master instance rather than being
-  inlined in the `aws_security_group.ephemeral` resource itself (which must
-  be created before any instance, so it cannot reference an instance
-  attribute without a cycle).
 
 ### SSH access (avoiding prefix-list propagation lag)
 
