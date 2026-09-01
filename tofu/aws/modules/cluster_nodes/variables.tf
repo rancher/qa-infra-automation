@@ -74,6 +74,13 @@ variable "ssh_allowed_cidrs" {
 variable "ephemeral_sg_ingress_cidrs" {
   description = "IPv4 CIDRs allowed SSH (22) and the RKE2/Rancher NLB listener ports (80, 443, 6443, 9345) on the self-provisioned ephemeral security group (used only when var.aws_security_group is empty). Must not be 0.0.0.0/0/::/0 - use specific /32s or narrower CIDRs (jumpbox, bastion, office, VPC CIDR, etc.)."
   type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.aws_security_group) > 0 || length(var.ephemeral_sg_ingress_cidrs) > 0
+    error_message = "ephemeral_sg_ingress_cidrs must be set when aws_security_group is empty (so the module can open SSH/NLB ports)."
+  }
+
   validation {
     condition = alltrue([
       for c in var.ephemeral_sg_ingress_cidrs :
@@ -84,7 +91,7 @@ variable "ephemeral_sg_ingress_cidrs" {
 }
 
 variable "ephemeral_sg_egress_cidrs" {
-  description = "IPv4 CIDRs allowed on egress from the self-provisioned ephemeral security group (used only when var.aws_security_group is empty). Defaults to the VPC's own CIDR (var.aws_vpc). Must not be 0.0.0.0/0/::/0 - extend with additional specific CIDRs if nodes need broader outbound access (e.g. via a NAT gateway/proxy)."
+  description = "IPv4 CIDRs allowed on egress from the self-provisioned ephemeral security group (used only when var.aws_security_group is empty). Defaults to the selected VPC's CIDR block (looked up from var.aws_vpc). Must not be 0.0.0.0/0/::/0 - extend with additional specific CIDRs if nodes need broader outbound access (e.g. via a NAT gateway/proxy)."
   type        = list(string)
   default     = null
   validation {

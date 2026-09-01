@@ -86,21 +86,74 @@ resource "aws_security_group" "ephemeral" {
   }
 
   dynamic "ingress" {
-    for_each = toset(["80", "443", "6443", "9345"])
+    for_each = {
+      "80"   = ["0.0.0.0/0"]
+      "443"  = ["0.0.0.0/0"]
+      "6443" = var.ephemeral_sg_ingress_cidrs
+      "9345" = var.ephemeral_sg_ingress_cidrs
+    }
     content {
-      description = "RKE2/Rancher LB via node public IPs ${ingress.value}"
-      from_port   = tonumber(ingress.value)
-      to_port     = tonumber(ingress.value)
+      description = "RKE2/Rancher listener ${ingress.key}"
+      from_port   = tonumber(ingress.key)
+      to_port     = tonumber(ingress.key)
       protocol    = "tcp"
-      self = true
+      cidr_blocks = ingress.value
     }
   }
 
   egress {
-    description = "Allow all outbound traffic"
-    from_port = 0
-    to_port = 0
-    protocol = "-1"
+    description = "Egress to allowed CIDRs"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = local.ephemeral_sg_egress_cidrs
+  }
+
+  egress {
+    description = "Egress to allowed CIDRs"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = var.ephemeral_sg_ingress_cidrs
+  }
+
+  egress {
+    description = "Outbound HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "All traffic between instances in this security group"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+  }
+
+  egress {
+    description = "Outbound HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Outbound DNS (TCP)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Outbound DNS (UDP)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 

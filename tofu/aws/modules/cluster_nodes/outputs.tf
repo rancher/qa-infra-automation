@@ -41,17 +41,14 @@ output "ssh_security_group_id" {
 output "vpc_id" {
   description = "The VPC ID in use (var.aws_vpc)."
   value       = local.vpc_id
-  sensitive   = true
 }
 
 output "subnet_id" {
   description = "The subnet ID in use (var.aws_subnet)."
   value       = local.subnet_id
-  sensitive   = true
 }
 
 output "security_group_ids" {
   description = "The security group IDs in use — either var.aws_security_group if supplied, or the ephemerally created security group."
   value       = local.security_group_ids
-  sensitive   = true
 }
