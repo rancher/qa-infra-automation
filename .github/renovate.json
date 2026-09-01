@@ -19,6 +19,92 @@
     "minimumReleaseAge": "3 days",
     "labels": ["security"]
   },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible\\/testing\\/dashboard-e2e\\/Dockerfile\\.quickstart$/"
+      ],
+      "description": "Track the arm64 opentofu checksum that follows its amd64 counterpart (github-release-attachments maps the pinned digest to the arm64 asset)",
+      "matchStrings": [
+        "# renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=(?<currentValue>\\S+)\\s*\\nARG TOFU_SUM_AMD64=\\S+\\s*\\nARG TOFU_SUM_ARM64=(?<currentDigest>\\S+)"
+      ],
+      "depNameTemplate": "opentofu/opentofu-arm64",
+      "packageNameTemplate": "opentofu/opentofu",
+      "datasourceTemplate": "github-release-attachments"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible\\/testing\\/dashboard-e2e\\/Dockerfile\\.quickstart$/"
+      ],
+      "description": "Track the arm64 uv checksum that follows its amd64 counterpart",
+      "matchStrings": [
+        "# renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=(?<currentValue>\\S+)\\s*\\nARG UV_SUM_AMD64=\\S+\\s*\\nARG UV_SUM_ARM64=(?<currentDigest>\\S+)"
+      ],
+      "depNameTemplate": "astral-sh/uv-arm64",
+      "packageNameTemplate": "astral-sh/uv",
+      "datasourceTemplate": "github-release-attachments"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible\\/testing\\/dashboard-e2e\\/Dockerfile\\.quickstart$/"
+      ],
+      "description": "Resolve the amd64 helm checksum via the renovate-data mirror (get.helm.sh tarball digests are not reliably resolvable as GitHub release assets)",
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "ARG HELM_VERSION(?:\\=|\\s)(?<currentValue>[^\\r\\n\\s]+)\\n[\\s\\S]*",
+        "ARG HELM_SUM_AMD64(?:\\=|\\s)(?<currentDigest>[^\\r\\n\\s]+)"
+      ],
+      "depNameTemplate": "helm-amd64",
+      "datasourceTemplate": "custom.local"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible\\/testing\\/dashboard-e2e\\/Dockerfile\\.quickstart$/"
+      ],
+      "description": "Resolve the arm64 helm checksum via the renovate-data mirror",
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "ARG HELM_VERSION(?:\\=|\\s)(?<currentValue>[^\\r\\n\\s]+)\\n[\\s\\S]*",
+        "ARG HELM_SUM_ARM64(?:\\=|\\s)(?<currentDigest>[^\\r\\n\\s]+)"
+      ],
+      "depNameTemplate": "helm-arm64",
+      "datasourceTemplate": "custom.local"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible\\/testing\\/dashboard-e2e\\/Dockerfile\\.quickstart$/",
+        "/^ansible\\/testing\\/dashboard-e2e\\/files\\/Dockerfile\\.ci$/"
+      ],
+      "description": "Resolve the amd64 kubectl checksum via the renovate-data mirror (kubectl binaries are published to dl.k8s.io, not as GitHub release assets)",
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "(?:ARG|ENV) KUBECTL_VERSION(?:\\=|\\s)(?<currentValue>[^\\r\\n\\s]+)\\n[\\s\\S]*",
+        "(?:ARG|ENV) KUBECTL_SUM_AMD64(?:\\=|\\s)(?<currentDigest>[^\\r\\n\\s]+)"
+      ],
+      "depNameTemplate": "kubectl-amd64",
+      "datasourceTemplate": "custom.local"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible\\/testing\\/dashboard-e2e\\/Dockerfile\\.quickstart$/",
+        "/^ansible\\/testing\\/dashboard-e2e\\/files\\/Dockerfile\\.ci$/"
+      ],
+      "description": "Resolve the arm64 kubectl checksum via the renovate-data mirror",
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "(?:ARG|ENV) KUBECTL_VERSION(?:\\=|\\s)(?<currentValue>[^\\r\\n\\s]+)\\n[\\s\\S]*",
+        "(?:ARG|ENV) KUBECTL_SUM_ARM64(?:\\=|\\s)(?<currentDigest>[^\\r\\n\\s]+)"
+      ],
+      "depNameTemplate": "kubectl-arm64",
+      "datasourceTemplate": "custom.local"
+    }
+  ],
   "packageRules": [
     {
       "description": "Apply Rancher 2.15 update constraints to branch release/v2.15. Adapt baseBranchPatterns and matchBaseBranches if this repository uses different release branch names.",
@@ -83,6 +169,37 @@
       ],
       "automerge": false,
       "labels": ["security", "needs-review"]
+    },
+    {
+      "description": "Ship per-arch checksum updates in the same branch as the corresponding tool version bump (dashboard-e2e images)",
+      "matchDepNames": [
+        "opentofu/opentofu",
+        "opentofu/opentofu-arm64"
+      ],
+      "groupName": "opentofu"
+    },
+    {
+      "matchDepNames": [
+        "astral-sh/uv",
+        "astral-sh/uv-arm64"
+      ],
+      "groupName": "uv"
+    },
+    {
+      "matchDepNames": [
+        "helm/helm",
+        "helm-amd64",
+        "helm-arm64"
+      ],
+      "groupName": "helm"
+    },
+    {
+      "matchDepNames": [
+        "kubernetes/kubernetes",
+        "kubectl-amd64",
+        "kubectl-arm64"
+      ],
+      "groupName": "kubectl"
     }
   ]
 }
