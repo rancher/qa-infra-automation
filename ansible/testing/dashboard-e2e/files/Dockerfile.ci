@@ -41,7 +41,7 @@ RUN chmod 644 /root/.kube/config
 # Node 24 ships, matching the dashboard PR; classic branches keep Yarn 1.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 # renovate: datasource=npm depName=corepack
-ENV COREPACK_VERSION=0.34.6
+ENV COREPACK_VERSION=0.35.0
 RUN npm install -g "corepack@${COREPACK_VERSION}"
 
 ENTRYPOINT ["bash", "cypress/jenkins/cypress.sh"]
