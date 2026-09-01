@@ -271,6 +271,31 @@ resource "aws_vpc_security_group_ingress_rule" "rke2_api_node_ingress" {
   cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
 }
 
+# Egress counterpart to rke2_api_node_ingress above: nodes DIAL OUT to each
+# other's public IPs on 6443/9345 to join/read the cluster (e.g. an agent
+# calling https://<master_public_ip>:9345/cacerts). None of the existing
+# inline egress rules (VPC CIDR, jumpbox CIDR, 80/443/53 to 0.0.0.0/0) cover
+# egress to another node's public IP on these ports, so without this rule
+# outbound join traffic is dropped and nodes hang/fail joining the master.
+# Scoped per-node-IP instead of 0.0.0.0/0. Standalone resource for the same
+# reason as the ingress rule (avoids a cycle with aws_security_group).
+resource "aws_vpc_security_group_egress_rule" "rke2_api_node_egress" {
+  for_each = local.create_security_group ? {
+    for pair in setproduct(["6443", "9345"], keys(aws_instance.node)) :
+    "${pair[0]}-${pair[1]}" => {
+      port = tonumber(pair[0])
+      node = pair[1]
+    }
+  } : {}
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "RKE2/Rancher API ${each.value.port} to node ${each.value.node} public IP"
+  ip_protocol        = "tcp"
+  from_port          = each.value.port
+  to_port            = each.value.port
+  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
+}
+
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
   for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_80[0].arn
