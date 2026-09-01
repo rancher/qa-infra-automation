@@ -87,13 +87,22 @@ resource "aws_security_group" "ephemeral" {
 
   dynamic "ingress" {
     for_each = {
-      "80"   = ["0.0.0.0/0"]
-      "443"  = ["0.0.0.0/0"]
-      "6443" = var.ephemeral_sg_ingress_cidrs
-      "9345" = var.ephemeral_sg_ingress_cidrs
+      "80"  = ["0.0.0.0/0"]
+      "443" = ["0.0.0.0/0"]
     }
     content {
       description = "RKE2/Rancher listener ${ingress.key}"
+      from_port   = tonumber(ingress.key)
+      to_port     = tonumber(ingress.key)
+      protocol    = "tcp"
+      cidr_blocks = ingress.value
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = length(var.ephemeral_sg_ingress_cidrs) > 0 ? { "6443" = var.ephemeral_sg_ingress_cidrs, "9345" = var.ephemeral_sg_ingress_cidrs } : {}
+    content {
+      description = "RKE2/Rancher listener ${ingress.key} from allowed CIDRs (jumpbox/bastion/office)"
       from_port   = tonumber(ingress.key)
       to_port     = tonumber(ingress.key)
       protocol    = "tcp"
@@ -235,6 +244,31 @@ resource "aws_instance" "node" {
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
   }
+}
+
+# Node-to-node RKE2/Rancher API traffic (6443/9345) hairpins through the IGW
+# because nodes address each other by public IP (see outputs.kube_api_host),
+# so it does NOT match the "self = true" intra-SG rule above (that only
+# matches traffic sourced from a private ENI in this SG). Without this,
+# joining nodes get "context deadline exceeded" hitting the master's
+# /cacerts endpoint. Scope ingress to each node's own public IP (/32) instead
+# of 0.0.0.0/0. Standalone resources avoid a dependency cycle with the
+# inline aws_security_group (which must exist before any instance attaches).
+resource "aws_vpc_security_group_ingress_rule" "rke2_api_node_ingress" {
+  for_each = local.create_security_group ? {
+    for pair in setproduct(["6443", "9345"], keys(aws_instance.node)) :
+    "${pair[0]}-${pair[1]}" => {
+      port = tonumber(pair[0])
+      node = pair[1]
+    }
+  } : {}
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "RKE2/Rancher API ${each.value.port} from node ${each.value.node} public IP"
+  ip_protocol        = "tcp"
+  from_port          = each.value.port
+  to_port            = each.value.port
+  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
