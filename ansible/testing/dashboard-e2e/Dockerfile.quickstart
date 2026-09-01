@@ -16,7 +16,7 @@ ARG TARGETARCH
 ARG TOFU_VERSION=v1.12.6
 # renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.12.6
 ARG TOFU_SUM_AMD64=5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
-ARG TOFU_SUM_ARM64=1b79f8fe3cbf7ac0540507bb6bd0ecab1675c78393bbf492867eaabb79840eec
+ARG TOFU_SUM_ARM64=e573979ba68a17fe7b881752051a694a7efcd970e39521f6a25775197861ed4d
 
 # renovate: datasource=github-release-attachments depName=helm/helm
 ARG HELM_VERSION=v3.17.3
