@@ -78,6 +78,22 @@ resource "aws_security_group" "ephemeral" {
   }
 
   ingress {
+    description = "allowed CIDRs"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = var.ephemeral_sg_ingress_cidrs
+  }
+
+  ingress {
+    description = "allowed CIDRs"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = var.ephemeral_sg_ingress_cidrs
+  }
+
+  ingress {
     description = "All traffic between instances in this security group"
     from_port   = 0
     to_port     = 0
@@ -85,13 +101,19 @@ resource "aws_security_group" "ephemeral" {
     self        = true
   }
 
+  # NLB health checks for the 80/443 target groups originate from AWS-managed
+  # ENIs inside this VPC/subnet (not from instances in this SG, so "self" does
+  # not cover them, and their IPs aren't known ahead of time) - scope to the
+  # VPC CIDR instead of 0.0.0.0/0. The node-to-node/public-IP-hairpin case is
+  # covered separately by the per-node standalone rke2_lb_node_ingress rules
+  # below.
   dynamic "ingress" {
     for_each = {
-      "80"  = ["0.0.0.0/0"]
-      "443" = ["0.0.0.0/0"]
+      "80"  = [local.vpc_cidr_block]
+      "443" = [local.vpc_cidr_block]
     }
     content {
-      description = "RKE2/Rancher listener ${ingress.key}"
+      description = "RKE2/Rancher listener ${ingress.key} from within the VPC (NLB health checks)"
       from_port   = tonumber(ingress.key)
       to_port     = tonumber(ingress.key)
       protocol    = "tcp"
@@ -244,6 +266,49 @@ resource "aws_instance" "node" {
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
   }
+}
+
+# Node-to-node RKE2/Rancher LB traffic (80/443) also hairpins through the IGW
+# the same way 6443/9345 does (nodes/LB targets addressed by public IP), so it
+# re-enters tagged with the source's public IP - not matched by "self = true"
+# or the VPC-CIDR-scoped ingress above. Scope to each node's own public IP
+# (/32) instead of 0.0.0.0/0. Standalone resource for the same reason as
+# rke2_api_node_ingress (avoids a cycle with aws_security_group).
+resource "aws_vpc_security_group_ingress_rule" "rke2_lb_node_ingress" {
+  for_each = local.create_security_group ? {
+    for pair in setproduct(["80", "443"], keys(aws_instance.node)) :
+    "${pair[0]}-${pair[1]}" => {
+      port = tonumber(pair[0])
+      node = pair[1]
+    }
+  } : {}
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "RKE2/Rancher listener ${each.value.port} from node ${each.value.node} public IP"
+  ip_protocol        = "tcp"
+  from_port          = each.value.port
+  to_port            = each.value.port
+  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
+}
+
+# Egress counterpart to rke2_lb_node_ingress above: nodes DIAL OUT to each
+# other's public IPs on 80/443 (e.g. a joining node reaching the NLB/master
+# via its public IP). Scoped per-node-IP instead of 0.0.0.0/0.
+resource "aws_vpc_security_group_egress_rule" "rke2_lb_node_egress" {
+  for_each = local.create_security_group ? {
+    for pair in setproduct(["80", "443"], keys(aws_instance.node)) :
+    "${pair[0]}-${pair[1]}" => {
+      port = tonumber(pair[0])
+      node = pair[1]
+    }
+  } : {}
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "RKE2/Rancher listener ${each.value.port} to node ${each.value.node} public IP"
+  ip_protocol        = "tcp"
+  from_port          = each.value.port
+  to_port            = each.value.port
+  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
 }
 
 # Node-to-node RKE2/Rancher API traffic (6443/9345) hairpins through the IGW
