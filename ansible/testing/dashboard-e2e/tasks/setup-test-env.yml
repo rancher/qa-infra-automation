@@ -37,14 +37,24 @@
           and rancher_image_tag ('{{ rancher_image_tag }}').
 
 - name: Detect dashboard target branch
+  # The `v` is optional: a Prime row takes its tag from the chart index, where
+  # versions are bare (2.15.1-rc2), while a hand written row spells it
+  # v2.15.1-rc2. Requiring it sent every Prime row to master, so a 2.15 server
+  # ran the next minor's specs. dashboard_branch_resolved outranks the tag,
+  # which cannot always be read: 2.16.0-<sha>-head would map to a release-2.16
+  # that does not exist. "master" is deliberately not honoured as a choice,
+  # since it is the shipped default and would pin every row to it. Set
+  # dashboard_src to override the checkout entirely.
   ansible.builtin.set_fact:
     target_branch: >-
       {%- if dashboard_branch is defined and dashboard_branch and dashboard_branch != 'master' -%}
         {{ dashboard_branch }}
+      {%- elif dashboard_branch_resolved is defined and dashboard_branch_resolved -%}
+        {{ dashboard_branch_resolved }}
       {%- elif rancher_image_tag == 'head' -%}
         master
-      {%- elif rancher_image_tag is match('^v(\d+\.\d+)') -%}
-        release-{{ rancher_image_tag | regex_replace('^v(\d+\.\d+).*$', '\1') }}
+      {%- elif rancher_image_tag is match('^v?\d+\.\d+') -%}
+        release-{{ rancher_image_tag | regex_replace('^v?(\d+\.\d+).*$', '\1') }}
       {%- else -%}
         {{ dashboard_branch | default('master') }}
       {%- endif -%}
@@ -110,6 +120,7 @@
   ansible.builtin.file:
     path: "{{ docker_context_dir }}"
     state: "{{ item }}"
+    mode: "0755"
   loop:
     - absent
     - directory
@@ -156,6 +167,12 @@
     return_content: true
     status_code: [200, 404]
   register: _candidate_manifests
+  # This runs after the cluster is up, so a transient raw.githubusercontent
+  # failure would throw away a completed provision. 404 is a real answer here,
+  # meaning the candidate branch does not exist, so it ends the retry too.
+  retries: 3
+  delay: 5
+  until: _candidate_manifests.status | default(0) in [200, 404]
   vars:
     # release-2.13 yields base 2 and minor 13, so the candidates are the next
     # three minors. A target that is not a release branch yields none and the
@@ -207,29 +224,44 @@
     - not _branch_manifest.stat.exists
 
 - name: Overlay dependency files from dashboard master onto release branches
-  ansible.builtin.shell: |
-    set -e
-    cd {{ dashboard_dir }}
-    OVERLAY_BRANCH="{{ _overlay_source }}"
-    echo "[overlay] target_branch={{ target_branch }}, overlay_from=${OVERLAY_BRANCH}"
-    git fetch --depth=1 origin "${OVERLAY_BRANCH}" || {
-      echo "[overlay] ERROR: git fetch origin ${OVERLAY_BRANCH} failed"
-      exit 1
-    }
-    # Required dependency files, fail if missing
-    git checkout FETCH_HEAD -- cypress/package.json cypress/yarn.lock package.json yarn.lock cypress.config.ts || {
-      echo "[overlay] ERROR: required dependency files missing on ${OVERLAY_BRANCH}"
-      exit 1
-    }
-    # Optional files, may not exist on all branches
-    git checkout FETCH_HEAD -- cypress/support/qase.ts 2>/dev/null || \
-      echo "[overlay] NOTICE: cypress/support/qase.ts not found on ${OVERLAY_BRANCH}, skipping"
-    echo "[overlay] OK, overlaid dependency files from ${OVERLAY_BRANCH} onto {{ target_branch }}"
   when:
     - dashboard_src is not defined
     - target_branch != _overlay_source
     - not _branch_manifest.stat.exists
-  changed_when: true
+  block:
+    # ansible.builtin.git checks out a whole tree. The overlay takes five files
+    # and leaves the rest alone, which only a partial
+    # `git checkout <ref> -- <paths>` does, so these stay as commands.
+    - name: Fetch the overlay branch
+      ansible.builtin.command: # noqa: command-instead-of-module
+        cmd: git fetch --depth=1 origin {{ _overlay_source }}
+        chdir: "{{ dashboard_dir }}"
+      changed_when: true
+
+    - name: Overlay the required dependency files
+      # These decide which Cypress and module tree the run installs, so a
+      # branch that cannot supply them is a hard stop.
+      ansible.builtin.command: # noqa: command-instead-of-module
+        cmd: >-
+          git checkout FETCH_HEAD --
+          cypress/package.json cypress/yarn.lock package.json yarn.lock cypress.config.ts
+        chdir: "{{ dashboard_dir }}"
+      changed_when: true
+
+    - name: Overlay the optional dependency files
+      # Not present on every branch, and a run works without them.
+      ansible.builtin.command: # noqa: command-instead-of-module
+        cmd: git checkout FETCH_HEAD -- cypress/support/qase.ts
+        chdir: "{{ dashboard_dir }}"
+      register: _overlay_optional
+      changed_when: _overlay_optional.rc == 0
+      failed_when: false
+
+    - name: Report the overlay
+      ansible.builtin.debug:
+        msg: >-
+          Overlaid dependency files from {{ _overlay_source }} onto {{ target_branch }}
+          {{ '(cypress/support/qase.ts not on that branch, skipped)' if _overlay_optional.rc != 0 else '' }}
 
 # Release branches register grep with `import ... from '@cypress/grep/src/support'`.
 # v5+ moved to dist/ behind an exports map that no longer exposes src/*, so with
@@ -317,10 +349,13 @@
   ansible.builtin.include_role:
     name: rancher_user_setup
   vars:
-    rancher_admin_password: "{{ rancher_password }}"
+    # The role's own variable names, so they are what a caller passes.
+    # ansible-lint wants a role-name prefix, but renaming them would break the
+    # role's other callers.
+    rancher_admin_password: "{{ rancher_password }}" # noqa: var-naming[no-role-prefix]
     # Fail fast if tests need standard_user but login failed; warn-only otherwise
-    rancher_user_on_error: "{{ 'fail' if '@standardUser' in cypress_tags else 'warn' }}"
-    rancher_users:
+    rancher_user_on_error: "{{ 'fail' if '@standardUser' in cypress_tags else 'warn' }}" # noqa: var-naming[no-role-prefix]
+    rancher_users: # noqa: var-naming[no-role-prefix]
       - username: standard_user
         password: "{{ rancher_password }}"
         global_roles:
@@ -342,11 +377,6 @@
       ansible.builtin.slurp:
         src: "{{ outputs_dir }}/kubeconfig-import.yaml"
       register: import_kubeconfig_b64
-      when: _kubeconfig_file.stat.exists
-
-    - name: Set kubeconfig variables
-      ansible.builtin.set_fact:
-        imported_kubeconfig: "{{ import_kubeconfig_b64.content }}"
       when: _kubeconfig_file.stat.exists
 
     - name: Write imported_config for Docker
@@ -400,21 +430,23 @@
     regexp: "CYPRESSTAGS"
     replace: "{{ cypress_tags }}"
 
+- name: Stat the files the Docker build needs
+  ansible.builtin.stat:
+    path: "{{ dashboard_dir }}/{{ item }}"
+  loop:
+    - cypress/package.json
+    - cypress/yarn.lock
+    - cypress/jenkins/cypress.sh
+    - cypress/jenkins/Dockerfile.ci
+    - cypress/jenkins/grep-filter.ts
+  register: _required_files
+
 - name: Verify overlay files exist before Docker build
-  ansible.builtin.shell: |
-    set -e
-    cd {{ dashboard_dir }}
-    missing=""
-    for f in cypress/package.json cypress/yarn.lock cypress/jenkins/cypress.sh cypress/jenkins/Dockerfile.ci cypress/jenkins/grep-filter.ts; do
-      [ -f "$f" ] || missing="${missing} ${f}"
-    done
-    if [ -n "${missing}" ]; then
-      echo "[verify] ERROR: Missing required files:${missing}"
-      echo "[verify] {{ _verify_hint }}"
-      exit 1
-    fi
-    echo "[verify] OK, key files present, CYPRESSTAGS=$(grep -c 'CYPRESSTAGS' cypress/jenkins/cypress.sh || echo 'replaced')"
+  # A missing file produces an opaque docker build failure minutes later, so
+  # name them all at once and say which delivery path failed.
   vars:
+    _missing: >-
+      {{ _required_files.results | rejectattr('stat.exists') | map(attribute='item') | list }}
     _verify_hint: >-
       {{
         'The dependency overlay is skipped for local checkouts, so the directory passed to
@@ -423,7 +455,11 @@
         if dashboard_src is defined
         else 'The overlay from ' ~ (dashboard_overlay_branch | default('master', true)) ~ ' did not produce them.'
       }}
-  changed_when: false
+  ansible.builtin.assert:
+    that:
+      - _missing | length == 0
+    fail_msg: "Missing required files: {{ _missing | join(', ') }}. {{ _verify_hint }}"
+    success_msg: "All files the Docker build needs are present."
 
 - name: Read Dockerfile.ci back
   ansible.builtin.slurp:
@@ -504,24 +540,35 @@
       Chrome={{ chrome_version }}
 
 - name: Build dashboard-test Docker image
-  ansible.builtin.command:
-    argv:
-      - docker
-      - build
-      - -t
-      - "dashboard-test:{{ executor_tag }}"
-      - -f
-      - "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"
+  # Retried because two children on one agent build this in parallel and
+  # containerd races exporting the shared base layers: "failed to export layer:
+  # CreateDiff: mount callback failed". The builds are tagged per executor, so
+  # this is a snapshotter race, not a name or disk collision, and it clears on a
+  # second attempt.
+  community.docker.docker_image:
+    name: dashboard-test
+    tag: "{{ executor_tag }}"
+    source: build
+    force_source: true
+    build:
+      path: "{{ docker_context_dir }}"
+      dockerfile: "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"
       # Yarn is not a build-arg: classic uses the image's Yarn 1, Berry resolves
       # its version from packageManager via corepack at runtime (files/cypress.sh).
-      - --build-arg
-      - "NODE_VERSION={{ nodejs_version }}"
-      - --build-arg
-      - "CYPRESS_VERSION={{ cypress_version }}"
-      - --build-arg
-      - "CHROME_VERSION={{ chrome_version }}"
-      - "{{ docker_context_dir }}"
-  changed_when: true
+      args:
+        NODE_VERSION: "{{ nodejs_version }}"
+        CYPRESS_VERSION: "{{ cypress_version }}"
+        CHROME_VERSION: "{{ chrome_version }}"
+  register: _dashboard_image_build
+  # async bounds the wall clock, retries handle the failure. The module's own
+  # timeout covers an API response, not a stalled build, so without the bound a
+  # hung build never returns and the retry below never fires. Twenty minutes is
+  # well clear of a cold build, which takes about four.
+  async: 1200
+  poll: 15
+  retries: 3
+  delay: 30
+  until: _dashboard_image_build is succeeded
 
 # The docker build output is only shown when the build fails, so a successful
 # build says nothing about what actually landed in the image. That silence is

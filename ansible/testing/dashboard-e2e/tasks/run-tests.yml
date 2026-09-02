@@ -11,39 +11,60 @@
   when: "'@standardUser' in cypress_tags"
 
 - name: Run Cypress tests in Docker
-  ansible.builtin.shell: |
-    USER_ARG=""
-    HOST_UID="{{ lookup('env', 'HOST_UID') }}"
-    HOST_GID="{{ lookup('env', 'HOST_GID') }}"
-    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
-      USER_ARG="--user $HOST_UID:$HOST_GID -e HOME=/tmp -e KUBECONFIG=/root/.kube/config"
-    fi
-    docker run --rm -t --init \
-      --name "cypress-{{ executor_tag }}-{{ prefix | default('local') | lower | regex_replace('[^a-z0-9_.-]', '-') }}-{{ rancher_host | default('dashboard-e2e') | lower | regex_replace('[^a-z0-9_.-]', '-') }}" \
-      $USER_ARG \
-      --shm-size=2g \
-      --env-file "{{ workspace_dir }}/.env" \
-      -e NODE_PATH="" \
-      -v "{{ host_dashboard_dir }}:/e2e" \
-      -w /e2e \
-      dashboard-test:{{ executor_tag }}
+  # A run inside the quickstart container writes into a bind mount, so it runs
+  # as the invoking user or leaves root-owned files on the host. Jenkins runs on
+  # the host directly and sets neither.
+  community.docker.docker_container:
+    name: >-
+      cypress-{{ executor_tag }}-{{ prefix | default('local') | lower | regex_replace('[^a-z0-9_.-]', '-') }}-{{
+      rancher_host | default('dashboard-e2e') | lower | regex_replace('[^a-z0-9_.-]', '-') }}
+    image: "dashboard-test:{{ executor_tag }}"
+    detach: false
+    cleanup: true
+    tty: true
+    init: true
+    shm_size: 2g
+    env_file: "{{ workspace_dir }}/.env"
+    env: "{{ _container_env }}"
+    user: "{{ (_host_uid ~ ':' ~ _host_gid) if _run_as_host_user else omit }}"
+    volumes:
+      - "{{ host_dashboard_dir }}:/e2e"
+    working_dir: /e2e
+  vars:
+    _host_uid: "{{ lookup('env', 'HOST_UID') }}"
+    _host_gid: "{{ lookup('env', 'HOST_GID') }}"
+    _run_as_host_user: "{{ _host_uid | length > 0 and _host_gid | length > 0 }}"
+    # NODE_PATH is cleared unconditionally: an inherited value points at the
+    # host's module tree, which is not the one the image installed.
+    _container_env: >-
+      {{ {'NODE_PATH': ''}
+         | combine({'HOME': '/tmp', 'KUBECONFIG': '/root/.kube/config'} if _run_as_host_user else {}) }}
   register: cypress_result
+  # A failing suite is a result, not a broken step: the exit code is reported
+  # below and the playbook decides.
   failed_when: false
   changed_when: true
 
 - name: Log Docker errors on non-zero exit
   ansible.builtin.debug:
-    msg: "{{ cypress_result.stderr_lines | default([]) }}"
-  when: (cypress_result.rc | default(1)) != 0 and (cypress_result.stderr_lines | default([]) | length > 0)
+    msg: "{{ cypress_result.msg | default('') }}"
+  when:
+    - (cypress_result.status | default(1)) != 0
+    - (cypress_result.msg | default('')) | length > 0
 
 - name: Fix dashboard permissions after Docker run
-  ansible.builtin.shell: |
-    HOST_UID="{{ lookup('env', 'HOST_UID') }}"
-    HOST_GID="{{ lookup('env', 'HOST_GID') }}"
-    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
-      chown -R "$HOST_UID:$HOST_GID" "{{ dashboard_dir }}" 2>/dev/null || true
-    fi
-  changed_when: false
+  # Only when the container ran as the host user, which is the case that can
+  # leave root-owned files behind in the bind mount.
+  ansible.builtin.file:
+    path: "{{ dashboard_dir }}"
+    state: directory
+    owner: "{{ lookup('env', 'HOST_UID') }}"
+    group: "{{ lookup('env', 'HOST_GID') }}"
+    recurse: true
+  when:
+    - lookup('env', 'HOST_UID') | length > 0
+    - lookup('env', 'HOST_GID') | length > 0
+  failed_when: false
 
 # cypress.sh points ./node_modules at cypress/node_modules. Left behind in a
 # local checkout it would send a later root `yarn install` into the test tree.
@@ -64,7 +85,7 @@
 
 - name: Set test exit code
   ansible.builtin.set_fact:
-    cypress_exit_code: "{{ cypress_result.rc | default(1) }}"
+    cypress_exit_code: "{{ cypress_result.status | default(1) }}"
 
 - name: Check results.xml exists
   ansible.builtin.stat:
@@ -79,11 +100,24 @@
     mode: "0644"
   when: results_xml.stat.exists
 
+- name: Find the HTML reports the run produced
+  ansible.builtin.find:
+    paths: "{{ dashboard_dir }}/cypress/reports/html"
+    recurse: true
+    file_type: file
+  register: _html_reports
+
 - name: Copy HTML reports to workspace
-  ansible.builtin.shell: |
-    mkdir -p {{ workspace_dir }}/html
-    cp -r {{ dashboard_dir }}/cypress/reports/html/* {{ workspace_dir }}/html/ 2>/dev/null || true
-  changed_when: false
+  # No report is not a failure here: the exit code says whether the tests
+  # passed, and a suite that never started has nothing to copy.
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "{{ workspace_dir }}/html/{{ item.path | relpath(dashboard_dir ~ '/cypress/reports/html') }}"
+    remote_src: true
+    mode: "0644"
+  loop: "{{ _html_reports.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
 
 - name: Report test status
   ansible.builtin.debug:
