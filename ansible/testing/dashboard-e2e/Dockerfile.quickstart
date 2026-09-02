@@ -8,7 +8,7 @@
 # Run:    see run.sh
 
 # renovate: datasource=docker depName=python
-FROM python:3.12-alpine3.23@sha256:31a768b01976652c222e318fe5bd6e7c252f056cbf489c88fa256f1bf0af58e3
+FROM python:3.14-alpine3.23@sha256:8caa2adfeb414dfe68d8b257f7aea9e205a400521c2b13b2d2e5e731fb8e70e5
 
 ARG TARGETARCH
 
