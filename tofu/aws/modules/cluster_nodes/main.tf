@@ -361,6 +361,30 @@ resource "aws_vpc_security_group_egress_rule" "rke2_api_node_egress" {
   cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
 }
 
+# Downstream Rancher clusters are provisioned in a separate, later `tofu
+# apply` (tofu/rancher/cluster + node driver), reusing this SG by NAME
+# (aws_security_group = ["tf-<prefix>-sg"]). Their EC2 instance's public IP
+# is unknowable ahead of time, so it can't get a per-node /32 rule like
+# rke2_lb_node_ingress above. Without inbound 443 the new node's Rancher
+# agent can launch but never "check in" (rancher2_cluster_v2 hangs
+# indefinitely waiting for the agent). Scope to AWS's published EC2 IP
+# ranges for this region instead of 0.0.0.0/0 - narrower than the whole
+# internet, though still broader than a single /32 since the IP isn't known
+# yet. Egress on 443 to 0.0.0.0/0 already exists above (package/API access),
+# so only ingress is added here.
+resource "aws_vpc_security_group_ingress_rule" "rancher_agent_checkin_ingress" {
+  for_each = local.create_security_group ? {
+    for idx, range in data.aws_ip_ranges.ec2.cidr_blocks : tostring(idx) => range
+  } : {}
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Rancher agent check-in (443) from AWS EC2 IP ranges in ${var.aws_region} (downstream node provisioned by Rancher node driver, IP unknown ahead of time)"
+  ip_protocol        = "tcp"
+  from_port          = 443
+  to_port            = 443
+  cidr_ipv4          = each.value
+}
+
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
   for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_80[0].arn
@@ -529,4 +553,13 @@ data "aws_route53_zone" "selected" {
 # Used to auto-allow SSH from the VPC's own CIDR in the dedicated SSH SG above.
 data "aws_vpc" "selected" {
   id = var.aws_vpc
+}
+
+# AWS's published EC2 IP ranges for this region. Used to scope the downstream
+# Rancher agent check-in ingress (below) to something narrower than
+# 0.0.0.0/0. Amazon updates this list; tofu will need re-applying to pick up
+# additions, but it stays far smaller than the whole internet.
+data "aws_ip_ranges" "ec2" {
+  regions  = [var.aws_region]
+  services = ["ec2"]
 }
