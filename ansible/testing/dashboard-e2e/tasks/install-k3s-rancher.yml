@@ -104,7 +104,7 @@
   ansible.builtin.copy:
     content: |
       rancher_version: '{{ rancher_version }}'
-      rancher_image_tag: '{{ rancher_image_tag_resolved | default(rancher_image_tag) }}'
+      rancher_image_tag: '{{ "" if rancher_image_tag_from_chart | default(false) | bool else (rancher_image_tag_resolved | default(rancher_image_tag)) }}'
       rancher_image: '{{ rancher_image | default("") }}'
       cert_manager_version: '{{ cert_manager_version }}'
       kubeconfig_file: '{{ outputs_dir }}/kubeconfig-rancher.yaml'
@@ -116,14 +116,13 @@
       rancher_chart_repo: '{{ rancher_helm_repo }}'
       rancher_chart_repo_url: '{{ rancher_chart_url }}'
       {% if ui_offline_preferred is defined %}
-      # Opt in only. See "Which UI the tests run against" in the README: on a
-      # release branch `-head` tag this pins the UI to the one the image embeds,
-      # which is the last GA build, not the branch. That makes a run repeatable
-      # at the cost of no longer exercising the branch's UI.
+      # Opt in only, and lower-cased on purpose: an unquoted `true` in vars.yaml
+      # parses as a Python bool and renders as `True`, which Rancher does not
+      # match, so the UI silently falls back to the CDN. Observed on build #95.
       extra_helm_values:
         extraEnv:
           - name: CATTLE_UI_OFFLINE_PREFERRED
-            value: '{{ ui_offline_preferred }}'
+            value: '{{ ui_offline_preferred | string | lower }}'
       {% endif %}
     dest: "{{ outputs_dir }}/rancher-vars.yaml"
     mode: "0644"
@@ -142,7 +141,70 @@
   async: 1200
   poll: 30
   changed_when: true
+  register: _deploy_rancher
+  # ignore_errors rather than failed_when: false. The latter rewrites the result
+  # as a success, so "is failed" never fires and the diagnosis below would be
+  # dead code that silently never ran. The explicit fail task at the end of this
+  # group still ends the play.
+  ignore_errors: true
   when: job_type == 'recurring'
+
+# An async task killed at its timeout returns "Timeout exceeded" with an empty
+# stdout, so twenty minutes of deploying leave nothing to read. The cluster still
+# knows: a pod that cannot pull its image says so in its status and events. Read
+# that out before the workspace is destroyed, which is the only chance.
+- name: Report why the deploy did not finish
+  when:
+    - job_type == 'recurring'
+    - _deploy_rancher is defined
+    - _deploy_rancher is failed
+  vars:
+    # argv, not cmd: a jsonpath contains spaces and cmd would split it into
+    # separate arguments, leaving kubectl with "jsonpath={range".
+    _kubectl:
+      - kubectl
+      - --kubeconfig
+      - "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+      - -n
+      - cattle-system
+    # The single space the folded scalar inserts at each line break is the
+    # column separator, so the fields need no explicit padding.
+    _waiting_jsonpath: >-
+      jsonpath={range .items[*]}{.metadata.name}
+      {.spec.containers[*].image}
+      {.status.containerStatuses[*].state.waiting.reason}
+      {.status.containerStatuses[*].state.waiting.message}{"\n"}{end}
+  block:
+    - name: Collect the cluster state that explains it
+      # Three reads rather than one shell script: no pipes, no quoting, and
+      # each answer is labelled by the item that asked for it.
+      ansible.builtin.command:
+        argv: "{{ _kubectl + item.args }}"
+      register: _deploy_diag
+      changed_when: false
+      failed_when: false
+      loop:
+        - name: pods
+          args: [get, pods, -o, wide]
+        - name: images and waiting reasons
+          args: [get, pods, -o, "{{ _waiting_jsonpath }}"]
+        - name: events
+          args: [get, events, --sort-by=.lastTimestamp]
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Show the deploy diagnosis
+      ansible.builtin.debug:
+        msg: "{{ ['--- ' ~ item.item.name ~ ' ---'] + (item.stdout_lines | default([]))[-25:] }}"
+      loop: "{{ _deploy_diag.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Fail with what the deploy actually did
+      ansible.builtin.fail:
+        msg: >-
+          Deploying Rancher failed: {{ _deploy_rancher.msg | default('see above') }}.
+          The pod state and events above are from the cluster when it gave up.
 
 - name: Wait for import cluster API
   ansible.builtin.command:
@@ -179,9 +241,9 @@
     # `value` is what an operator set, `default` is what the deployment was
     # given, which is where CATTLE_ env vars land. The effective setting is
     # `value` when it is non-empty, otherwise `default`.
-    _effective: "{{ _setting.value | default('', true) or _setting.default | default('', true) }}"
+    _effective: "{{ (_setting.value | default('', true) or _setting.default | default('', true)) | string | lower }}"
   ansible.builtin.assert:
-    that: _effective == ui_offline_preferred
+    that: _effective == (ui_offline_preferred | string | lower)
     success_msg: "ui-offline-preferred={{ _effective }}, as requested."
     fail_msg: >-
       ui-offline-preferred={{ _effective | default('unset', true) }}, but
@@ -241,15 +303,78 @@
     # `!strings.Contains(serverVersion, "head") && regexp("^v[0-9]").Match(serverVersion)`.
     # A release serves the UI it embeds, anything else serves ui-dashboard-index.
     _is_release: "{{ 'head' not in _server_version and _server_version is match('^v[0-9]') }}"
+    # Cast before comparing: the setting comes back from the k8s API as a real
+    # boolean when it holds true or false, and `True == 'true'` is false, which
+    # reported a correctly pinned UI as coming from the CDN. Seen on build #96.
+    _ui_offline: "{{ _ui_offline_value | string | lower }}"
   ansible.builtin.set_fact:
-    _ui_from_image: "{{ _ui_offline_value == 'true' or (_ui_offline_value == 'dynamic' and _is_release) }}"
+    _ui_from_image: "{{ _ui_offline == 'true' or (_ui_offline == 'dynamic' and _is_release) }}"
   when: job_type == 'recurring'
 
-# The CDN path is rebuilt from the release branch continuously and carries no
-# version, so the image digest alone does not identify what ran. The bundle name
-# is content hashed, which makes it a usable fingerprint: two runs naming the
-# same bundle loaded the same UI. The build date narrows down the commit that
-# produced it.
+# Both paths publish VERSION.txt holding the dashboard commit that built them,
+# so the UI can be named the same way wherever it came from. That matters
+# because the two disagree: a v2.16.0-head cluster embedded ed075e6 while the
+# CDN served ddfc173, so the backend and the UI came from different commits.
+#
+# The file is generated by scripts/build-embedded and scripts/build-hosted,
+# which the dashboard repository gained on release-2.15. On release-2.14 and
+# older neither exists, so the image has no VERSION.txt and the CDN path 404s,
+# and a run there reported no UI at all. index.html is always present, so fall
+# back to its hash: not a commit, but it changes whenever the UI does, so two
+# runs naming the same hash loaded the same build. Version-agnostic on purpose,
+# since the file simply appears once a branch is new enough.
+- name: Read the UI build the image embeds
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+      - -n
+      - cattle-system
+      - exec
+      - deploy/rancher
+      - -c
+      - rancher
+      - --
+      - sh
+      - -c
+      - >-
+        d=/usr/share/rancher/ui-dashboard/dashboard;
+        if [ -s "$d/VERSION.txt" ]; then cat "$d/VERSION.txt";
+        elif [ -f "$d/index.html" ]; then
+        printf 'index %s' "$(sha1sum "$d/index.html" | cut -c1-12)"; fi
+  register: _ui_image_version
+  changed_when: false
+  failed_when: false
+  when:
+    - job_type == 'recurring'
+    - _ui_from_image | default(false) | bool
+
+- name: Read the UI build the CDN is serving
+  ansible.builtin.uri:
+    url: "{{ _ui_index_value | regex_replace('/[^/]*$', '') }}/VERSION.txt"
+    return_content: true
+  register: _ui_cdn_version
+  failed_when: false
+  retries: 3
+  delay: 5
+  until: _ui_cdn_version.status | default(0) == 200
+  when:
+    - job_type == 'recurring'
+    - not (_ui_from_image | default(false) | bool)
+    - _ui_index_value | default('', true) | length > 0
+
+- name: Name the UI build under test
+  ansible.builtin.set_fact:
+    ui_build: >-
+      {{ (_ui_image_version.stdout | default('', true) | trim)
+         if _ui_from_image | default(false) | bool
+         else (_ui_cdn_version.content | default('', true) | trim) }}
+  when: job_type == 'recurring'
+
+# The CDN path is rebuilt from the release branch continuously, so the index
+# hash is kept as a second fingerprint: two runs naming the same hash loaded the
+# same UI even if VERSION.txt could not be read.
 - name: Fingerprint the UI when it is served from the CDN
   ansible.builtin.uri:
     url: "{{ _ui_index_value }}"
@@ -260,6 +385,31 @@
     - job_type == 'recurring'
     - not _ui_from_image
     - _ui_index_value | length > 0
+
+# VERSION.txt is not published on every CDN path. The dashboard branches began
+# publishing it at 2.15: latest and release-2.15 answer 200, while release-2.14
+# and older are 404, so a run on a maintained older minor would otherwise report
+# no UI at all. The newest minor is unaffected: with no release branch cut yet
+# its ui-dashboard-index points at latest, which tracks master and does publish
+# the file. That flips when the branch is cut, which is why the path is read
+# from the cluster rather than assumed.
+#
+# The index itself is the fallback, so name the build by its hash rather than
+# leave the run unattributed. Gated on a 200 because a missing path still
+# returns a body: releases.rancher.com answers any unknown path with the same
+# 127-byte NoSuchKey document, so release-2.16, release-2.17 and a nonsense
+# branch all hash to 6cf22a7f4746. Hashing that would give two runs on different
+# branches the same fingerprint, which reads as the same UI. Reporting nothing
+# is better than reporting a shared fake.
+- name: Name the UI by its index when the CDN publishes no VERSION.txt
+  ansible.builtin.set_fact:
+    ui_build: "index {{ (_ui_fetch.content | hash('sha1'))[:12] }}"
+  when:
+    - job_type == 'recurring'
+    - not _ui_from_image
+    - (ui_build | default('', true) | length) == 0
+    - _ui_fetch.status | default(0) == 200
+    - (_ui_fetch.content | default('', true) | length) > 0
 
 - name: Report the Rancher build under test
   vars:
@@ -274,8 +424,9 @@
               'image:          ' ~ (_rancher_container.image | default('unknown', true)),
               'digest:         ' ~ (_rancher_container.imageID | default('unknown', true)),
               'ui-offline:     ' ~ (_ui_offline_value | default('unknown', true))]
-             + (['ui:             the image'] if _ui_from_image
-                else ['ui:             ' ~ _ui_index_value,
-                      'ui build:       ' ~ _ui_hash ~ ' (sha1 of index, changes with the UI)',
+             + ['ui build:       ' ~ (ui_build | default('unknown', true) or 'unknown')]
+             + (['ui served from: the image'] if _ui_from_image
+                else ['ui served from: ' ~ _ui_index_value,
+                      'ui index hash:  ' ~ _ui_hash,
                       'ui built:       ' ~ _built]) }}"
   when: job_type == 'recurring'
