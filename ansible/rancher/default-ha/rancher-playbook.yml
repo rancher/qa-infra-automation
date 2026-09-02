@@ -272,10 +272,17 @@
           - Rancher chart kubeVersion: {{ rancher_chart_kube_version | default('not specified') }}
 
     - name: Dry-run Rancher install to verify Kubernetes version compatibility
+      # The version has to be named explicitly. A client-side dry run does not
+      # reach the cluster, so it renders against the Kubernetes version helm
+      # itself was built against, and helm 4 is built against a version newer
+      # than the upper bound the Rancher charts pin. Left unqualified the check
+      # therefore rejects every cluster, including the supported ones. The
+      # version read from the live node above is the one this task is about, so
+      # it is the version the render is given.
       ansible.builtin.command:
         cmd: >-
-          helm install rancher {{ rancher_chart_repo_final }}/rancher
-          --dry-run
+          helm template rancher {{ rancher_chart_repo_final }}/rancher
+          --kube-version {{ k8s_cluster_version }}
           --namespace cattle-system
           {{ ('--version ' + rancher_chart_version) if rancher_chart_version else '' }}
           --set hostname={{ fqdn }}
