@@ -11,6 +11,14 @@
     terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
     terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
 
+    # cattle-config.yaml enriched by this deploy (host/adminToken). Defaults to
+    # a file rendered from ansible/_cattle-config.yaml.template; set
+    # rancher_cattle_config_file to an existing file (make EXTRA_VARS or -e) to
+    # enrich your own CATTLE_TEST_CONFIG instead — the render is skipped and
+    # that file is never overwritten from the template.
+    cattle_config_generated: "{{ playbook_dir | dirname | dirname | dirname }}/generated_config/cattle-config.yaml"
+    rancher_cattle_config_file: "{{ cattle_config_generated }}"
+
     # Kubeconfig location - from env or default to RKE2 playbook output
     kubeconfig_file: "{{ lookup('env', 'KUBECONFIG_FILE') | default(playbook_dir + '/../rke2/default/kubeconfig.yaml', true) }}"
 
@@ -420,6 +428,24 @@
       delay: 10
       until: webpage_result.status == 200
 
+    - name: Ensure generated_config directory exists
+      ansible.builtin.file:
+        path: "{{ playbook_dir | dirname | dirname | dirname }}/generated_config"
+        state: directory
+        mode: "0700"
+      when: rancher_version != "" and rancher_cattle_config_file == cattle_config_generated
+
+    - name: Render cattle-config.yaml from the base template
+      # Skipped when rancher_cattle_config_file points at a pre-existing
+      # (BYO) config, which is then only enriched, never overwritten. rancher_auth
+      # injects rancher.host/adminToken below; add-downstream-cluster.yml can keep
+      # enriching the same file (rancher.clusterName).
+      ansible.builtin.template:
+        src: "{{ playbook_dir | dirname | dirname | dirname }}/ansible/_cattle-config.yaml.template"
+        dest: "{{ cattle_config_generated }}"
+        mode: "0600"
+      when: rancher_version != "" and rancher_cattle_config_file == cattle_config_generated
+
     - name: Configure Rancher admin user and generate API token
       ansible.builtin.include_role:
         name: rancher_auth
@@ -465,6 +491,7 @@
           - "  URL:        https://{{ fqdn }}"
           - ""
           - "  Token file: {{ playbook_dir }}/generated.tfvars"
+          - "  Cattle config: {{ rancher_cattle_config_file }}"
           - "  K8s version: {{ k8s_cluster_version }}"
           - "============================================================"
       when: rancher_version != ""
