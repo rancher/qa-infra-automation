@@ -65,8 +65,8 @@ module "rancher2_machine_config_v2" {
   labels                  = try(var.labels, null)
 }
 
-resource "time_sleep" "wait_60_seconds" {
-  create_duration = "60s"
+resource "time_sleep" "wait_120_seconds" {
+  create_duration = "120s"
 }
 
 resource "rancher2_cluster_v2" "rancher2_cluster_v2" {
@@ -144,7 +144,7 @@ data "aws_security_groups" "downstream_sg" {
 # this apply - re-running `tofu apply` resolves it (idempotent).
 data "aws_instances" "downstream_node" {
   count      = var.cloud_provider == "aws" ? 1 : 0
-  depends_on = [time_sleep.wait_60_seconds]
+  depends_on = [time_sleep.wait_120_seconds]
 
   filter {
     name   = "tag:${local.downstream_discovery_tag_key}"
