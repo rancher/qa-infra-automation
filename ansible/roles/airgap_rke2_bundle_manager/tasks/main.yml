@@ -1,6 +1,30 @@
 ---
 # Main tasks for rke2_bundle_manager role
 # This role manages downloading RKE2 artifacts and creating distribution bundles
+#
+# Bundle caching: the bundle is rebuilt only when the cache key (RKE2 version +
+# architecture + CNI) changes. A stamp file next to the bundle records the key of
+# the build that produced it; a matching stamp plus an existing bundle skips the
+# ~2 GB GitHub download and re-tar on every re-run.
+
+- name: Compute bundle cache key
+  ansible.builtin.set_fact:
+    rke2_bundle_cache_key: "{{ rke2_version }} {{ ansible_facts.architecture }} {{ cni | default('canal') }}"
+
+- name: Read cached bundle version stamp (empty when absent)
+  ansible.builtin.command: cat {{ rke2_bundle_dir }}/{{ rke2_bundle_filename }}.version
+  register: rke2_bundle_stamp_raw
+  changed_when: false
+  failed_when: false
+
+- name: Check whether the bundle file already exists
+  ansible.builtin.stat:
+    path: "{{ rke2_bundle_dir }}/{{ rke2_bundle_filename }}"
+  register: rke2_bundle_stat
+
+- name: Use cached bundle when stamp matches the cache key
+  ansible.builtin.set_fact:
+    rke2_bundle_cached: "{{ rke2_bundle_stat.stat.exists and (rke2_bundle_stamp_raw.stdout | default('') | trim) == (rke2_bundle_cache_key | trim) }}"
 
 - name: Display RKE2 bundle manager information
   ansible.builtin.debug:
@@ -10,9 +34,13 @@
       - Architecture: {{ ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}
       - Bundle directory: {{ rke2_bundle_dir }}
       - Bundle filename: {{ rke2_bundle_filename }}
+      - Cache key: {{ rke2_bundle_cache_key }}
+      - Cached bundle: {{ 'YES (skipping download + rebuild)' if rke2_bundle_cached | bool else 'NO (building from artifacts)' }}
 
 - name: Download RKE2 artifacts
   ansible.builtin.include_tasks: download_artifacts.yml
+  when: not rke2_bundle_cached | bool
 
 - name: Create RKE2 bundle
   ansible.builtin.include_tasks: create_bundle.yml
+  when: not rke2_bundle_cached | bool

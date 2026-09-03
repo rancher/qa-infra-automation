@@ -19,16 +19,21 @@ TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
 AUTO_APPROVE  ?= no
 # Opt-in: include the standalone ui-plugin-mirror step in `all`/`setup-from-infra`
-# (airgap only). Default off so ordinary airgap runs are unaffected.
+# and set enable_ui_plugin_mirror=true for every ansible invocation (airgap
+# only, incl. airgap-downstream, which has no standalone mirror step). Default
+# off so ordinary airgap runs are unaffected.
 ENABLE_UI_PLUGIN_MIRROR ?= no
 ifeq ($(ENV),airgap)
 ifeq ($(ENABLE_UI_PLUGIN_MIRROR),yes)
 UI_PLUGIN_MIRROR_TARGET := ui-plugin-mirror
+UI_PLUGIN_MIRROR_ANSIBLE_VAR := enable_ui_plugin_mirror=true
 else
 UI_PLUGIN_MIRROR_TARGET :=
+UI_PLUGIN_MIRROR_ANSIBLE_VAR :=
 endif
 else
 UI_PLUGIN_MIRROR_TARGET :=
+UI_PLUGIN_MIRROR_ANSIBLE_VAR :=
 endif
 
 # Downstream cluster via the Rancher API (tofu/rancher/cluster).
@@ -977,12 +982,12 @@ debug-vars: ## Show current variable values
 	@echo "  Tofu dir exists:       $$([ -d "$(TOFU_DIR)" ] && echo "yes" || echo "no")"
 	@echo "  Ansible dir exists:    $$([ -d "$(ANSIBLE_DIR)" ] && echo "yes" || echo "no")"
 	@echo "  Inventory exists:      $$([ -f "$(INVENTORY)" ] && echo "yes" || echo "no")"
-	@echo "  Cluster playbook exists: $$([ -f "$(CLUSTER_PLAYBOOK)" ] && echo "yes" || echo "no")"
-	@echo "  Rancher playbook exists: $$([ -f "$(RANCHER_PLAYBOOK)" ] && echo "yes" || echo "no")"
 
-# Extra vars support
-ifdef EXTRA_VARS
-ANSIBLE_EXTRA_VARS := --extra-vars "$(EXTRA_VARS)"
+# Extra vars support. UI_PLUGIN_MIRROR_ANSIBLE_VAR is prepended so an explicit
+# enable_ui_plugin_mirror=... in EXTRA_VARS takes precedence (later keys win).
+ANSIBLE_EXTRA_VARS_KEYS := $(strip $(UI_PLUGIN_MIRROR_ANSIBLE_VAR) $(EXTRA_VARS))
+ifneq ($(ANSIBLE_EXTRA_VARS_KEYS),)
+ANSIBLE_EXTRA_VARS := --extra-vars "$(ANSIBLE_EXTRA_VARS_KEYS)"
 else
 ANSIBLE_EXTRA_VARS :=
 endif

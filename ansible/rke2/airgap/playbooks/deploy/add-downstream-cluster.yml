@@ -324,48 +324,128 @@
           ansible.builtin.debug:
             msg: "Injected {{ downstream_ui_plugin_mirror_url }} (branch {{ ui_plugin_mirror_branch | default('main') }}) into {{ rancher_cattle_config_file }} as neuvectorTest.uiPluginChartsURL/uiPluginChartsBranch"
 
-    - name: Check if python3-pip is already installed
-      ansible.builtin.command: python3 -m pip --version
-      register: pip_check
-      changed_when: false
-      failed_when: false
-
-    - name: Install pip3 if not present
-      ansible.builtin.package:
-        name: python3-pip
-        state: present
-        update_cache: true
-      when: pip_check.rc != 0
-      ignore_errors: true
-
-    - name: Display pip installation status
-      ansible.builtin.debug:
-        msg: "Python3-pip installation: {{ 'Already installed' if pip_check.rc == 0 else 'Installation attempted (may have failed in airgap environment)' }}"
-
-    - name: Install kubernetes Python packages
-      ansible.builtin.package:
-        name:
-          - python3-kubernetes
-        state: present
-        update_cache: true
+    # NOTE: no python3-pip/python3-kubernetes install here. This playbook talks
+    # to the downstream apiserver exclusively via kubectl (installed on the
+    # bastion by the cluster install playbook); the apt python-kubernetes
+    # client is only needed by the Rancher helm-deploy playbook, which installs
+    # it itself and runs before this one in the airgap-downstream flow.
 
     - name: Download manifest to register into Rancher
       ansible.builtin.get_url:
         url: "https://{{ fqdn }}/v3/import/{{ hostvars['localhost']['cluster_registration_token'] }}_{{ hostvars['localhost']['cluster_id'] }}.yaml"
-        dest: "/tmp/cluster_registration_manifest_{{ ansible_facts.date_time.iso8601 }}.yaml"
-        mode: "0755"
+        # Stable path (no timestamp) so re-runs overwrite in place instead of
+        # littering /tmp; force refreshes the token-bearing manifest.
+        dest: /tmp/cluster_registration_manifest.yaml
+        mode: "0644"
         timeout: 60
         force: true
         validate_certs: false
+      register: registration_manifest
+      retries: 3
+      delay: 10
+      until: registration_manifest is success
 
     - name: Apply manifest to add cluster to Rancher
-      kubernetes.core.k8s:
-        state: present
-        src: "/tmp/cluster_registration_manifest_{{ ansible_facts.date_time.iso8601 }}.yaml"
-        kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
-        verify_ssl: false
-      environment:
-        RANCHER_INSECURE: true
+      # kubectl, not kubernetes.core.k8s: the apt python-kubernetes client sets
+      # no per-request timeout, so a stalled connection to the downstream
+      # apiserver wedges the module forever (same reason the rollout wait below
+      # uses kubectl). kubectl bounds every request via --request-timeout; the
+      # kubeconfig embeds the cluster CA, so TLS verification works as-is.
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+          - --request-timeout=30s
+          - apply
+          - -f
+          - /tmp/cluster_registration_manifest.yaml
+      register: manifest_apply
+      changed_when: manifest_apply.stdout is not search('unchanged')
+      retries: 3
+      delay: 10
+      until: manifest_apply.rc == 0
+
+    - name: Point the cluster agent at the internal LB and relax strict verify (airgap)
+      # server-url is deliberately the PUBLIC hostname (issue #198: kubeconfigs
+      # consumed by external runners must not reference the internal LB). The
+      # stock agent therefore bootstraps and tunnels against the public name,
+      # which unroutable-or-broken from inside the airgap VPC (wss sessions via
+      # the public name die with websocket 1006 even when routed to the internal
+      # LB). The PROVEN working configuration: bootstrap AND remotedialer tunnel
+      # on the internal LB name, with STRICT_VERIFY=false so the agent does not
+      # re-test the server-advertised (public) URL. Verified live: cluster goes
+      # active with exactly this env pair.
+      when: internal_lb_hostname is defined
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+          - --request-timeout=30s
+          - --namespace=cattle-system
+          - set
+          - env
+          - deployment/cattle-cluster-agent
+          - CATTLE_SERVER=https://{{ internal_lb_hostname }}
+          - STRICT_VERIFY=false
+      register: agent_env_override
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: agent_env_override.rc == 0
+
+    - name: Make the public Rancher hostname resolve inside the cluster (airgap)
+      # server-url is deliberately the PUBLIC hostname (issue #198: kubeconfigs
+      # consumed by external runners must not reference the internal LB).
+      # Cluster pods resolve the public name via VPC DNS to the internet-facing
+      # LB, which is unroutable from inside the airgap VPC. This hosts override
+      # points the public name at the internal LB in cluster DNS so plain HTTP
+      # paths via the public name work in-cluster (agent bootstrap before the
+      # env override above, and best-effort for other server-url-derived
+      # consumers such as fleet). NOTE: it does NOT make the agent's wss tunnel
+      # work via the public name — those sessions die with websocket 1006
+      # behind the NLB/ingress (observed live); that is why the env override
+      # above keeps the agent itself on the internal name.
+      when: internal_lb_hostname is defined
+      block:
+        - name: Resolve the internal LB address
+          ansible.builtin.command: getent hosts {{ internal_lb_hostname }}
+          register: internal_lb_addr
+          changed_when: false
+
+        - name: Read the cluster DNS Corefile
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - --namespace=kube-system
+              - get
+              - configmap
+              - rke2-coredns-rke2-coredns
+              - -o
+              - jsonpath={.data.Corefile}
+          register: coredns_corefile
+          changed_when: false
+
+        - name: Insert hosts override for the public Rancher hostname
+          # Idempotent: skipped when the override is already in the Corefile.
+          when: not (coredns_corefile.stdout is search(fqdn))
+          ansible.builtin.shell: |
+            set -e
+            IP={{ internal_lb_addr.stdout.split()[0] }}
+            printf '%s\n' '{{ coredns_corefile.stdout }}' \
+              | sed "s|    forward  . /etc/resolv.conf|    hosts {\n        ${IP} {{ fqdn }}\n        fallthrough\n    }\n    forward  . /etc/resolv.conf|" \
+              > /tmp/corefile.new
+            grep -q '{{ fqdn }}' /tmp/corefile.new
+            kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s --namespace=kube-system \
+              create configmap rke2-coredns-rke2-coredns --from-file=Corefile=/tmp/corefile.new --dry-run=client -o yaml \
+              | kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml apply -f -
+            kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s --namespace=kube-system \
+              rollout restart deployment/rke2-coredns-rke2-coredns
+            kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s --namespace=kube-system \
+              rollout status deployment/rke2-coredns-rke2-coredns --timeout=180s
+          args:
+            executable: /bin/bash
 
     - name: Wait for agent deployment to be ready
       block:

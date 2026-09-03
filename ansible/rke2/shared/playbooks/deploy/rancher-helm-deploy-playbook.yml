@@ -198,6 +198,10 @@
         rancher_token_output_format: "json"
 
     - name: Set Rancher server URL
+    # server-url is embedded in generated kubeconfigs consumed by external test
+    # runners, so it must be the public DNS name. The PUT itself goes through
+    # the internal LB (API path stays internal by design).
+
       ansible.builtin.uri:
         url: "https://{{ rancher_private_hostname }}/v3/settings/server-url"
         method: PUT
@@ -207,7 +211,7 @@
           Authorization: "Bearer {{ rancher_generated_token }}"
         body:
           name: "server-url"
-          value: "https://{{ rancher_private_hostname }}"
+          value: "https://{{ rancher_public_hostname }}"
         body_format: json
         validate_certs: false
         status_code: 200
