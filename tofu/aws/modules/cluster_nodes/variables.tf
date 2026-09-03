@@ -93,7 +93,7 @@ variable "ephemeral_sg_ingress_cidrs" {
 variable "ephemeral_sg_egress_cidrs" {
   description = "IPv4 CIDRs allowed on egress from the self-provisioned ephemeral security group (used only when var.aws_security_group is empty). Defaults to the selected VPC's CIDR block (looked up from var.aws_vpc). Must not be 0.0.0.0/0/::/0 - extend with additional specific CIDRs if nodes need broader outbound access (e.g. via a NAT gateway/proxy)."
   type        = list(string)
-  default     = null
+  default     = []
   validation {
     condition = var.ephemeral_sg_egress_cidrs == null || alltrue([
       for c in var.ephemeral_sg_egress_cidrs :
