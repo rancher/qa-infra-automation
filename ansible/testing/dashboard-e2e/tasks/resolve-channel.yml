@@ -1,0 +1,471 @@
+# Resolve which channel a row deploys from, instead of taking a fixed
+# rancher_helm_repo. This is the self-resolving matrix of qa-tasks#2410.
+#
+# Runs before tasks/resolve-helm-version.yml and rewrites only its two inputs,
+# rancher_helm_repo and rancher_image_tag, so the resolution below it is the
+# same code in every mode.
+#
+#   fixed         take rancher_helm_repo as given. The default, so nothing
+#                 changes until a job opts in.
+#   metadata      read the branch from the dashboard team's
+#                 branches-metadata.json, which names its registry.
+#   prime         newest Prime release of a minor, head build if none.
+#   prime-ga      newest shipped Prime release, chart supplies the image.
+#   community-ga  newest shipped Community release, same.
+#
+# See docs/resolver.md for what each kind resolves to and why.
+
+- name: Default the channel source
+  ansible.builtin.set_fact:
+    channel_source: "{{ channel_source | default('fixed', true) }}"
+
+- name: Validate the channel source
+  # The blocks below are independent when: guards, so an unrecognised value
+  # matches none of them and the row silently falls through to fixed, testing
+  # whatever rancher_helm_repo happens to say rather than what the kind meant.
+  # The parent job always sends a valid value; this catches a hand-edited
+  # vars.yaml on a child run.
+  ansible.builtin.assert:
+    that:
+      - channel_source in ['fixed', 'metadata', 'prime'] + ga_channels | list
+    fail_msg: >-
+      channel_source '{{ channel_source }}' is not recognised. Valid:
+      fixed, metadata, prime, {{ ga_channels | list | join(', ') }}.
+      An unrecognised value would fall through to fixed and test the wrong build.
+
+- name: Reset the channel handoff
+  # resolve-helm-version treats a set rancher_chart_url as "channel already
+  # decided". Clearing first means channel_source decides, not whatever a
+  # previous include left behind.
+  ansible.builtin.set_fact:
+    rancher_chart_url: ""
+    rancher_chart_tag: ""
+    rancher_channel_shapes: []
+
+- name: Resolve the channel from branch metadata
+  when: channel_source == 'metadata'
+  block:
+    - name: Map the requested tag to a dashboard branch
+      ansible.builtin.set_fact:
+        _branch: >-
+          {{ 'master' if rancher_image_tag == 'head'
+             else 'release-' ~ (rancher_image_tag | regex_replace('^v?([0-9]+[.][0-9]+).*$', '\1')) }}
+
+    - name: Fetch branches-metadata.json
+      ansible.builtin.uri:
+        url: "{{ branches_metadata_url }}"
+        return_content: true
+      register: _branches_metadata
+      retries: 3
+      delay: 5
+      until: _branches_metadata.status | default(0) == 200
+
+    - name: Read the branch entry
+      ansible.builtin.set_fact:
+        _branch_entry: "{{ (_branches_metadata.content | from_json).branches[_branch] | default({}) }}"
+
+    - name: Fail when the branch is not in the metadata
+      # A missing branch is a misconfiguration, not a row to skip quietly.
+      ansible.builtin.assert:
+        that:
+          - _branch_entry | length > 0
+        fail_msg: >-
+          channel_source=metadata: branch '{{ _branch }}' is not in
+          {{ branches_metadata_url }}. Valid branches:
+          {{ (_branches_metadata.content | from_json).branches.keys() | list | join(', ') }}
+
+    - name: Read the image and chart line the branch names
+      vars:
+        _e2e: "{{ _branch_entry.e2e | default({}) }}"
+        _image: "{{ _e2e['rancher-image'] | default({}) }}"
+        # From the milestone, not helm.repo-url. That key works around a naming
+        # mismatch: channels are always release-X.Y but the top branch is
+        # master, so master's key points at the previous line. The milestone is
+        # the line the branch builds, and matches the image's
+        # CATTLE_CHART_DEFAULT_BRANCH.
+        _milestone: "{{ (_branch_entry.milestone | default({})).version | default('') }}"
+      ansible.builtin.set_fact:
+        rancher_image: >-
+          {{ (_image.registry ~ '/' if _image.registry is defined else '')
+             ~ _image.namespace | default('rancher') ~ '/' ~ _image.name | default('rancher') }}
+        rancher_image_tag_resolved: "{{ _image.tag | default(rancher_image_tag) }}"
+        _chart_line: "{{ _milestone | regex_replace('^v?([0-9]+[.][0-9]+).*$', '\\1') }}"
+        _metadata_kube: "{{ (_e2e.kube | default({})).version | default('') }}"
+        # Published so the post-deploy check can compare what the cluster is
+        # running against what the file said. Empty means Docker Hub, which
+        # leaves the image unqualified and gives nothing to compare.
+        metadata_registry: "{{ _image.registry | default('') }}"
+
+    - name: Fail when the branch names no image
+      ansible.builtin.assert:
+        that:
+          - rancher_image | length > 0
+          - _chart_line is match('^[0-9]+[.][0-9]+$')
+        fail_msg: >-
+          channel_source=metadata: branch '{{ _branch }}' has no usable
+          rancher-image or milestone in the metadata.
+
+    - name: Point the chart at the branch's own head repo
+      # images-locations.md 4.2: head charts live in one repo per release
+      # branch, and only the newest is on the index, so this resolves to exactly
+      # one chart and needs no shape filter. Verified: release-2.13 through
+      # release-2.16 each carry a single entry.
+      #
+      # Not the image tag. The chart is 2.14-<sha>-head while the image keeps
+      # its own branch head tag, so the two do not share a version.
+      ansible.builtin.set_fact:
+        rancher_chart_url: "https://charts.optimus.rancher.io/server-charts/release-{{ _chart_line }}"
+        rancher_helm_repo: "metadata-release-{{ _chart_line }}"
+        rancher_chart_tag: head
+        rancher_channel_shapes: []
+
+    - name: Take the Kubernetes version from the same file
+      # Only when filled in. Empty for release-2.14 and older, whose rows keep
+      # whatever the job passed.
+      ansible.builtin.set_fact:
+        k3s_kubernetes_version: "{{ _metadata_kube }}"
+      when: _metadata_kube | length > 0
+
+    - name: Report the metadata resolution
+      ansible.builtin.debug:
+        msg: >-
+          channel_source=metadata: branch={{ _branch }}
+          image={{ rancher_image }}:{{ rancher_image_tag_resolved }}
+          chart_line={{ _chart_line }}
+          kube={{ _metadata_kube | default('(from the job)', true) }}
+
+- name: Resolve the newest Prime release of the line
+  when: channel_source == 'prime'
+  block:
+    - name: Require a release line
+      # "The newest release of this line" needs a line: head names none and a
+      # full version names one build.
+      ansible.builtin.assert:
+        that:
+          - rancher_image_tag is match('^v?[0-9]+[.][0-9]+$')
+        fail_msg: >-
+          channel_source=prime needs a release line such as v2.14,
+          got '{{ rancher_image_tag }}'.
+
+    - name: Fetch the Prime channel indexes
+      # A 404 is accepted so a retired channel does not take the others with it.
+      # The release team is consolidating the Prime pre-release charts into
+      # rancher-latest and will remove the alpha repo once that is done, and a
+      # row that names a minor rather than a channel should not care. A
+      # connection error still fails: a channel that is unreachable might hold
+      # the newest release, and resolving from the rest would quietly deploy an
+      # older build.
+      ansible.builtin.uri:
+        url: "{{ _channel.url }}/index.yaml"
+        return_content: true
+        status_code: [200, 404]
+      register: _prime_indexes
+      retries: 3
+      delay: 5
+      until: _prime_indexes.status | default(0) in [200, 404]
+      loop: "{{ prime_channels }}"
+      loop_control:
+        # A distinct loop_var so this file stays safe to include from a caller
+        # that is itself looping: the default `item` would shadow theirs.
+        loop_var: _channel
+        label: "{{ _channel.name }}"
+
+    - name: Pick the newest release across the Prime channels
+      # Which channel holds it moves as a line progresses: an rc in
+      # rancher-latest, an alpha in rancher-alpha before rc. Naming one by hand
+      # is wrong in both directions, so ask both and take the higher.
+      vars:
+        _picks: >-
+          {{ _prime_indexes.results | selectattr('status', 'equalto', 200)
+             | map('rancher_chart_prime_pick', rancher_image_tag)
+             | select('truthy') | list }}
+      ansible.builtin.set_fact:
+        _prime_pick: "{{ _picks | rancher_chart_best_pick }}"
+
+    - name: Fall back to the newest Prime head build
+      # A minor ships Community first, so it has Prime builds for months before
+      # its first Prime release: 2.16 has 38 head charts and no release today.
+      # Refusing those left the newest minor with no Prime coverage at all,
+      # which is a worse outcome than the drift a head build brings, and the
+      # metadata rows already run head builds nightly for the same reason.
+      #
+      # Releases still win whenever one exists, and this reverts to picking one
+      # by itself the day the minor ships, with no change here.
+      when: _prime_pick | length == 0
+      vars:
+        _head_picks: >-
+          {{ _prime_indexes.results | selectattr('status', 'equalto', 200)
+             | map('rancher_chart_prime_pick', rancher_image_tag, true)
+             | select('truthy') | list }}
+      ansible.builtin.set_fact:
+        _prime_pick: "{{ _head_picks | rancher_chart_best_pick }}"
+
+    - name: Name the dashboard branch that builds a head pick
+      # A head pick rewrites rancher_image_tag to a chart version, and
+      # setup-test-env derives the dashboard branch from that tag. For a release
+      # that is right: 2.15.1 belongs to release-2.15. For a head build of a
+      # minor with no release it is not, because that minor is still being built
+      # on master and has no release branch cut yet: 2.16.0-<sha>-head would
+      # send the run to a release-2.16 that does not exist.
+      #
+      # branches-metadata.json says which branch builds which minor, so ask it
+      # rather than assume. That keeps working through a branch cut: when master
+      # moves to 2.17, 2.16 gets a release branch and this resolves to it.
+      when: _prime_pick.head | default(false)
+      block:
+        - name: Fetch branches-metadata.json for the head pick
+          ansible.builtin.uri:
+            url: "{{ branches_metadata_url }}"
+            return_content: true
+          register: _head_branches
+          retries: 3
+          delay: 5
+          until: _head_branches.status | default(0) == 200
+
+        - name: Match the pick's minor to the branch whose milestone names it
+          vars:
+            _pick_line: "{{ _prime_pick.version | regex_replace('^v?([0-9]+[.][0-9]+).*$', '\\1') }}"
+            _named: >-
+              {{ (_head_branches.content | from_json).branches
+                 | dict2items
+                 | selectattr('value.milestone.version', 'defined')
+                 | selectattr('value.milestone.version', 'match', '^v?' ~ (_pick_line | regex_escape) ~ '[.]')
+                 | map(attribute='key') | list }}
+          ansible.builtin.set_fact:
+            dashboard_branch_resolved: "{{ _named | first | default('release-' ~ _pick_line, true) }}"
+
+        - name: Report the branch the head pick will test
+          ansible.builtin.debug:
+            msg: >-
+              channel_source=prime: {{ _prime_pick.version }} is built on
+              dashboard branch {{ dashboard_branch_resolved }}
+
+    - name: Fail when every Prime channel is gone
+      ansible.builtin.assert:
+        that:
+          - _prime_indexes.results | selectattr('status', 'equalto', 200) | list | length > 0
+        fail_msg: >-
+          channel_source=prime: none of
+          {{ prime_channels | map(attribute='name') | join(', ') }} served an
+          index. Every Prime channel has moved or been retired, so the list in
+          prime_channels needs updating.
+
+    - name: Fail when no Prime channel carries the line at all
+      ansible.builtin.assert:
+        that:
+          - _prime_pick | length > 0
+        fail_msg: >-
+          channel_source=prime: no Prime release or head build for the
+          {{ rancher_image_tag | regex_replace('^v', '') }} line in
+          {{ prime_channels | map(attribute='name') | join(' or ') }}.
+          That minor is not published to a Prime channel yet.
+
+    - name: Fail when the line has stopped publishing to Prime
+      # Checked here rather than in the Jenkins parent because the pick already
+      # carries its publication date, so this reuses a resolved answer instead
+      # of re-fetching the indexes in Groovy. Failing rather than skipping costs
+      # nothing, since resolution runs before provisioning, and unlike a stale
+      # Community row it cannot produce a passing run against frozen software.
+      vars:
+        # Sliced to the date before parsing: created now carries the minute,
+        # because head charts publish several times a day and a date alone
+        # does not say which build ran. Age in days needs only the date part.
+        _chart_age: >-
+          {{ (now(utc=true) - (_prime_pick.created[:10] | to_datetime('%Y-%m-%d'))).days
+             if _prime_pick.created | default('') else -1 }}
+      ansible.builtin.assert:
+        that:
+          - prime_stale_days | int <= 0 or _chart_age | int < 0 or _chart_age | int <= prime_stale_days | int
+        fail_msg: >-
+          channel_source=prime: the newest Prime
+          {{ 'head build' if _prime_pick.head | default(false) else 'release' }}
+          for the {{ rancher_image_tag | regex_replace('^v', '') }} line is
+          {{ _prime_pick.version }}, published {{ _prime_pick.created }},
+          {{ _chart_age }} days ago. That line has stopped publishing to Prime,
+          so this row would test frozen software. Raise prime_stale_days to run
+          it anyway.
+        success_msg: >-
+          {{ _prime_pick.version }} was published {{ _chart_age }} days ago
+
+    - name: Take the chart the pick names
+      # Named exactly, so the channel's shape filter cannot exclude it and a
+      # re-run resolves the same chart rather than drifting.
+      ansible.builtin.set_fact:
+        rancher_helm_repo: "{{ _prime_pick.channel }}"
+        rancher_image_tag: "{{ _prime_pick.version }}"
+        rancher_chart_released: "{{ _prime_pick.created | default('') }}"
+
+    - name: Confirm the Prime channel took effect
+      # set_fact outranks vars_files, where rancher_helm_repo comes from, but
+      # not -e or a task-level var. A row that silently kept its old channel
+      # would deploy the wrong build and report success.
+      ansible.builtin.assert:
+        that:
+          - rancher_helm_repo == _prime_pick.channel
+          - rancher_image_tag | trim == _prime_pick.version
+        fail_msg: >-
+          channel_source=prime resolved {{ _prime_pick.version }} in
+          {{ _prime_pick.channel }}, but rancher_helm_repo is
+          '{{ rancher_helm_repo }}' and rancher_image_tag is
+          '{{ rancher_image_tag }}'. Something of higher precedence than
+          set_fact is pinning them, such as an -e on the command line.
+        quiet: true
+
+    - name: Report the Prime resolution
+      # Says plainly which of the two it got. A head build is not reproducible:
+      # the same row resolves to a different commit tomorrow, so a result worth
+      # keeping has to record the version, not the row.
+      ansible.builtin.debug:
+        msg: >-
+          channel_source=prime: newest {{ rancher_image_tag | regex_replace('^v?([0-9]+[.][0-9]+).*$', '\1') }}
+          {{ 'HEAD BUILD' if _prime_pick.head | default(false) else 'release' }}
+          is {{ _prime_pick.version }} in {{ _prime_pick.channel }},
+          published {{ _prime_pick.created | default('unknown') }}
+          {{ '(no Prime release for this minor yet, so this is a head build and will differ on the next run)'
+             if _prime_pick.head | default(false)
+             else '(head builds are used only when a minor has no release)' }}
+
+- name: Resolve the shipped release for a post-release run
+  # prime: walks the release ladder, so with 2.15.1 shipped, 2.15.2-alpha1
+  # outranks it and prime:v2.15 quietly deploys an alpha. Right for the weekly
+  # rc and alpha pass, wrong for verifying a release that just went out. A GA
+  # row reads only X.Y.Z from that edition's release channel, and honours a full
+  # version exactly, which is how a run pins the release it means to test.
+  when: channel_source in ['prime-ga', 'community-ga']
+  vars:
+    _ga_channel: "{{ ga_channels[channel_source] }}"
+  block:
+    - name: Fetch the release channel index
+      ansible.builtin.uri:
+        url: "{{ _ga_channel.url }}/index.yaml"
+        return_content: true
+      register: _ga_index
+      retries: 3
+      delay: 5
+      until: _ga_index.status | default(0) == 200
+
+    - name: Pick the shipped release
+      vars:
+        _result: "{{ _ga_index | combine({'_channel': {'name': _ga_channel.name}}) }}"
+      ansible.builtin.set_fact:
+        _ga_pick: "{{ _result | rancher_chart_ga_pick(rancher_image_tag) }}"
+
+    - name: Fail when that release is not published
+      ansible.builtin.assert:
+        that:
+          - _ga_pick | length > 0
+        fail_msg: >-
+          channel_source={{ channel_source }}: {{ _ga_channel.name }} publishes
+          no shipped release matching '{{ rancher_image_tag }}'. This row takes a
+          minor such as v2.15, which resolves to that minor's newest shipped
+          patch, or a full version such as v2.15.1, taken exactly. A minor with
+          no release in this edition has nothing to run here; use a prime: row
+          for its head build.
+
+    - name: Take the shipped release
+      # A released chart supplies its own registry and tag, so this row overrides
+      # neither: charts are numbered 2.15.1 while the image is tagged v2.15.1, and
+      # setting the chart version here asks Docker Hub for a 404. See
+      # docs/resolver.md, "Never set the image tag for a released chart".
+      ansible.builtin.set_fact:
+        rancher_helm_repo: "{{ _ga_pick.channel }}"
+        rancher_chart_tag: "{{ _ga_pick.version }}"
+        rancher_image_tag: "v{{ _ga_pick.version }}"
+        rancher_image_tag_from_chart: true
+        rancher_chart_released: "{{ _ga_pick.created | default('') }}"
+
+    - name: Confirm the tag names an image the chart actually publishes
+      # The deploy sends rancherImageTag, so it, not the chart, decides which
+      # image is pulled. That is only safe while it matches the chart's own
+      # appVersion. If a future chart numbered its image differently, this row
+      # would pull a tag that was never published and the pods would sit in
+      # ImagePullBackOff until the deploy timed out, twenty minutes later, with
+      # nothing naming the cause.
+      vars:
+        _entries: >-
+          {{ ((_ga_index.content | from_yaml).entries | default({})).rancher | default([], true) }}
+        _chart: >-
+          {{ (_entries | selectattr('version', 'equalto', _ga_pick.version) | list | first) | default({}) }}
+        _app: "{{ _chart.appVersion | default('') }}"
+      ansible.builtin.assert:
+        that:
+          - _app | length == 0 or _app == 'v' ~ _ga_pick.version
+        fail_msg: >-
+          chart {{ _ga_pick.version }} declares appVersion '{{ _app }}', but this
+          row reports having deployed '{{ rancher_image_tag }}', which is what
+          picks the dashboard branch. The chart numbers its image differently
+          from its own version, so the run would test the wrong branch.
+        success_msg: >-
+          {{ rancher_image_tag }} matches the chart's appVersion
+
+    - name: Report the GA resolution
+      ansible.builtin.debug:
+        msg: >-
+          channel_source={{ channel_source }}: {{ _ga_pick.version }} in
+          {{ _ga_pick.channel }}, published
+          {{ _ga_pick.created | default('unknown') }} (shipped releases only, so
+          a newer rc, alpha or head build is deliberately ignored)
+
+# Warn when a fixed Community row names a line that has stopped publishing.
+# The local counterpart of the row drop in the Jenkins parent: a local run is
+# deliberate, so it warns rather than overriding, and the build type assertion
+# is what stops a wrong result. The signal is the newest Prime release being
+# ahead of the newest Community one. A recently rebuilt -head image is not
+# evidence to the contrary, since head images keep building after the release
+# line stops. See docs/resolver.md, "A stopped minor, locally".
+- name: Notice when a Community line has stopped publishing
+  when:
+    - channel_source == 'fixed'
+    - rancher_helm_repo is match('^rancher-com') or rancher_helm_repo == 'rancher-community'
+    - rancher_image_tag is match('^v?[0-9]+[.][0-9]+')
+  block:
+    - name: Fetch the release indexes for the line
+      ansible.builtin.uri:
+        url: "{{ _stale_channel.url }}/index.yaml"
+        return_content: true
+        status_code: [200, 404]
+      register: _stale_indexes
+      failed_when: false
+      # Same retry as every other index read. Without it a single hiccup drops
+      # the warning silently, which is the one outcome this task exists to
+      # prevent. It still only warns, so an exhausted retry is not fatal.
+      retries: 3
+      delay: 5
+      until: _stale_indexes.status | default(0) in [200, 404]
+      loop:
+        - name: community
+          url: https://releases.rancher.com/server-charts/latest
+        - name: prime
+          url: https://charts.rancher.com/server-charts/prime
+      loop_control:
+        loop_var: _stale_channel
+        label: "{{ _stale_channel.name }}"
+
+    - name: Compare the newest release each edition published
+      vars:
+        _line: "{{ rancher_image_tag | regex_replace('^v?([0-9]+[.][0-9]+).*$', '\\1') }}"
+        _ok: "{{ _stale_indexes.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list }}"
+        _comm_index: >-
+          {{ _ok | selectattr('_stale_channel.name', 'equalto', 'community')
+             | map(attribute='content') | join('') }}
+        _prime_index: >-
+          {{ _ok | selectattr('_stale_channel.name', 'equalto', 'prime')
+             | map(attribute='content') | join('') }}
+      ansible.builtin.set_fact:
+        _comm_newest: "{{ _comm_index | rancher_chart_line_patch(_line) }}"
+        _prime_newest: "{{ _prime_index | rancher_chart_line_patch(_line) }}"
+        _stale_line: "{{ _line }}"
+      when: _ok | length == 2
+
+    - name: Warn that this line no longer publishes Community releases
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: the {{ _stale_line }} line stopped at Community
+          {{ _stale_line }}.{{ _comm_newest }} while Prime is at
+          {{ _stale_line }}.{{ _prime_newest }}, so its Community head image may
+          not have been rebuilt in months. Jenkins drops rows like this one. Use
+          channel_source=prime, or a metadata row, to test what that line
+          actually publishes now.
+      when:
+        - _comm_newest | default(-1) | int >= 0
+        - _prime_newest | default(-1) | int > _comm_newest | int

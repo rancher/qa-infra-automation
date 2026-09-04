@@ -16,6 +16,12 @@ Cypress tests inside a Docker container, and tears everything down afterward.
 
 Each phase is controlled by Ansible tags so you can run them independently.
 
+For how the pipeline is put together, rather than how to run it, see
+[`docs/`](docs/README.md): the [playbook architecture](docs/architecture.md),
+the [Jenkins path](docs/jenkins.md), the
+[channel and build-type resolver](docs/resolver.md), and how
+[`files/` is laid over the dashboard checkout](docs/ci-files.md).
+
 ## Prerequisites
 
 The following must be available on the machine running the playbook:
@@ -31,9 +37,14 @@ The following must be available on the machine running the playbook:
 Required Ansible collections (installed automatically by `init.sh` in Jenkins):
 
 ```bash
-ansible-galaxy collection install \
+ansible-galaxy collection install -p /usr/share/ansible/collections \
   cloud.terraform kubernetes.core "community.docker:<5" "community.crypto:<3" --upgrade
 ```
+
+The install path matters. `run.sh` runs the container with `HOME=/tmp` so build
+artifacts stay owned by the invoking user, and a collection under the default
+`~/.ansible` is then invisible. `/usr/share/ansible/collections` is searched
+whatever `HOME` is set to, so one image works under both `run.sh` and Jenkins.
 
 ## Quick Start
 
@@ -310,51 +321,139 @@ version becomes the image tag (e.g. `2.14.0-alpha13` → `v2.14.0-alpha13`).
 
 | `rancher_helm_repo` | Chart source | Image registry | Image tag |
 |---------------------|-------------|----------------|-----------|
-| `rancher-prime` | charts.rancher.com/.../prime | `registry.suse.com` | `v{chart_version}` |
-| `rancher-latest` | charts.optimus.rancher.io/.../latest | `stgregistry.suse.com` | `v{highest -rc match}` |
-| `rancher-alpha` | charts.optimus.rancher.io/.../alpha | `stgregistry.suse.com` | `v{highest -alpha match}` |
+| `rancher-prime` | charts.rancher.com/.../prime | `registry.suse.com` | `v{chart_version}` (prefer `rancher-prime-ga`) |
+| `rancher-prime-ga` | charts.rancher.com/.../prime | `registry.rancher.com` | `v{chart_version}` |
+| `rancher-latest` | charts.optimus.rancher.io/.../latest | `stgregistry.suse.com` | `v{chart_version}` |
+| `rancher-alpha` | charts.optimus.rancher.io/.../alpha | `stgregistry.suse.com` | `v{chart_version}` |
 | `rancher-community` | releases.rancher.com/.../stable | Docker Hub | `rancher_image_tag` as-is |
 | `rancher-com-rc` | releases.rancher.com/.../latest | Docker Hub | `rancher_image_tag` as-is |
 | `rancher-com-alpha` | releases.rancher.com/.../alpha | Docker Hub | `rancher_image_tag` as-is |
 
+`rancher-latest` selects a release candidate or, once the release team's channel
+consolidation lands, an alpha. `rancher-alpha` selects an alpha. The other
+channels take any release.
+
+#### How a tag is resolved
+
+The channel's `index.yaml` is read directly and the chart is chosen by
+`filter_plugins/rancher_charts.py`. Four shapes of `rancher_image_tag`:
+
+| Tag | Resolves to |
+|---|---|
+| `head` | the newest line the channel publishes, then that line's newest build |
+| `vX.Y` | that line's newest release in the channel's own shape |
+| `vX.Y-head` | the same: a branch head names its line, and its chart is that line's newest release |
+| a full version | that chart exactly, so a pin is never silently upgraded |
+
+Two rules are worth knowing because they are not obvious:
+
+**Ordering is the release ladder, not string order.** `2.13.10` is above
+`2.13.9`, `rc10` above `rc2`, and a final release above its own release
+candidate. A lexical sort gets all three wrong.
+
+**A commit-named chart is ordered by date, not by name.** The release team
+publishes head builds as `X.Y.Z-<sha>-head`, and a sha is not a sequence:
+sorting one picks whichever commit has the highest hex digits. Only the
+`created` date in the index says which build is newest.
+
+A commit-named chart is also never the answer to a line request, because it is
+a new identity on every commit: a job pinned to `vX.Y` would deploy a different
+build on every run. Pin one in full to run it deliberately. When a line has no
+release at all, the run fails and lists the head charts it does carry:
+
+```text
+No chart in rancher-latest matches 'v2.16'. That line is published there but
+carries no -rc or -alpha chart yet; its newest are: 2.16.0-0cb5a982...-head ...
+Pin one of those as rancher_image_tag to run it on purpose, or use a channel
+that carries a release for this line.
+```
+
 ### Examples
 
 ```yaml
-# Prime stable - released 2.13.4
+# Prime GA - released 2.13.4
 rancher_helm_repo: "rancher-prime"
 rancher_image_tag: "v2.13.4"
 # → chart 2.13.4 from rancher-prime, image registry.suse.com/rancher/rancher:v2.13.4
 
-# Prime RC - test the latest 2.13 release candidate
+# Prime RC - the newest 2.13 release candidate
 rancher_helm_repo: "rancher-latest"
 rancher_image_tag: "v2.13"
-# → highest 2.13.x-rc from optimus/latest, image stgregistry.suse.com/rancher/rancher:v2.13.4-rc1
+# → newest 2.13.x-rc from optimus/latest, image stgregistry.suse.com/rancher/rancher:v{that}
 
-# Prime alpha - test the next minor
+# Prime alpha - the next minor
 rancher_helm_repo: "rancher-alpha"
-rancher_image_tag: "v2.14"
-# → highest 2.14.x-alpha from optimus/alpha, image stgregistry.suse.com/rancher/rancher:v2.14.0-alpha13
+rancher_image_tag: "v2.15"
+# → newest 2.15.x-alpha from optimus/alpha, image stgregistry.suse.com/rancher/rancher:v{that}
 
 # Community GA - stable community release
 rancher_helm_repo: "rancher-community"
 rancher_image_tag: "v2.13.3"
 # → chart 2.13.3 from releases.rancher.com/stable, image rancher/rancher:v2.13.3
 
-# Community RC (default) - test upcoming community release
+# Community RC (default) - a branch head against its line's newest chart
 rancher_helm_repo: "rancher-com-rc"
 rancher_image_tag: "v2.14-head"
-# → latest 2.14.x chart from releases.rancher.com/latest, image rancher/rancher:v2.14-head
+# → newest 2.14.x chart from releases.rancher.com/latest, image rancher/rancher:v2.14-head
 
 # Community alpha
 rancher_helm_repo: "rancher-com-alpha"
 rancher_image_tag: "v2.14.0-alpha9"
 # → chart 2.14.0-alpha9 from releases.rancher.com/alpha, image rancher/rancher:v2.14.0-alpha9
 
-# Dev head - latest from any repo
+# Dev head - the newest build the repo publishes
 rancher_helm_repo: "rancher-com-rc"
 rancher_image_tag: "head"
-# → latest chart in the repo, image rancher/rancher:head
+# → newest chart in the repo, image rancher/rancher:head
 ```
+
+### Self-resolving rows (`channel_source`)
+
+`rancher_helm_repo` names a channel by hand, which is wrong in both directions
+as a line progresses: a line with no release candidate yet is absent from
+`rancher-latest`, and asking `rancher-alpha` for a line that has reached rc
+quietly installs an alpha. `channel_source` lets a row name what it wants
+instead, and is what allows one Jenkins job to cover both editions
+(qa-tasks#2410).
+
+| `channel_source` | `rancher_image_tag` | Resolves to |
+|---|---|---|
+| `fixed` (default) | anything | `rancher_helm_repo` as given. Nothing changes until a job opts in. |
+| `metadata` | `head`, `vX.Y-head` | the branch head on whichever registry `branches-metadata.json` names, against that branch's own chart channel |
+| `prime` | `vX.Y` | the newest Prime release of the line, from whichever Prime channel holds it, or its newest head build when the line has no release yet |
+
+```yaml
+# The nightly head rows
+channel_source: "metadata"
+rancher_image_tag: "v2.14-head"
+# → registry key decides Prime vs Community; chart from server-charts/release-2.14
+
+# The weekly Prime rows
+channel_source: "prime"
+rancher_image_tag: "v2.14"
+# → newest 2.14 release across rancher-prime-ga, rancher-latest and rancher-alpha
+```
+
+In `metadata` mode the image and the chart are resolved separately, because they
+name different things: the image keeps the branch head tag the file gives it,
+while the chart is the newest build in that branch's channel. The two do not
+share a version, so the pairing is stated rather than derived.
+
+The chart line comes from the branch's `milestone.version`, not from its
+`helm.repo-url` key. The key is a workaround for a naming mismatch rather than a
+statement of intent: chart channels are always `release-X.Y` while the
+dashboard's top branch is called `master`, so there is no `server-charts/master`
+to name and master's key points at the previous line instead. The milestone is
+the line the branch actually builds, and it agrees with the
+`CATTLE_CHART_DEFAULT_BRANCH` baked into every one of those images.
+
+`e2e.kube.version` is taken from the same file when the branch fills it in. It
+is empty for `release-2.14` and older today, and a row for those minors keeps
+whatever `k3s_kubernetes_version` the job passed. So does every row that is not
+`channel_source: metadata`, which never reads the file at all.
+
+A `prime` row also records `rancher_chart_released`, the publication date of the
+release it picked, so a caller can drop a row whose line has gone quiet.
 
 ### The branch contract
 
@@ -556,10 +655,16 @@ Only change them if the factory updates.
 
 | Tool | Default | Source |
 |------|---------|--------|
-| Chrome | `146.0.7680.164-1` | Factory `.env` |
+| Chrome | `152.0.7977.64-1` | Factory `.env` |
 | Node.js | `24.14.0` | Factory `.env` |
 | Yarn | `1.22.22` | Factory `.env` |
 | Cypress | `15.19.0` | Dashboard `package.json` |
+
+`cypress/factory` installs each of these only when the matching build arg is
+set, through `ONBUILD` triggers that run at image build time. An unset or empty
+`CHROME_VERSION` means no Chrome in the image at all, and `files/cypress.sh`
+then falls back to Cypress's bundled Electron. Wildcards are not accepted; the
+exact version string is required.
 
 ## Cypress Tag System
 

@@ -62,6 +62,63 @@
       - find-test-names
       - globby
 
+    # Where the channel comes from. See tasks/resolve-channel.yml.
+    #   fixed     take rancher_helm_repo as given (the default)
+    #   metadata  read the branch named by --version from branches-metadata.json
+    #   prime     the newest Prime release of the line named by --version
+    # Plain defaults, not "{{ self | default(...) }}": a play var referencing
+    # its own name is a recursive loop unless something of higher precedence
+    # defines it, so it fails exactly when nothing overrides it. Play vars
+    # already lose to vars_files and -e, which is the override path wanted.
+    channel_source: "fixed"
+    branches_metadata_url: "https://raw.githubusercontent.com/rancher/dashboard/master/branches-metadata.json"
+    # The channels a prime: row searches, in release-ladder order. The GA channel
+    # is first and not optional: charts.optimus stopped receiving final releases
+    # at 2.14.3, so every newer GA lands only here, and pre-release channels
+    # alone resolve "newest release" to an rc of a version that has since
+    # shipped. rancher-prime-ga rather than rancher-prime: both serve the same
+    # charts, but images-locations.md names registry.rancher.com for Prime.
+    prime_channels:
+      - name: rancher-prime-ga
+        url: https://charts.rancher.com/server-charts/prime
+      - name: rancher-latest
+        url: https://charts.optimus.rancher.io/server-charts/latest
+      - name: rancher-alpha
+        url: https://charts.optimus.rancher.io/server-charts/alpha
+
+    # Where a post-release row looks for a shipped release, per edition. The
+    # kind names the edition because the two are not interchangeable: 2.15.1
+    # exists in both channels and they are different builds.
+    #
+    # charts.optimus.rancher.io stopped receiving final Prime releases at 2.14.3,
+    # so asking it what shipped answers with a candidate. The Community side uses
+    # the stable channel, which is what the released charts serve.
+    ga_channels:
+      prime-ga:
+        name: rancher-prime-ga
+        url: https://charts.rancher.com/server-charts/prime
+      community-ga:
+        # server-charts/latest, not stable: images-locations.md names latest as
+        # the Community GA chart location. stable is a strict subset that agrees
+        # on every maintained minor, so following the document loses nothing.
+        name: rancher-com-rc
+        url: https://releases.rancher.com/server-charts/latest
+
+    # How old the chart a prime: row resolves to may be before the row is
+    # treated as testing a minor that has stopped publishing. qa-tasks#2410.
+    # Every maintained minor is rebuilt within a week, so this only fires for one
+    # that has genuinely stopped. Set to 0 to accept any age.
+    prime_stale_days: 60
+
+    # Consulted only when there is no deployed Rancher to ask, which is a
+    # --tags test run against an existing cluster. Kept because it is what this
+    # playbook did before, so that path keeps its previous answer.
+    _prime_channels:
+      - rancher-prime
+      - rancher-prime-ga
+      - rancher-latest
+      - rancher-alpha
+
   pre_tasks:
     - name: Create outputs directory
       ansible.builtin.file:
@@ -134,6 +191,19 @@
         - "'cleanup' not in ansible_run_tags"
       tags: [always]
 
+    - name: Validate job_type
+      # Every provisioning and deployment task is gated on job_type matching
+      # one of these two exactly, so a typo satisfies neither and the play
+      # skips all of them, runs the tests against nothing and reports success.
+      # Checked before anything else reads it.
+      ansible.builtin.assert:
+        that:
+          - job_type | default('', true) in ['recurring', 'existing']
+        fail_msg: >-
+          job_type must be 'recurring' or 'existing', got '{{ job_type | default('') }}'.
+          A value outside that set skips provisioning and deployment silently.
+      tags: [always]
+
     - name: Validate rancher_host for existing job type
       ansible.builtin.assert:
         that:
@@ -167,78 +237,19 @@
         _is_setup_or_test: "{{ 'setup' in ansible_run_tags or 'test' in ansible_run_tags or 'all' in ansible_run_tags }}"
       tags: [always]
 
-    - name: Adjust Cypress tags
-      ansible.builtin.shell:
-        cmd: |
-          set -eu
-          TAGS="{{ cypress_tags | default('@adminUser') }}"
-          REPO="{{ rancher_helm_repo }}"
-          case "${TAGS}" in
-            *@bypass*)
-              TAGS=$(echo "${TAGS}" | sed 's/@bypass//g')
-              ;;
-            *)
-              case "${REPO}" in
-                rancher-prime|rancher-latest|rancher-alpha)
-                  case "${TAGS}" in *@noPrime*) ;; *) TAGS="${TAGS}+-@noPrime" ;; esac
-                  ;;
-                *)
-                  case "${TAGS}" in *@prime*) ;; *) TAGS="${TAGS}+-@prime" ;; esac
-                  ;;
-              esac
-              case "${TAGS}" in *@noVai*) ;; *) TAGS="${TAGS}+-@noVai" ;; esac
-              ;;
-          esac
-          # Collapse repeated separators and trim stray leading/trailing ones.
-          # Without this an empty cypress_tags yields "+-@prime+-@noVai", which
-          # @cypress/grep parses as matching no test at all. Applied to both
-          # branches so the value written to .env and notification_values.txt is
-          # the same one the runner ends up using.
-          TAGS=$(echo "${TAGS}" | tr -s '+' | sed 's/^+//;s/+$//;s/+-$//')
-          echo "${TAGS}"
-      register: adjusted_tags
-      changed_when: false
-      tags: [always]
-      when: _is_setup_or_test
-
-    - name: Set adjusted Cypress tags
-      ansible.builtin.set_fact:
-        cypress_tags: "{{ adjusted_tags.stdout | trim }}"
-      tags: [always]
-      when: _is_setup_or_test
-
-    - name: Show adjusted Cypress tags
-      ansible.builtin.debug:
-        msg: "cypress_tags={{ cypress_tags }}"
-      tags: [always]
-      when: _is_setup_or_test
-
-    - name: Update Cypress tags in .env
-      ansible.builtin.lineinfile:
-        path: "{{ workspace_dir }}/.env"
-        regexp: "^CYPRESS_grepTags="
-        line: "CYPRESS_grepTags={{ cypress_tags }}"
-      tags: [always]
-      when: _is_setup_or_test
-      failed_when: false
-
-    - name: Update TEST_USERNAME for @standardUser
-      ansible.builtin.lineinfile:
-        path: "{{ workspace_dir }}/.env"
-        regexp: "^TEST_USERNAME="
-        line: "TEST_USERNAME={{ 'standard_user' if '@standardUser' in cypress_tags else rancher_username | default('admin') }}"
-      tags: [always]
-      when: _is_setup_or_test
-      failed_when: false
-
   tasks:
-    - name: Provision infrastructure
+    # Resolution first: it reads the chart indexes over HTTP and needs nothing
+    # provisioning produces, so a row that cannot resolve fails in seconds
+    # rather than after minutes of AWS provisioning, leaving nothing behind.
+    - name: Resolve the channel for this row
+      # Rewrites rancher_helm_repo and rancher_image_tag for a self-resolving
+      # row, so the resolution below is the same code in every mode. A no-op
+      # under the default channel_source=fixed.
       ansible.builtin.include_tasks:
-        file: tasks/provision.yml
+        file: tasks/resolve-channel.yml
         apply:
-          tags: [provision]
-      when: job_type == 'recurring' or (create_initial_clusters | bool)
-      tags: [provision]
+          tags: [provision, setup]
+      tags: [provision, setup]
 
     - name: Resolve Rancher helm version
       ansible.builtin.include_tasks:
@@ -247,6 +258,14 @@
           tags: [provision, setup]
       tags: [provision, setup]
 
+    - name: Provision infrastructure
+      ansible.builtin.include_tasks:
+        file: tasks/provision.yml
+        apply:
+          tags: [provision]
+      when: job_type == 'recurring' or (create_initial_clusters | bool)
+      tags: [provision]
+
     - name: Install K3s and deploy Rancher
       ansible.builtin.include_tasks:
         file: tasks/install-k3s-rancher.yml
@@ -254,6 +273,231 @@
           tags: [provision]
       when: job_type == 'recurring' or (create_initial_clusters | bool)
       tags: [provision]
+
+    - name: Ask the deployed Rancher which build it is
+      # The build type is a property of the build, not of where it was served
+      # from. One registry serves both: stgregistry.suse.com carries v2.14-head,
+      # Community today, and v2.14.5-rc2, Prime. The channel is no better a
+      # proxy, since a metadata row's head repo says nothing about the edition.
+      #
+      # This also survives 11 September 2026, when the floating vX.Y-head tags
+      # move onto Prime builds: the same question gets a different answer.
+      ansible.builtin.uri:
+        url: "https://{{ rancher_host }}/rancherversion"
+        validate_certs: false
+        return_content: true
+      register: _rancher_version_api
+      failed_when: false
+      retries: 5
+      delay: 10
+      until: _rancher_version_api.status | default(0) == 200
+      when: _is_setup_or_test and rancher_host | default('', true) | length > 0
+      tags: [provision, setup]
+
+    - name: Read the image the deployed Rancher is actually running
+      # Asked of the cluster rather than assumed from rancher_image, which would
+      # only restate what this play requested: a Prime chart can carry a
+      # systemDefaultRegistry of its own, so the deployment is the only
+      # authoritative answer. A metadata: row is checked against this registry
+      # rather than RancherPrime, since its edition follows its branch.
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig {{ outputs_dir }}/kubeconfig-rancher.yaml
+          -n cattle-system get deployment rancher
+          -o jsonpath={.spec.template.spec.containers[0].image}
+      register: _deployed_image
+      changed_when: false
+      failed_when: false
+      when:
+        - _is_setup_or_test
+        - job_type == 'recurring'
+      tags: [provision, setup]
+
+    - name: Confirm a metadata row deployed from the registry its branch names
+      # Only metadata rows: a prime: or community: row names an edition instead,
+      # and is checked by the build-type assertion below. Skipped when the
+      # deployment could not be read, so a kubectl hiccup does not fail a run
+      # that is otherwise fine, and when the branch names no registry, which
+      # means Docker Hub and leaves the image unqualified.
+      vars:
+        _want_registry: "{{ metadata_registry | default('', true) }}"
+        _got_image: "{{ _deployed_image.stdout | default('', true) }}"
+      ansible.builtin.assert:
+        that:
+          - _got_image.startswith(_want_registry ~ '/')
+        fail_msg: >-
+          branches-metadata.json puts this branch on {{ _want_registry }}, but
+          the deployed Rancher is running {{ _got_image }}. Either the chart
+          overrode the registry or the row resolved against the wrong branch.
+        success_msg: >-
+          deployed from {{ _want_registry }} as branches-metadata.json says
+      when:
+        - _is_setup_or_test
+        - channel_source | default('fixed') == 'metadata'
+        - _deployed_image.rc | default(1) == 0
+        - _deployed_image.stdout | default('', true) | length > 0
+        - metadata_registry | default('', true) | length > 0
+      tags: [provision, setup]
+
+    - name: Set adjusted Cypress tags
+      # @cypress/grep reads a "+" separated expression where "-@x" excludes a
+      # tag. A run excludes whichever build type it is not, since a Community
+      # build cannot pass the Prime-only tests. @bypass takes the expression
+      # exactly as written. The collapse at the end matters: without it an empty
+      # cypress_tags yields "+-@prime+-@noVai", which matches no test and
+      # reports green having run nothing. See docs/resolver.md, "@bypass".
+      vars:
+        _requested: "{{ cypress_tags | default('@adminUser') }}"
+        # Parsed in one expression: the endpoint sends JSON as text/plain so uri
+        # never fills .json, and holding the body in its own var hands it to
+        # native-type conversion, which breaks the string operations below.
+        # Cast to string because a real boolean would reach `| length` as a bool
+        # and abort the play, and default() is deliberately given no boolean
+        # second argument, which would treat a JSON false as absent and fall
+        # through to the channel guess. docs/resolver.md, "Two Ansible traps".
+        _reported: >-
+          {{ ((_rancher_version_api.content | from_json).RancherPrime | default('')) | string
+             if (_rancher_version_api.content | default('', true)) is search('"RancherPrime"')
+             else '' }}
+        _is_prime: >-
+          {{ (_reported | lower == 'true')
+             if _reported | length > 0
+             else (rancher_helm_repo in _prime_channels) }}
+        _exclude: "{{ '@noPrime' if _is_prime | bool else '@prime' }}"
+        _with_type: >-
+          {{ _requested if _exclude in _requested else _requested ~ '+-' ~ _exclude }}
+        _with_vai: "{{ _with_type if '@noVai' in _with_type else _with_type ~ '+-@noVai' }}"
+        _resolved: "{{ _requested | regex_replace('@bypass', '') if '@bypass' in _requested else _with_vai }}"
+      ansible.builtin.set_fact:
+        cypress_tags: >-
+          {{ _resolved
+             | regex_replace('[+][+]+', '+')
+             | regex_replace('^[+]', '')
+             | regex_replace('[+]-?$', '') }}
+        _build_type_source: "{{ 'the deployed Rancher' if _reported | length > 0 else 'the channel, no Rancher to ask' }}"
+        # Published so downstream reporting names the build actually run
+        # against. A prime row resolves its own repo, so a reader inferring the
+        # type from the requested config labels every run Community.
+        rancher_build_type: "{{ 'prime' if _is_prime | bool else 'community' }}"
+      when: _is_setup_or_test
+      tags: [provision, setup]
+
+    - name: Show adjusted Cypress tags
+      ansible.builtin.debug:
+        msg: >-
+          cypress_tags={{ cypress_tags }}
+          (build type from {{ _build_type_source }})
+      when: _is_setup_or_test
+      tags: [provision, setup]
+
+    - name: Fail when a row naming an edition could not read the build type
+      # The assertion below skips when there was no Rancher to ask, which is
+      # right for a run that deployed nothing. It is wrong when a Rancher was
+      # there and simply did not answer: the row then falls back to guessing
+      # from the channel and the check it exists for never runs. The uri task
+      # above already retries five times over fifty seconds, so reaching here
+      # with a host set means it stayed unreadable.
+      vars:
+        _expected_type: >-
+          {{ 'prime' if channel_source in ['prime', 'prime-ga']
+             else ('community' if channel_source == 'community-ga'
+                   or rancher_helm_repo is match('^rancher-com')
+                   or rancher_helm_repo == 'rancher-community' else '') }}
+      ansible.builtin.fail:
+        msg: >-
+          this row asked for a {{ _expected_type }} build but
+          https://{{ rancher_host }}/rancherversion never answered, so the build
+          type could not be confirmed. Refusing to report a result that was
+          never checked.
+      when:
+        - _is_setup_or_test
+        - _expected_type | length > 0
+        - rancher_host | default('', true) | length > 0
+        - _build_type_source != 'the deployed Rancher'
+      tags: [provision, setup]
+
+    - name: Confirm the row got the build type it asked for
+      # Only rows naming an edition have an expectation to violate. A metadata
+      # row follows whatever registry its branch publishes to, and a row with no
+      # Rancher to ask would only restate the channel guess, so both skip. The
+      # expectation reads the channel, not channel_source, because fixed can name
+      # either edition. See docs/resolver.md, "which build type".
+      vars:
+        _expected_type: >-
+          {{ 'prime' if channel_source in ['prime', 'prime-ga']
+             else ('community' if channel_source == 'community-ga'
+                   or rancher_helm_repo is match('^rancher-com')
+                   or rancher_helm_repo == 'rancher-community' else '') }}
+      ansible.builtin.assert:
+        that:
+          - rancher_build_type == _expected_type
+        fail_msg: >-
+          this row asked for a {{ _expected_type }} build and deployed
+          {{ rancher_image | default('?') }}:{{ rancher_image_tag_resolved | default(rancher_image_tag) }}
+          from {{ rancher_helm_repo }}, which reports {{ rancher_build_type }}.
+          Either that channel now serves the other edition, or the row names the
+          wrong kind.
+        success_msg: >-
+          row asked for {{ _expected_type }} and deployed a
+          {{ rancher_build_type }} build
+      when:
+        - _is_setup_or_test
+        - _build_type_source == 'the deployed Rancher'
+        - _expected_type | length > 0
+      tags: [provision, setup]
+
+    - name: Report the provenance of this run
+      # One greppable block tying what the row asked for to what ran. Every
+      # field is read back rather than restated, so a run that resolved
+      # correctly and deployed something else shows as a mismatch between two
+      # adjacent lines. "tag sent" is the override passed to helm; "chart" means
+      # none was passed and the chart supplied it. A head build also shows its
+      # chart date, since a commit-named chart resolves differently tomorrow.
+      vars:
+        _tag_sent: >-
+          {{ 'chart (no override)' if rancher_image_tag_from_chart | default(false) | bool
+             else (rancher_image_tag_resolved | default(rancher_image_tag)) }}
+        _is_head: "{{ '-head' in (rancher_image_tag_resolved | default(rancher_image_tag)) }}"
+      ansible.builtin.debug:
+        msg: "{{ ['PROVENANCE kind:         ' ~ (channel_source | default('fixed')),
+                  'PROVENANCE requested:    ' ~ (rancher_image_tag | default('?')),
+                  'PROVENANCE chart repo:   ' ~ (rancher_helm_repo | default('?')),
+                  'PROVENANCE chart:        ' ~ (rancher_version | default('?')),
+                  'PROVENANCE chart date:   ' ~ (rancher_chart_released | default('n/a', true) | default('n/a', true)),
+                  'PROVENANCE tag sent:     ' ~ _tag_sent,
+                  'PROVENANCE head build:   ' ~ (_is_head | string),
+                  'PROVENANCE image ran:    ' ~ (_deployed_image.stdout | default('', true)
+                     or ('not read (existing Rancher, deployed outside this run)'
+                         if job_type == 'existing' else 'not read')),
+                  'PROVENANCE ui build:     ' ~ ((ui_build | default('', true) ~ ' (' ~
+                     (_ui_from_image | default(false) | bool | ternary('from the image', 'from the CDN')) ~ ')')
+                     if (ui_build | default('', true) | length) > 0
+                     else ('not read (existing Rancher, deployed outside this run)'
+                           if job_type == 'existing' else 'not read')),
+                  'PROVENANCE build type:   ' ~ (rancher_build_type | default('?')) ~
+                    ' (from ' ~ (_build_type_source | default('?')) ~ ')',
+                  'PROVENANCE k8s:          ' ~ (k3s_kubernetes_version | default('?')),
+                  'PROVENANCE cypress tags: ' ~ (cypress_tags | default('?'))] }}"
+      when: _is_setup_or_test
+      tags: [provision, setup]
+
+    - name: Update Cypress tags in .env
+      ansible.builtin.lineinfile:
+        path: "{{ workspace_dir }}/.env"
+        regexp: "^CYPRESS_grepTags="
+        line: "CYPRESS_grepTags={{ cypress_tags }}"
+      when: _is_setup_or_test
+      failed_when: false
+      tags: [provision, setup]
+
+    - name: Update TEST_USERNAME for @standardUser
+      ansible.builtin.lineinfile:
+        path: "{{ workspace_dir }}/.env"
+        regexp: "^TEST_USERNAME="
+        line: "TEST_USERNAME={{ 'standard_user' if '@standardUser' in cypress_tags else rancher_username | default('admin') }}"
+      when: _is_setup_or_test
+      failed_when: false
+      tags: [provision, setup]
 
     - name: Setup test environment and build Docker image
       ansible.builtin.include_tasks:
@@ -276,6 +520,10 @@
           RANCHER_IMAGE_TAG={{ rancher_image_tag_resolved | default(rancher_image_tag) }}
           RANCHER_CHART_URL={{ rancher_chart_url | default('') }}
           RANCHER_HELM_REPO={{ rancher_helm_repo }}
+          RANCHER_BUILD_TYPE={{ rancher_build_type | default('') }}
+          RANCHER_BUILD_TYPE_SOURCE={{ _build_type_source | default('') }}
+          UI_BUILD={{ ui_build | default('') }}
+          UI_SOURCE={{ (_ui_from_image | default(false) | bool | ternary('image', 'CDN')) if (ui_build | default('', true) | length) > 0 else '' }}
           CYPRESS_TAGS={{ cypress_tags }}
           KUBERNETES_VERSION={{ k3s_kubernetes_version | default('') }}
           DASHBOARD_BRANCH={{ target_branch | default('') | trim }}
