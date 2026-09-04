@@ -1,0 +1,36 @@
+# AWS region
+region = "us-east-1"
+
+# Networking
+vpc_id               = "vpc-0123456789abcdef0"
+subnet_for_bastion   = "subnet-0123456789abcdef0"
+subnet_for_rke2_servers = "subnet-abcdef01234567890"
+
+# SSH access
+existing_key_name  = "my-aws-keypair"
+private_key_path   = "/home/user/.ssh/id_rsa"
+
+# Cluster configuration
+server_count   = 3
+prefix         = "mycluster"
+rke2_version   = "v1.32.5+rke2r1"
+rke2_token     = "auto-token-pcoep"
+rke2_cni       = "calico"
+
+# Network CIDRs (dual-stack optional)
+rke2_cluster_cidr = "10.42.0.0/16,2001:cafe:42::/56"
+rke2_service_cidr = "10.43.0.0/16,2001:cafe:43::/112"
+
+# Rancher configuration
+rancher_chart_repo    = "https://releases.rancher.com/server-charts/latest"
+cert_manager_version  = "v1.15.3"
+cert_type             = "self-signed"
+rancher_chart_version = "2.12.0"
+rancher_image         = "rancher/rancher"
+rancher_image_tag     = "v2.12.0"
+
+# Certificates
+let_encrypt_email = "you@email.com"
+
+# Rancher bootstrap admin password
+bootstrap_password = "SuperSecretPassword123!"
