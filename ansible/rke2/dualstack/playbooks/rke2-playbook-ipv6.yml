@@ -1,0 +1,170 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../vars.yaml
+  vars:
+    # terraform integration (optional).
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('', true) }}"
+    terraform_module_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' and terraform_workspace != 'default' else 'terraform.tfstate' }}"
+    terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
+  tasks:
+    - name: Set variables based on tofu or environment
+      when: (kube_api_host | default('')) == '' or ':' not in (kube_api_host | default('')) or (fqdn | default('')) == ''
+      block:
+      - name: Check if using tfstate file
+        ansible.builtin.stat:
+          path: "{{ terraform_state_file }}"
+        register: tfstate_file_stat
+
+      - name: Set fqdn and kube_api_host content from tfstate file if it exists
+        ansible.builtin.set_fact:
+          kube_api_host: "{{ (groups['all'] | map('extract', hostvars) | selectattr('node_roles', 'defined') | selectattr('node_roles', 'contains', 'cp') | map(attribute='ansible_host_ipv6') | first) }}"
+          fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+          use_terraform: true
+        when: tfstate_file_stat.stat.exists
+
+      - name: Set kube_api_host content from env or vars when not using terraform
+        ansible.builtin.set_fact:
+          kube_api_host: "{{ lookup('env', 'KUBE_API_HOST') | default((groups['all'] | map('extract', hostvars) | selectattr('node_roles', 'defined') | selectattr('node_roles', 'contains', 'cp') | map(attribute='ansible_host_ipv6') | first), true) }}"
+          use_terraform: false
+        when: not tfstate_file_stat.stat.exists
+
+      - name: Set fqdn content from env or vars when not using terraform
+        ansible.builtin.set_fact:
+          fqdn: "{{ lookup('env', 'FQDN') | default(fqdn if fqdn is defined else (kube_api_host if kube_api_host is defined else ''), true) }}"
+        when: not tfstate_file_stat.stat.exists
+
+    - name: Validate required variables
+      assert:
+        that:
+          - kubernetes_version is defined
+          - kubernetes_version | length > 0
+          - kube_api_host is defined
+          - kube_api_host | length > 0
+          - cni is defined
+          - cni | length > 0
+        fail_msg: "Required variables not defined. Please ensure kubernetes_version, kube_api_host, and cni are set in vars.yaml or environment variables"
+
+- hosts: all:!bastion
+  name: Setup nodes - RKE2 prerequisites
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../vars.yaml
+  pre_tasks:
+    - name: Wait for SSH to become available
+      ansible.builtin.wait_for_connection:
+        delay: 10
+        timeout: 300
+      become: false
+    - name: Gather facts
+      ansible.builtin.setup:
+    - name: Resolve IPv6 kube_api_host for cluster nodes
+      ansible.builtin.set_fact:
+        kube_api_host: "{{ (groups['all'] | map('extract', hostvars) | selectattr('node_roles', 'defined') | selectattr('node_roles', 'contains', 'cp') | map(attribute='ansible_host_ipv6') | first) }}"
+      when: (kube_api_host | default('')) == '' or ':' not in (kube_api_host | default(''))
+
+    - name: Sync FQDN from localhost if available
+      ansible.builtin.set_fact:
+        fqdn: "{{ hostvars['localhost']['fqdn'] | default(fqdn, true) }}"
+      when: (fqdn | default('')) == ''
+    - name: Validate required variables
+      assert:
+        that:
+          - kubernetes_version is defined
+          - kubernetes_version | length > 0
+          - kube_api_host is defined
+          - kube_api_host | length > 0
+          - cni is defined
+          - cni | length > 0
+        fail_msg: "Required variables not defined. Set kubernetes_version, kube_api_host, and cni in vars.yaml or inventory all.vars"
+      run_once: true
+  roles:
+    - role: rke2_setup
+      tags: ['setup', 'rke2']
+
+- hosts: all:!bastion
+  name: Generate RKE2 configuration files
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../vars.yaml
+  roles:
+    - role: rke2_config
+      vars:
+        rke2_server_flags: "{{ server_flags | from_yaml | default({}) }}"
+        rke2_agent_flags: "{{ agent_flags | from_yaml | default({}) }}"
+      tags: ['config', 'rke2']
+
+- hosts: all:!bastion
+  name: Install RKE2 binaries
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../vars.yaml
+  roles:
+    - role: rke2_install
+      vars:
+        rke2_version: "{{ kubernetes_version }}"
+        rke2_channel: "{{ channel | default('stable') }}"
+        rke2_install_method: "{{ install_method | default('online') }}"
+      tags: ['install', 'rke2']
+
+- hosts: all:!bastion
+  name: Form RKE2 cluster
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../vars.yaml
+  vars:
+    node_token_file: "/tmp/node_token.txt"
+  roles:
+    - role: rke2_cluster
+      vars:
+        rke2_kubeconfig_dest: "../kubeconfig.yaml"
+      tags: ['cluster', 'rke2']
+
+- hosts: master
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../vars.yaml
+  environment:
+    PATH: "/var/lib/rancher/rke2/bin:{{ ansible_env.PATH | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
+  roles:
+    - role: rke2_health_check
+      vars:
+        rke2_kubeconfig_path: "/etc/rancher/rke2/rke2.yaml"
+        rke2_server_flags: "{{ server_flags | default('') }}"
+      tags: ['health', 'rke2']
+
+- hosts: localhost
+  name: Format local kubeconfig for IPv6
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Add brackets to IPv6 server address in local kubeconfig
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/../kubeconfig.yaml"
+        regexp: 'server: https://.*:6443'
+        replace: 'server: https://[{{ (groups["all"] | map("extract", hostvars) | selectattr("node_roles", "defined") | selectattr("node_roles", "contains", "cp") | map(attribute="ansible_host_ipv6") | first) }}]:6443'
+
+- hosts: bastion
+  name: Copy kubeconfig to bastion node
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Ensure .kube directory exists
+      ansible.builtin.file:
+        path: "~/.kube"
+        state: directory
+        mode: '0700'
+
+    - name: Copy kubeconfig to bastion
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../kubeconfig.yaml"
+        dest: "~/.kube/config"
+        mode: '0600'

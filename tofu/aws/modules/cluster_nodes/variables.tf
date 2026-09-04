@@ -38,8 +38,14 @@ variable "nodes" {
     error_message = "At least one node group must include the \"cp\" role with count > 0. K3s/RKE2 clusters need a real control-plane node."
   }
 }
-variable "airgap_setup" {}
-variable "proxy_setup" {}
+variable "airgap_setup" {
+  type        = bool
+  default     = false
+}
+variable "proxy_setup" {
+  type        = bool
+  default     = false
+}
 
 variable "create_ssh_security_group" {
   description = "Create a dedicated SG that grants SSH (22) from stable CIDRs (ssh_allowed_cidrs) plus the VPC CIDR, and attach it alongside var.aws_security_group. Enable when SSH access is granted only via a managed prefix list - prefix-list rules propagate to each new ENI asynchronously and can silently drop SSH to a freshly launched node; plain CIDR rules realize instantly."

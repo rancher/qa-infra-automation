@@ -56,6 +56,12 @@ CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playboo
 RANCHER_PLAYBOOK    := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 DOWNSTREAM_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/add-downstream-cluster.yml
 REGISTRY_TARGET     := registry
+else ifeq ($(ENV),dualstack)
+TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/$(DISTRO)-playbook-dualstack.yml
+# CLUSTER_PLAYBOOK := ansible/$(DISTRO)/dualstack/playbooks/$(DISTRO)-playbook-ipv6.yml
+RANCHER_PLAYBOOK := 
+REGISTRY_TARGET  :=
 else
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
@@ -83,7 +89,7 @@ export ANSIBLE_HOST_KEY_CHECKING := False
 
 # Validate configuration
 VALID_DISTROS   := rke2 k3s
-VALID_ENVS      := airgap default proxy
+VALID_ENVS      := airgap default proxy dualstack
 VALID_PROVIDERS := aws gcp harvester
 
 # ============================================================================
@@ -98,13 +104,13 @@ help: ## Show this help message
 	@echo ""
 	@echo "Current Configuration:"
 	@echo "  DISTRO   = $(DISTRO)      (options: rke2, k3s)"
-	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy)"
+	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy, dualstack)"
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo "  WORKSPACE = $(WORKSPACE)    (tofu workspace name)"
 	@echo "  TARGET_GROUP = $(if $(TARGET_GROUP),$(TARGET_GROUP),<unset>)  (airgap node group, e.g. rancher/downstream; required for 'downstream')"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws WORKSPACE=myworkspace"
-	@echo "At the moment this only supports rke2, default/airgap, and aws"
+	@echo "At the moment this only supports rke2, default/airgap/dualstack, and aws"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. Configure $(TOFU_DIR)/terraform.tfvars"
@@ -835,6 +841,8 @@ status: check-inventory ## Show cluster status
 	elif [ -f "$(KUBECONFIG_FILE)" ]; then \
 		echo "=== Nodes ==="; \
 		kubectl --kubeconfig $(KUBECONFIG_FILE) get nodes -o wide || echo "Could not get cluster status"; \
+		echo "=== kube-system Pods ==="; \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -n kube-system -o wide || echo "Could not get cluster status"; \
 		echo ""; \
 		echo "=== Rancher Pods ==="; \
 		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -n cattle-system 2>/dev/null || echo "Rancher not deployed"; \

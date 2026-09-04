@@ -1,0 +1,20 @@
+# rke2 version and installation settings
+kubernetes_version: 'v1.36.2+rke2r1'
+
+# kubeconfig file
+kubeconfig_file: './kubeconfig.yaml'
+
+# cni configuration
+cni: "calico"
+
+# node token file for cluster communication
+node_token_file: "/tmp/node_token.txt"
+
+# Server configuration flags (applied to server/control-plane nodes)
+# See https://docs.rke2.io/reference/server_config for all options
+server_flags: |
+  ingress-controller: traefik
+  cluster-cidr: 2001:cafe:42:0::/56
+  service-cidr: 2001:cafe:43:0::/112
+  disable-network-policy: true
+  flannel-ipv6-masq: true
