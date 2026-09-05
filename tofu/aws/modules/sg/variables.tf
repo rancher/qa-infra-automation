@@ -1,6 +1,12 @@
-variable "security_group_id" {
-  description = "ID of the existing AWS security group to authorize/revoke rules on"
+variable "security_group_name" {
+  description = "Name (tag:Name/group-name) of the existing AWS security group to authorize/revoke rules on. Resolved to its ID via data.aws_security_group."
   type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC ID to scope the security_group_name lookup to. Recommended whenever the name isn't guaranteed unique account/region-wide."
+  type        = string
+  default     = null
 }
 
 variable "allowed_cidrs" {

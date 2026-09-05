@@ -5,11 +5,20 @@
 # adds the rules, destroying it (or removing the CIDR from the list) revokes
 # them, so cleanup is handled by the normal Terraform destroy lifecycle
 # instead of a manual `post` step.
+#
+# The target security group is resolved by name (not ID) so callers don't
+# need to know/pass around SG IDs - just the human-readable name used
+# elsewhere in the stack (e.g. node_config.aws_security_group).
+data "aws_security_group" "this" {
+  name   = var.security_group_name
+  vpc_id = var.vpc_id
+}
+
 resource "aws_security_group_rule" "ingress" {
   for_each = toset(var.allowed_cidrs)
 
   type              = "ingress"
-  security_group_id = var.security_group_id
+  security_group_id = data.aws_security_group.this.id
   from_port         = 0
   to_port           = 0
   protocol          = "-1"
@@ -21,7 +30,7 @@ resource "aws_security_group_rule" "egress" {
   for_each = toset(var.allowed_cidrs)
 
   type              = "egress"
-  security_group_id = var.security_group_id
+  security_group_id = data.aws_security_group.this.id
   from_port         = 0
   to_port           = 0
   protocol          = "-1"
