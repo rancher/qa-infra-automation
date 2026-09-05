@@ -5,8 +5,12 @@ This module deploys a set of cluster nodes on AWS.
 ## Prerequisites
 
 * AWS account configured with appropriate credentials.
-* AWS account configured already with a VPC, Subnet, and Security Group that you will use as variables in this module.
 * Terraform installed.
+* A pre-existing VPC and Subnet (`aws_vpc`/`aws_subnet` are required).
+  Optional: a pre-existing Security Group. If you don't provide
+  `aws_security_group`, the module provisions its own ephemeral security
+  group — created fresh on `apply` and destroyed on `destroy`, alongside every
+  other resource in this module (see "Ephemeral networking" below).
 
 ## Usage
 
@@ -70,6 +74,33 @@ The first node in the first group with `etcd` role becomes the `master` node.
 
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
 
+### Ephemeral networking (security group)
+
+`aws_vpc` and `aws_subnet` are required (pre-existing). `aws_security_group`
+is optional — when left unset (defaults to `[]`), the module provisions its
+own equivalent instead:
+
+* A security group opening SSH (22, restricted to `ephemeral_sg_ingress_cidrs`),
+  plus full intra-group traffic
+* Egress restricted to `ephemeral_sg_egress_cidrs` (defaults to the VPC's own
+  CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
+  additional specific CIDRs if nodes need broader outbound access, e.g. via a
+  NAT gateway/proxy)
+* Outbound-only exceptions to `0.0.0.0/0` on TCP/80, TCP/443, TCP/53, and
+  UDP/53 — required for package managers (apt/yum), RKE2/K3s
+  downloads, and container registries/DNS resolution. These are egress-only
+  (no inbound access is opened) and narrowly scoped to those ports; all other
+  egress remains restricted to `ephemeral_sg_egress_cidrs`.
+* Inbound/outbound exception on TCP/80 and TCP/443 allowing `0.0.0.0/0`
+  (rather than `ephemeral_sg_ingress_cidrs`/`ephemeral_sg_egress_cidrs`) —
+  RKE2/Rancher LB health checks and node-to-node traffic addressed via public
+  IPs egresses out through the IGW and re-enters tagged with the *source
+  node's public IP*, not the VPC CIDR and not `ephemeral_sg_ingress_cidrs`
+  (the runner's IP). Node public IPs aren't known ahead of instance creation
+  (referencing them here would create a circular dependency with this SG),
+  so these LB ports must accept `0.0.0.0/0` on ingress/egress or traffic is
+  dropped.
+
 ### SSH access (avoiding prefix-list propagation lag)
 
 `create_ssh_security_group` (default `false`) — opt in to have the module create a
@@ -107,7 +138,40 @@ Refer to `outputs.tf` for a list of exported values.
 
 ## Sample `terraform.tfvars`
 
-### All-in-one (simplest)
+### All-in-one (simplest — ephemeral security group)
+
+```terraform
+aws_access_key        = "key"
+aws_secret_key        = "secretkey"
+aws_region            = "us-west-1"
+aws_route53_zone      = "qa.rancher.space"
+aws_ami               = "ami-"
+instance_type         = "t3a.medium"
+aws_vpc               = "vpc-"
+aws_subnet            = "subnet-"
+# aws_security_group omitted -> module creates its own ephemeral security
+# group, destroyed automatically on `destroy`.
+ephemeral_sg_ingress_cidrs = ["203.0.113.10/32"]   # jumpbox/bastion/office CIDR(s) for SSH + NLB ports
+airgap_setup          = false
+proxy_setup           = false
+aws_volume_size       = 40
+aws_volume_type       = "gp3"
+aws_hostname_prefix   = "hostnameprefix"
+aws_ssh_user          = "ec2-user"
+public_ssh_key        = "sshkey"
+# Optional: grant SSH from a stable /32 (jumpbox/bastion) via a dedicated SG.
+# Avoids managed-prefix-list propagation lag — see "SSH access" above.
+# create_ssh_security_group = true
+# ssh_allowed_cidrs         = ["203.0.113.10/32"]
+nodes = [
+  {
+    count = 3
+    role  = ["etcd", "cp", "worker"]
+  }
+]
+```
+
+### Bring your own VPC/subnet/security group
 
 ```terraform
 aws_access_key        = "key"
@@ -126,10 +190,6 @@ aws_volume_type       = "gp3"
 aws_hostname_prefix   = "hostnameprefix"
 aws_ssh_user          = "ec2-user"
 public_ssh_key        = "sshkey"
-# Optional: grant SSH from a stable /32 (jumpbox/bastion) via a dedicated SG.
-# Avoids managed-prefix-list propagation lag — see "SSH access" above.
-# create_ssh_security_group = true
-# ssh_allowed_cidrs         = ["203.0.113.10/32"]
 nodes = [
   {
     count = 3

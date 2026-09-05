@@ -60,6 +60,29 @@ Override `RANCHER_TFVARS=<path>` if your Rancher outputs live elsewhere, and
 `WORKSPACE=<name>` to isolate multiple downstream clusters (one workspace per
 cluster). The targets validate that both var files exist before invoking tofu.
 
+## Downstream node security group access (AWS)
+
+The downstream node(s) are provisioned asynchronously by Rancher's AWS node
+driver (not a native Tofu resource), and join the same shared ephemeral
+security group as the `cluster_nodes` module by **name**
+(`node_config.aws_security_group`). Their public IPs are unknown until well
+after each node boots, so they can't get a per-IP SG rule at plan time the
+way the RKE2/master nodes do in `cluster_nodes`.
+
+Without inbound/outbound access on 80/443, the Rancher agent(s) can spend
+60-100+ minutes retrying their check-in, after which their registration
+token(s) expire and they 401 forever. To avoid `0.0.0.0/0`, this module tags
+each downstream node with a unique discovery tag
+(`node_config_with_discovery_tag` in `main.tf`) and resolves the public
+IP(s) via `data "aws_instances"` filtered on that tag (the shared SG also
+contains the original RKE2 nodes from `cluster_nodes`, so filtering by SG
+alone wouldn't isolate these nodes). Those IPs feed native
+`aws_vpc_security_group_ingress_rule`/`aws_vpc_security_group_egress_rule`
+resources for ports 80 and 443 (`downstream_agent_checkin_ingress`/`egress`),
+one pair per expected node ("slot"), so the rules are fully managed by Tofu
+and automatically cleaned up on `tofu destroy`. Confirmed via live testing
+that both ports (not just 443), in both directions, are required.
+
 ## Outputs
 Refer to [outputs.tf](./outputs.tf) for a list of exported values.
 
