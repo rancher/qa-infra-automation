@@ -69,128 +69,145 @@ resource "aws_security_group" "ephemeral" {
   description = "Ephemeral security group for ${var.aws_hostname_prefix} (created because var.aws_security_group was empty)"
   vpc_id      = local.vpc_id
 
-  ingress {
-    description = "SSH from allowed CIDRs"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = var.ephemeral_sg_ingress_cidrs
-  }
-
-  ingress {
-    description = "allowed CIDRs"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = var.ephemeral_sg_ingress_cidrs
-  }
-
-  ingress {
-    description = "allowed CIDRs"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = var.ephemeral_sg_ingress_cidrs
-  }
-
-  ingress {
-    description = "All traffic between instances in this security group"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    self        = true
-  }
-
-  # NLB health checks for the 80/443 target groups originate from AWS-managed
-  # ENIs inside this VPC/subnet (not from instances in this SG, so "self" does
-  # not cover them, and their IPs aren't known ahead of time) - scope to the
-  # VPC CIDR instead of 0.0.0.0/0. The node-to-node/public-IP-hairpin case is
-  # covered separately by the per-node standalone rke2_lb_node_ingress rules
-  # below.
-  dynamic "ingress" {
-    for_each = {
-      "80"  = [local.vpc_cidr_block]
-      "443" = [local.vpc_cidr_block]
-    }
-    content {
-      description = "RKE2/Rancher listener ${ingress.key} from within the VPC (NLB health checks)"
-      from_port   = tonumber(ingress.key)
-      to_port     = tonumber(ingress.key)
-      protocol    = "tcp"
-      cidr_blocks = ingress.value
-    }
-  }
-
-  dynamic "ingress" {
-    for_each = length(var.ephemeral_sg_ingress_cidrs) > 0 ? { "6443" = var.ephemeral_sg_ingress_cidrs, "9345" = var.ephemeral_sg_ingress_cidrs } : {}
-    content {
-      description = "RKE2/Rancher listener ${ingress.key} from allowed CIDRs (jumpbox/bastion/office)"
-      from_port   = tonumber(ingress.key)
-      to_port     = tonumber(ingress.key)
-      protocol    = "tcp"
-      cidr_blocks = ingress.value
-    }
-  }
-
-  egress {
-    description = "Egress to allowed CIDRs"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = local.ephemeral_sg_egress_cidrs
-  }
-
-  egress {
-    description = "Egress to allowed CIDRs"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = var.ephemeral_sg_ingress_cidrs
-  }
-
-  egress {
-    description = "Outbound HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "All traffic between instances in this security group"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    self        = true
-  }
-
-  egress {
-    description = "Outbound HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Outbound DNS (TCP)"
-    from_port   = 53
-    to_port     = 53
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Outbound DNS (UDP)"
-    from_port   = 53
-    to_port     = 53
-    protocol    = "udp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-sg"
   }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ephemeral_ssh_ingress" {
+  for_each = local.create_security_group ? toset(var.ephemeral_sg_ingress_cidrs) : []
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "SSH from allowed CIDRs"
+  ip_protocol        = "tcp"
+  from_port          = 22
+  to_port            = 22
+  cidr_ipv4          = each.value
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ephemeral_lb_listener_ingress" {
+  for_each = local.create_security_group ? {
+    for pair in setproduct(["80", "443"], var.ephemeral_sg_ingress_cidrs) :
+    "${pair[0]}-${pair[1]}" => { port = pair[0], cidr = pair[1] }
+  } : {}
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "allowed CIDRs"
+  ip_protocol        = "tcp"
+  from_port          = tonumber(each.value.port)
+  to_port            = tonumber(each.value.port)
+  cidr_ipv4          = each.value.cidr
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ephemeral_self_ingress" {
+  count = local.create_security_group ? 1 : 0
+
+  security_group_id            = aws_security_group.ephemeral[0].id
+  description                   = "All traffic between instances in this security group"
+  ip_protocol                   = "-1"
+  referenced_security_group_id = aws_security_group.ephemeral[0].id
+}
+
+# NLB health checks for the 80/443 target groups originate from AWS-managed
+# ENIs inside this VPC/subnet (not from instances in this SG, so "self" does
+# not cover them, and their IPs aren't known ahead of time) - scope to the
+# VPC CIDR instead of 0.0.0.0/0. The node-to-node/public-IP-hairpin case is
+# covered separately by the per-node standalone rke2_lb_node_ingress rules
+# below.
+resource "aws_vpc_security_group_ingress_rule" "ephemeral_lb_healthcheck_ingress" {
+  for_each = local.create_security_group ? toset(["80", "443"]) : []
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "RKE2/Rancher listener ${each.value} from within the VPC (NLB health checks)"
+  ip_protocol        = "tcp"
+  from_port          = tonumber(each.value)
+  to_port            = tonumber(each.value)
+  cidr_ipv4          = local.vpc_cidr_block
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ephemeral_rke2_api_ingress" {
+  for_each = local.create_security_group && length(var.ephemeral_sg_ingress_cidrs) > 0 ? {
+    for pair in setproduct(["6443", "9345"], var.ephemeral_sg_ingress_cidrs) :
+    "${pair[0]}-${pair[1]}" => { port = pair[0], cidr = pair[1] }
+  } : {}
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "RKE2/Rancher listener ${each.value.port} from allowed CIDRs (jumpbox/bastion/office)"
+  ip_protocol        = "tcp"
+  from_port          = tonumber(each.value.port)
+  to_port            = tonumber(each.value.port)
+  cidr_ipv4          = each.value.cidr
+}
+
+resource "aws_vpc_security_group_egress_rule" "ephemeral_default_egress" {
+  for_each = local.create_security_group ? toset(local.ephemeral_sg_egress_cidrs) : []
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Egress to allowed CIDRs"
+  ip_protocol        = "-1"
+  cidr_ipv4          = each.value
+}
+
+resource "aws_vpc_security_group_egress_rule" "ephemeral_ingress_cidrs_egress" {
+  for_each = local.create_security_group ? toset(var.ephemeral_sg_ingress_cidrs) : []
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Egress to allowed CIDRs"
+  ip_protocol        = "-1"
+  cidr_ipv4          = each.value
+}
+
+resource "aws_vpc_security_group_egress_rule" "ephemeral_self_egress" {
+  count = local.create_security_group ? 1 : 0
+
+  security_group_id            = aws_security_group.ephemeral[0].id
+  description                   = "All traffic between instances in this security group"
+  ip_protocol                   = "-1"
+  referenced_security_group_id = aws_security_group.ephemeral[0].id
+}
+
+resource "aws_vpc_security_group_egress_rule" "ephemeral_http_egress" {
+  count = local.create_security_group ? 1 : 0
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Outbound HTTP"
+  ip_protocol        = "tcp"
+  from_port          = 80
+  to_port            = 80
+  cidr_ipv4          = "0.0.0.0/0"
+}
+
+resource "aws_vpc_security_group_egress_rule" "ephemeral_https_egress" {
+  count = local.create_security_group ? 1 : 0
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Outbound HTTPS"
+  ip_protocol        = "tcp"
+  from_port          = 443
+  to_port            = 443
+  cidr_ipv4          = "0.0.0.0/0"
+}
+
+resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_tcp_egress" {
+  count = local.create_security_group ? 1 : 0
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Outbound DNS (TCP)"
+  ip_protocol        = "tcp"
+  from_port          = 53
+  to_port            = 53
+  cidr_ipv4          = "0.0.0.0/0"
+}
+
+resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_udp_egress" {
+  count = local.create_security_group ? 1 : 0
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Outbound DNS (UDP)"
+  ip_protocol        = "udp"
+  from_port          = 53
+  to_port            = 53
+  cidr_ipv4          = "0.0.0.0/0"
 }
 
 
@@ -238,7 +255,7 @@ resource "aws_security_group" "ssh" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = local.ephemeral_sg_egress_cidrs
+    cidr_blocks = local.create_security_group ? local.ephemeral_sg_egress_cidrs : ["0.0.0.0/0"]
   }
 
   tags = {
@@ -531,11 +548,3 @@ data "aws_vpc" "selected" {
   id = var.aws_vpc
 }
 
-# AWS's published EC2 IP ranges for this region. Used to scope the downstream
-# Rancher agent check-in ingress (below) to something narrower than
-# 0.0.0.0/0. Amazon updates this list; tofu will need re-applying to pick up
-# additions, but it stays far smaller than the whole internet.
-data "aws_ip_ranges" "ec2" {
-  regions  = [var.aws_region]
-  services = ["ec2"]
-}

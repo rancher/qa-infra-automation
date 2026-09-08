@@ -91,15 +91,17 @@ own equivalent instead:
   downloads, and container registries/DNS resolution. These are egress-only
   (no inbound access is opened) and narrowly scoped to those ports; all other
   egress remains restricted to `ephemeral_sg_egress_cidrs`.
-* Inbound/outbound exception on TCP/80 and TCP/443 allowing `0.0.0.0/0`
-  (rather than `ephemeral_sg_ingress_cidrs`/`ephemeral_sg_egress_cidrs`) —
-  RKE2/Rancher LB health checks and node-to-node traffic addressed via public
-  IPs egresses out through the IGW and re-enters tagged with the *source
-  node's public IP*, not the VPC CIDR and not `ephemeral_sg_ingress_cidrs`
-  (the runner's IP). Node public IPs aren't known ahead of instance creation
-  (referencing them here would create a circular dependency with this SG),
-  so these LB ports must accept `0.0.0.0/0` on ingress/egress or traffic is
-  dropped.
+* Inbound access on TCP/80 and TCP/443 from `ephemeral_sg_ingress_cidrs`
+  plus the VPC's own CIDR (RKE2/Rancher NLB health checks, which originate
+  from AWS-managed ENIs inside the VPC rather than instances in this SG).
+  Node-to-node LB traffic addressed via public IPs egresses out through the
+  IGW and re-enters tagged with the *source node's public IP* - not the VPC
+  CIDR and not `ephemeral_sg_ingress_cidrs` - so per-node `/32` ingress and
+  egress rules are additionally created once each node's public IP is known
+  (standalone `aws_vpc_security_group_ingress_rule`/`egress_rule` resources,
+  same as every other rule on this SG). Only egress on 80/443
+  falls back to `0.0.0.0/0` (grouped with the package-manager/DNS egress
+  exceptions above); ingress on 80/443 never opens to `0.0.0.0/0`.
 
 ### SSH access (avoiding prefix-list propagation lag)
 

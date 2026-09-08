@@ -64,10 +64,13 @@ cluster). The targets validate that both var files exist before invoking tofu.
 
 The downstream node(s) are provisioned asynchronously by Rancher's AWS node
 driver (not a native Tofu resource), and join the same shared ephemeral
-security group as the `cluster_nodes` module by **name**
-(`node_config.aws_security_group`). Their public IPs are unknown until well
-after each node boots, so they can't get a per-IP SG rule at plan time the
-way the RKE2/master nodes do in `cluster_nodes`.
+security group as the `cluster_nodes` module, referenced via
+`node_config.aws_security_group` (accepts either SG **names** or **IDs**
+(`sg-*`) - each supplied value is routed to a `group-name` or `group-id`
+lookup accordingly, and must resolve to exactly one security group or
+`tofu apply` fails with an actionable error). Their public IPs are unknown
+until well after each node boots, so they can't get a per-IP SG rule at
+plan time the way the RKE2/master nodes do in `cluster_nodes`.
 
 Without inbound/outbound access on 80/443, the Rancher agent(s) can spend
 60-100+ minutes retrying their check-in, after which their registration

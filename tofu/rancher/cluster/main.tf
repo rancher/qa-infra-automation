@@ -121,11 +121,29 @@ data "rancher2_cluster_v2" "rancher2_cluster_v2" {
   name = rancher2_cluster_v2.rancher2_cluster_v2.name
 }
 
-data "aws_security_groups" "downstream_sg" {
-  count = var.cloud_provider == "aws" ? 1 : 0
+locals {
+  downstream_sg_values    = try(var.node_config.aws_security_group, [])
+  downstream_sg_ids_input = [for v in local.downstream_sg_values : v if can(regex("^sg-", v))]
+  downstream_sg_names     = [for v in local.downstream_sg_values : v if !can(regex("^sg-", v))]
+}
+
+data "aws_security_groups" "downstream_sg_by_name" {
+  count = var.cloud_provider == "aws" && length(local.downstream_sg_names) > 0 ? 1 : 0
   filter {
     name   = "group-name"
-    values = try(var.node_config.aws_security_group, [])
+    values = local.downstream_sg_names
+  }
+  filter {
+    name   = "vpc-id"
+    values = [try(var.node_config.aws_vpc, "")]
+  }
+}
+
+data "aws_security_groups" "downstream_sg_by_id" {
+  count = var.cloud_provider == "aws" && length(local.downstream_sg_ids_input) > 0 ? 1 : 0
+  filter {
+    name   = "group-id"
+    values = local.downstream_sg_ids_input
   }
   filter {
     name   = "vpc-id"
@@ -155,7 +173,11 @@ data "aws_instances" "downstream_node" {
 
 locals {
   downstream_node_public_ips = var.cloud_provider == "aws" ? try(data.aws_instances.downstream_node[0].public_ips, []) : []
-  downstream_sg_id           = var.cloud_provider == "aws" ? try(data.aws_security_groups.downstream_sg[0].ids[0], "") : ""
+  downstream_sg_ids_found = var.cloud_provider == "aws" ? concat(
+    try(data.aws_security_groups.downstream_sg_by_name[0].ids, []),
+    try(data.aws_security_groups.downstream_sg_by_id[0].ids, []),
+  ) : []
+  downstream_sg_id = length(local.downstream_sg_ids_found) == 1 ? local.downstream_sg_ids_found[0] : ""
 
   # for_each's key set must be known at plan time. data.aws_instances.downstream_node
   # is deliberately deferred to apply (depends_on the machine_config module), so any
@@ -193,7 +215,7 @@ resource "aws_vpc_security_group_ingress_rule" "downstream_agent_checkin_ingress
   lifecycle {
     precondition {
       condition     = local.downstream_sg_id != ""
-      error_message = "Could not resolve the shared downstream SG id. Check node_config.aws_security_group/aws_vpc."
+      error_message = "Could not resolve exactly one downstream SG id from node_config.aws_security_group/aws_vpc (found none, or more than one match - check the SG name(s)/ID(s) and VPC are correct and unambiguous)."
     }
   }
 }
@@ -211,7 +233,7 @@ resource "aws_vpc_security_group_egress_rule" "downstream_agent_checkin_egress" 
   lifecycle {
     precondition {
       condition     = local.downstream_sg_id != ""
-      error_message = "Could not resolve the shared downstream SG id. Check node_config.aws_security_group/aws_vpc."
+      error_message = "Could not resolve exactly one downstream SG id from node_config.aws_security_group/aws_vpc (found none, or more than one match - check the SG name(s)/ID(s) and VPC are correct and unambiguous)."
     }
   }
 }

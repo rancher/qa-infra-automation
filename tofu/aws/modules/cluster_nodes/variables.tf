@@ -95,7 +95,7 @@ variable "ephemeral_sg_egress_cidrs" {
   type        = list(string)
   default     = []
   validation {
-    condition = var.ephemeral_sg_egress_cidrs == null || alltrue([
+    condition = var.ephemeral_sg_egress_cidrs == null ? true : alltrue([
       for c in var.ephemeral_sg_egress_cidrs :
       c != "0.0.0.0/0" && c != "::/0"
     ])
