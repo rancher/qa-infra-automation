@@ -34,7 +34,7 @@ ARG KUBECTL_SUM_ARM64=922df28df248cc00a9e025f947704f1d1482de64ece54cfe57e61f19ea
 ARG UV_VERSION=0.12.8
 # renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.12.8
 ARG UV_SUM_AMD64=6ca4597639c97e921fb915e113061ce8e4a14ead9e42a1ead521dbb0a6763795
-ARG UV_SUM_ARM64=8767a0e77f2cd45436401b1b42bf7e9ed5a4a91a74a5305d6fe93249d0f6dbc5
+ARG UV_SUM_ARM64=975917badc8370163989e5bbe5a7c69bf922d19f8e57cb2652531bbffc935f84
 
 RUN apk add --no-cache \
       git curl unzip xxd openssh-client docker-cli gcompat \
