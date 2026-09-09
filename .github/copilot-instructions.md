@@ -1,5 +1,7 @@
 # Copilot Instructions for QA Infrastructure Automation
 
+The repository-wide [AGENTS.md](../AGENTS.md) is the shared baseline for every agent. These Copilot instructions supplement it and must not weaken its requirements.
+
 ## Overview
 
 This repository automates deployment of Kubernetes clusters (RKE2, K3s) and Rancher across cloud providers (AWS, GCP, Harvester) or bare-metal nodes. It combines **OpenTofu** for infrastructure provisioning with **Ansible** for product deployment, plus a thin **Go module** that embeds the Ansible and Tofu content for programmatic use.
@@ -45,13 +47,13 @@ Pass `AUTO_APPROVE=yes` to skip interactive confirmation prompts in CI.
 
 ```bash
 # All unit tests (Python)
-python3 -m pytest tests/
+python -m unittest discover -s tests -p 'test_*.py'
 
 # Single test file
-python3 -m pytest tests/test_generate_inventory.py
+python -m unittest discover -s tests -p 'test_generate_inventory.py'
 
 # Single test case
-python3 -m pytest tests/test_generate_inventory.py::TestValidateClusterNodes::test_valid_fixture_passes
+python -m unittest tests.test_generate_inventory.TestValidateClusterNodes.test_valid_fixture_passes
 
 # Run generate_inventory.py against a fixture (no live infra needed)
 python3 scripts/generate_inventory.py \

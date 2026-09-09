@@ -2,15 +2,15 @@ terraform {
   required_providers {
     harvester = {
       source  = "harvester/harvester"
-      version = ">=1.6.0"
+      version = ">= 1.6.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = ">=2.37.1"
+      version = ">= 2.37.1"
     }
     ansible = {
       source  = "ansible/ansible"
-      version = ">=1.3.0"
+      version = ">= 1.3.0"
     }
     tls = {
       source  = "hashicorp/tls"

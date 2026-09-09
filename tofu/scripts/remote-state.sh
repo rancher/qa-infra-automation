@@ -17,6 +17,9 @@
 #                                  [--filter REGEX] [--purge] [--delete] [--auto-approve]
 #   remote-state.sh stale-folders  --module <dir> [--bucket B --key K --region R]
 #                                  [--filter REGEX] [--purge] [--delete] [--auto-approve]
+#   remote-state.sh empty-buckets [--module <dir>] [--filter REGEX]
+#                                  [--delete] [--auto-approve]
+#                                  (account-wide: scans EVERY bucket, not just the module's)
 #
 # Backend discovery:
 #   If --bucket/--key/--region are omitted, they are read from
@@ -28,7 +31,7 @@
 
 set -euo pipefail
 
-export PATH="/usr/bin:/bin:/usr/local/bin"
+export PATH="${PATH}:/usr/bin:/bin:/usr/local/bin"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,6 +39,8 @@ export PATH="/usr/bin:/bin:/usr/local/bin"
 
 die()  { echo "ERROR: $*" >&2; exit 1; }
 
+# Progress dot on stderr (keeps stdout parseable; shows life during slow S3 scans).
+dot()  { printf '.' >&2; }
 # Pick the IaC CLI (tofu preferred, terraform fallback).
 tf_cli() {
   if command -v tofu >/dev/null 2>&1; then printf 'tofu'
@@ -108,6 +113,7 @@ list_state_keys() {
 scan_workspaces() {
   local filter="${FILTER:-}"
   while IFS=$'\t' read -r ws s3key; do
+    dot
     if [ -n "$filter" ] && ! echo "$ws" | grep -qE "$filter"; then continue; fi
     local n
     n=$(aws s3 cp "s3://$BUCKET/$s3key" - --region "$REGION" --quiet 2>/dev/null | count_managed || echo 0)
@@ -124,6 +130,7 @@ scan_workspaces() {
 scan_empty_workspaces() {
   local filter="${FILTER:-}" ws n objs s3key folder_prefix
   while IFS=$'\t' read -r ws s3key; do
+    dot
     [ -n "$filter" ] && { echo "$ws" | grep -qE "$filter" || continue; }
     n=$(aws s3 cp "s3://$BUCKET/$s3key" - --region "$REGION" --quiet 2>/dev/null | count_managed || echo 0)
     [ "${n:-0}" -gt 0 ] && continue   # has resources → not empty
@@ -176,7 +183,7 @@ cmd_list() {
     found=1
     total=$((total + n))
   done < <(scan_workspaces)
-
+  printf '\n' >&2
   if [ "$found" -eq 0 ]; then
     echo "  No workspaces with managed resources found."
   else
@@ -216,7 +223,7 @@ cmd_destroy() {
   while IFS=$'\t' read -r ws n; do
     targets+=("$ws")
   done < <(scan_workspaces)
-
+  printf '\n' >&2
   echo "WARNING: destroying ${#targets[@]} remote workspace(s) in $BUCKET ($module)."
   if [ "$DRY_RUN" -eq 1 ]; then echo "[DRY-RUN]"; fi
   echo ""
@@ -298,7 +305,7 @@ cmd_empty_folders() {
     rows+=("$ws|$s3key|$objs")
     printf '  %-40s %3s obj(s)  %s\n' "$ws" "${objs:-0}" "$s3key"
   done < <(scan_empty_workspaces)
-
+  printf '\n' >&2
   if [ "${#rows[@]}" -eq 0 ]; then
     echo "  (none)"
     return 0
@@ -417,6 +424,7 @@ cmd_stale_folders() {
   local rows=() ws s3key info reg ids entry folder_prefix
   local checked=0 stale=0 unknown=0
   while IFS=$'\t' read -r ws s3key; do
+    dot
     [ -n "$FILTER" ] && { echo "$ws" | grep -qE "$FILTER" || continue; }
     # only consider workspaces that HAVE managed resources (empty ones use empty-folders)
     local n
@@ -438,6 +446,7 @@ cmd_stale_folders() {
       printf '  LIVE    %-36s  [%s] instances still exist\n' "$ws" "$reg"
     fi
   done < <(list_state_keys)
+  printf '\n' >&2
   echo ""
   echo "Scanned: $checked  |  STALE: $stale  |  LIVE: skipped  |  UNKNOWN: $unknown"
   echo ""
@@ -491,6 +500,131 @@ cmd_stale_folders() {
   echo "✓ Stale workspace folders removed."
 }
 
+# Hidden worker for cmd_empty_buckets — probes ONE bucket (run via xargs -P).
+# Env: RS_FILTER (regex on bucket name), RS_PROTECT (bucket never to touch).
+# Always exits 0 and prints "<status>\t<bucket>\t<region>" where status is
+# EMPTY (0 objects), PROTECTED (backend/do-not-delete) or UNVERIFIED (list
+# failed even after region retry — never a deletion candidate).
+__probe_bucket() {
+  [ $# -ge 1 ] || exit 0
+  local b="$1" first region
+  [ -n "$b" ] || exit 0
+  if [ -n "${RS_FILTER:-}" ] && ! printf '%s' "$b" | grep -qE "$RS_FILTER"; then exit 0; fi
+  if [ "$b" = "${RS_PROTECT:-}" ] || printf '%s' "$b" | grep -q '^do-not-delete'; then
+    printf 'PROTECTED\t%s\t-\n' "$b"; exit 0
+  fi
+  first=$(aws s3api list-objects-v2 --bucket "$b" --query 'Contents[0].Key' --output text 2>/dev/null) || true
+  if [ -z "$first" ]; then
+    # listing failed (often a wrong-region endpoint) — retry in the bucket's own region
+    region=$(aws s3api get-bucket-location --bucket "$b" --query 'LocationConstraint' --output text 2>/dev/null) || true
+    [ "$region" = "None" ] && region=""
+    if [ -n "$region" ]; then
+      first=$(aws s3api list-objects-v2 --bucket "$b" --region "$region" --query 'Contents[0].Key' --output text 2>/dev/null) || true
+    fi
+    if [ -z "$first" ]; then printf 'UNVERIFIED\t%s\t-\n' "$b"; exit 0; fi
+  fi
+  [ "$first" = "None" ] || exit 0   # has objects → not empty
+  region=$(aws s3api get-bucket-location --bucket "$b" --query 'LocationConstraint' --output text 2>/dev/null) || true
+  [ -n "$region" ] || region="us-east-1"
+  [ "$region" = "None" ] && region="us-east-1"
+  printf 'EMPTY\t%s\t%s\n' "$b" "$region"
+  exit 0
+}
+
+# Account-wide empty-bucket scanner. The other subcommands only prune state
+# OBJECTS inside the module's backend bucket; leftover 0-object buckets are
+# invisible to them. This lists every bucket in the account that verifiably
+# contains zero objects, and (with --delete) removes them.
+cmd_empty_buckets() {
+  local module="" FILTER="" DELETE=0 AUTO=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --module)       module="$2"; shift 2;;
+      --filter)       FILTER="$2"; shift 2;;
+      --delete)       DELETE=1; shift;;
+      --auto-approve) AUTO=1; shift;;
+      *) die "empty-buckets: unknown arg: $1 (bucket/key are per-bucket here; region is auto-detected)";;
+    esac
+  done
+  local PROTECT=""
+  if [ -n "$module" ]; then
+    [ -d "$module" ] || die "empty-buckets: module dir not found: $module"
+    resolve_backend "$module"      # only to learn the current backend bucket (protected below)
+    PROTECT="$BUCKET"
+  fi
+
+  echo "╔═════════════════════════════════════════════════════════════╗"
+  echo "║  Empty bucket scanner (account-wide)                      ║"
+  [ -n "$PROTECT" ] && echo "║  Protected : $(printf '%-44s' "$PROTECT")"
+  [ -n "$FILTER" ]  && echo "║  Filter    : $(printf '%-44s' "$FILTER")"
+  echo "╚═════════════════════════════════════════════════════════════╝"
+  echo ""
+  echo "Scanning all buckets for EMPTY ones (0 objects) ..."
+
+  local lines status b region
+  # Export for the __probe-bucket children (an env prefix on one pipeline
+  # segment would NOT reach the xargs-spawned scripts).
+  export RS_FILTER="${FILTER}" RS_PROTECT="${PROTECT}"
+  lines=$(aws s3api list-buckets --query 'Buckets[].Name' --output text \
+    | tr '\t' '\n' | grep -E '.' \
+    | xargs --no-run-if-empty -P 8 -n 1 "$(readlink -f "$0")" __probe-bucket \
+    | sort -t "$(printf '\t')" -k2,2 || true)
+  printf '\n'
+
+  local rows=() unverified=0 protected=0
+  while IFS=$'\t' read -r status b region; do
+    [ -n "$status" ] || continue
+    case "$status" in
+      EMPTY)
+        rows+=("$b|$region")
+        printf '  EMPTY      %-46s [%s]\n' "$b" "$region";;
+      PROTECTED)
+        protected=$((protected + 1))
+        printf '  PROTECTED  %-46s never touched\n' "$b";;
+      UNVERIFIED)
+        unverified=$((unverified + 1))
+        printf '  UNVERIFIED %-46s list failed, skipped\n' "$b";;
+    esac
+  done <<< "$lines"
+  echo ""
+
+  if [ "${#rows[@]}" -eq 0 ]; then
+    echo "No empty buckets found."
+    return 0
+  fi
+
+  if [ "$DELETE" -ne 1 ]; then
+    echo "Not deleting — pass --delete (or: make infra-empty-buckets DELETE=yes)."
+    echo "  Scope with --filter (make: NUKE_FILTER='...') to only touch matching buckets."
+    return 0
+  fi
+
+  echo "WARNING: deleting ${#rows[@]} empty bucket(s)."
+  echo "  Every one was verified to contain 0 objects; protected/unverifiable ones are excluded."
+  if [ "$AUTO" -ne 1 ]; then
+    if [ ! -t 0 ]; then die "stdin is not a TTY and --auto-approve not set."; fi
+    read -p "Type 'prune-buckets' to confirm: " confirm
+    [ "$confirm" = "prune-buckets" ] || { echo "Aborted."; exit 1; }
+  fi
+  echo ""
+
+  local errors=0 entry
+  for entry in "${rows[@]}"; do
+    b="${entry%%|*}"; region="${entry##*|}"
+    if aws s3api delete-bucket --bucket "$b" --region "$region" >/dev/null 2>&1; then
+      echo "  ✓ deleted bucket: $b"
+    else
+      echo "  ✗ FAILED: $b"; errors=$((errors + 1))
+    fi
+  done
+  echo ""
+  if [ "$errors" -gt 0 ]; then
+    echo "WARNING: $errors bucket(s) failed to delete."
+    exit 1
+  fi
+  echo "✓ Empty buckets removed."
+}
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -502,6 +636,8 @@ case "$cmd" in
   destroy)       cmd_destroy "$@";;
   empty-folders) cmd_empty_folders "$@";;
   stale-folders)  cmd_stale_folders "$@";;
+  empty-buckets) cmd_empty_buckets "$@";;
+  __probe-bucket) __probe_bucket "$@";;
   -h|--help|help) sed -n '1,34p' "$0";;
   *) die "Unknown command '$cmd'. See: $0 --help";;
 esac

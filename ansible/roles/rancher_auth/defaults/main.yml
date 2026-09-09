@@ -25,6 +25,11 @@ rancher_token_output_format: "token"  # Options: token, json, tfvars
 
 # Optional: Update cattle-config.yaml
 rancher_cattle_config_file: ""  # If set, updates this file with the token
+# Host written as rancher.host in cattle-config.yaml. Empty derives it from
+# rancher_url (scheme stripped). Airgap deploys set it to the public hostname:
+# API calls go through the internal LB, while test suites reach Rancher via
+# the public DNS name.
+rancher_cattle_config_host: ""
 
 # Optional: Set permanent password after first login
 # If rancher_permanent_password is defined and non-empty, the permanent password will be set

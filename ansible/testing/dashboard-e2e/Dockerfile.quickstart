@@ -8,33 +8,33 @@
 # Run:    see run.sh
 
 # renovate: datasource=docker depName=python
-FROM python:3.12-alpine3.23@sha256:236173eb74001afe2f60862de935b74fcbd00adfca247b2c27051a70a6a39a2d
+FROM python:3.12-alpine3.23@sha256:167bc85084c9df34480efc26b4528fb68feaa8a79183b5658952137025b6f061
 
 ARG TARGETARCH
 
 # renovate: datasource=github-release-attachments depName=opentofu/opentofu
-ARG TOFU_VERSION=v1.11.5
-# renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.11.5
-ARG TOFU_SUM_AMD64=901121681e751574d739de5208cad059eddf9bd739b575745cf9e3c961b28a13
-ARG TOFU_SUM_ARM64=1b79f8fe3cbf7ac0540507bb6bd0ecab1675c78393bbf492867eaabb79840eec
+ARG TOFU_VERSION=v1.12.6
+# renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.12.6
+ARG TOFU_SUM_AMD64=5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
+ARG TOFU_SUM_ARM64=e573979ba68a17fe7b881752051a694a7efcd970e39521f6a25775197861ed4d
 
 # renovate: datasource=github-release-attachments depName=helm/helm
-ARG HELM_VERSION=v3.17.3
-# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=v3.17.3
-ARG HELM_SUM_AMD64=ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd
-ARG HELM_SUM_ARM64=7944e3defd386c76fd92d9e6fec5c2d65a323f6fadc19bfb5e704e3eee10348e
+ARG HELM_VERSION=v4.2.4
+# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=v4.2.4
+ARG HELM_SUM_AMD64=c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3
+ARG HELM_SUM_ARM64=564de2191b881e9f71b5606b25345821ea1682f06ab90499d3ab22b530176da1
 
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes
-ARG KUBECTL_VERSION=v1.33.10
-# renovate: datasource=github-release-attachments depName=kubernetes/kubernetes digestVersion=v1.33.10
-ARG KUBECTL_SUM_AMD64=f156acb753ee4366789ab7a663916eb580e7ee1b9e449bc9b052181db524e3f5
-ARG KUBECTL_SUM_ARM64=e9494229893ccddc81065275c0e5f21167518ab939f0e95aecb649fb4b41c112
+ARG KUBECTL_VERSION=v1.37.0
+# renovate: datasource=github-release-attachments depName=kubernetes/kubernetes digestVersion=v1.37.0
+ARG KUBECTL_SUM_AMD64=6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+ARG KUBECTL_SUM_ARM64=922df28df248cc00a9e025f947704f1d1482de64ece54cfe57e61f19eaf1eef3
 
 # renovate: datasource=github-release-attachments depName=astral-sh/uv
-ARG UV_VERSION=0.11.3
-# renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.11.3
-ARG UV_SUM_AMD64=8b40cf16b849634b81a530a3d0a0bcae5f24996ef9ae782976fd69b6266d3b8e
-ARG UV_SUM_ARM64=8ecec82cb9a744d5fabff6d16d7777218a7730f699d2aa0d2f751c17858e2efa
+ARG UV_VERSION=0.12.8
+# renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.12.8
+ARG UV_SUM_AMD64=6ca4597639c97e921fb915e113061ce8e4a14ead9e42a1ead521dbb0a6763795
+ARG UV_SUM_ARM64=975917badc8370163989e5bbe5a7c69bf922d19f8e57cb2652531bbffc935f84
 
 RUN apk add --no-cache \
       git curl unzip xxd openssh-client docker-cli gcompat \

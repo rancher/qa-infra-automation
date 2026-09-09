@@ -35,6 +35,11 @@ The role runs on `hosts: bastion` and is **gated by `enable_ui_plugin_mirror`** 
    `safe.directory *` lets the web-server user (`www-data`) serve the root-owned repo.
 5. Exposes `ui_plugin_mirror_url`
    (`http://<bastion>:<port>/ui-plugin-charts.git`) for consumers.
+6. Persists the URL and branch as an Ansible **local fact** on the bastion
+   (`/etc/ansible/facts.d/ui_plugin_mirror.fact`, JSON: `url`, `branch`) so
+   later playbook invocations can consume them — `add-downstream-cluster.yml`
+   reads this fact and injects `neuvectorTest.uiPluginChartsURL` /
+   `uiPluginChartsBranch` into `cattle-config.yaml` (see below).
 
 The repo is served at `/<basename>` because `GIT_PROJECT_ROOT` is the **parent** of
 `ui_plugin_mirror_dest`.
@@ -73,9 +78,28 @@ make all ENV=airgap ENABLE_UI_PLUGIN_MIRROR=yes
 make registry ENV=airgap EXTRA_VARS="enable_ui_plugin_mirror=true"
 ```
 
-Then point the NeuVector UI extension at the mirror. In `cattle-config.yaml`
-(`CATTLE_TEST_CONFIG`), set the following under `neuvectorTest` (the playbook prints this
-snippet with the computed URL/branch at the end of the run):
+### Automatic injection (recommended)
+
+When the downstream registration stage runs with the same gate on
+(`enable_ui_plugin_mirror=true`) and `rancher_cattle_config_file` pointed at the
+NeuVector suite's `cattle-config.yaml`, `add-downstream-cluster.yml` reads the
+persisted fact from the bastion and injects the mirror URL and branch into
+`neuvectorTest` alongside `rancher.clusterName` — the stock
+`CATTLE_TEST_CONFIG` works unchanged:
+
+```bash
+make downstream ENV=airgap TARGET_GROUP=downstream \
+     EXTRA_VARS="enable_ui_plugin_mirror=true rancher_cattle_config_file=<cattle-config.yaml>"
+```
+
+Gate off (default): `cattle-config.yaml` gets the cluster name only — byte-identical
+to the pre-mirror behavior.
+
+### Manual snippet (BYO runners)
+
+For test runners that manage `CATTLE_TEST_CONFIG` outside this repo, set the
+following under `neuvectorTest` (the role prints this snippet with the computed
+URL/branch at the end of the run):
 
 ```yaml
 neuvectorTest:

@@ -40,18 +40,38 @@ _secret_env=(
 	CUSTOM_NODE_KEY GKE_SERVICE_ACCOUNT KUBECONFIG
 	PERCY_TOKEN QASE_AUTOMATION_TOKEN TEST_PASSWORD
 )
+# Package manager for the checkout: bundled Yarn 1 for classic branches, the
+# packageManager-pinned Yarn Berry via corepack for newer ones (set below).
+_pm_yarn=(yarn)
 _yarn_sealed() {
 	local _drop=() _v
 	for _v in "${_secret_env[@]}"; do _drop+=(-u "$_v"); done
-	env "${_drop[@]}" NODE_NO_WARNINGS=1 yarn "$@"
+	env "${_drop[@]}" NODE_NO_WARNINGS=1 "${_pm_yarn[@]}" "$@"
 }
+
+# Classic checkouts use Yarn 1 with --frozen-lockfile. Berry checkouts (yarn@4
+# packageManager or a '__metadata:' lockfile) need corepack and --immutable.
+_install_args=(install --frozen-lockfile --silent)
+if grep -qs '"packageManager"[[:space:]]*:[[:space:]]*"yarn@[2-9]' cypress/package.json ||
+	grep -qs '^__metadata:' cypress/yarn.lock; then
+	if ! command -v corepack >/dev/null 2>&1; then
+		echo "[cypress.sh] ERROR: checkout pins Yarn Berry but corepack is not in the image."
+		exit 1
+	fi
+	_pm_yarn=(corepack yarn)
+	_install_args=(install --immutable)
+	export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+	echo "[cypress.sh] Yarn Berry checkout: installing with 'corepack yarn ${_install_args[*]}'"
+else
+	echo "[cypress.sh] Classic Yarn checkout: installing with 'yarn ${_install_args[*]}'"
+fi
 
 # Install test dependencies inside the container (correct platform binaries for Debian/glibc)
 echo "[cypress.sh] Installing test dependencies..."
 echo "[cypress.sh] PWD=$(pwd)"
-if ! (cd cypress && _yarn_sealed install --frozen-lockfile --silent); then
+if ! (cd cypress && _yarn_sealed "${_install_args[@]}"); then
 	echo "[cypress.sh] ERROR: yarn install failed in $(pwd)/cypress"
-	echo "[cypress.sh] Node: $(node -v), Yarn: $(yarn --version)"
+	echo "[cypress.sh] Node: $(node -v), Yarn: $( (cd cypress && "${_pm_yarn[@]}" --version) 2>/dev/null)"
 	echo "[cypress.sh] package.json exists: $(test -f cypress/package.json && echo yes || echo no)"
 	echo "[cypress.sh] yarn.lock exists: $(test -f cypress/yarn.lock && echo yes || echo no)"
 	exit 1

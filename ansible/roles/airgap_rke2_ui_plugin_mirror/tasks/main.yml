@@ -168,6 +168,27 @@
       ansible.builtin.set_fact:
         ui_plugin_mirror_url: "http://{{ ui_plugin_mirror_host }}:{{ ui_plugin_mirror_port }}/{{ ui_plugin_mirror_dest | basename }}"
 
+    # The URL is consumed by add-downstream-cluster.yml, which runs as a separate
+    # ansible-playbook invocation (downstream registration) where this role's
+    # set_fact is out of scope. Persist it as an Ansible local fact so later
+    # playbooks can read it from the bastion; this role stays the single source
+    # of truth for host/port/branch overrides.
+    - name: Ensure /etc/ansible/facts.d exists on the bastion
+      ansible.builtin.file:
+        path: /etc/ansible/facts.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Persist mirror URL and branch as an Ansible local fact
+      ansible.builtin.copy:
+        content: "{{ {'url': ui_plugin_mirror_url, 'branch': ui_plugin_mirror_branch} | to_nice_json }}"
+        dest: /etc/ansible/facts.d/ui_plugin_mirror.fact
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Display mirror URL
       ansible.builtin.debug:
         msg: "ui-plugin-charts mirror served (smart HTTP) at {{ ui_plugin_mirror_url }} (branch {{ ui_plugin_mirror_branch }})"
@@ -182,7 +203,10 @@
 
     - name: Display cattle-config.yaml snippet for NeuVector UI extension
       ansible.builtin.debug:
-        msg: "Mirror ready. Add the following to cattle-config.yaml (CATTLE_TEST_CONFIG):"
+        msg: >-
+          Mirror ready. add-downstream-cluster.yml injects uiPluginChartsURL/branch
+          into cattle-config.yaml automatically when enable_ui_plugin_mirror is on;
+          the snippet below is only for runs that manage CATTLE_TEST_CONFIG by hand:
 
     - name: Show cattle-config.yaml snippet
       ansible.builtin.debug:

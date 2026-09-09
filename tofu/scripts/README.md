@@ -323,6 +323,10 @@ make infra-empty-folders DELETE=yes PURGE=yes            # delete all objects un
 make infra-stale-folders                                 # verify against AWS (read-only)
 make infra-stale-folders DELETE=yes                      # remove confirmed-stale states
 
+# 6) Remove EMPTY buckets (account-wide; none of the steps above delete buckets):
+make infra-empty-buckets                                 # list empty buckets (read-only)
+make infra-empty-buckets NUKE_FILTER='^dnew-' DELETE=yes # delete only yours
+
 # Target a different bucket/module explicitly:
 make infra-ls-remote BUCKET=jenkins-terraform-state-storage \
                     KEY=terraform.tfstate REGION=us-east-2
@@ -335,6 +339,7 @@ tofu/scripts/remote-state.sh list          --module tofu/aws/modules/cluster_nod
 tofu/scripts/remote-state.sh destroy       --module tofu/aws/modules/cluster_nodes --dry-run
 tofu/scripts/remote-state.sh empty-folders --module tofu/aws/modules/cluster_nodes --filter 'dnew'
 tofu/scripts/remote-state.sh stale-folders  --module tofu/aws/modules/cluster_nodes
+tofu/scripts/remote-state.sh empty-buckets --filter '^dnew-'
 ```
 
 ### How it finds workspaces
@@ -358,6 +363,14 @@ resources, and operates only on non-empty workspaces.
   delete **all** objects under each folder (e.g. stale `.tfstate.backup` / lock
   files), not just the state. Scope with `--filter` (`NUKE_FILTER=`). The bucket
   itself is left intact.
+- `empty-buckets` (or `make infra-empty-buckets`) is the only command that
+  deletes **buckets**: it scans every bucket in the account, and with
+  `--delete` (`DELETE=yes`) removes the ones verified to contain 0 objects.
+  The current module's backend bucket and any `do-not-delete-*` bucket are
+  always protected, and buckets whose listing fails (even after a region
+  retry) are reported `UNVERIFIED` and never deleted. Scope with `--filter`
+  (`NUKE_FILTER=`) — this is a shared account, so default to deleting only
+  buckets you own.
 - `stale-folders` (or `make infra-stale-folders`) handles the opposite case:
   the state still **lists** resources, but they no longer exist in AWS (e.g. a
   workspace whose infra was destroyed by CI, or where `tofu destroy` errored

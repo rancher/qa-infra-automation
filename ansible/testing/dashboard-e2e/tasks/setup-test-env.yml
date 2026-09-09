@@ -512,8 +512,8 @@
       - "dashboard-test:{{ executor_tag }}"
       - -f
       - "{{ dashboard_dir }}/cypress/jenkins/Dockerfile.ci"
-      - --build-arg
-      - "YARN_VERSION={{ yarn_version }}"
+      # Yarn is not a build-arg: classic uses the image's Yarn 1, Berry resolves
+      # its version from packageManager via corepack at runtime (files/cypress.sh).
       - --build-arg
       - "NODE_VERSION={{ nodejs_version }}"
       - --build-arg

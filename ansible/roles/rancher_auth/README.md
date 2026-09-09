@@ -105,6 +105,7 @@ Environment variables:
 | `rancher_token_output_file` | `/tmp/rancher-admin-token` | Path to write the token |
 | `rancher_token_output_format` | `token` | Output format: `token`, `json`, or `tfvars` |
 | `rancher_cattle_config_file` | `""` | Path to cattle-config.yaml to update (optional) |
+| `rancher_cattle_config_host` | `""` | Host written as `rancher.host` in cattle-config.yaml; empty derives it from `rancher_url` (scheme stripped). Airgap deploys set it to the public hostname — the API calls go through the internal LB, but test suites reach Rancher via the public DNS name |
 
 ### Password Management
 
