@@ -30,6 +30,19 @@ endif
 else
 UI_PLUGIN_MIRROR_TARGET :=
 endif
+# Opt-in: include the standalone charts-mirror step in `all`/`setup-from-infra`
+# (airgap only). Default off so ordinary airgap runs are unaffected.
+ENABLE_CHARTS_MIRROR ?= no
+ifeq ($(ENV),airgap)
+ifeq ($(ENABLE_CHARTS_MIRROR),yes)
+CHARTS_MIRROR_TARGET := charts-mirror
+else
+CHARTS_MIRROR_TARGET :=
+endif
+else
+CHARTS_MIRROR_TARGET :=
+endif
+
 
 # Downstream cluster via the Rancher API (tofu/rancher/cluster).
 # Your downstream cluster vars (kubernetes_version, machine_pools,
@@ -161,6 +174,7 @@ help: ## Show this help message
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
 	@echo "  ui-plugin-mirror   Mirror ui-plugin-charts on the bastion (airgap UI extension installs)"
+	@echo "  charts-mirror      Mirror rancher-charts on the bastion (airgap catalog installs)"
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
@@ -719,6 +733,13 @@ ui-plugin-mirror: check-inventory ## Mirror ui-plugin-charts on the bastion for 
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/ui-plugin-mirror-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
+.PHONY: charts-mirror
+charts-mirror: check-inventory ## Mirror rancher-charts on the bastion for airgap catalog installs (ENV=airgap)
+	@echo "Mirroring rancher-charts on the bastion..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/charts-mirror-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+
+
 .PHONY: downstream
 downstream: check-inventory ## Register an existing airgap cluster into Rancher as a downstream (requires ENV=airgap and TARGET_GROUP, e.g. TARGET_GROUP=downstream)
 	@if [ "$(ENV)" != "airgap" ]; then \
@@ -914,14 +935,14 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""
@@ -949,6 +970,13 @@ airgap-downstream: check-inventory ## Full airgap multi-cluster: downstream RKE2
 	@if [ -n "$(UI_PLUGIN_MIRROR_TARGET)" ]; then \
 		echo "==> Standing up ui-plugin-charts mirror on the bastion (ENABLE_UI_PLUGIN_MIRROR=yes)..."; \
 		$(MAKE) $(UI_PLUGIN_MIRROR_TARGET) DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER); \
+	fi
+	# Standalone rancher-charts mirror (opt-in, same gate as 'all'/'setup-from-infra').
+	# Must run before the Rancher deploy: the deploy repoints the rancher-charts
+	# ClusterRepo at the mirror only when the bastion mirror fact exists.
+	@if [ -n "$(CHARTS_MIRROR_TARGET)" ]; then \
+		echo "==> Standing up rancher-charts mirror on the bastion (ENABLE_CHARTS_MIRROR=yes)..."; \
+		$(MAKE) $(CHARTS_MIRROR_TARGET) DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER); \
 	fi
 	@echo "==> [4/5] Deploying Rancher on rancher group..."
 	# Intentionally clear TARGET_GROUP so the Rancher deploy step never inherits a

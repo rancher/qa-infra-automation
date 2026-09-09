@@ -1,0 +1,18 @@
+Listen {{ charts_mirror_listen }}:{{ charts_mirror_port }}
+
+<VirtualHost *:{{ charts_mirror_port }}>
+    ServerName charts-mirror
+
+    SetEnv GIT_PROJECT_ROOT {{ charts_mirror_dest | dirname }}
+    SetEnv GIT_HTTP_EXPORT_ALL 1
+
+    ScriptAlias / /usr/lib/git-core/git-http-backend/
+
+    <Directory "/usr/lib/git-core">
+        Options +ExecCGI -MultiViews +SymLinksIfOwnerMatch
+        Require all granted
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/charts-mirror_error.log
+    CustomLog ${APACHE_LOG_DIR}/charts-mirror_access.log combined
+</VirtualHost>

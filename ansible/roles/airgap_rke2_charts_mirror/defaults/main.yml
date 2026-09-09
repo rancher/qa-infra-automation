@@ -1,0 +1,39 @@
+# Default configuration for the rancher-charts bastion mirror.
+# Override these in inventory/group_vars/all.yml or via --extra-vars.
+
+# Opt-in gate. Default off so ordinary airgap runs are unaffected.
+enable_charts_mirror: false
+
+# Upstream repository to mirror (Rancher's official charts git service).
+charts_mirror_src: "https://git.rancher.io/charts"
+
+# Branch to mirror. Rancher's catalog resolves charts from the release branch
+# matching the deployed Rancher minor (e.g. Rancher v2.15 -> release-v2.15).
+# Only this branch is fetched: a full all-branch mirror is multi-GB of history
+# the catalog never serves. The branch carries every chart and every version
+# published for that release line, which is what the monitoring/alerting
+# validation suites need (chart present + at least two versions for the
+# upgrade-path tests).
+charts_mirror_branch: "release-v2.15"
+
+# Where to store the bare mirror on the bastion. The git smart-HTTP vhost roots
+# at the parent directory, so the repo is served at /<basename> (i.e. /charts.git).
+charts_mirror_dest: "/srv/git/charts.git"
+
+# Serving. Defaults match the ui-plugin mirror vhost: when that vhost is
+# already enabled on the bastion its Listen port and GIT_PROJECT_ROOT are
+# reused (both mirrors live under /srv/git); otherwise this role installs an
+# equivalent vhost of its own.
+charts_mirror_listen: "0.0.0.0"
+charts_mirror_port: 8080
+
+# Hostname/IP used in the *published* mirror URL (what the Rancher catalog
+# controller clones). Empty/unset => auto-detect the bastion's primary private
+# IPv4, which is how airgap nodes reach the bastion without depending on VPC
+# public-DNS resolution. Override to pin a DNS name or a different interface.
+charts_mirror_host: ""
+
+# ClusterRepo whose gitRepo the deploy playbook repoints at the mirror.
+# rancher-charts is the repo the monitoring/alerting suites resolve their
+# charts from (catalog.RancherChartRepo in rancher/tests).
+charts_mirror_clusterrepo: "rancher-charts"

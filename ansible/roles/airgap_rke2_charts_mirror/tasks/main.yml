@@ -1,0 +1,246 @@
+---
+# Mirror rancher/charts (git.rancher.io) on the airgap bastion so an airgapped
+# Rancher server's catalog can resolve rancher-charts charts (monitoring,
+# alerting, ...) with no git.rancher.io egress.
+#
+# Transport: SMART HTTP via Apache + git-http-backend, shared with the
+# ui-plugin mirror vhost when one is present. Rancher's catalog controller
+# clones ClusterRepos with --depth=1 (shallow); dumb HTTP cannot serve shallow
+# clones, so a real git-smart-HTTP server is required.
+- name: Mirror rancher-charts on the bastion
+  when: enable_charts_mirror | default(false) | bool
+  block:
+    # The Apache wiring below is Debian-specific (apt, a2enconf/conf-available,
+    # /usr/lib/git-core/git-http-backend, ${APACHE_LOG_DIR}); keep the same
+    # constraint and failure mode as the ui-plugin mirror role.
+    - name: Require a Debian-family bastion
+      ansible.builtin.assert:
+        that: ansible_facts['os_family'] == 'Debian'
+        fail_msg: >-
+          airgap_rke2_charts_mirror currently requires an Ubuntu/Debian
+          bastion (the Apache layout and git-http-backend path are
+          Debian-specific). See the role README.
+
+    - name: Ensure required packages are installed (git, apache2)
+      ansible.builtin.apt:
+        name:
+          - git
+          - apache2
+        state: present
+        update_cache: true
+        # The bastion AMI ships an apt cache months old; Ubuntu rotates point
+        # revisions out of -updates, so installing from the stale cache 404s.
+        cache_valid_time: 3600
+
+    - name: Compute parent directory of the mirror
+      ansible.builtin.set_fact:
+        charts_mirror_parent: "{{ charts_mirror_dest | dirname }}"
+
+    - name: Ensure mirror parent directory exists
+      ansible.builtin.file:
+        path: "{{ charts_mirror_parent }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check if mirror already exists
+      ansible.builtin.stat:
+        path: "{{ charts_mirror_dest }}/HEAD"
+      register: charts_mirror_repo
+
+    # A full `git clone --mirror` fetches every release branch of the charts
+    # repo (multi-GB). The catalog only consumes one branch, so bootstrap a
+    # bare repo with a single-branch fetch refspec instead.
+    - name: Bootstrap the bare mirror
+      when: not charts_mirror_repo.stat.exists
+      block:
+        - name: Init the bare repository
+          ansible.builtin.command:
+            cmd: git init --bare {{ charts_mirror_dest }}
+            creates: "{{ charts_mirror_dest }}/HEAD"
+
+        - name: Configure the upstream remote
+          ansible.builtin.command:
+            cmd: git --git-dir={{ charts_mirror_dest }} remote add origin {{ charts_mirror_src }}
+          # `remote add` fails when the remote exists (partial bootstrap). The
+          # guard below keeps the task idempotent; on a fresh init it cannot
+          # exist yet, and a stale config on a re-bootstrap is harmless either
+          # way, so ignore that specific failure.
+          failed_when: >-
+            remote_add.rc != 0
+            and 'already exists' not in remote_add.stderr
+          register: remote_add
+
+        - name: Scope the fetch refspec to the requested branch
+          ansible.builtin.command:
+            cmd: >-
+              git --git-dir={{ charts_mirror_dest }} config
+              remote.origin.fetch +refs/heads/{{ charts_mirror_branch }}:refs/heads/{{ charts_mirror_branch }}
+
+    - name: Fetch the mirrored branch (initial or refresh)
+      ansible.builtin.command:
+        cmd: git --git-dir={{ charts_mirror_dest }} fetch origin --prune
+      changed_when: false
+
+    - name: Verify the requested branch exists in the mirror
+      ansible.builtin.command:
+        cmd: git --git-dir={{ charts_mirror_dest }} rev-parse --verify refs/heads/{{ charts_mirror_branch }}
+      register: charts_mirror_branch_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if the requested branch is absent from the mirror
+      ansible.builtin.fail:
+        msg: >-
+          Branch '{{ charts_mirror_branch }}' not found in mirror of
+          {{ charts_mirror_src }}. Check available branches upstream and the
+          Rancher minor being deployed.
+      when: charts_mirror_branch_check.rc != 0
+
+    - name: Read current mirror HEAD
+      ansible.builtin.command:
+        cmd: git --git-dir={{ charts_mirror_dest }} symbolic-ref HEAD
+      register: charts_mirror_head
+      changed_when: false
+
+    - name: Point mirror HEAD at the requested branch
+      ansible.builtin.command:
+        cmd: git --git-dir={{ charts_mirror_dest }} symbolic-ref HEAD refs/heads/{{ charts_mirror_branch }}
+      when: (charts_mirror_head.stdout | trim) != ('refs/heads/' ~ charts_mirror_branch)
+
+    # The mirror is owned by root; git-http-backend runs as the web server user
+    # (www-data). git 2.35.2+ refuses cross-user repo access ("dubious
+    # ownership"), so allow it system-wide (the bastion only serves mirrors).
+    - name: Check system git safe.directory
+      ansible.builtin.command: git config --system --get-all safe.directory
+      register: charts_safe_dir
+      changed_when: false
+      failed_when: false
+
+    - name: Permit git-http-backend to serve the root-owned mirror
+      ansible.builtin.command: git config --system --add safe.directory '*'
+      when: "'*' not in charts_safe_dir.stdout_lines"
+
+    # Serving layer: reuse the ui-plugin vhost when present (both mirrors live
+    # under /srv/git, served by the same GIT_PROJECT_ROOT); install an
+    # equivalent vhost otherwise. Never install a second Listen on the port.
+    - name: Check for an existing git smart-HTTP vhost
+      ansible.builtin.stat:
+        path: /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+      register: charts_mirror_existing_vhost
+
+    - name: Install Apache smart-HTTP vhost for git-http-backend
+      when: not charts_mirror_existing_vhost.stat.exists
+      block:
+        - name: Render the vhost configuration
+          ansible.builtin.template:
+            src: charts-mirror.apache.conf.j2
+            dest: /etc/apache2/conf-available/charts-mirror.conf
+            owner: root
+            group: root
+            mode: "0644"
+          notify: Restart apache2
+
+        - name: Enable charts-mirror apache conf
+          ansible.builtin.command: a2enconf charts-mirror
+          args:
+            creates: /etc/apache2/conf-enabled/charts-mirror.conf
+          notify: Restart apache2
+
+        # mod_cgi needs the prefork MPM; under mpm_event, mod_cgid fails to
+        # reach its CGI daemon ("unable to connect to cgi daemon").
+        - name: Disable Apache event MPM
+          ansible.builtin.command: a2dismod mpm_event
+          args:
+            removes: /etc/apache2/mods-enabled/mpm_event.load
+          notify: Restart apache2
+
+        - name: Disable cgid module (use mod_cgi under prefork)
+          ansible.builtin.command: a2dismod cgid
+          args:
+            removes: /etc/apache2/mods-enabled/cgid.load
+          notify: Restart apache2
+
+        - name: Enable prefork MPM and cgi/alias/env modules
+          ansible.builtin.command: "a2enmod {{ item }}"
+          args:
+            creates: "/etc/apache2/mods-enabled/{{ item }}.load"
+          loop:
+            - mpm_prefork
+            - cgi
+            - alias
+            - env
+          notify: Restart apache2
+
+    - name: Ensure the existing vhost serves the same git root
+      when: charts_mirror_existing_vhost.stat.exists
+      block:
+        - name: Read GIT_PROJECT_ROOT from the existing vhost
+          ansible.builtin.command:
+            cmd: awk '/^SetEnv GIT_PROJECT_ROOT/ {print $3}' /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+          register: charts_mirror_existing_root
+          changed_when: false
+
+        - name: Fail when the git roots differ
+          ansible.builtin.fail:
+            msg: >-
+              The existing ui-plugin-mirror vhost serves GIT_PROJECT_ROOT
+              '{{ charts_mirror_existing_root.stdout | trim }}' but charts_mirror_dest
+              lives under '{{ charts_mirror_parent }}'. Align the two mirrors under a
+              common parent (defaults: /srv/git) or serve charts on its own port.
+          when: (charts_mirror_existing_root.stdout | trim) != charts_mirror_parent
+
+    - name: Ensure apache2 is enabled and running
+      ansible.builtin.service:
+        name: apache2
+        enabled: true
+        state: started
+
+    - name: Resolve mirror host (auto-detect bastion private IP when not pinned)
+      ansible.builtin.set_fact:
+        charts_mirror_host_resolved: "{{ (charts_mirror_host | default('') | trim | length > 0) | ternary(charts_mirror_host, ansible_default_ipv4.address | default(inventory_hostname)) }}"
+
+    - name: Compute the mirror URL
+      ansible.builtin.set_fact:
+        charts_mirror_url: "http://{{ charts_mirror_host_resolved }}:{{ charts_mirror_port }}/{{ charts_mirror_dest | basename }}"
+
+    # The URL is consumed by the Rancher deploy playbook (ClusterRepo
+    # repointing), which runs as a separate ansible-playbook invocation where
+    # this role's set_fact is out of scope. Persist it as an Ansible local fact
+    # so later playbooks can read it from the bastion; this role stays the
+    # single source of truth for host/port/branch overrides.
+    - name: Ensure /etc/ansible/facts.d exists on the bastion
+      ansible.builtin.file:
+        path: /etc/ansible/facts.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Persist mirror URL and branch as an Ansible local fact
+      ansible.builtin.copy:
+        content: "{{ {'url': charts_mirror_url, 'branch': charts_mirror_branch} | to_nice_json }}"
+        dest: /etc/ansible/facts.d/charts_mirror.fact
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Flush handlers so a newly installed vhost is live before verifying
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify the mirror answers smart-HTTP on the published URL
+      ansible.builtin.command:
+        cmd: git ls-remote {{ charts_mirror_url }} refs/heads/{{ charts_mirror_branch }}
+      register: charts_mirror_lsremote
+      changed_when: false
+      retries: 3
+      delay: 5
+
+    - name: Display mirror URL
+      ansible.builtin.debug:
+        msg: >-
+          rancher-charts mirror served (smart HTTP) at {{ charts_mirror_url }}
+          (branch {{ charts_mirror_branch }}); the Rancher deploy playbook
+          repoints the '{{ charts_mirror_clusterrepo }}' ClusterRepo at it when
+          enable_charts_mirror is on.
