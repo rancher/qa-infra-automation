@@ -626,8 +626,10 @@ the served HTML each way:
 
 Both are `master` commits, a day apart: the backend came from one commit and the
 UI from another. The Jenkins jobs therefore set `ui_offline_preferred: "true"`,
-which pins the pair. It changes nothing for a GA row, where `dynamic` already
-serves the image.
+which makes the pair reproducible rather than matched: the same image always
+serves the same UI, though as the next section shows that UI is often not built
+from the same commit as the backend. It changes nothing for a GA row, where
+`dynamic` already serves the image.
 
 `VERSION.txt` is written by `scripts/build-embedded` and `scripts/build-hosted`,
 which the dashboard repository gained on `release-2.15`. From 2.15 onwards both
@@ -641,21 +643,56 @@ Nothing here is pinned to a minor. The CDN path comes from the cluster's
 `ui-dashboard-index` setting, which each image carries, so it rotates on its
 own: today 2.16 has no release branch and points at `latest`, which tracks
 `master`; once `release-2.16` is cut the 2.16 images point there and the next
-minor takes `latest`. A head build names a commit, a GA build names a version,
-and a fallback names an index:
+minor takes `latest`.
+
+A head build does not imply a head UI. The image builds whatever
+`CATTLE_DASHBOARD_UI_VERSION` in `package/Dockerfile` names, and on a release
+branch that value moves with the release cycle: it holds the dashboard branch
+while a patch is in development and is rewritten to the tag when one ships.
+Traced on `release/v2.13`, and `release/v2.14` and `release/v2.15` did the same
+thing on the same days:
+
+| `CATTLE_DASHBOARD_UI_VERSION` | From | UI in a head image |
+| --- | --- | --- |
+| `release-2.13` | until 2026-08-25 | that branch, a head |
+| `v2.13.9-rc1` | 2026-08-25 | the rc |
+| `v2.13.9` | 2026-08-26 | the shipped release |
+
+So for the fortnight after a patch ships, every head build on that minor
+embeds the released UI, and the backend and the UI are weeks apart. `main` is
+the exception: it names `master`, so 2.16 head builds do carry a head UI, and
+measuring only there is what hid this. Jenkins build #183 deployed chart
+`2.15.2-fea3220-head` and reported `2.15.1 (from the image)`.
+
+The line therefore names whatever the image holds, which is a commit, a
+version or an index hash, and the value alone does not say which kind of build
+served it:
 
 ```text
-PROVENANCE ui build:     ed075e6 (from the image)           # head, 2.15+
-PROVENANCE ui build:     2.15.1 (from the image)            # GA, on the default
-PROVENANCE ui build:     index 58443f752cdf (from the image) # pre-2.15
+PROVENANCE ui build:     ed075e6 (from the image)           # a dashboard branch
+PROVENANCE ui build:     2.15.1 (from the image)            # a released UI
+PROVENANCE ui build:     index 58443f752cdf (from the image) # pre-2.15, no file
 ```
 
 On an `existing` Rancher the line reads `not read (existing Rancher, deployed
 outside this run)`: the UI is whatever the pre-existing deployment serves, which
 this run did not choose.
 
-Set to `false` to force the CDN, for example to reproduce a failure that only
-appears with the published UI.
+`auto` resolves this per run rather than making you know which case a minor is
+in today. It deploys as `true`, reads `CATTLE_DASHBOARD_UI_VERSION` from the
+running pod, and patches `ui-offline-preferred` to `false` only when the
+backend is a head build and that pin names a released version. Rancher reads
+settings live, so nothing restarts.
+
+| Backend | Image pin | Serves |
+| --- | --- | --- |
+| head | a branch, `master` or `release-X.Y` | the image, a matched pair |
+| head | a tag, `v2.13.9` | the CDN, the backend branch's own UI |
+| a release | its own tag | the image, already matched |
+
+It names no minor, so it keeps working as branches are cut and patches ship.
+`true` and `false` still force one source, `false` being the way to reproduce a
+failure that only appears with the published UI.
 
 ## Precedence {#precedence}
 

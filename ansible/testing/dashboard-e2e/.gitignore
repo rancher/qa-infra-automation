@@ -10,6 +10,7 @@ dashboard/
 .cache/
 .config/
 .creds.yml
+.creds.??????
 # Local vars.yaml variants (vars.yaml itself is ignored at the repo root)
 vars.yaml.*
 !vars.yaml.example

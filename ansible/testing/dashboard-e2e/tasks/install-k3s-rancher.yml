@@ -100,6 +100,13 @@
   failed_when: not import_kubeconfig.stat.exists
   when: create_initial_clusters | bool
 
+- name: Normalise the requested UI source
+  # One place decides what was asked for, so the deploy, the reconsideration
+  # below and the assertion cannot drift. `auto` is passed through as itself.
+  ansible.builtin.set_fact:
+    _ui_offline_requested: "{{ ui_offline_preferred | string | lower }}"
+  when: ui_offline_preferred is defined
+
 - name: Write rancher vars
   ansible.builtin.copy:
     content: |
@@ -119,10 +126,13 @@
       # Opt in only, and lower-cased on purpose: an unquoted `true` in vars.yaml
       # parses as a Python bool and renders as `True`, which Rancher does not
       # match, so the UI silently falls back to the CDN. Observed on build #95.
+      #
+      # `auto` deploys as `true` and is reconsidered once the image can be
+      # asked what UI it holds, which is only knowable from the running pod.
       extra_helm_values:
         extraEnv:
           - name: CATTLE_UI_OFFLINE_PREFERRED
-            value: '{{ ui_offline_preferred | string | lower }}'
+            value: '{{ "true" if _ui_offline_requested == "auto" else _ui_offline_requested }}'
       {% endif %}
     dest: "{{ outputs_dir }}/rancher-vars.yaml"
     mode: "0644"
@@ -216,6 +226,107 @@
   changed_when: false
   when: create_initial_clusters | bool
 
+# A head backend does not imply a head UI. The image builds whatever
+# CATTLE_DASHBOARD_UI_VERSION names, and on a release branch that value holds
+# the dashboard branch while a patch is in development but is rewritten to the
+# tag when one ships, so for weeks afterwards a head image embeds the released
+# UI. Only main names a branch year-round, which is why measuring on 2.16 alone
+# missed this. The pin is a build-time ENV, so the running pod is the only
+# place it can be read.
+- name: Read which UI the image was built with
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+      - -n
+      - cattle-system
+      - exec
+      - deploy/rancher
+      - -c
+      - rancher
+      - --
+      - printenv
+      - CATTLE_DASHBOARD_UI_VERSION
+  register: _ui_pin
+  changed_when: false
+  failed_when: false
+  when:
+    - job_type == 'recurring'
+    - _ui_offline_requested | default('') == 'auto'
+
+# Serving the image is only reproducible when the image holds a UI built from
+# the same branch as the backend. When it holds a released tag instead, the CDN
+# path is the closer pair: ui-dashboard-index points at the backend's own
+# branch.
+- name: Resolve auto to a UI source
+  vars:
+    _pin: "{{ _ui_pin.stdout | default('', true) | trim }}"
+    _pin_is_release: "{{ _pin is match('^v?[0-9]+[.][0-9]+[.][0-9]+') }}"
+    _is_head: "{{ '-head' in (rancher_image_tag_resolved | default(rancher_image_tag, true)) }}"
+  ansible.builtin.set_fact:
+    # A real boolean, cast at each use. A Jinja expression yielding the string
+    # "false" comes back as boolean False anyway, and `False == 'false'` is
+    # false, which is the same trap the setting comparison below notes.
+    _ui_serve_from_image: "{{ not (_is_head and _pin_is_release) }}"
+    _ui_auto_reason: >-
+      image pins {{ _pin | default('nothing', true) }},
+      backend is {{ 'a head build' if _is_head else 'a release' }}
+  when:
+    - job_type == 'recurring'
+    - _ui_offline_requested | default('') == 'auto'
+
+# The deployment's env var, not the Setting. Rancher rewrites the Setting from
+# CATTLE_UI_OFFLINE_PREFERRED on every start, so patching the Setting alone is
+# undone by the next restart and, measured on a 2.13 head cluster, does not
+# change what is served even before then: the Setting read false while the pod
+# still served the image, and a restart put it back to true. Changing the env
+# rolls the deployment, which is what makes it take effect.
+- name: Point Rancher at the CDN when the image holds a released UI
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+      - -n
+      - cattle-system
+      - set
+      - env
+      - deploy/rancher
+      - CATTLE_UI_OFFLINE_PREFERRED=false
+  changed_when: true
+  when:
+    - job_type == 'recurring'
+    - _ui_offline_requested | default('') == 'auto'
+    - not (_ui_serve_from_image | default(true) | bool)
+
+- name: Wait for Rancher to come back on the new UI source
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ outputs_dir }}/kubeconfig-rancher.yaml"
+      - -n
+      - cattle-system
+      - rollout
+      - status
+      - deploy/rancher
+      - --timeout=300s
+  changed_when: false
+  when:
+    - job_type == 'recurring'
+    - _ui_offline_requested | default('') == 'auto'
+    - not (_ui_serve_from_image | default(true) | bool)
+
+- name: Report how auto resolved
+  ansible.builtin.debug:
+    msg: >-
+      ui_offline_preferred=auto resolved to
+      {{ _ui_serve_from_image | string | lower }}: {{ _ui_auto_reason }}.
+  when:
+    - job_type == 'recurring'
+    - _ui_offline_requested | default('') == 'auto'
+
 # Reported unconditionally, because a rolling tag serves a different UI from one
 # run to the next and the log otherwise gives no way to tell which one a result
 # came from.
@@ -235,7 +346,7 @@
   failed_when: false
   when: job_type == 'recurring'
 
-- name: Assert Rancher serves the UI embedded in the image
+- name: Assert Rancher serves the UI that was asked for
   vars:
     _setting: "{{ (_ui_settings.results | first).resources | default([]) | first | default({}, true) }}"
     # `value` is what an operator set, `default` is what the deployment was
@@ -243,11 +354,18 @@
     # `value` when it is non-empty, otherwise `default`.
     _effective: "{{ (_setting.value | default('', true) or _setting.default | default('', true)) | string | lower }}"
   ansible.builtin.assert:
-    that: _effective == (ui_offline_preferred | string | lower)
+    # Built inside the expression rather than stored: a fact holding the string
+    # "false" comes back as boolean False, and `False == 'false'` is false.
+    that:
+      - >-
+        _effective == (('true' if (_ui_serve_from_image | default(true) | bool) else 'false')
+        if _ui_offline_requested == 'auto' else _ui_offline_requested)
     success_msg: "ui-offline-preferred={{ _effective }}, as requested."
     fail_msg: >-
       ui-offline-preferred={{ _effective | default('unset', true) }}, but
-      ui_offline_preferred={{ ui_offline_preferred }} was requested.
+      ui_offline_preferred={{ _ui_offline_requested }} asked for
+      {{ ('true' if (_ui_serve_from_image | default(true) | bool) else 'false')
+         if _ui_offline_requested == 'auto' else _ui_offline_requested }}.
       CATTLE_UI_OFFLINE_PREFERRED did not reach the deployment.
   when:
     - job_type == 'recurring'
