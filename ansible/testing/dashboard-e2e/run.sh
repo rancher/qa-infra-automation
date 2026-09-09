@@ -130,9 +130,14 @@ build_image() {
 run_playbook() {
 	# Write credentials to a temp YAML file so special characters (=, spaces, quotes)
 	# in token values are handled safely. Single-quoted YAML scalars accept any char.
-	_creds_file="${SCRIPT_DIR}/.creds.yml"
+	# Unique per run. The container always sees /playbook/.creds.yml, so the
+	# host name is free, and reusing one would break on macOS: the Podman VM
+	# caches the path as missing when the previous run deletes it and never
+	# rechecks, so the next run fails with "statfs ...: no such file or
+	# directory" even though the file is there. Also stops two concurrent runs
+	# from overwriting each other's credentials.
+	_creds_file="$(mktemp "${SCRIPT_DIR}/.creds.XXXXXX")"
 	trap 'rm -f "${_creds_file}"' EXIT
-	: > "${_creds_file}"
 	chmod 600 "${_creds_file}"
 
 	# Escape single quotes inside a single-quoted YAML scalar (' → '''')

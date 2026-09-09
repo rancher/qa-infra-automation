@@ -44,16 +44,18 @@ cert_manager_version: "1.11.0"
 bootstrap_password: "password"
 rancher_password: "password1234"
 rancher_username: "admin"
-# Serve the UI that the Rancher image embeds rather than letting the cluster
-# fetch one. Rancher's own default, "dynamic", only uses the local assets on a
-# production build, so a -head deployment fetches
-# releases.rancher.com/dashboard/latest instead, which moves independently of
-# the image. Measured on a v2.16.0-head cluster: the image embedded dashboard
-# df69324 while the CDN served 5c9f7a9, a day newer, so the backend and the UI
-# came from different commits and a rerun of the same image could pick up a
-# third. "true" pins the two together, which is what makes a run repeatable.
-# Set it to "false" only when the branch's newest UI is the thing under test.
-ui_offline_preferred: "true"
+# Where the UI comes from. Rancher's own default, "dynamic", only uses the
+# image's assets on a production build, so a -head deployment fetches the CDN,
+# which moves independently of the image: measured a day of drift on a
+# v2.16.0-head cluster.
+#   "true"   always the image's UI
+#   "false"  always the CDN, the backend branch's newest UI
+#   "auto"   whichever of the two was built from the same branch as the backend
+# Prefer "auto". A head image does not always hold a head UI: the pin in
+# package/Dockerfile is rewritten to the released tag when a patch ships, so
+# for weeks afterwards "true" would serve a UI weeks older than the backend.
+# "auto" reads that pin from the deployed pod and takes the CDN in that case.
+ui_offline_preferred: "auto"
 
 # --- Test-runner pinned versions ---
 # Keep in sync with: https://github.com/cypress-io/cypress-docker-images/blob/master/factory/.env
