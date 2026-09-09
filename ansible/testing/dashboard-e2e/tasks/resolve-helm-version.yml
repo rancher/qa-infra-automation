@@ -1,30 +1,58 @@
 # Resolve which Helm chart version and container image to deploy.
-# Each repo is self-contained. Chart and image come from the same source.
-# Matches upstream cypress/jenkins/init.sh configure_rancher_helm().
-# See README.md "Helm Repos and Image Resolution" for details.
+#
+# Each repo is self-contained: the chart and the image come from the same
+# source. See README.md "Helm Repos and Image Resolution" for the user view.
+#
+# The channel's index.yaml is read over HTTP rather than through `helm search`:
+# search needs `helm repo add` first, helm truncates its table output and
+# mangles commit-named versions, and only the index carries the `created` date
+# that orders head builds. Selection lives in filter_plugins/rancher_charts.py.
 
 - name: Map helm repo to chart and image configuration
+  when: rancher_chart_url is not defined or rancher_chart_url | length == 0
   vars:
     _helm_repos:
       rancher-prime:
         url: https://charts.rancher.com/server-charts/prime
+        # registry.suse.com serves the same digests as registry.rancher.com for
+        # every GA release, but images-locations.md names only the latter, so
+        # rancher-prime-ga below is the one to prefer. Kept because existing
+        # job configs name it.
         image: registry.suse.com/rancher/rancher
+        # Pre-release shapes this channel selects when a line is requested.
+        # Empty means any release counts, which is right for a GA channel.
+        shapes: []
+      rancher-prime-ga:
+        url: https://charts.rancher.com/server-charts/prime
+        image: registry.rancher.com/rancher/rancher
+        shapes: []
+      # Prime pre-release charts are being consolidated here, so both shapes
+      # are selected. A line holding both resolves to the rc, which outranks.
       rancher-latest:
         url: https://charts.optimus.rancher.io/server-charts/latest
         image: stgregistry.suse.com/rancher/rancher
+        shapes: ['-rc', '-alpha']
       rancher-alpha:
         url: https://charts.optimus.rancher.io/server-charts/alpha
         image: stgregistry.suse.com/rancher/rancher
+        shapes: ['-alpha']
       rancher-community:
+        # images-locations.md 2.1 names server-charts/latest for Community GA,
+        # not stable. stable is a strict subset, 126 final releases against
+        # 149, and agrees on the newest release of every maintained minor, so
+        # this is safe but narrower. community-ga: rows read latest.
         url: https://releases.rancher.com/server-charts/stable
         image: ""
+        shapes: []
       rancher-com-rc:
         url: https://releases.rancher.com/server-charts/latest
         image: ""
+        shapes: []
       rancher-com-alpha:
         url: https://releases.rancher.com/server-charts/alpha
         image: ""
-    _repo: "{{ _helm_repos[rancher_helm_repo] | default(_helm_repos['rancher-com-rc']) }}"
+        shapes: []
+    _repo: "{{ _helm_repos[rancher_helm_repo] | default({}) }}"
   block:
     - name: Validate helm repo name
       ansible.builtin.assert:
@@ -34,94 +62,99 @@
           Unknown rancher_helm_repo '{{ rancher_helm_repo }}'.
           Valid repos: {{ _helm_repos.keys() | list | join(', ') }}
 
-    - name: Set helm chart URL and image
+    - name: Set helm chart URL, image and release shapes
       ansible.builtin.set_fact:
         rancher_chart_url: "{{ _repo.url }}"
         rancher_image: "{{ _repo.image }}"
+        rancher_channel_shapes: "{{ _repo.shapes }}"
 
-- name: Add helm repo
-  ansible.builtin.command:
-    cmd: "helm repo add {{ rancher_helm_repo }} {{ rancher_chart_url }}"
-  changed_when: false
-  failed_when: false
+# The channel may already be resolved, when channel_source pointed the row at a
+# branch's own release line rather than one of the named channels. In that case
+# rancher_chart_url, rancher_image and rancher_channel_shapes are already set
+# and the map above is skipped.
+- name: Fetch the channel chart index
+  ansible.builtin.uri:
+    url: "{{ rancher_chart_url }}/index.yaml"
+    return_content: true
+  register: _chart_index
   retries: 3
   delay: 5
-  register: _helm_add
-  until: _helm_add.rc == 0
+  until: _chart_index.status | default(0) == 200
 
-- name: Update helm repos
-  ansible.builtin.command:
-    cmd: helm repo update
-  changed_when: false
-  retries: 3
-  delay: 5
-  register: _helm_update
-  until: _helm_update.rc == 0
-
-- name: Extract version string from image tag
+- name: Read the published rancher charts
   ansible.builtin.set_fact:
-    version_string: "{{ rancher_image_tag | regex_replace('-.*$', '') }}"
+    _charts: "{{ (_chart_index.content | from_yaml).entries.rancher | default([], true) }}"
 
-- name: Resolve Rancher chart version
-  ansible.builtin.shell:
-    cmd: |
-      set -eu
-      TAG="{{ rancher_image_tag }}"
-      REPO="{{ rancher_helm_repo }}"
-      VS="{{ version_string }}"
-      SEARCH=$(helm search repo "${REPO}" --devel --versions)
-
-      case "${TAG}" in
-        head)
-          # Use version sort, not helm's order: helm sorts pre-release
-          # identifiers lexically, so 2.x-alpha9 ranks above 2.x-alpha14
-          # ('9' > '1') and a plain `head -1` would pick a stale alpha.
-          # `sort -V` gives the true newest chart version.
-          echo "${SEARCH}" | sed -n '1!p' \
-            | awk '{print $2}' | sort -V | tail -1 | tr -d '[:space:]'
-          ;;
-        *)
-          case "{{ rancher_helm_repo }}" in
-            rancher-alpha)
-              echo "${SEARCH}" | grep "^${REPO}/rancher[[:space:]]" \
-                | grep "${VS}" | grep -- "-alpha" \
-                | awk '{print $2}' | sort -V | tail -1 | tr -d '[:space:]'
-              ;;
-            rancher-latest)
-              echo "${SEARCH}" | grep "^${REPO}/rancher[[:space:]]" \
-                | grep "${VS}" | grep -- "-rc" \
-                | awk '{print $2}' | sort -V | tail -1 | tr -d '[:space:]'
-              ;;
-            *)
-              echo "${SEARCH}" | grep "${VS}" \
-                | awk '{print $2}' | sort -V | tail -1 | tr -d '[:space:]'
-              ;;
-          esac
-          ;;
-      esac
-  register: helm_version_result
-  changed_when: false
-  failed_when: helm_version_result.stdout | trim == ''
-
-- name: Set rancher_version
+- name: Select the chart version
+  # rancher_chart_tag is set only by a channel_source that resolved the chart
+  # request separately from the image tag, which metadata mode does: there the
+  # two name different things and do not share a version.
   ansible.builtin.set_fact:
-    rancher_version: "{{ helm_version_result.stdout | trim }}"
+    rancher_version: >-
+      {{ _charts | rancher_chart_select(rancher_chart_tag | default(rancher_image_tag, true),
+                                        rancher_channel_shapes) }}
+
+- name: Record when the selected chart was published
+  # Only prime and GA rows set this while resolving their channel, so a metadata
+  # row reported "chart date: n/a". That is the row that needs it most: a head
+  # chart is named for a commit, so the publication date is the only thing that
+  # says which build ran. Read here instead, where every kind passes.
+  ansible.builtin.set_fact:
+    rancher_chart_released: >-
+      {{ ((_charts | selectattr('version', 'equalto', rancher_version) | first
+           | default({}, true)).created | default('', true)) | string
+         | regex_replace('^([0-9-]+)[T ]([0-9]+:[0-9]+).*$', '\1 \2') }}
+  when:
+    - rancher_version | default('', true) | length > 0
+    - rancher_chart_released | default('', true) | length == 0
+
+- name: Fail with what the line does carry
+  # "Nothing matched" points away from the answer when the minor is in the
+  # listing in a shape this channel does not select: 2.16 today is dozens of
+  # commit-named head charts and no release candidate. A fixed row cannot fall
+  # back to a head build on its own, since a pinned input would then resolve to
+  # a different commit every run, so the message names the two ways out.
+  vars:
+    _on_minor: "{{ _charts | rancher_chart_line_versions(rancher_chart_tag | default(rancher_image_tag, true)) }}"
+    _only_heads: "{{ _on_minor | select('search', '-head$') | list | length == _on_minor | length }}"
+  ansible.builtin.assert:
+    that:
+      - rancher_version | length > 0
+    fail_msg: >-
+      No chart in {{ rancher_helm_repo }} matches '{{ rancher_image_tag }}'.
+      {% if _on_minor | length > 0 %}
+      That minor version is published there but carries no
+      {{ rancher_channel_shapes | join(' or ') if rancher_channel_shapes | length > 0 else 'release' }}
+      chart yet; its newest are: {{ _on_minor | join(' ') }}.
+      {% if _only_heads %}
+      Those are all head builds, so no channel has a release for this minor
+      version yet. Either set channel_source: prime, which resolves the newest
+      Prime head build for you and reports which one it took, or pin one of the
+      versions above as rancher_image_tag to run that exact commit.
+      {% else %}
+      Pin one of those as rancher_image_tag to run it on purpose, or use a
+      channel that carries a release for this minor version.
+      {% endif %}
+      {% else %}
+      That minor version is not published in {{ rancher_helm_repo }} at all.
+      {% endif %}
 
 - name: Set resolved image tag
+  # A channel that pins an image uses the chart version, because there the chart
+  # and the image are built together. A community channel passes the requested
+  # tag through, because there the tag is what selects the build.
+  #
+  # A metadata row has already decided: it keeps the branch head tag its file
+  # names, which is not a chart version and must not be replaced by one.
   ansible.builtin.set_fact:
-    rancher_image_tag_resolved: >-
-      {%- if rancher_image | length > 0 -%}
-        v{{ rancher_version }}
-      {%- else -%}
-        {{ rancher_image_tag }}
-      {%- endif -%}
+    rancher_image_tag_resolved: "{{ ('v' ~ rancher_version) if rancher_image | length > 0 else rancher_image_tag }}"
+  when: channel_source | default('fixed') != 'metadata'
 
 - name: Adjust Node.js version for older Rancher
   ansible.builtin.set_fact:
     nodejs_version: "22.14.0"
   when:
     - rancher_image_tag != 'head'
-    - rancher_version is defined
     - rancher_version | length > 0
     - rancher_version is version('2.14', '<')
 

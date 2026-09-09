@@ -16,6 +16,35 @@
   ansible.builtin.set_fact:
     ssh_key: "{{ outputs_dir }}/id_rsa"
 
+- name: Tofu init
+  ansible.builtin.command:
+    cmd: tofu init -input=false -no-color
+    chdir: "{{ tofu_module }}"
+  changed_when: false
+
+- name: Create tofu workspaces
+  # All three workspaces share one module directory, so they are created before
+  # any apply. The applies select their own through TF_WORKSPACE, which requires
+  # the workspace to exist but does not create it.
+  #
+  # One left behind by an earlier run is normal on a reused executor, so
+  # "already exists" is success and not a change. Anything else stops the run.
+  ansible.builtin.command:
+    cmd: tofu workspace new {{ item.workspace }}
+    chdir: "{{ tofu_module }}"
+  loop:
+    - {workspace: rancher-server, condition: "{{ job_type == 'recurring' }}"}
+    - {workspace: importcluster, condition: "{{ create_initial_clusters | bool }}"}
+    - {workspace: customnode, condition: "{{ create_initial_clusters | bool }}"}
+  loop_control:
+    label: "{{ item.workspace }}"
+  when: item.condition | bool
+  register: _tofu_workspaces
+  changed_when: _tofu_workspaces.rc | default(1) == 0
+  failed_when:
+    - _tofu_workspaces.rc | default(0) != 0
+    - "'already exists' not in ((_tofu_workspaces.stderr | default('')) ~ (_tofu_workspaces.stdout | default('')))"
+
 - name: Write rancher-server tfvars
   ansible.builtin.template:
     src: tfvars.j2
@@ -26,20 +55,6 @@
     node_count: "{{ server_count }}"
     vm_roles: '["etcd", "cp", "worker"]'
     instance_type: "{{ aws_instance_type }}"
-  when: job_type == 'recurring'
-
-- name: Tofu init (rancher-server)
-  ansible.builtin.command:
-    cmd: tofu init -input=false -no-color
-    chdir: "{{ tofu_module }}"
-  changed_when: false
-
-- name: Tofu workspace create/select (rancher-server)
-  ansible.builtin.shell: |
-    tofu workspace new rancher-server 2>/dev/null || tofu workspace select rancher-server
-  args:
-    chdir: "{{ tofu_module }}"
-  changed_when: false
   when: job_type == 'recurring'
 
 - name: Tofu apply rancher-server
@@ -69,14 +84,6 @@
     instance_type: "{{ aws_instance_type }}"
   when: create_initial_clusters | bool
 
-- name: Tofu workspace create/select (importcluster)
-  ansible.builtin.shell: |
-    tofu workspace new importcluster 2>/dev/null || tofu workspace select importcluster
-  args:
-    chdir: "{{ tofu_module }}"
-  changed_when: false
-  when: create_initial_clusters | bool
-
 - name: Tofu apply importcluster
   ansible.builtin.command:
     cmd: >-
@@ -102,14 +109,6 @@
     node_count: 1
     vm_roles: '["etcd", "cp", "worker"]'
     instance_type: "t3a.xlarge"
-  when: create_initial_clusters | bool
-
-- name: Tofu workspace create/select (customnode)
-  ansible.builtin.shell: |
-    tofu workspace new customnode 2>/dev/null || tofu workspace select customnode
-  args:
-    chdir: "{{ tofu_module }}"
-  changed_when: false
   when: create_initial_clusters | bool
 
 - name: Tofu apply customnode
@@ -166,25 +165,48 @@
     '0 added, 0 changed, 0 destroyed' not in (tofu_custom_status.stdout | default(''))
   when: create_initial_clusters | bool
 
-- name: Dump rancher-server cluster_nodes_json
-  ansible.builtin.shell: >-
-    tofu output -raw -no-color cluster_nodes_json
-    > "{{ outputs_dir }}/rancher-server-nodes.json"
-  args:
+- name: Read rancher-server cluster_nodes_json
+  # command, not shell: registering stdout and writing it with copy removes the
+  # only reason for a shell. Not cloud.terraform.terraform_output either: that
+  # puts a collection on the provisioning path, and where it does not resolve
+  # the run dies here, after provisioning, with a module error naming nothing.
+  ansible.builtin.command:
+    cmd: tofu output -raw -no-color cluster_nodes_json
     chdir: "{{ tofu_module }}"
   environment:
     TF_WORKSPACE: rancher-server
-  changed_when: true
+  register: _rancher_nodes_output
+  changed_when: false
+  when: job_type == 'recurring'
+
+- name: Save rancher-server cluster_nodes_json
+  # Equivalent JSON, not identical bytes: Jinja native types parse the string to
+  # a dict and re-serialise it with Python's spacing. Both consumers parse rather
+  # than compare, generate_inventory.py with json.loads and the task below with
+  # from_json, so the parsed data is identical.
+  ansible.builtin.copy:
+    content: "{{ _rancher_nodes_output.stdout }}"
+    dest: "{{ outputs_dir }}/rancher-server-nodes.json"
+    mode: "0644"
   when: job_type == 'recurring'
 
 - name: Generate rancher-server Ansible inventory
   ansible.builtin.command:
-    cmd: >-
-      python3 {{ qa_infra_dir }}/scripts/generate_inventory.py
-      --input {{ outputs_dir }}/rancher-server-nodes.json
-      --distro k3s --env default
-      --schema {{ qa_infra_dir }}/ansible/_inventory-schema.yaml
-      --output-dir {{ outputs_dir }}/inventory-rancher-server
+    # argv, not cmd: cmd splits on whitespace, so a workspace path containing a
+    # space would silently become two arguments.
+    argv:
+      - python3
+      - "{{ qa_infra_dir }}/scripts/generate_inventory.py"
+      - --input
+      - "{{ outputs_dir }}/rancher-server-nodes.json"
+      - --distro
+      - k3s
+      - --env
+      - default
+      - --schema
+      - "{{ qa_infra_dir }}/ansible/_inventory-schema.yaml"
+      - --output-dir
+      - "{{ outputs_dir }}/inventory-rancher-server"
   changed_when: true
   when: job_type == 'recurring'
 
@@ -219,25 +241,39 @@
     backrefs: true
   when: job_type == 'recurring'
 
-- name: Dump importcluster cluster_nodes_json
-  ansible.builtin.shell: >-
-    tofu output -raw -no-color cluster_nodes_json
-    > "{{ outputs_dir }}/importcluster-nodes.json"
-  args:
+- name: Read importcluster cluster_nodes_json
+  # Same as the rancher-server read above: command, not shell, and a read.
+  ansible.builtin.command:
+    cmd: tofu output -raw -no-color cluster_nodes_json
     chdir: "{{ tofu_module }}"
   environment:
     TF_WORKSPACE: importcluster
-  changed_when: true
+  register: _import_nodes_output
+  changed_when: false
+  when: create_initial_clusters | bool
+
+- name: Save importcluster cluster_nodes_json
+  ansible.builtin.copy:
+    content: "{{ _import_nodes_output.stdout }}"
+    dest: "{{ outputs_dir }}/importcluster-nodes.json"
+    mode: "0644"
   when: create_initial_clusters | bool
 
 - name: Generate importcluster Ansible inventory
   ansible.builtin.command:
-    cmd: >-
-      python3 {{ qa_infra_dir }}/scripts/generate_inventory.py
-      --input {{ outputs_dir }}/importcluster-nodes.json
-      --distro k3s --env default
-      --schema {{ qa_infra_dir }}/ansible/_inventory-schema.yaml
-      --output-dir {{ outputs_dir }}/inventory-importcluster
+    argv:
+      - python3
+      - "{{ qa_infra_dir }}/scripts/generate_inventory.py"
+      - --input
+      - "{{ outputs_dir }}/importcluster-nodes.json"
+      - --distro
+      - k3s
+      - --env
+      - default
+      - --schema
+      - "{{ qa_infra_dir }}/ansible/_inventory-schema.yaml"
+      - --output-dir
+      - "{{ outputs_dir }}/inventory-importcluster"
   changed_when: true
   when: create_initial_clusters | bool
 

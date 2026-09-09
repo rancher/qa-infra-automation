@@ -23,26 +23,43 @@ k3s_kubernetes_version: "v1.30.0+k3s1"
 server_count: 3
 
 # --- Rancher ---
+# channel_source decides how the deploy channel is found. Absent or blank means
+# "fixed", which is what a hand-run wants: rancher_helm_repo below is used
+# exactly as written and nothing is resolved.
+#
+#   fixed         use rancher_helm_repo as written (default)
+#   metadata      registry and tag from the branch's branches-metadata.json
+#   prime         newest Prime chart on the release ladder for that minor, so a
+#                 GA if one exists, otherwise an rc, alpha or head build
+#   prime-ga      shipped Prime releases only
+#   community-ga  shipped Community releases only
+#
+# The Jenkins parent job sets this per matrix row from the row's kind, and the
+# resolving values ignore rancher_helm_repo. Set it by hand only to reproduce
+# what a matrix row did. See docs/resolver.md.
+channel_source: "fixed"
 rancher_helm_repo: "rancher-com-rc"
 rancher_image_tag: "v2.14-head"
 cert_manager_version: "1.11.0"
 bootstrap_password: "password"
 rancher_password: "password1234"
 rancher_username: "admin"
-# Pin the UI to the one the Rancher image embeds. Leave unset for the Rancher
-# default, which on a release branch `-head` tag serves the branch's UI from
-# releases.rancher.com; the image itself embeds the last GA UI, so pinning
-# would test a current backend against a weeks old UI. Set to "true" when a run
-# needs to be repeatable and the branch's UI is not what is under test, for
-# example when validating a change to the tests themselves.
-# ui_offline_preferred: "true"
+# Serve the UI that the Rancher image embeds rather than letting the cluster
+# fetch one. Rancher's own default, "dynamic", only uses the local assets on a
+# production build, so a -head deployment fetches
+# releases.rancher.com/dashboard/latest instead, which moves independently of
+# the image. Measured on a v2.16.0-head cluster: the image embedded dashboard
+# df69324 while the CDN served 5c9f7a9, a day newer, so the backend and the UI
+# came from different commits and a rerun of the same image could pick up a
+# third. "true" pins the two together, which is what makes a run repeatable.
+# Set it to "false" only when the branch's newest UI is the thing under test.
+ui_offline_preferred: "true"
 
 # --- Test-runner pinned versions ---
 # Keep in sync with: https://github.com/cypress-io/cypress-docker-images/blob/master/factory/.env
 cypress_version: "15.19.0"
 nodejs_version: "24.14.0"
-yarn_version: "1.22.22"
-chrome_version: "146.0.7680.164-1"
+chrome_version: "152.0.7977.64-1"
 
 # --- Dashboard repo ---
 dashboard_repo: "rancher/dashboard"

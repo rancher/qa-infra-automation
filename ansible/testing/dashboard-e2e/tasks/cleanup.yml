@@ -3,6 +3,12 @@
 # Uses --tags cleanup,never to prevent accidental execution.
 
 - name: Destroy tofu workspaces
+  # shell, not cloud.terraform.terraform. The module cannot destroy this module:
+  # it builds a plan file with -var-file and then applies the plan on its own,
+  # and tofu auto-loads tofu/aws/modules/cluster_nodes/terraform.tfvars at apply
+  # time, which disagrees with the plan and aborts with "Mismatch between input
+  # and plan variable value" for every variable the two files share. A direct
+  # destroy is one step, so no plan is stored for a second command to contradict.
   ansible.builtin.shell:
     cmd: |
       set -u
@@ -21,11 +27,12 @@
   loop_control:
     label: "{{ item.workspace }}"
   register: destroy_results
-  # Per-item stdout/rc are not exposed to changed_when/failed_when inside a
-  # loop, so honesty and failure handling are done in the two tasks below,
-  # where the fully populated destroy_results is in scope.
   changed_when: false
-  failed_when: false
+  # ignore_errors, not failed_when: false. The latter rewrites every item as a
+  # success, so the collector below sees no failures and a destroy that errored
+  # would strand its cloud resources silently. This keeps the flag and still
+  # lets the loop finish, so one bad workspace does not skip the others.
+  ignore_errors: true
 
 - name: Report workspaces that actually had resources destroyed
   ansible.builtin.debug:
@@ -43,11 +50,13 @@
   ansible.builtin.fail:
     msg: >-
       tofu destroy failed for workspace(s):
-      {{ destroy_results.results | selectattr('rc', 'defined')
-         | selectattr('rc', 'ne', 0) | map(attribute='item.workspace') | list }}
-  when: >-
-    destroy_results.results | selectattr('rc', 'defined')
-    | selectattr('rc', 'ne', 0) | list | length > 0
+      {{ _failed | map(attribute='item.workspace') | list }}.
+      {{ _failed | map(attribute='stderr') | select('defined') | join(' ') }}
+  vars:
+    _failed: >-
+      {{ destroy_results.results | selectattr('failed', 'defined')
+         | selectattr('failed') | list }}
+  when: _failed | length > 0
 
 - name: Remove Docker image
   community.docker.docker_image:
