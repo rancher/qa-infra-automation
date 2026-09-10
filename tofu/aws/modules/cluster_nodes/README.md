@@ -71,6 +71,13 @@ The first node in the first group with `etcd` role becomes the `master` node. Wi
 groups are numbered separately as `windows-worker-N` and take no part in master
 selection.
 
+**External datastore (kine/RDS) clusters must not declare an `etcd`-role group.**
+Master selection always prefers an etcd node over a cp node when one exists, so an
+`etcd` group present anywhere in `nodes` wins master selection regardless of your
+intent to use an external datastore. Use `cp`-only groups (e.g.
+`{ count = 2, role = ["cp"] }`) and configure `datastore-endpoint` via
+`server_flags` in Ansible's `vars.yaml` instead.
+
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
 
 ### Windows agents
