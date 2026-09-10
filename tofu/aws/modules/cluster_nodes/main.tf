@@ -118,7 +118,7 @@ resource "aws_vpc_security_group_ingress_rule" "ephemeral_lb_healthcheck_ingress
   for_each = local.create_security_group ? toset(["80", "443"]) : []
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "RKE2/Rancher listener ${each.value} from within the VPC (NLB health checks)"
+  description        = "Kubernetes/Rancher listener ${each.value} from within the VPC (NLB health checks)"
   ip_protocol        = "tcp"
   from_port          = tonumber(each.value)
   to_port            = tonumber(each.value)
@@ -132,7 +132,7 @@ resource "aws_vpc_security_group_ingress_rule" "ephemeral_rke2_api_ingress" {
   } : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "RKE2/Rancher listener ${each.value.port} from allowed CIDRs (jumpbox/bastion/office)"
+  description        = "Kubernetes/Rancher listener ${each.value.port} from allowed CIDRs (jumpbox/bastion/office)"
   ip_protocol        = "tcp"
   from_port          = tonumber(each.value.port)
   to_port            = tonumber(each.value.port)
@@ -301,7 +301,7 @@ resource "aws_vpc_security_group_ingress_rule" "rke2_lb_node_ingress" {
   } : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "RKE2/Rancher listener ${each.value.port} from node ${each.value.node} public IP"
+  description        = "Kubernetes/Rancher listener ${each.value.port} from node ${each.value.node} public IP"
   ip_protocol        = "tcp"
   from_port          = each.value.port
   to_port            = each.value.port
@@ -321,7 +321,7 @@ resource "aws_vpc_security_group_egress_rule" "rke2_lb_node_egress" {
   } : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "RKE2/Rancher listener ${each.value.port} to node ${each.value.node} public IP"
+  description        = "Kubernetes/Rancher listener ${each.value.port} to node ${each.value.node} public IP"
   ip_protocol        = "tcp"
   from_port          = each.value.port
   to_port            = each.value.port
