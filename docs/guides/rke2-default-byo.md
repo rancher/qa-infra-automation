@@ -38,7 +38,7 @@ all:
         master:
           ansible_host: "1.2.3.4"
           ansible_user: "root"
-          rke2_node_role: master
+          node_type: master
           node_roles:
             - etcd
             - cp
@@ -50,7 +50,7 @@ all:
         server-1:
           ansible_host: "5.6.7.8"
           ansible_user: "root"
-          rke2_node_role: server
+          node_type: server
           node_roles:
             - etcd
             - cp
@@ -61,13 +61,13 @@ all:
         worker-0:
           ansible_host: "9.10.11.12"
           ansible_user: "root"
-          rke2_node_role: agent
+          node_type: agent
           node_roles:
             - worker
         worker-1:
           ansible_host: "13.14.15.16"
           ansible_user: "root"
-          rke2_node_role: agent
+          node_type: agent
           node_roles:
             - worker
 ```
@@ -78,7 +78,7 @@ all:
 |-------|-------------|
 | `ansible_host` | IP or hostname Ansible uses to SSH into the node |
 | `ansible_user` | SSH user (must have sudo privileges) |
-| `rke2_node_role` | `master` for the first node, `server` for additional CP nodes, `agent` for workers |
+| `node_type` | `master` for the first node, `server` for additional CP nodes, `agent` for workers |
 | `node_roles` | List of Kubernetes roles: `etcd`, `cp`, `worker` |
 | `fqdn` | Fully-qualified domain name for TLS SANs. Use `<ip>.sslip.io` as a wildcard DNS shortcut |
 | `kube_api_host` | IP address of the Kubernetes API endpoint (first node or LB) |
@@ -99,7 +99,7 @@ all:
         master:
           ansible_host: "1.2.3.4"
           ansible_user: "root"
-          rke2_node_role: master
+          node_type: master
           node_roles: [etcd, cp, worker]
     servers:
       hosts: {}
