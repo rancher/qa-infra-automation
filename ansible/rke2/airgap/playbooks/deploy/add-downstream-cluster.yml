@@ -404,7 +404,7 @@
             - name: Render the Corefile with a hosts override for the public hostname
               ansible.builtin.copy:
                 content: >-
-                  {{ downstream_corefile_raw.stdout | regex_replace('^\\.:53 \\{',
+                  {{ downstream_corefile_raw.stdout | regex_replace('^\.:53 \{',
                     '.:53 {\n    hosts {\n        ' ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ fqdn ~ '\n        fallthrough\n    }') }}
                 dest: /tmp/corefile-public-host-override.txt
                 mode: "0644"
