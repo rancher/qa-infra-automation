@@ -65,10 +65,6 @@ module "rancher2_machine_config_v2" {
   labels                  = try(var.labels, null)
 }
 
-resource "time_sleep" "wait_120_seconds" {
-  create_duration = "120s"
-}
-
 resource "rancher2_cluster_v2" "rancher2_cluster_v2" {
   name                                                       = "${var.generate_name}-${random_string.suffix.result}"
   kubernetes_version                                         = var.kubernetes_version
@@ -149,6 +145,10 @@ data "aws_security_groups" "downstream_sg_by_id" {
     name   = "vpc-id"
     values = [try(var.node_config.aws_vpc, "")]
   }
+}
+
+resource "time_sleep" "wait_120_seconds" {
+  create_duration = "120s"
 }
 
 # The downstream node(s)' public IPs can't be read from any native Tofu
