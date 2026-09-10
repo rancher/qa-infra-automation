@@ -412,10 +412,10 @@
             - name: Apply the patched CoreDNS ConfigMap
               ansible.builtin.shell: |
                 set -o pipefail
-                kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml -n kube-system create configmap \
+                kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s -n kube-system create configmap \
                   rke2-coredns-rke2-coredns --from-file=Corefile=/tmp/corefile-public-host-override.txt \
                   --dry-run=client -o yaml | \
-                kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml apply -f -
+                kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s apply -f -
               register: downstream_coredns_patch
               changed_when: "'configured' in downstream_coredns_patch.stdout"
 

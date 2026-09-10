@@ -14,7 +14,7 @@ charts_mirror_src: "https://git.rancher.io/charts"
 # published for that release line, which is what the monitoring/alerting
 # validation suites need (chart present + at least two versions for the
 # upgrade-path tests).
-charts_mirror_branch: "release-v2.15"
+charts_mirror_branch: "{{ 'release-v' ~ (rancher_image_tag | default('v2.15.0') | regex_replace('^v(\\d+\\.\\d+).*', '\\1')) }}"
 
 # Determinism against same-day upstream publishes: current Rancher releases
 # lag one publish cycle before recently committed chart revisions show up in

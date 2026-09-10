@@ -14,6 +14,7 @@ Override these with `make <target> VAR=value`:
 | `EXTRA_VARS` | (empty) | any | Extra Ansible variables passed with `--extra-vars` |
 | `TARGET_GROUP` | (empty) | `rancher`, `downstream`, any group | Airgap inventory group to target (translates to `--extra-vars target=<group>`) |
 | `ENABLE_UI_PLUGIN_MIRROR` | `no` | `yes`, `no` | Airgap opt-in: include the standalone `ui-plugin-mirror` step in `all`/`setup-from-infra`/`airgap-downstream` (stands up the `ui-plugin-charts` HTTP mirror on the bastion, always ordered before the Rancher deploy). When the downstream registration stage also runs with `enable_ui_plugin_mirror=true`, it injects the bastion mirror URL/branch into `neuvectorTest` in `cattle-config.yaml`. Ignored unless `ENV=airgap` |
+| `ENABLE_CHARTS_MIRROR` | `no` | `yes`, `no` | Airgap opt-in: include the standalone `charts-mirror` step in `all`/`setup-from-infra` (stands up the `rancher-charts` git smart-HTTP mirror on the bastion, including a settled ref one publish behind the branch head, and the Rancher deploy repoints the `rancher-charts` ClusterRepo at it). Ignored unless `ENV=airgap` |
 
 **Example:**
 
@@ -98,6 +99,7 @@ with `VAR_FILE=`). See `tofu/scripts/README.md` for the full script reference.
 | `make upgrade-cluster` | Upgrade Kubernetes version |
 | `make kubectl-setup` | Set up kubectl on the bastion host (airgap) |
 | `make ui-plugin-mirror` | Mirror `rancher/ui-plugin-charts` on the bastion over HTTP for airgap UI extension installs (`ENV=airgap`) |
+| `make charts-mirror` | Mirror `rancher/charts` on the bastion over git smart-HTTP for airgap catalog installs; serves a settled ref one publish behind the branch head so deploys cannot race upstream chart publishes (`ENV=airgap`) |
 
 #### Generated `cattle-config.yaml`
 
@@ -148,6 +150,8 @@ make all ENV=airgap
 
 # RKE2 airgap + stand up the ui-plugin-charts bastion mirror (UI extension installs)
 make all ENV=airgap ENABLE_UI_PLUGIN_MIRROR=yes
+# RKE2 airgap + stand up the rancher-charts bastion mirror (deterministic catalog)
+make all ENV=airgap ENABLE_CHARTS_MIRROR=yes
 
 # Just the cluster (no Rancher)
 make infra-up && make cluster

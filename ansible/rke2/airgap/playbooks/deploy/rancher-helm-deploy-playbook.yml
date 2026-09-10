@@ -402,7 +402,10 @@
 
             - name: Wait for the catalog to re-sync from the mirror
               # The catalog controller re-clones asynchronously; poll until the
-              # repo reports the mirror URL and a sync condition.
+              # repo reports the mirror URL, a sync condition, AND a download
+              # timestamp newer than the pre-update one (a stale Downloaded
+              # condition from the previous source satisfies the first two
+              # checks before any clone from the mirror has happened).
               ansible.builtin.uri:
                 url: "https://{{ rancher_private_hostname }}/v1/catalog.cattle.io.clusterrepos/{{ charts_clusterrepo_current.json.id }}"
                 method: GET
@@ -415,6 +418,7 @@
               until: >-
                 (charts_clusterrepo_after.json.spec.gitRepo | default('')) == charts_mirror_fact.url
                 and (charts_clusterrepo_after.json.status.conditions | default([]) | selectattr('type', 'equalto', 'Downloaded') | selectattr('status', 'equalto', 'True') | list | length) > 0
+                and (charts_clusterrepo_after.json.status.downloadTime | default('')) != (charts_clusterrepo_current.json.status.downloadTime | default(''))
               retries: 12
               delay: 10
 

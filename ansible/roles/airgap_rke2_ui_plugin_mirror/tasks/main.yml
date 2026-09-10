@@ -114,6 +114,14 @@
         state: absent
       notify: Reload systemd daemon
 
+    - name: Check for an existing charts-mirror git vhost
+      # Serving order must not matter: when the charts mirror role already
+      # installed the shared smart-HTTP vhost (rooted at the same /srv/git
+      # parent), reuse it instead of installing a second Listen on the port.
+      ansible.builtin.stat:
+        path: /etc/apache2/conf-enabled/charts-mirror.conf
+      register: ui_plugin_charts_vhost
+
     - name: Install Apache smart-HTTP vhost for git-http-backend
       ansible.builtin.template:
         src: ui-plugin-mirror.apache.conf.j2
@@ -121,13 +129,22 @@
         owner: root
         group: root
         mode: "0644"
+      when: not ui_plugin_charts_vhost.stat.exists
       notify: Restart apache2
 
     - name: Enable ui-plugin-mirror apache conf
       ansible.builtin.command: a2enconf ui-plugin-mirror
       args:
         creates: /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+      when: not ui_plugin_charts_vhost.stat.exists
       notify: Restart apache2
+
+    - name: Note reuse of the charts-mirror vhost
+      ansible.builtin.debug:
+        msg: >-
+          Reusing the existing charts-mirror smart-HTTP vhost for
+          ui-plugin-charts (both mirrors live under the same GIT_PROJECT_ROOT).
+      when: ui_plugin_charts_vhost.stat.exists
 
     # mod_cgi needs the prefork MPM; under mpm_event, mod_cgid fails to reach
     # its CGI daemon ("unable to connect to cgi daemon") when serving git-http-backend.
