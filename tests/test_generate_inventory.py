@@ -143,33 +143,39 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         self.assertIn("cp", result["all"]["hosts"]["master"]["node_roles"])
 
     def test_k3s_external_datastore_master_falls_back_to_cp(self):
-        """K3s external-datastore topology (no etcd nodes): roles_priority must
-        fall back from [etcd] to [cp] and pick the first cp node as master.
+        """K3s external-datastore topology (no etcd nodes): Terraform falls back
+        to naming the first cp node "master" (main.tf's first_cp_index path),
+        and the schema's `master: {name: master}` group must pick it up.
         Without this fallback the master group is empty and the play can't bootstrap."""
         data = load_fixture("k3s_external_datastore.json")
         cfg = self.schema["k3s"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         master_hosts = result["all"]["children"]["master"]["hosts"]
-        self.assertEqual(list(master_hosts.keys()), ["cp-0"])
-        self.assertEqual(result["all"]["hosts"]["cp-0"]["node_roles"], ["cp"])
+        self.assertEqual(list(master_hosts.keys()), ["master"])
+        self.assertEqual(result["all"]["hosts"]["master"]["node_roles"], ["cp"])
 
     def test_rke2_external_datastore_master_falls_back_to_cp(self):
-        """RKE2 external-datastore topology (no etcd nodes): roles_priority must
-        fall back from [etcd] to [cp] and pick the first cp node as master, so a
-        cp-only kine cluster still gets a bootstrap node."""
+        """RKE2 external-datastore topology (no etcd nodes): Terraform falls back
+        to naming the first cp node "master" (main.tf's first_cp_index path), so
+        a cp-only kine cluster still gets a bootstrap node the schema can find
+        by name."""
         data = load_fixture("rke2_external_datastore.json")
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         master_hosts = result["all"]["children"]["master"]["hosts"]
-        self.assertEqual(list(master_hosts.keys()), ["cp-0"])
-        self.assertEqual(result["all"]["hosts"]["cp-0"]["node_type"], "master")
+        self.assertEqual(list(master_hosts.keys()), ["master"])
+        self.assertEqual(result["all"]["hosts"]["master"]["node_type"], "master")
         # remaining cp node is a joining server, worker is an agent
         self.assertEqual(result["all"]["hosts"]["cp-1"]["node_type"], "server")
         self.assertEqual(result["all"]["hosts"]["worker-0"]["node_type"], "agent")
 
     def test_k3s_split_role_master_is_first_etcd(self):
-        """K3s split-role: when any etcd node exists, master must be one of
-        them (not cp), because cluster-init bootstraps embedded etcd."""
+        """K3s split-role: master must be the node Terraform literally named
+        "master", not whichever etcd/cp node happens to sort first in the JSON
+        array. The fixture lists nodes in alphabetical order (cp-0, cp-1,
+        etcd-1, etcd-2, master, worker-0) - the same order a real Terraform
+        `for_each` map iteration produces - specifically so that a
+        first-match-in-array-order bug would pick etcd-1, not master."""
         data = load_fixture("k3s_split_role.json")
         cfg = self.schema["k3s"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
@@ -177,6 +183,22 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         self.assertEqual(list(master_hosts.keys()), ["master"])
         # Master node in the fixture has roles=[etcd]
         self.assertEqual(result["all"]["hosts"]["master"]["node_roles"], ["etcd"])
+
+    def test_rke2_ha_multi_cp_master_is_correctly_identified(self):
+        """RKE2 HA cluster with count > 1 in the etcd/cp node group: the
+        fixture places "etcd-cp-1" before "master" in the node array (the same
+        order real Terraform output uses, sorted alphabetically by node name).
+        A first-match-in-array-order bug would designate etcd-cp-1 as master
+        instead of the node Terraform actually flagged, breaking cluster-init."""
+        data = load_fixture("rke2_ha_multi_master.json")
+        cfg = self.schema["rke2"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        master_hosts = result["all"]["children"]["master"]["hosts"]
+        self.assertEqual(list(master_hosts.keys()), ["master"])
+        server_hosts = result["all"]["children"]["servers"]["hosts"]
+        self.assertEqual(list(server_hosts.keys()), ["etcd-cp-1"])
+        self.assertEqual(result["all"]["hosts"]["master"]["node_type"], "master")
+        self.assertEqual(result["all"]["hosts"]["etcd-cp-1"]["node_type"], "server")
 
     def test_k3s_split_role_servers_include_etcd_and_cp(self):
         """K3s split-role: servers group must include both remaining etcd
