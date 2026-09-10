@@ -292,6 +292,13 @@
               into {{ rancher_cattle_config_file }} as neuvectorTest.uiPluginChartsURL
 
     - name: Set Rancher server URL
+      # server-url bakes itself into every generated kubeconfig and downstream
+      # cluster enrollment. Keep it on the PUBLIC hostname: agents running from
+      # outside the airgap network (Jenkins runners, developer workstations)
+      # resolve and route to it, while in-VPC AWS DNS resolves the same name to
+      # the private IP so nodes and cluster agents keep working unchanged. The
+      # TLS cert covers both names (the deploy requests SANs for each). Override
+      # rancher_server_url to pin a different value.
       ansible.builtin.uri:
         url: "https://{{ rancher_private_hostname }}/v3/settings/server-url"
         method: PUT
@@ -301,12 +308,106 @@
           Authorization: "Bearer {{ rancher_generated_token }}"
         body:
           name: "server-url"
-          value: "https://{{ rancher_private_hostname }}"
+          value: "{{ rancher_server_url | default('https://' ~ rancher_public_hostname) }}"
         body_format: json
         validate_certs: false
         status_code: 200
       retries: 5
       delay: 10
+
+    - name: Check for the rancher-charts mirror fact on the bastion
+      # The fact is written by the airgap_rke2_charts_mirror role, so its
+      # presence means a mirror is actually being served (make charts-mirror,
+      # or make all ENABLE_CHARTS_MIRROR=yes, which order the mirror step
+      # before the Rancher deploy).
+      ansible.builtin.stat:
+        path: /etc/ansible/facts.d/charts_mirror.fact
+      register: charts_mirror_fact_stat
+
+    - name: Repoint the rancher-charts ClusterRepo at the bastion mirror
+      # Airgap nodes have no git.rancher.io egress; without this the catalog
+      # serves whatever stale copy it last synced. Repointing is a plain spec
+      # edit on an ordinary ClusterRepo (no DNS/TLS impersonation needed) and
+      # the catalog controller re-clones from the mirror immediately.
+      when: charts_mirror_fact_stat.stat.exists
+      block:
+        - name: Read the charts mirror local fact
+          ansible.builtin.slurp:
+            src: /etc/ansible/facts.d/charts_mirror.fact
+          register: charts_mirror_fact_raw
+
+        - name: Parse the charts mirror fact
+          ansible.builtin.set_fact:
+            charts_mirror_fact: "{{ charts_mirror_fact_raw.content | b64decode | from_json }}"
+
+        - name: Fail when the charts mirror fact has no URL
+          ansible.builtin.fail:
+            msg: >-
+              Found /etc/ansible/facts.d/charts_mirror.fact on the bastion but it
+              carries no 'url'. Re-run make charts-mirror ENV=airgap to rewrite it.
+          when: (charts_mirror_fact.url | default('')) | length == 0
+
+        - name: Read the current ClusterRepo
+          ansible.builtin.uri:
+            url: "https://{{ rancher_private_hostname }}/v1/catalog.cattle.io.clusterrepos/{{ charts_mirror_fact.clusterrepo | default('rancher-charts') }}"
+            method: GET
+            headers:
+              Accept: "application/json"
+              Authorization: "Bearer {{ rancher_generated_token }}"
+            validate_certs: false
+            status_code: 200
+          register: charts_clusterrepo_current
+          retries: 5
+          delay: 10
+
+        - name: Update the ClusterRepo only when the mirror differs
+          when: >-
+            (charts_clusterrepo_current.json.spec.gitRepo | default('')) != charts_mirror_fact.url
+            or (charts_clusterrepo_current.json.spec.gitBranch | default('')) != (charts_mirror_fact.branch | default(''))
+          block:
+            - name: Repoint ClusterRepo git source at the mirror
+              ansible.builtin.uri:
+                url: "https://{{ rancher_private_hostname }}/v1/catalog.cattle.io.clusterrepos/{{ charts_clusterrepo_current.json.id }}"
+                method: PUT
+                headers:
+                  Accept: "application/json"
+                  Content-Type: "application/json"
+                  Authorization: "Bearer {{ rancher_generated_token }}"
+                body: >-
+                  {{ charts_clusterrepo_current.json | combine({'spec': (charts_clusterrepo_current.json.spec | default({})) | combine({
+                      'gitRepo': charts_mirror_fact.url,
+                      'gitBranch': charts_mirror_fact.branch | default('release-v2.15')
+                    })}, recursive=True) | to_json }}
+                body_format: json
+                validate_certs: false
+                status_code: 200
+              register: charts_clusterrepo_update
+              retries: 5
+              delay: 10
+
+            - name: Wait for the catalog to re-sync from the mirror
+              # The catalog controller re-clones asynchronously; poll until the
+              # repo reports the mirror URL and a sync condition.
+              ansible.builtin.uri:
+                url: "https://{{ rancher_private_hostname }}/v1/catalog.cattle.io.clusterrepos/{{ charts_clusterrepo_current.json.id }}"
+                method: GET
+                headers:
+                  Accept: "application/json"
+                  Authorization: "Bearer {{ rancher_generated_token }}"
+                validate_certs: false
+                status_code: 200
+              register: charts_clusterrepo_after
+              until: >-
+                (charts_clusterrepo_after.json.spec.gitRepo | default('')) == charts_mirror_fact.url
+                and (charts_clusterrepo_after.json.status.conditions | default([]) | selectattr('type', 'equalto', 'Downloaded') | selectattr('status', 'equalto', 'True') | list | length) > 0
+              retries: 12
+              delay: 10
+
+        - name: Display charts mirror repoint
+          ansible.builtin.debug:
+            msg: >-
+              rancher-charts ClusterRepo now clones {{ charts_mirror_fact.url }}
+              (branch {{ charts_mirror_fact.branch | default('release-v2.15') }})
 
     - name: Create Rancher configuration summary
       ansible.builtin.copy:
