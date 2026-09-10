@@ -177,8 +177,11 @@
       when: charts_mirror_existing_vhost.stat.exists
       block:
         - name: Read GIT_PROJECT_ROOT from the existing vhost
+          # Match anywhere in the line and take the last field: the template
+          # renders "SetEnv GIT_PROJECT_ROOT <path>" but indentation and spacing
+          # vary across template revisions, so a start-anchored $3 parse is brittle.
           ansible.builtin.command:
-            cmd: awk '/^SetEnv GIT_PROJECT_ROOT/ {print $3}' /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+            cmd: awk '/GIT_PROJECT_ROOT/ {print $NF}' /etc/apache2/conf-enabled/ui-plugin-mirror.conf
           register: charts_mirror_existing_root
           changed_when: false
 
@@ -189,7 +192,17 @@
               '{{ charts_mirror_existing_root.stdout | trim }}' but charts_mirror_dest
               lives under '{{ charts_mirror_parent }}'. Align the two mirrors under a
               common parent (defaults: /srv/git) or serve charts on its own port.
-          when: (charts_mirror_existing_root.stdout | trim) != charts_mirror_parent
+          when: >-
+            (charts_mirror_existing_root.stdout | trim | length > 0)
+            and (charts_mirror_existing_root.stdout | trim) != charts_mirror_parent
+
+        - name: Note when the existing vhost root could not be parsed
+          ansible.builtin.debug:
+            msg: >-
+              Could not parse GIT_PROJECT_ROOT from the existing ui-plugin-mirror
+              vhost; skipping the git-root alignment check (both mirrors default
+              to /srv/git).
+          when: (charts_mirror_existing_root.stdout | trim | length) == 0
 
     - name: Ensure apache2 is enabled and running
       ansible.builtin.service:
