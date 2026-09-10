@@ -100,6 +100,65 @@
   failed_when: not import_kubeconfig.stat.exists
   when: create_initial_clusters | bool
 
+# A metadata row runs a floating image, vX.Y-head, which is re-pointed rather
+# than replaced, against a chart named for one commit. metadata-release-* keeps
+# exactly one chart and a republish deletes the previous version, so the chart
+# resolved before provisioning can be gone by the time k3s is up: production
+# build #1 resolved 2.14-d3617d27-head at 08:45 and the deploy failed at 08:53
+# with "not found in index". Re-reading here also settles the quieter half of
+# the same mismatch, where the chart survives but names an older commit than
+# the image that is about to run.
+- name: Re-read the chart index now the cluster is up
+  ansible.builtin.uri:
+    url: "{{ rancher_chart_url }}/index.yaml"
+    return_content: true
+  register: _chart_index_late
+  retries: 3
+  delay: 5
+  until: _chart_index_late.status | default(0) == 200
+  failed_when: false
+  when:
+    - job_type == 'recurring'
+    - channel_source | default('fixed') == 'metadata'
+
+- name: Take the chart that branch publishes now
+  vars:
+    _charts_late: "{{ (_chart_index_late.content | from_yaml).entries.rancher | default([], true) }}"
+  ansible.builtin.set_fact:
+    _chart_late_pick: >-
+      {{ _charts_late | rancher_chart_select(rancher_chart_tag | default(rancher_image_tag, true),
+                                             rancher_channel_shapes) }}
+  when:
+    - job_type == 'recurring'
+    - channel_source | default('fixed') == 'metadata'
+    - _chart_index_late.status | default(0) == 200
+
+# Reported, not silent: the chart a run deployed is the one worth reading in
+# the log, and a swap here means the branch published mid-run.
+- name: Report a chart that moved during provisioning
+  ansible.builtin.debug:
+    msg: >-
+      The {{ rancher_helm_repo }} chart moved while the cluster came up:
+      {{ rancher_version }} is gone, deploying {{ _chart_late_pick }} instead.
+  when:
+    - _chart_late_pick | default('', true) | length > 0
+    - _chart_late_pick != rancher_version
+
+- name: Deploy the chart the branch publishes now
+  vars:
+    _charts_late: "{{ (_chart_index_late.content | from_yaml).entries.rancher | default([], true) }}"
+  ansible.builtin.set_fact:
+    rancher_version: "{{ _chart_late_pick }}"
+    # Re-read with it: the date reported in the provenance belongs to the chart
+    # that actually deployed, not to the one resolved before provisioning.
+    rancher_chart_released: >-
+      {{ ((_charts_late | selectattr('version', 'equalto', _chart_late_pick) | first
+           | default({}, true)).created | default('', true)) | string
+         | regex_replace('^([0-9-]+)[T ]([0-9]+:[0-9]+).*$', '\1 \2') }}
+  when:
+    - _chart_late_pick | default('', true) | length > 0
+    - _chart_late_pick != rancher_version
+
 - name: Normalise the requested UI source
   # One place decides what was asked for, so the deploy, the reconsideration
   # below and the assertion cannot drift. `auto` is passed through as itself.
@@ -263,7 +322,10 @@
   vars:
     _pin: "{{ _ui_pin.stdout | default('', true) | trim }}"
     _pin_is_release: "{{ _pin is match('^v?[0-9]+[.][0-9]+[.][0-9]+') }}"
-    _is_head: "{{ '-head' in (rancher_image_tag_resolved | default(rancher_image_tag, true)) }}"
+    # A metadata:head row sends the bare tag `head`, every other head row sends
+    # vX.Y-head or vX.Y.Z-<sha>-head, so both shapes have to count.
+    _tag: "{{ rancher_image_tag_resolved | default(rancher_image_tag, true) }}"
+    _is_head: "{{ _tag == 'head' or '-head' in _tag }}"
   ansible.builtin.set_fact:
     # A real boolean, cast at each use. A Jinja expression yielding the string
     # "false" comes back as boolean False anyway, and `False == 'false'` is

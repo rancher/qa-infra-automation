@@ -457,7 +457,11 @@
         _tag_sent: >-
           {{ 'chart (no override)' if rancher_image_tag_from_chart | default(false) | bool
              else (rancher_image_tag_resolved | default(rancher_image_tag)) }}
-        _is_head: "{{ '-head' in (rancher_image_tag_resolved | default(rancher_image_tag)) }}"
+        # `head` is the bare tag a metadata:head row sends; the others carry
+        # the suffix.
+        _is_head: >-
+          {{ (rancher_image_tag_resolved | default(rancher_image_tag)) == 'head'
+             or '-head' in (rancher_image_tag_resolved | default(rancher_image_tag)) }}
       ansible.builtin.debug:
         msg: "{{ ['PROVENANCE kind:         ' ~ (channel_source | default('fixed')),
                   'PROVENANCE requested:    ' ~ (rancher_image_tag | default('?')),
