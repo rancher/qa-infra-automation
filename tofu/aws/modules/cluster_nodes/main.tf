@@ -148,15 +148,6 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_default_egress" {
   cidr_ipv4          = each.value
 }
 
-resource "aws_vpc_security_group_egress_rule" "ephemeral_ingress_cidrs_egress" {
-  for_each = local.create_security_group ? toset(var.ephemeral_sg_ingress_cidrs) : []
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Egress to allowed CIDRs"
-  ip_protocol        = "-1"
-  cidr_ipv4          = each.value
-}
-
 resource "aws_vpc_security_group_egress_rule" "ephemeral_self_egress" {
   count = local.create_security_group ? 1 : 0
 
@@ -164,50 +155,6 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_self_egress" {
   description                   = "All traffic between instances in this security group"
   ip_protocol                   = "-1"
   referenced_security_group_id = aws_security_group.ephemeral[0].id
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_http_egress" {
-  count = local.create_security_group ? 1 : 0
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Outbound HTTP"
-  ip_protocol        = "tcp"
-  from_port          = 80
-  to_port            = 80
-  cidr_ipv4          = "0.0.0.0/0"
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_https_egress" {
-  count = local.create_security_group ? 1 : 0
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Outbound HTTPS"
-  ip_protocol        = "tcp"
-  from_port          = 443
-  to_port            = 443
-  cidr_ipv4          = "0.0.0.0/0"
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_tcp_egress" {
-  count = local.create_security_group ? 1 : 0
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Outbound DNS (TCP)"
-  ip_protocol        = "tcp"
-  from_port          = 53
-  to_port            = 53
-  cidr_ipv4          = "0.0.0.0/0"
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_udp_egress" {
-  count = local.create_security_group ? 1 : 0
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Outbound DNS (UDP)"
-  ip_protocol        = "udp"
-  from_port          = 53
-  to_port            = 53
-  cidr_ipv4          = "0.0.0.0/0"
 }
 
 
@@ -308,26 +255,6 @@ resource "aws_vpc_security_group_ingress_rule" "rke2_lb_node_ingress" {
   cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
 }
 
-# Egress counterpart to rke2_lb_node_ingress above: nodes DIAL OUT to each
-# other's public IPs on 80/443 (e.g. a joining node reaching the NLB/master
-# via its public IP). Scoped per-node-IP instead of 0.0.0.0/0.
-resource "aws_vpc_security_group_egress_rule" "rke2_lb_node_egress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["80", "443"], keys(aws_instance.node)) :
-    "${pair[0]}-${pair[1]}" => {
-      port = tonumber(pair[0])
-      node = pair[1]
-    }
-  } : {}
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Kubernetes/Rancher listener ${each.value.port} to node ${each.value.node} public IP"
-  ip_protocol        = "tcp"
-  from_port          = each.value.port
-  to_port            = each.value.port
-  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
-}
-
 # Node-to-node RKE2/Rancher API traffic (6443/9345) hairpins through the IGW
 # because nodes address each other by public IP (see outputs.kube_api_host),
 # so it does NOT match the "self = true" intra-SG rule above (that only
@@ -347,31 +274,6 @@ resource "aws_vpc_security_group_ingress_rule" "rke2_api_node_ingress" {
 
   security_group_id = aws_security_group.ephemeral[0].id
   description        = "RKE2/Rancher API ${each.value.port} from node ${each.value.node} public IP"
-  ip_protocol        = "tcp"
-  from_port          = each.value.port
-  to_port            = each.value.port
-  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
-}
-
-# Egress counterpart to rke2_api_node_ingress above: nodes DIAL OUT to each
-# other's public IPs on 6443/9345 to join/read the cluster (e.g. an agent
-# calling https://<master_public_ip>:9345/cacerts). None of the existing
-# inline egress rules (VPC CIDR, jumpbox CIDR, 80/443/53 to 0.0.0.0/0) cover
-# egress to another node's public IP on these ports, so without this rule
-# outbound join traffic is dropped and nodes hang/fail joining the master.
-# Scoped per-node-IP instead of 0.0.0.0/0. Standalone resource for the same
-# reason as the ingress rule (avoids a cycle with aws_security_group).
-resource "aws_vpc_security_group_egress_rule" "rke2_api_node_egress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["6443", "9345"], keys(aws_instance.node)) :
-    "${pair[0]}-${pair[1]}" => {
-      port = tonumber(pair[0])
-      node = pair[1]
-    }
-  } : {}
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "RKE2/Rancher API ${each.value.port} to node ${each.value.node} public IP"
   ip_protocol        = "tcp"
   from_port          = each.value.port
   to_port            = each.value.port

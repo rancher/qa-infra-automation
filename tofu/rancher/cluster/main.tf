@@ -188,10 +188,9 @@ locals {
   # unknown-until-apply) IP list as a value via try()/index, which is allowed.
   downstream_node_slots = range(sum([for mp in var.machine_pools : mp.quantity]))
   downstream_agent_checkin_rules = {
-    for pair in setproduct(["80", "443"], local.downstream_node_slots) :
-    "${pair[0]}-${pair[1]}" => {
-      port  = pair[0]
-      index = pair[1]
+    for index in local.downstream_node_slots :
+    "${index}" => {
+      index = index
     }
   }
 }
@@ -206,10 +205,8 @@ resource "aws_vpc_security_group_ingress_rule" "downstream_agent_checkin_ingress
   for_each = var.cloud_provider == "aws" ? local.downstream_agent_checkin_rules : {}
 
   security_group_id = local.downstream_sg_id
-  description        = "Downstream node ${local.downstream_discovery_tag_value} agent checkin ${each.value.port} (slot ${each.value.index})"
-  ip_protocol        = "tcp"
-  from_port          = tonumber(each.value.port)
-  to_port            = tonumber(each.value.port)
+  description        = "Downstream node ${local.downstream_discovery_tag_value} agent checkin (slot ${each.value.index})"
+  ip_protocol        = "-1"
   cidr_ipv4          = "${try(local.downstream_node_public_ips[each.value.index], "255.255.255.255")}/32"
 
   lifecycle {
@@ -224,10 +221,8 @@ resource "aws_vpc_security_group_egress_rule" "downstream_agent_checkin_egress" 
   for_each = var.cloud_provider == "aws" ? local.downstream_agent_checkin_rules : {}
 
   security_group_id = local.downstream_sg_id
-  description        = "Downstream node ${local.downstream_discovery_tag_value} agent checkin ${each.value.port} (slot ${each.value.index})"
-  ip_protocol        = "tcp"
-  from_port          = tonumber(each.value.port)
-  to_port            = tonumber(each.value.port)
+  description        = "Downstream node ${local.downstream_discovery_tag_value} agent checkin (slot ${each.value.index})"
+  ip_protocol        = "-1"
   cidr_ipv4          = "${try(local.downstream_node_public_ips[each.value.index], "255.255.255.255")}/32"
 
   lifecycle {
