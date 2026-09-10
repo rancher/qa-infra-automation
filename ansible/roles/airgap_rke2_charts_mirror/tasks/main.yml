@@ -109,6 +109,32 @@
         cmd: git --git-dir={{ charts_mirror_dest }} symbolic-ref HEAD refs/heads/{{ charts_mirror_branch }}
       when: (charts_mirror_head.stdout | trim) != ('refs/heads/' ~ charts_mirror_branch)
 
+    - name: Refresh the settled branch
+      # Current Rancher releases lag one publish cycle before recently
+      # committed chart revisions appear in the cluster-scoped catalog index:
+      # an install of "latest" through that path fails ("no chart version
+      # found") whenever the deploy races a same-day upstream publish.
+      # Serving a ref N commits behind the branch head makes deploys
+      # deterministic; see the role README.
+      when: charts_mirror_serve_settled | bool
+      block:
+        - name: Create or move the settled branch behind the branch head
+          ansible.builtin.command:
+            cmd: >-
+              git --git-dir={{ charts_mirror_dest }} branch -f
+              {{ charts_mirror_branch }}{{ charts_mirror_settled_suffix }}
+              {{ charts_mirror_branch }}~{{ charts_mirror_settled_commits_behind }}
+
+        - name: Record the settled commit
+          ansible.builtin.command:
+            cmd: git --git-dir={{ charts_mirror_dest }} rev-parse --short {{ charts_mirror_branch }}{{ charts_mirror_settled_suffix }}
+          register: charts_mirror_settled_sha
+          changed_when: false
+
+    - name: Compute the branch consumers clone
+      ansible.builtin.set_fact:
+        charts_mirror_served_branch: >-
+          {{ charts_mirror_branch ~ (charts_mirror_settled_suffix if (charts_mirror_serve_settled | bool) else '') }}
     # The mirror is owned by root; git-http-backend runs as the web server user
     # (www-data). git 2.35.2+ refuses cross-user repo access ("dubious
     # ownership"), so allow it system-wide (the bastion only serves mirrors).
@@ -233,7 +259,7 @@
 
     - name: Persist mirror URL and branch as an Ansible local fact
       ansible.builtin.copy:
-        content: "{{ {'url': charts_mirror_url, 'branch': charts_mirror_branch} | to_nice_json }}"
+        content: "{{ {'url': charts_mirror_url, 'branch': charts_mirror_served_branch} | to_nice_json }}"
         dest: /etc/ansible/facts.d/charts_mirror.fact
         owner: root
         group: root
@@ -244,7 +270,7 @@
 
     - name: Verify the mirror answers smart-HTTP on the published URL
       ansible.builtin.command:
-        cmd: git ls-remote {{ charts_mirror_url }} refs/heads/{{ charts_mirror_branch }}
+        cmd: git ls-remote {{ charts_mirror_url }} refs/heads/{{ charts_mirror_served_branch }}
       register: charts_mirror_lsremote
       changed_when: false
       retries: 3
@@ -254,6 +280,6 @@
       ansible.builtin.debug:
         msg: >-
           rancher-charts mirror served (smart HTTP) at {{ charts_mirror_url }}
-          (branch {{ charts_mirror_branch }}); the Rancher deploy playbook
+          (branch {{ charts_mirror_served_branch }}); the Rancher deploy playbook
           repoints the '{{ charts_mirror_clusterrepo }}' ClusterRepo at it when
           enable_charts_mirror is on.

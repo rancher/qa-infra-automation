@@ -48,6 +48,23 @@ See `defaults/main.yml`. Highlights:
 - `charts_mirror_host` (default: auto-detected bastion private IPv4): the
   address published in the mirror URL the catalog clones.
 
+## Settled ref (deterministic installs)
+
+Current Rancher releases lag one publish cycle before recently committed
+chart revisions appear in the cluster-scoped catalog index. Installing
+the "latest" chart version right after an upstream publish therefore
+fails with `no chart version found`, which makes CI nondeterministic in
+a way callers cannot predict (out-of-band chart releases have no
+schedule).
+
+By default the role serves a **settled** ref: `<branch>-settled`,
+created `charts_mirror_settled_commits_behind` commits (default 1)
+behind the branch head, refreshed on every role run. The local fact and
+the ClusterRepo repoint use the settled branch, so deploys never race a
+same-day publish. Trade-off: deploys lag one publish cycle; set
+`charts_mirror_serve_settled: false` to serve the live branch head (for
+example when deliberately testing chart-publish-day behavior).
+
 ## Notes
 
 - Requires an Ubuntu/Debian bastion (Apache layout, `git-http-backend` path).
