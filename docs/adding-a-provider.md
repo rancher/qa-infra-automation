@@ -80,6 +80,13 @@ output "cluster_nodes_json" {
 > by the group name `master`. The bridge script assigns `node_type: master` to any node
 > named `"master"` in the JSON. Do not use any other name for the first etcd node.
 
+> **External datastore (kine/RDS) topologies must not emit an `etcd` role at all.**
+> Master selection always prefers an etcd-role node over a cp-role node when one
+> exists (embedded etcd takes priority). If your provider's cluster is meant to use
+> an external datastore, don't include any node with an `etcd` role — declare
+> `cp`-only groups instead, or the etcd node will silently win master selection and
+> defeat the external-datastore intent.
+
 ## Step 3: Implement the node naming locals in `main.tf`
 
 The naming logic is the same for every provider.
