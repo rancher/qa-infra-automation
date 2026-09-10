@@ -358,6 +358,95 @@
         force: true
         validate_certs: false
 
+    - name: Make the public Rancher hostname resolvable inside the downstream cluster
+      # server-url carries the PUBLIC hostname so kubeconfigs generated for
+      # external runners work, but airgap downstream nodes have no route to the
+      # public load balancer, and pods resolve through CoreDNS (a node
+      # /etc/hosts entry has no effect on pod DNS). Pin the public name to the
+      # internal load balancer inside the downstream cluster: the
+      # cattle-cluster-agent validates server-url itself and never connects
+      # without this, leaving the imported cluster stuck in `pending`
+      # ("Waiting for API to be available"). The Rancher TLS cert covers both
+      # hostnames, so no certificate changes are needed.
+      when: (internal_lb_hostname | default('')) | length > 0
+      block:
+        - name: Resolve the internal load balancer address
+          ansible.builtin.command:
+            argv:
+              - getent
+              - hosts
+              - "{{ internal_lb_hostname }}"
+          register: downstream_internal_lb
+          changed_when: false
+          failed_when: downstream_internal_lb.rc != 0 or (downstream_internal_lb.stdout | trim | length) == 0
+
+        - name: Read the downstream CoreDNS Corefile
+          # kubectl rather than k8s_info: bounds every request via
+          # --request-timeout, matching the wait block below.
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - -n
+              - kube-system
+              - get
+              - configmap
+              - rke2-coredns-rke2-coredns
+              - -o
+              - jsonpath={.data.Corefile}
+          register: downstream_corefile_raw
+          changed_when: false
+
+        - name: Apply the hosts override when absent
+          when: fqdn not in downstream_corefile_raw.stdout
+          block:
+            - name: Render the Corefile with a hosts override for the public hostname
+              ansible.builtin.copy:
+                content: >-
+                  {{ downstream_corefile_raw.stdout | regex_replace('^\\.:53 \\{',
+                    '.:53 {\n    hosts {\n        ' ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ fqdn ~ '\n        fallthrough\n    }') }}
+                dest: /tmp/corefile-public-host-override.txt
+                mode: "0644"
+
+            - name: Apply the patched CoreDNS ConfigMap
+              ansible.builtin.shell: |
+                set -o pipefail
+                kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml -n kube-system create configmap \
+                  rke2-coredns-rke2-coredns --from-file=Corefile=/tmp/corefile-public-host-override.txt \
+                  --dry-run=client -o yaml | \
+                kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml apply -f -
+              register: downstream_coredns_patch
+              changed_when: "'configured' in downstream_coredns_patch.stdout"
+
+            - name: Restart CoreDNS to pick up the override
+              ansible.builtin.command:
+                argv:
+                  - kubectl
+                  - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+                  - --request-timeout=30s
+                  - -n
+                  - kube-system
+                  - rollout
+                  - restart
+                  - deployment/rke2-coredns-rke2-coredns
+              when: downstream_coredns_patch is changed
+
+            - name: Wait for CoreDNS rollout
+              ansible.builtin.command:
+                argv:
+                  - kubectl
+                  - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+                  - --request-timeout=30s
+                  - -n
+                  - kube-system
+                  - rollout
+                  - status
+                  - deployment/rke2-coredns-rke2-coredns
+                  - --timeout=180s
+              when: downstream_coredns_patch is changed
+              changed_when: false
+
     - name: Apply manifest to add cluster to Rancher
       kubernetes.core.k8s:
         state: present
