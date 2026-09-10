@@ -410,6 +410,10 @@
                 mode: "0644"
 
             - name: Apply the patched CoreDNS ConfigMap
+              # bash, not the /bin/sh default: pipefail is a bash/ksh option
+              # and dash aborts with "Illegal option -o pipefail".
+              args:
+                executable: /bin/bash
               ansible.builtin.shell: |
                 set -o pipefail
                 kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s -n kube-system create configmap \
