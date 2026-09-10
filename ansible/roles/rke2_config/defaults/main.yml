@@ -17,10 +17,14 @@ rke2_server_config:
     - "{{ fqdn }}"
     - "{{ kube_api_host }}"
   write-kubeconfig-mode: "0644"
+ 
+rke2_server_flags: {}
 
 # Default RKE2 configuration for agent nodes
 rke2_agent_config:
   server: "https://{{ kube_api_host }}:9345"
+
+rke2_agent_flags: {}
 
 # Whether to disable default components
 rke2_disable_components: []

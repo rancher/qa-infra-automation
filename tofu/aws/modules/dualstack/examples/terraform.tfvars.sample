@@ -1,0 +1,48 @@
+# AWS Credentials
+aws_access_key      = "yourkey"
+aws_secret_key      = "yoursecret"
+
+# Region and Networking settings: 
+aws_region          = "region"
+aws_vpc             = "vpc"
+aws_subnet          = "subnet"
+aws_security_group  = ["sg"]
+
+# DNS settings/hosted zone: 
+aws_route53_zone    =  "zone"
+
+# Instance settings:
+aws_ami             = "ami"
+instance_type       = "t3.xlarge"
+aws_ssh_user        = "user"
+aws_volume_size     = "40"
+aws_volume_type     = "gp3"
+aws_hostname_prefix  = "prefix"
+
+# SSH Key settings:
+public_ssh_key      = "/Path_to/jenkins.pub"
+private_ssh_key   = "/Path_to/jenkins.pem"
+key_name           = "jenkins"
+# Cluster topology settings:
+nodes = [
+  {
+    count = 1
+    role  = ["etcd"]
+  },
+  {
+    count = 1
+    role  = ["cp"]
+  },
+  {
+    count = 1
+    role  = ["worker"]
+  }
+]
+
+no_of_bastion_nodes = 1
+aws_bastion_subnet = "subnet"
+
+# Dualstack deployments - Both IPv4 and IPv6 enabled for nodes and bastion node. 
+enable_ipv6  = true # Set IPv6 IP for the nodes and bastion node. 
+enable_public_ip  = true # Set IPv4 address to the nodes. 
+kube_api_host_ipv6 = false # Set to true to use IPv6 address for kube_api_host. Set to false to use IPv4 address for kube_api_host.
