@@ -92,7 +92,7 @@ resource "aws_vpc_security_group_ingress_rule" "ephemeral_lb_listener_ingress" {
   } : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "allowed CIDRs"
+  description        = "NLB listener ${each.value.port} from allowed CIDRs"
   ip_protocol        = "tcp"
   from_port          = tonumber(each.value.port)
   to_port            = tonumber(each.value.port)
@@ -143,7 +143,7 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_default_egress" {
   for_each = local.create_security_group ? toset(local.ephemeral_sg_egress_cidrs) : []
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Egress to allowed CIDRs"
+  description        = "Egress to runner/jumpbox/bastion/office CIDRs"
   ip_protocol        = "-1"
   cidr_ipv4          = each.value
 }
@@ -152,7 +152,7 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_ingress_cidrs_egress" {
   for_each = local.create_security_group ? toset(var.ephemeral_sg_ingress_cidrs) : []
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Egress to allowed CIDRs"
+  description        = "Egress to allowed ingress CIDRs (SSH/NLB return traffic)"
   ip_protocol        = "-1"
   cidr_ipv4          = each.value
 }
@@ -250,7 +250,7 @@ resource "aws_security_group" "ssh" {
   }
 
   egress {
-    description = "Egress to allowed CIDRs"
+    description = "Egress to allowed CIDRs (ssh security group)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
