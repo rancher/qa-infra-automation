@@ -188,6 +188,28 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_https_egress" {
   cidr_ipv4          = "0.0.0.0/0"
 }
 
+resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_tcp_egress" {
+  count = local.create_security_group ? 1 : 0
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Outbound DNS (TCP)"
+  ip_protocol        = "tcp"
+  from_port          = 53
+  to_port            = 53
+  cidr_ipv4          = "0.0.0.0/0"
+}
+
+resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_udp_egress" {
+  count = local.create_security_group ? 1 : 0
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description        = "Outbound DNS (UDP)"
+  ip_protocol        = "udp"
+  from_port          = 53
+  to_port            = 53
+  cidr_ipv4          = "0.0.0.0/0"
+}
+
 # Dedicated SSH security group with stable CIDR rules.
 #
 # Why this exists: when SSH access for the jumpbox/bastion is granted ONLY via a
