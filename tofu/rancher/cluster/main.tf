@@ -148,6 +148,7 @@ data "aws_security_groups" "downstream_sg_by_id" {
 }
 
 resource "time_sleep" "wait_120_seconds" {
+  count           = var.cloud_provider == "aws" ? 1 : 0
   create_duration = "120s"
 }
 
@@ -180,7 +181,8 @@ locals {
   downstream_sg_id = length(local.downstream_sg_ids_found) == 1 ? local.downstream_sg_ids_found[0] : ""
 
   # for_each's key set must be known at plan time. data.aws_instances.downstream_node
-  # is deliberately deferred to apply (depends_on the machine_config module), so any
+  # is deliberately deferred to apply (depends_on time_sleep.wait_120_seconds, which
+  # gives the node driver time to create/tag the instance before it's queried), so any
   # collection derived from its result (downstream_node_public_ips) is unknown at
   # plan and can't drive for_each's key set directly. Instead, bound the key set by
   # the total node quantity requested in var.machine_pools (a plain variable, known
