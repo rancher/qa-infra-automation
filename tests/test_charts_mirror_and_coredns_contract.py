@@ -167,5 +167,59 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
                         )
 
 
+class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
+    """The downstream cluster's own rancher-charts catalog must follow the mirror.
+
+    The agent's catalog stack seeds a downstream ClusterRepo pointing at
+    git.rancher.io, unreachable in the airgap; installs issued through the
+    Rancher cluster proxy then resolve against the stale bundled index and
+    fail with "no chart version found" for any revision published after the
+    snapshot. add-downstream-cluster.yml must repoint it at the bastion
+    mirror and wait for the re-sync.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tasks = _tasks(PLAYBOOK_PATH)
+
+    def test_block_gated_on_enable_charts_mirror(self):
+        block = _find(
+            self.tasks,
+            "Repoint the downstream rancher-charts catalog at the bastion mirror",
+        )
+        self.assertEqual(
+            block["when"], "enable_charts_mirror | default(false) | bool",
+            "the downstream catalog repoint must be gated on enable_charts_mirror",
+        )
+
+    def test_reads_the_persisted_mirror_fact(self):
+        slurp = _require(self.tasks, "Read the charts mirror local fact on the bastion")
+        self.assertEqual(
+            slurp["ansible.builtin.slurp"]["src"], "/etc/ansible/facts.d/charts_mirror.fact",
+            "the repoint must take url/branch from the fact the mirror role persisted",
+        )
+
+    def test_patch_targets_downstream_clusterrepo_with_fact_values(self):
+        patch = _require(self.tasks, "Patch the downstream ClusterRepo to the mirror")
+        argv = patch["ansible.builtin.command"]["argv"]
+        self.assertIn("clusterrepos.catalog.cattle.io", argv)
+        self.assertIn("rancher-charts", argv)
+        payload = argv[argv.index("-p") + 1]
+        self.assertIn("charts_mirror_fact.url", payload)
+        self.assertIn("charts_mirror_fact.branch", payload)
+        # Idempotent: only patches while spec still points elsewhere.
+        self.assertIn("charts_mirror_fact.url", patch["when"])
+
+    def test_sync_wait_asserts_mirror_url_and_commit(self):
+        wait = _require(self.tasks, "Wait for the downstream catalog to re-sync from the mirror")
+        argv = wait["ansible.builtin.command"]["argv"]
+        self.assertIn("{.status.url}", argv[-1])
+        self.assertIn("{.status.commit}", argv[-1])
+        until = wait["until"]
+        self.assertIn("charts_mirror_fact.url", until)
+        self.assertIn("downstream_charts_repo_synced.stdout", until)
+        self.assertIn("> 0", until, "the wait must require a non-empty commit")
+
+
 if __name__ == "__main__":
     unittest.main()
