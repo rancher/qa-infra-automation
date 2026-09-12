@@ -24,7 +24,11 @@ charts_mirror_branch: "{{ 'release-v' ~ (rancher_image_tag | default('v2.15.0') 
 # Set charts_mirror_serve_settled to false to serve the live branch head.
 charts_mirror_serve_settled: true
 charts_mirror_settled_suffix: "-settled"
-charts_mirror_settled_commits_behind: 1
+# Path inside the charts repo whose changes constitute a catalog publication;
+# the settled ref is the last-but-one commit touching it (commit distance is
+# NOT used — the branch history mixes in clean/infra/pages commits that never
+# published anything).
+charts_mirror_settled_path: "assets"
 
 # Where to store the bare mirror on the bastion. The git smart-HTTP vhost roots
 # at the parent directory, so the repo is served at /<basename> (i.e. /charts.git).
@@ -42,6 +46,9 @@ charts_mirror_port: 8080
 # IPv4, which is how airgap nodes reach the bastion without depending on VPC
 # public-DNS resolution. Override to pin a DNS name or a different interface.
 charts_mirror_host: ""
+
+# Wall-clock bound (seconds) for the post-install smart-HTTP verification.
+charts_mirror_verify_timeout: "120"
 
 # Hard wall-clock bound (seconds) for the mirror fetch, applied via
 # coreutils timeout. Generous by default: a cold single-branch fetch of the

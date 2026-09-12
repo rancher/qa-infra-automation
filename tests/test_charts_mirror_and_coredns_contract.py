@@ -179,6 +179,40 @@ class TestChartsMirrorRole(unittest.TestCase):
         self.assertIn("charts_mirror_origin_url.stdout", update["when"])
         self.assertIn("charts_mirror_src", update["when"])
 
+    def test_settled_ref_selects_previous_publication_not_commit_distance(self):
+        # Commit distance (~N) counts arbitrary history (clean/git-pages/infra
+        # commits), so the settled ref must be the last-but-one commit that
+        # published catalog content instead.
+        history = _require(
+            self.tasks, "List the last two commits that published catalog content"
+        )
+        argv = history["ansible.builtin.command"]["argv"]
+        self.assertIn("rev-list", argv)
+        self.assertIn("--max-count=2", argv)
+        self.assertIn("--", argv)
+        self.assertIn("charts_mirror_settled_path", argv[-1])
+        create = _require(
+            self.tasks, "Create or move the settled branch at the previous publication"
+        )
+        cmd = create["ansible.builtin.command"]["cmd"]
+        self.assertIn("charts_mirror_settled_ref", cmd)
+        self.assertNotIn("charts_mirror_settled_commits_behind", cmd)
+
+    def test_lsremote_is_time_bounded(self):
+        verify = _require(self.tasks, "Verify the mirror answers smart-HTTP on the published URL")
+        argv = verify["ansible.builtin.command"]["argv"]
+        self.assertEqual(argv[0], "timeout")
+        self.assertIn("charts_mirror_verify_timeout", argv[1])
+
+    def test_safe_directory_retirement_migrates_shared_repos(self):
+        # Retiring the blanket '*' can strip the only safe.directory entry
+        # serving the ui-plugin mirror on an existing bastion; every bare repo
+        # under the shared vhost root must gain a scoped entry first.
+        find = _require(self.tasks, "List bare repositories under the shared vhost root")
+        self.assertEqual(find["ansible.builtin.command"]["argv"][0], "find")
+        scope = _require(self.tasks, "Scope every shared-vhost repo the wildcard used to cover")
+        self.assertIn("map('dirname')", scope["loop"])
+
     def test_remote_configuration_recovers_partial_bootstrap(self):
         # An interrupted first run can leave the bare repo without the origin
         # remote; a bootstrap-gated remote config would skip forever while the
@@ -383,6 +417,16 @@ class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
             block["when"], "enable_charts_mirror | default(false) | bool",
             "the downstream catalog repoint must be gated on enable_charts_mirror",
         )
+
+    def test_remediations_point_at_the_charts_mirror_target(self):
+        # `make rancher` never runs the mirror role; remediation text must
+        # send operators at the target that actually (re)writes the fact.
+        for name in ("Fail when the charts mirror fact is missing",
+                     "Fail when the charts mirror fact is missing or has no URL"):
+            task = _require(self.tasks, name)
+            msg = task["ansible.builtin.fail"]["msg"]
+            self.assertIn("make charts-mirror ENV=airgap", msg, name)
+            self.assertNotIn("make rancher ENV=airgap", msg, name)
 
     def test_reads_the_persisted_mirror_fact(self):
         slurp = _require(self.tasks, "Read the charts mirror local fact on the bastion")

@@ -147,16 +147,44 @@
       # committed chart revisions appear in the cluster-scoped catalog index:
       # an install of "latest" through that path fails ("no chart version
       # found") whenever the deploy races a same-day upstream publish.
-      # Serving a ref N commits behind the branch head makes deploys
-      # deterministic; see the role README.
+      # Serving the previous catalog PUBLICATION makes deploys deterministic;
+      # see the role README.
       when: charts_mirror_serve_settled | bool
       block:
-        - name: Create or move the settled branch behind the branch head
+        - name: List the last two commits that published catalog content
+          # Commit distance (~N) counts arbitrary history (clean runs,
+          # git-pages updates, infra propagation), so a fixed N can select an
+          # intermediate state instead of a completed publication. rev-list
+          # over the published-content path selects only commits that changed
+          # the catalog.
+          ansible.builtin.command:
+            argv:
+              - git
+              - --git-dir={{ charts_mirror_dest }}
+              - rev-list
+              - --max-count=2
+              - "{{ charts_mirror_branch }}"
+              - --
+              - "{{ charts_mirror_settled_path }}"
+          register: charts_mirror_publish_history
+          changed_when: false
+
+        - name: Resolve the settled ref to the previous catalog publication
+          # Second entry = the last-but-one publication; with no earlier
+          # publication the branch head is served (nothing newer to shield
+          # against).
+          ansible.builtin.set_fact:
+            charts_mirror_settled_ref: >-
+              {{ (charts_mirror_publish_history.stdout_lines | length) > 1
+                 | ternary(charts_mirror_publish_history.stdout_lines[1],
+                           charts_mirror_publish_history.stdout_lines[0] | default(charts_mirror_branch)) }}
+
+        - name: Create or move the settled branch at the previous publication
           ansible.builtin.command:
             cmd: >-
               git --git-dir={{ charts_mirror_dest }} branch -f
               {{ charts_mirror_branch }}{{ charts_mirror_settled_suffix }}
-              {{ charts_mirror_branch }}~{{ charts_mirror_settled_commits_behind }}
+              {{ charts_mirror_settled_ref }}
 
         - name: Record the settled commit
           ansible.builtin.command:
@@ -178,6 +206,30 @@
       register: charts_safe_dir
       changed_when: false
       failed_when: false
+
+    - name: List bare repositories under the shared vhost root
+      # The blanket wildcard may be the only entry letting git-http-backend
+      # serve OTHER mirrors on an existing bastion (e.g. ui-plugin-charts.git);
+      # collect them so each gets a scoped entry before the wildcard is
+      # retired.
+      ansible.builtin.command:
+        argv:
+          - find
+          - "{{ charts_mirror_parent }}"
+          - -maxdepth
+          - "2"
+          - -name
+          - HEAD
+          - -type
+          - f
+      register: charts_mirror_shared_repos
+      changed_when: false
+      failed_when: false
+
+    - name: Scope every shared-vhost repo the wildcard used to cover
+      ansible.builtin.command: git config --system --add safe.directory {{ item }}
+      loop: "{{ charts_mirror_shared_repos.stdout_lines | default([]) | map('dirname') | list }}"
+      when: item not in charts_safe_dir.stdout_lines
 
     - name: Retire the blanket safe.directory wildcard this role used to set
       # '\*' is the literal-star value pattern: unset-all removes only the
@@ -342,8 +394,16 @@
       ansible.builtin.meta: flush_handlers
 
     - name: Verify the mirror answers smart-HTTP on the published URL
+      # Bounded like the fetch: a stalled HTTP connection would otherwise hang
+      # the deployment indefinitely despite the retries.
       ansible.builtin.command:
-        cmd: git ls-remote {{ charts_mirror_url }} refs/heads/{{ charts_mirror_served_branch }}
+        argv:
+          - timeout
+          - "{{ charts_mirror_verify_timeout }}"
+          - git
+          - ls-remote
+          - "{{ charts_mirror_url }}"
+          - refs/heads/{{ charts_mirror_served_branch }}
       register: charts_mirror_lsremote
       changed_when: false
       retries: 3

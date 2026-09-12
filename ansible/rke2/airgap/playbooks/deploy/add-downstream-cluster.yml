@@ -568,9 +568,9 @@
           ansible.builtin.fail:
             msg: >-
               enable_charts_mirror is on but /etc/ansible/facts.d/charts_mirror.fact
-              was not found on the bastion. Run the airgap_rke2_charts_mirror role
-              first (make rancher ENV=airgap, or the standalone charts-mirror
-              playbook), then re-run this playbook.
+              was not found on the bastion. Run the mirror role first with
+              make charts-mirror ENV=airgap (the standalone target — make rancher
+              does not run it), then re-run this playbook.
           when: not charts_mirror_fact_stat.stat.exists
 
         - name: Read the charts mirror local fact on the bastion
@@ -589,10 +589,9 @@
         - name: Fail when the charts mirror fact is missing or has no URL
           ansible.builtin.fail:
             msg: >-
-              enable_charts_mirror is on but no charts_mirror fact with a 'url'
-              was found on the bastion. Run the airgap_rke2_charts_mirror role
-              first (make rancher ENV=airgap, or the standalone charts-mirror
-              playbook), then re-run this playbook.
+              enable_charts_mirror is on but the charts_mirror fact carries no
+              'url'. Re-run make charts-mirror ENV=airgap to rewrite it (make
+              rancher does not run the mirror role), then re-run this playbook.
           when: (charts_mirror_fact.url | default('')) | length == 0
 
         - name: Wait for the agent to seed the downstream rancher-charts ClusterRepo

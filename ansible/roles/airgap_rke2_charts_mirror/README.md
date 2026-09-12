@@ -6,8 +6,12 @@ catalog can resolve `rancher-charts` charts (rancher-monitoring,
 rancher-alerting-drivers, ...) with **no git.rancher.io egress**.
 
 The companion task in `rancher-helm-deploy-playbook.yml` repoints the
-`rancher-charts` ClusterRepo at the mirror URL after Rancher is up (gated on
-the same `enable_charts_mirror` flag), so no DNS or TLS impersonation of
+`rancher-charts` ClusterRepo at the mirror URL after Rancher is up. Note the
+gate is the **persisted mirror fact**, not the flag: the deploy repoints
+whenever `/etc/ansible/facts.d/charts_mirror.fact` exists on the bastion, so
+an earlier run's fact keeps the repoint active even if
+`enable_charts_mirror` is later turned off — remove the fact to disable it.
+No DNS or TLS impersonation of
 `git.rancher.io` is needed: the ClusterRepo simply clones from the bastion.
 
 ## Why
@@ -58,8 +62,10 @@ a way callers cannot predict (out-of-band chart releases have no
 schedule).
 
 By default the role serves a **settled** ref: `<branch>-settled`,
-created `charts_mirror_settled_commits_behind` commits (default 1)
-behind the branch head, refreshed on every role run. The local fact and
+pinned to the last-but-one commit that published catalog content under
+`charts_mirror_settled_path` (default `assets`) — commit distance is
+deliberately not used, since branch history mixes in clean/infra/pages
+commits that never published anything — refreshed on every role run. The local fact and
 the ClusterRepo repoint use the settled branch, so deploys never race a
 same-day publish. Trade-off: deploys lag one publish cycle; set
 `charts_mirror_serve_settled: false` to serve the live branch head (for
