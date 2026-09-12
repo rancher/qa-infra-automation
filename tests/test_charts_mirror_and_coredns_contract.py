@@ -132,21 +132,37 @@ class TestChartsMirrorRole(unittest.TestCase):
         # Bootstrap must not own the refspec: a repo bootstrapped for one
         # Rancher minor keeps fetching only that branch after a branch change,
         # so the refspec task has to run on every invocation, before the fetch.
-        bootstrap = _require(self.tasks, "Bootstrap the bare mirror")
-        self.assertIsNone(
-            _find(bootstrap["block"], "Scope the fetch refspec to the requested branch"),
-            "the fetch refspec must not be gated inside the bootstrap-only block",
-        )
         refspec = _require(self.tasks, "Scope the fetch refspec to the requested branch")
         self.assertNotIn("when", refspec, "the fetch refspec must run unconditionally")
-        fetch = _require(self.tasks, "Fetch the mirrored branch (initial or refresh)")
         outer = _require(self.tasks, "Mirror rancher-charts on the bastion")
         names = [t.get("name") for t in outer["block"]]
+        self.assertLess(
+            names.index("Configure the upstream remote"),
+            names.index("Fetch the mirrored branch (initial or refresh)"),
+            "the remote must be configured before the fetch runs",
+        )
         self.assertLess(
             names.index("Scope the fetch refspec to the requested branch"),
             names.index("Fetch the mirrored branch (initial or refresh)"),
             "the refspec must be set before the fetch runs",
         )
+
+    def test_remote_configuration_recovers_partial_bootstrap(self):
+        # An interrupted first run can leave the bare repo without the origin
+        # remote; a bootstrap-gated remote config would skip forever while the
+        # fetch fails with "no such remote", so it must run on every pass.
+        remote = _require(self.tasks, "Configure the upstream remote")
+        self.assertNotIn("when", remote, "remote configuration must run unconditionally")
+        self.assertIn("already exists", remote["failed_when"])
+
+    def test_fetch_is_time_bounded(self):
+        # A stalled connection to git.rancher.io would otherwise hang the
+        # whole pipeline indefinitely; the command module has no timeout
+        # parameter, so the fetch must be wrapped in coreutils timeout.
+        fetch = _require(self.tasks, "Fetch the mirrored branch (initial or refresh)")
+        argv = fetch["ansible.builtin.command"]["argv"]
+        self.assertEqual(argv[0], "timeout")
+        self.assertIn("charts_mirror_fetch_timeout", argv[1])
 
     def test_reused_vhost_must_match_listener_port(self):
         port_fail = _require(
@@ -228,27 +244,44 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
     def test_outer_block_gated_on_internal_lb(self):
         outer = _find(
             self.tasks,
-            "Make the public Rancher hostname resolvable inside the downstream cluster",
+            "Make the server-url hostname resolvable inside the downstream cluster",
         )
         self.assertIn("internal_lb_hostname", outer["when"])
 
     def test_inner_apply_is_idempotent_on_reruns(self):
-        inner = _require(self.tasks, "Apply the hosts override when absent")
-        self.assertIn("fqdn not in downstream_corefile_raw.stdout", inner["when"])
-
-    def test_override_pins_the_internal_lb_ip_to_the_public_hostname(self):
-        # The hosts entry must pair the INTERNAL load balancer's IP (resolved
-        # from internal_lb_hostname) with the PUBLIC fqdn baked into
-        # server-url — anything else leaves the cluster-agent unable to
-        # validate server-url or, worse, resolving the public name elsewhere.
-        render = _require(
-            self.tasks, "Render the Corefile with a hosts override for the public hostname"
+        # Content equality (not hostname presence) gates the apply: a hostname
+        # occurring anywhere in the Corefile would suppress the block forever
+        # and pin the agent to a stale internal-LB address after it changes.
+        inner = _require(self.tasks, "Apply the managed hosts override when it changed")
+        self.assertEqual(
+            inner["when"],
+            "downstream_corefile_managed != downstream_corefile_raw.stdout",
         )
-        content = render["ansible.builtin.copy"]["content"]
-        self.assertIn("downstream_internal_lb.stdout.split()[0]", content)
-        self.assertIn("~ fqdn", content)
-        # The override must never rewrite fqdn itself to the internal name.
-        self.assertNotIn("internal_lb_hostname }} '" + "'", content)
+        compute = _require(self.tasks, "Compute the Corefile with the managed hosts override")
+        expr = compute["ansible.builtin.set_fact"]["downstream_corefile_managed"]
+        self.assertIn("server-url-override begin", expr)
+        self.assertIn("server-url-override end", expr)
+        # The render strips any prior managed block before injecting, so a
+        # changed IP replaces the mapping instead of accumulating entries.
+        self.assertIn("regex_replace", expr)
+
+    def test_override_pins_the_internal_lb_ip_to_the_server_url_hostname(self):
+        # The hosts entry must pair the INTERNAL load balancer's IP (resolved
+        # from internal_lb_hostname) with the hostname the agent validates as
+        # server-url — the rancher_server_url override's host when set, else
+        # the public fqdn — anything else leaves the cluster-agent unable to
+        # validate server-url and the import stuck pending.
+        compute = _require(self.tasks, "Compute the Corefile with the managed hosts override")
+        expr = compute["ansible.builtin.set_fact"]["downstream_corefile_managed"]
+        self.assertIn("downstream_internal_lb.stdout.split()[0]", expr)
+        self.assertIn("downstream_server_url_host", expr)
+        derive = _require(
+            self.tasks, "Resolve the hostname the agent will validate as server-url"
+        )
+        derivation = derive["ansible.builtin.set_fact"]["downstream_server_url_host"]
+        self.assertIn("rancher_server_url", derivation)
+        self.assertIn("urlsplit('hostname')", derivation)
+        self.assertIn("else fqdn", derivation)
 
     def test_play_var_prefers_the_public_hostname(self):
         # server-url is set to the PUBLIC hostname, so the CoreDNS override

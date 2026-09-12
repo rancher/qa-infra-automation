@@ -43,6 +43,11 @@ charts_mirror_port: 8080
 # public-DNS resolution. Override to pin a DNS name or a different interface.
 charts_mirror_host: ""
 
+# Hard wall-clock bound (seconds) for the mirror fetch, applied via
+# coreutils timeout. Generous by default: a cold single-branch fetch of the
+# charts repo transfers hundreds of MB over a bastion link.
+charts_mirror_fetch_timeout: "3600"
+
 # ClusterRepo whose gitRepo the deploy playbook repoints at the mirror.
 # rancher-charts is the repo the monitoring/alerting suites resolve their
 # charts from (catalog.RancherChartRepo in rancher/tests).

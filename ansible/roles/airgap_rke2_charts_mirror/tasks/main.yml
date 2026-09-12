@@ -52,25 +52,25 @@
     # A full `git clone --mirror` fetches every release branch of the charts
     # repo (multi-GB). The catalog only consumes one branch, so bootstrap a
     # bare repo with a single-branch fetch refspec instead.
-    - name: Bootstrap the bare mirror
+    - name: Bootstrap the bare repository
       when: not charts_mirror_repo.stat.exists
-      block:
-        - name: Init the bare repository
-          ansible.builtin.command:
-            cmd: git init --bare {{ charts_mirror_dest }}
-            creates: "{{ charts_mirror_dest }}/HEAD"
+      ansible.builtin.command:
+        cmd: git init --bare {{ charts_mirror_dest }}
+        creates: "{{ charts_mirror_dest }}/HEAD"
 
-        - name: Configure the upstream remote
-          ansible.builtin.command:
-            cmd: git --git-dir={{ charts_mirror_dest }} remote add origin {{ charts_mirror_src }}
-          # `remote add` fails when the remote exists (partial bootstrap). The
-          # guard below keeps the task idempotent; on a fresh init it cannot
-          # exist yet, and a stale config on a re-bootstrap is harmless either
-          # way, so ignore that specific failure.
-          failed_when: >-
-            remote_add.rc != 0
-            and 'already exists' not in remote_add.stderr
-          register: remote_add
+    # Configured on EVERY run, not just bootstrap: an interrupted first run
+    # can leave the bare repo (HEAD present) without the origin remote, and a
+    # bootstrap-gated remote config would then skip forever while the fetch
+    # below fails with "no such remote" — the role could not self-recover.
+    # `remote add` fails when the remote exists; treat that specific failure
+    # as success so the task stays idempotent.
+    - name: Configure the upstream remote
+      ansible.builtin.command:
+        cmd: git --git-dir={{ charts_mirror_dest }} remote add origin {{ charts_mirror_src }}
+      failed_when: >-
+        remote_add.rc != 0
+        and 'already exists' not in remote_add.stderr
+      register: remote_add
 
     # Applied on EVERY run, not just first bootstrap: when charts_mirror_branch
     # changes (e.g. a Rancher minor upgrade), a repo bootstrapped for the old
@@ -85,8 +85,19 @@
       changed_when: false
 
     - name: Fetch the mirrored branch (initial or refresh)
+      # Bounded via coreutils timeout: a stalled connection to git.rancher.io
+      # would otherwise hang charts-mirror / all / airgap-downstream
+      # indefinitely instead of failing for retry. The command module has no
+      # timeout parameter of its own, so wrap the argv.
       ansible.builtin.command:
-        cmd: git --git-dir={{ charts_mirror_dest }} fetch origin --prune
+        argv:
+          - timeout
+          - "{{ charts_mirror_fetch_timeout }}"
+          - git
+          - --git-dir={{ charts_mirror_dest }}
+          - fetch
+          - origin
+          - --prune
       changed_when: false
 
     - name: Verify the requested branch exists in the mirror

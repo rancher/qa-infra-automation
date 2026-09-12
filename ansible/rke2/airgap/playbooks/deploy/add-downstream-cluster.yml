@@ -350,18 +350,31 @@
       delay: 10
       until: registration_manifest is success
 
-    - name: Make the public Rancher hostname resolvable inside the downstream cluster
-      # server-url carries the PUBLIC hostname so kubeconfigs generated for
-      # external runners work, but airgap downstream nodes have no route to the
-      # public load balancer, and pods resolve through CoreDNS (a node
-      # /etc/hosts entry has no effect on pod DNS). Pin the public name to the
-      # internal load balancer inside the downstream cluster: the
-      # cattle-cluster-agent validates server-url itself and never connects
-      # without this, leaving the imported cluster stuck in `pending`
-      # ("Waiting for API to be available"). The Rancher TLS cert covers both
-      # hostnames, so no certificate changes are needed.
+    - name: Make the server-url hostname resolvable inside the downstream cluster
+      # server-url carries the PUBLIC hostname (or an explicit rancher_server_url
+      # override) so kubeconfigs generated for external runners work, but airgap
+      # downstream nodes have no route to the public load balancer, and pods
+      # resolve through CoreDNS (a node /etc/hosts entry has no effect on pod
+      # DNS). Pin the server-url hostname to the internal load balancer inside
+      # the downstream cluster: the cattle-cluster-agent validates server-url
+      # itself and never connects without this, leaving the imported cluster
+      # stuck in `pending` ("Waiting for API to be available"). The Rancher TLS
+      # cert covers both hostnames, so no certificate changes are needed.
+      # The API endpoint (fqdn) and the server-url hostname are resolved
+      # separately: a custom rancher_server_url can point the agent at a name
+      # that is neither the public nor the internal LB hostname.
       when: (internal_lb_hostname | default('')) | length > 0
       block:
+        - name: Resolve the hostname the agent will validate as server-url
+          # Matches the deploy playbook's precedence: an explicit
+          # rancher_server_url wins (any host it names is what the agent
+          # checks); otherwise the public fqdn baked into server-url.
+          ansible.builtin.set_fact:
+            downstream_server_url_host: >-
+              {{ (rancher_server_url | default('') | urlsplit('hostname'))
+                 if (rancher_server_url | default('') | length > 0)
+                 else fqdn }}
+
         - name: Resolve the internal load balancer address
           ansible.builtin.command:
             argv:
@@ -390,14 +403,26 @@
           register: downstream_corefile_raw
           changed_when: false
 
-        - name: Apply the hosts override when absent
-          when: fqdn not in downstream_corefile_raw.stdout
+        - name: Compute the Corefile with the managed hosts override
+          # The override is wrapped in begin/end markers so reruns can REPLACE
+          # the mapping instead of only testing hostname presence — a hostname
+          # anywhere in the Corefile would suppress this block forever and pin
+          # the cluster agent to a stale internal-LB address after it changes.
+          ansible.builtin.set_fact:
+            downstream_corefile_managed: >-
+              {{ (downstream_corefile_raw.stdout
+                  | regex_replace('(?s)\n?    # rancher-qa server-url-override begin\n.*?    # rancher-qa server-url-override end', '')
+                  | regex_replace('^\.:53 \{',
+                     '.:53 {\n    # rancher-qa server-url-override begin\n    hosts {\n        '
+                     ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ downstream_server_url_host
+                     ~ '\n        fallthrough\n    }\n    # rancher-qa server-url-override end') ) }}
+
+        - name: Apply the managed hosts override when it changed
+          when: downstream_corefile_managed != downstream_corefile_raw.stdout
           block:
-            - name: Render the Corefile with a hosts override for the public hostname
+            - name: Render the Corefile with the managed hosts override
               ansible.builtin.copy:
-                content: >-
-                  {{ downstream_corefile_raw.stdout | regex_replace('^\.:53 \{',
-                    '.:53 {\n    hosts {\n        ' ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ fqdn ~ '\n        fallthrough\n    }') }}
+                content: "{{ downstream_corefile_managed }}"
                 dest: /tmp/corefile-public-host-override.txt
                 mode: "0644"
 
@@ -532,6 +557,22 @@
     - name: Repoint the downstream rancher-charts catalog at the bastion mirror
       when: enable_charts_mirror | default(false) | bool
       block:
+        - name: Check for the charts mirror local fact on the bastion
+          ansible.builtin.stat:
+            path: /etc/ansible/facts.d/charts_mirror.fact
+          register: charts_mirror_fact_stat
+
+        - name: Fail when the charts mirror fact is missing
+          # stat-gated: slurp would fail outright on a missing file and bury
+          # the actionable remediation below.
+          ansible.builtin.fail:
+            msg: >-
+              enable_charts_mirror is on but /etc/ansible/facts.d/charts_mirror.fact
+              was not found on the bastion. Run the airgap_rke2_charts_mirror role
+              first (make rancher ENV=airgap, or the standalone charts-mirror
+              playbook), then re-run this playbook.
+          when: not charts_mirror_fact_stat.stat.exists
+
         - name: Read the charts mirror local fact on the bastion
           # The airgap_rke2_charts_mirror role ran in an earlier
           # ansible-playbook invocation, so its set_fact values are out of
