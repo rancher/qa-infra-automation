@@ -74,8 +74,25 @@ detect_runtime() {
 # --- Detect container socket ---
 detect_socket() {
 	if [ "$RUNTIME" = "podman" ]; then
+		# The API server reports where it listens; newer Podman returns a URI.
+		_remote="$(podman info -f '{{.Host.RemoteSocket.Path}}' 2>/dev/null || true)"
+		_remote="${_remote#unix://}"
+
+		# On macOS containers run inside the Podman VM, so only the VM's own
+		# path is reachable; the host side forwarding socket mounts fine but
+		# is a dead inode there. It cannot be stat'd from the host either.
+		if [ "$(uname -s)" = "Darwin" ]; then
+			if [ -n "$_remote" ]; then
+				SOCKET="$_remote"
+				return
+			fi
+			echo "ERROR: Podman socket not found." >&2
+			echo "Start it with:  podman machine start" >&2
+			exit 1
+		fi
+
 		for _sock in \
-			"$(podman info -f '{{.Host.RemoteSocket.Path}}' 2>/dev/null || true)" \
+			"$_remote" \
 			"/run/user/$(id -u)/podman/podman.sock" \
 			"/run/podman/podman.sock"; do
 			[ -n "$_sock" ] && [ -S "$_sock" ] && {
@@ -84,9 +101,7 @@ detect_socket() {
 			}
 		done
 		echo "ERROR: Podman socket not found." >&2
-		echo "Start it with:" >&2
-		echo "  Linux:  systemctl --user start podman.socket" >&2
-		echo "  macOS:  podman machine start" >&2
+		echo "Start it with:  systemctl --user start podman.socket" >&2
 		exit 1
 	else
 		for _sock in \
@@ -115,9 +130,14 @@ build_image() {
 run_playbook() {
 	# Write credentials to a temp YAML file so special characters (=, spaces, quotes)
 	# in token values are handled safely. Single-quoted YAML scalars accept any char.
-	_creds_file="${SCRIPT_DIR}/.creds.yml"
+	# Unique per run. The container always sees /playbook/.creds.yml, so the
+	# host name is free, and reusing one would break on macOS: the Podman VM
+	# caches the path as missing when the previous run deletes it and never
+	# rechecks, so the next run fails with "statfs ...: no such file or
+	# directory" even though the file is there. Also stops two concurrent runs
+	# from overwriting each other's credentials.
+	_creds_file="$(mktemp "${SCRIPT_DIR}/.creds.XXXXXX")"
 	trap 'rm -f "${_creds_file}"' EXIT
-	: > "${_creds_file}"
 	chmod 600 "${_creds_file}"
 
 	# Escape single quotes inside a single-quoted YAML scalar (' → '''')
@@ -142,6 +162,11 @@ run_playbook() {
 	# --userns=keep-id is Podman-only; on Docker we rely on --user alone
 	_userns=""
 	[ "$RUNTIME" = "podman" ] && _userns="--userns=keep-id"
+
+	# The macOS Podman VM is Fedora CoreOS with SELinux enforcing, and its API
+	# socket is labelled for the runtime, so a bind mount is otherwise denied.
+	_seclabel=""
+	[ "$RUNTIME" = "podman" ] && [ "$(uname -s)" = "Darwin" ] && _seclabel="--security-opt=label=disable"
 
 	# Keep the pseudo-tty for coloured Ansible output, but only bind stdin when
 	# there is a terminal to bind. Without this the run dies immediately under
@@ -191,6 +216,7 @@ run_playbook() {
 	$RUNTIME run --rm -t ${_stdin:+"${_stdin}"} \
 		--user "$(id -u):$(id -g)" \
 		${_userns:+"${_userns}"} \
+		${_seclabel:+"${_seclabel}"} \
 		${_sock_gid:+--group-add "${_sock_gid}"} \
 		-v "${SOCKET}:/var/run/docker.sock" \
 		-v "${VARS_FILE}:/playbook/vars.yaml:ro" \

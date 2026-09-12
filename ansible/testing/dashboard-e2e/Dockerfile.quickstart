@@ -7,8 +7,12 @@
 # Build:  docker build -f Dockerfile.quickstart -t dashboard-e2e-runner .
 # Run:    see run.sh
 
+# The base image is held on the 3.12 line on purpose. The uv install below caps
+# ansible-core below 2.17, and 2.16's supported control-node Pythons stop at
+# 3.12, so the two move together or not at all. See docs/architecture.md for
+# what raising the cap involves.
 # renovate: datasource=docker depName=python
-FROM python:3.12-alpine3.23@sha256:31a768b01976652c222e318fe5bd6e7c252f056cbf489c88fa256f1bf0af58e3
+FROM python:3.12-alpine3.23@sha256:167bc85084c9df34480efc26b4528fb68feaa8a79183b5658952137025b6f061
 
 ARG TARGETARCH
 
@@ -18,11 +22,14 @@ ARG TOFU_VERSION=v1.12.6
 ARG TOFU_SUM_AMD64=5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
 ARG TOFU_SUM_ARM64=e573979ba68a17fe7b881752051a694a7efcd970e39521f6a25775197861ed4d
 
+# Held on helm 3, which is current: 3.21.4 shipped the day after 4.2.4. Do not
+# take Renovate's v4 bump. See docs/architecture.md, "Helm is held on the 3
+# series".
 # renovate: datasource=github-release-attachments depName=helm/helm
-ARG HELM_VERSION=v4.2.4
-# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=v4.2.4
-ARG HELM_SUM_AMD64=c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3
-ARG HELM_SUM_ARM64=564de2191b881e9f71b5606b25345821ea1682f06ab90499d3ab22b530176da1
+ARG HELM_VERSION=v3.21.4
+# renovate: datasource=github-release-attachments depName=helm/helm digestVersion=v3.21.4
+ARG HELM_SUM_AMD64=61f88ab166748cb19604d7884cb100ae9ccb13804ddeb98e08af167eacbb6a14
+ARG HELM_SUM_ARM64=b54c04b4e0b2540bbdc08c17a121dab70e9a2ed0de5705528fec68a5fd3b85a7
 
 # renovate: datasource=github-release-attachments depName=kubernetes/kubernetes
 ARG KUBECTL_VERSION=v1.37.0
@@ -31,10 +38,10 @@ ARG KUBECTL_SUM_AMD64=6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c
 ARG KUBECTL_SUM_ARM64=922df28df248cc00a9e025f947704f1d1482de64ece54cfe57e61f19eaf1eef3
 
 # renovate: datasource=github-release-attachments depName=astral-sh/uv
-ARG UV_VERSION=0.12.5
-# renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.12.5
-ARG UV_SUM_AMD64=a4742988791c9aeae68c78150d6cba762062ad2a47e53738c2779d2b596bfcdb
-ARG UV_SUM_ARM64=8767a0e77f2cd45436401b1b42bf7e9ed5a4a91a74a5305d6fe93249d0f6dbc5
+ARG UV_VERSION=0.12.8
+# renovate: datasource=github-release-attachments depName=astral-sh/uv digestVersion=0.12.8
+ARG UV_SUM_AMD64=6ca4597639c97e921fb915e113061ce8e4a14ead9e42a1ead521dbb0a6763795
+ARG UV_SUM_ARM64=975917badc8370163989e5bbe5a7c69bf922d19f8e57cb2652531bbffc935f84
 
 RUN apk add --no-cache \
       git curl unzip xxd openssh-client docker-cli gcompat \
@@ -57,7 +64,16 @@ RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" \
 RUN uv pip install --system --no-cache \
       "ansible-core<2.17" ansible kubernetes docker
 
+# Pinned to match the ansible-core cap above: community.docker 5+ and
+# community.crypto 3+ both require ansible-core 2.17 or newer. These are the
+# reason the cap cannot be raised on its own.
+#
+# Installed to the system path, not the default ~/.ansible: run.sh runs the
+# container with HOME=/tmp so artifacts stay host-owned, and a collection under
+# /root is then invisible. /usr/share/ansible/collections is searched whatever
+# HOME is set to, so the same image works under run.sh and under Jenkins.
 RUN ansible-galaxy collection install \
+      -p /usr/share/ansible/collections \
       cloud.terraform kubernetes.core \
       "community.docker:<5" "community.crypto:<3" --upgrade
 
