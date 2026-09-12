@@ -95,10 +95,27 @@ class TestChartsMirrorRole(unittest.TestCase):
         )
 
     def test_fact_persists_the_served_branch_not_the_source_branch(self):
-        task = _require(self.tasks, "Persist mirror URL and branch as an Ansible local fact")
+        task = _require(
+            self.tasks, "Persist mirror URL, branch, and ClusterRepo name as an Ansible local fact"
+        )
         content = task["ansible.builtin.copy"]["content"]
         self.assertIn("charts_mirror_served_branch", content)
         self.assertNotIn("'branch': charts_mirror_branch}", content)
+        # The deploy invocation reads charts_mirror_fact.clusterrepo; omitting
+        # it here silently discards a charts_mirror_clusterrepo override.
+        self.assertIn("'clusterrepo': charts_mirror_clusterrepo", content)
+
+    def test_fact_is_persisted_only_after_the_url_is_verified(self):
+        # The deploy treats the fact's presence as proof the mirror is live;
+        # writing it before flush_handlers/ls-remote would repoint the catalog
+        # at a dead endpoint when either step fails.
+        outer = _require(self.tasks, "Mirror rancher-charts on the bastion")
+        names = [t.get("name") for t in outer["block"]]
+        self.assertLess(
+            names.index("Verify the mirror answers smart-HTTP on the published URL"),
+            names.index("Persist mirror URL, branch, and ClusterRepo name as an Ansible local fact"),
+            "the fact must be persisted after the smart-HTTP verification",
+        )
 
     def test_served_branch_applies_settled_suffix_conditionally(self):
         task = _require(self.tasks, "Compute the branch consumers clone")
@@ -337,16 +354,17 @@ class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
         wait = _require(self.tasks, "Wait for the downstream catalog to re-sync from the mirror")
         argv = wait["ansible.builtin.command"]["argv"]
         self.assertIn("{.status.url}", argv[-1])
-        self.assertIn("{.status.commit}", argv[-1])
+        self.assertIn("{.status.downloadTime}", argv[-1])
         until = wait["until"]
         self.assertIn("charts_mirror_fact.url", until)
         self.assertIn("downstream_charts_repo_synced.stdout", until)
-        self.assertIn("> 0", until, "the wait must require a non-empty commit")
-        # A branch-only patch leaves status.url unchanged, so the wait must
-        # also require the commit to move past the pre-patch one whenever a
-        # patch actually ran (skipped patch == idempotent re-run).
+        self.assertIn("> 0", until, "the wait must require a non-empty download timestamp")
+        # A branch-only patch leaves status.url unchanged and an exact mirror
+        # of the same branch state leaves the commit unchanged, so the wait
+        # must require the downloadTime to move past the pre-patch baseline
+        # whenever a patch actually ran (skipped patch == idempotent re-run).
         self.assertIn("downstream_charts_patch is skipped", until)
-        self.assertIn("downstream_charts_pre_commit", until)
+        self.assertIn("downstream_charts_pre_download", until)
 
 if __name__ == "__main__":
     unittest.main()

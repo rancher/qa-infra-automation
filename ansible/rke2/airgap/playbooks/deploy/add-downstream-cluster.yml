@@ -578,12 +578,13 @@
           delay: 10
           changed_when: false
 
-        - name: Read the current catalog sync commit
+        - name: Read the current catalog download timestamp
           # Baseline for the re-sync evidence below: a branch-only patch keeps
-          # status.url identical, so only a commit CHANGE proves the catalog
-          # controller re-cloned. The field is absent before the first sync
-          # and kubectl jsonpath errors on missing keys, so tolerate the
-          # failure and treat it as empty.
+          # status.url identical, and an exact mirror of the same branch state
+          # keeps the commit identical too, so only a downloadTime CHANGE
+          # proves the catalog controller re-cloned after the patch. The field
+          # is absent before the first sync and kubectl jsonpath errors on
+          # missing keys, so tolerate the failure and treat it as empty.
           ansible.builtin.command:
             argv:
               - kubectl
@@ -593,8 +594,8 @@
               - clusterrepos.catalog.cattle.io
               - rancher-charts
               - -o
-              - jsonpath={.status.commit}
-          register: downstream_charts_pre_commit
+              - jsonpath={.status.downloadTime}
+          register: downstream_charts_pre_download
           failed_when: false
           changed_when: false
 
@@ -628,12 +629,12 @@
 
         - name: Wait for the downstream catalog to re-sync from the mirror
           # status.url follows spec.gitRepo once the agent's catalog handler
-          # re-clones from the mirror and records a commit; before any sync
-          # it carries the bundled git.rancher.io URL. Requiring
-          # status.url == mirror keeps re-runs idempotent, and when a patch
-          # ran the commit must ALSO differ from the pre-patch one — a
-          # branch-only patch leaves status.url unchanged, so the commit
-          # change is the only proof the new branch was actually cloned.
+          # re-clones from the mirror; before any sync it carries the bundled
+          # git.rancher.io URL. Requiring status.url == mirror plus a non-empty
+          # commit proves the target is live, and when a patch ran the
+          # downloadTime must ALSO differ from the pre-patch baseline — that
+          # covers branch-only patches (status.url unchanged) and exact
+          # same-commit repoints (commit unchanged) alike.
           ansible.builtin.command:
             argv:
               - kubectl
@@ -643,7 +644,7 @@
               - clusterrepos.catalog.cattle.io
               - rancher-charts
               - -o
-              - jsonpath={.status.url}{" "}{.status.commit}
+              - jsonpath={.status.url}{" "}{.status.downloadTime}
           register: downstream_charts_repo_synced
           until: >-
             downstream_charts_repo_synced.rc == 0
@@ -651,7 +652,7 @@
             and (downstream_charts_repo_synced.stdout.split(' ') | last | trim | length) > 0
             and (downstream_charts_patch is skipped
                  or (downstream_charts_repo_synced.stdout.split(' ') | last | trim)
-                     != (downstream_charts_pre_commit.stdout | default('') | trim))
+                     != (downstream_charts_pre_download.stdout | default('') | trim))
           retries: 30
           delay: 10
           changed_when: false

@@ -311,27 +311,6 @@
       ansible.builtin.set_fact:
         charts_mirror_url: "http://{{ charts_mirror_host_resolved }}:{{ charts_mirror_port }}/{{ charts_mirror_dest | basename }}"
 
-    # The URL is consumed by the Rancher deploy playbook (ClusterRepo
-    # repointing), which runs as a separate ansible-playbook invocation where
-    # this role's set_fact is out of scope. Persist it as an Ansible local fact
-    # so later playbooks can read it from the bastion; this role stays the
-    # single source of truth for host/port/branch overrides.
-    - name: Ensure /etc/ansible/facts.d exists on the bastion
-      ansible.builtin.file:
-        path: /etc/ansible/facts.d
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Persist mirror URL and branch as an Ansible local fact
-      ansible.builtin.copy:
-        content: "{{ {'url': charts_mirror_url, 'branch': charts_mirror_served_branch} | to_nice_json }}"
-        dest: /etc/ansible/facts.d/charts_mirror.fact
-        owner: root
-        group: root
-        mode: "0644"
-
     - name: Flush handlers so a newly installed vhost is live before verifying
       ansible.builtin.meta: flush_handlers
 
@@ -342,6 +321,33 @@
       changed_when: false
       retries: 3
       delay: 5
+
+    # The fact is persisted only AFTER the smart-HTTP verification succeeds:
+    # the Rancher deploy treats its presence as proof a mirror is live, so a
+    # fact written before Apache handlers are flushed (or before ls-remote
+    # proves the URL answers) would repoint the catalog at a dead endpoint.
+    # It is consumed by the Rancher deploy playbook (ClusterRepo repointing),
+    # which runs as a separate ansible-playbook invocation where this role's
+    # set_fact values are out of scope; this file stays the single source of
+    # truth for host/port/branch overrides.
+    - name: Ensure /etc/ansible/facts.d exists on the bastion
+      ansible.builtin.file:
+        path: /etc/ansible/facts.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Persist mirror URL, branch, and ClusterRepo name as an Ansible local fact
+      # clusterrepo rides along so a configured charts_mirror_clusterrepo
+      # override survives into the separate deploy invocation, which reads
+      # charts_mirror_fact.clusterrepo (defaulting to rancher-charts).
+      ansible.builtin.copy:
+        content: "{{ {'url': charts_mirror_url, 'branch': charts_mirror_served_branch, 'clusterrepo': charts_mirror_clusterrepo} | to_nice_json }}"
+        dest: /etc/ansible/facts.d/charts_mirror.fact
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Display mirror URL
       ansible.builtin.debug:

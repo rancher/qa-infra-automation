@@ -36,16 +36,22 @@ UI_PLUGIN_MIRROR_TARGET :=
 UI_PLUGIN_MIRROR_ANSIBLE_VAR :=
 endif
 # Opt-in: include the standalone charts-mirror step in `all`/`setup-from-infra`
-# (airgap only). Default off so ordinary airgap runs are unaffected.
+# and set enable_charts_mirror=true for every ansible invocation (airgap only,
+# incl. airgap-downstream, whose downstream catalog-repoint block is otherwise
+# disabled even though the run stood the mirror up). Default off so ordinary
+# airgap runs are unaffected.
 ENABLE_CHARTS_MIRROR ?= no
 ifeq ($(ENV),airgap)
 ifeq ($(ENABLE_CHARTS_MIRROR),yes)
 CHARTS_MIRROR_TARGET := charts-mirror
+CHARTS_MIRROR_ANSIBLE_VAR := enable_charts_mirror=true
 else
 CHARTS_MIRROR_TARGET :=
+CHARTS_MIRROR_ANSIBLE_VAR :=
 endif
 else
 CHARTS_MIRROR_TARGET :=
+CHARTS_MIRROR_ANSIBLE_VAR :=
 endif
 
 
@@ -1018,9 +1024,10 @@ debug-vars: ## Show current variable values
 	@echo "  Ansible dir exists:    $$([ -d "$(ANSIBLE_DIR)" ] && echo "yes" || echo "no")"
 	@echo "  Inventory exists:      $$([ -f "$(INVENTORY)" ] && echo "yes" || echo "no")"
 
-# Extra vars support. UI_PLUGIN_MIRROR_ANSIBLE_VAR is prepended so an explicit
-# enable_ui_plugin_mirror=... in EXTRA_VARS takes precedence (later keys win).
-ANSIBLE_EXTRA_VARS_KEYS := $(strip $(UI_PLUGIN_MIRROR_ANSIBLE_VAR) $(EXTRA_VARS))
+# Extra vars support. The mirror gates are prepended so an explicit
+# enable_ui_plugin_mirror=.../enable_charts_mirror=... in EXTRA_VARS takes
+# precedence (later keys win).
+ANSIBLE_EXTRA_VARS_KEYS := $(strip $(UI_PLUGIN_MIRROR_ANSIBLE_VAR) $(CHARTS_MIRROR_ANSIBLE_VAR) $(EXTRA_VARS))
 ifneq ($(ANSIBLE_EXTRA_VARS_KEYS),)
 ANSIBLE_EXTRA_VARS := --extra-vars "$(ANSIBLE_EXTRA_VARS_KEYS)"
 else

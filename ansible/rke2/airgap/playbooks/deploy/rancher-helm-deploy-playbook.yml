@@ -400,27 +400,32 @@
               retries: 5
               delay: 10
 
-            - name: Wait for the catalog to re-sync from the mirror
-              # The catalog controller re-clones asynchronously; poll until the
-              # repo reports the mirror URL, a sync condition, AND a download
-              # timestamp newer than the pre-update one (a stale Downloaded
-              # condition from the previous source satisfies the first two
-              # checks before any clone from the mirror has happened).
-              ansible.builtin.uri:
-                url: "https://{{ rancher_private_hostname }}/v1/catalog.cattle.io.clusterrepos/{{ charts_clusterrepo_current.json.id }}"
-                method: GET
-                headers:
-                  Accept: "application/json"
-                  Authorization: "Bearer {{ rancher_generated_token }}"
-                validate_certs: false
-                status_code: 200
-              register: charts_clusterrepo_after
-              until: >-
-                (charts_clusterrepo_after.json.spec.gitRepo | default('')) == charts_mirror_fact.url
-                and (charts_clusterrepo_after.json.status.conditions | default([]) | selectattr('type', 'equalto', 'Downloaded') | selectattr('status', 'equalto', 'True') | list | length) > 0
-                and (charts_clusterrepo_after.json.status.downloadTime | default('')) != (charts_clusterrepo_current.json.status.downloadTime | default(''))
-              retries: 12
-              delay: 10
+        - name: Wait for the catalog to serve the mirror
+          # Runs on EVERY invocation, not only after a PUT: a previous run can
+          # have repointed the spec and timed out mid-sync — skipping the
+          # health check on the rerun would report success against a catalog
+          # that never downloaded the mirror. When no PUT ran this pass
+          # (idempotent rerun), the spec was already verified equal above and
+          # the downloadTime comparison is skipped; when a PUT ran, the repo
+          # must show a download timestamp NEWER than the pre-update one (a
+          # stale Downloaded condition from the previous source satisfies the
+          # first two checks before any clone from the mirror has happened).
+          ansible.builtin.uri:
+            url: "https://{{ rancher_private_hostname }}/v1/catalog.cattle.io.clusterrepos/{{ charts_clusterrepo_current.json.id }}"
+            method: GET
+            headers:
+              Accept: "application/json"
+              Authorization: "Bearer {{ rancher_generated_token }}"
+            validate_certs: false
+            status_code: 200
+          register: charts_clusterrepo_after
+          until: >-
+            (charts_clusterrepo_after.json.spec.gitRepo | default('')) == charts_mirror_fact.url
+            and (charts_clusterrepo_after.json.status.conditions | default([]) | selectattr('type', 'equalto', 'Downloaded') | selectattr('status', 'equalto', 'True') | list | length) > 0
+            and (charts_clusterrepo_update is skipped
+                 or (charts_clusterrepo_after.json.status.downloadTime | default('')) != (charts_clusterrepo_current.json.status.downloadTime | default('')))
+          retries: 12
+          delay: 10
 
         - name: Display charts mirror repoint
           ansible.builtin.debug:
