@@ -510,6 +510,124 @@
               cause (typical: agent image pull through the private registry, or the
               agent cannot reach https://{{ fqdn }} from the downstream nodes).
 
+
+    # Airgap charts catalog for the DOWNSTREAM cluster. The agent's catalog
+    # stack seeds a `rancher-charts` ClusterRepo pointing at git.rancher.io,
+    # which the airgapped downstream nodes cannot reach; its index then stays
+    # at the bundled snapshot (observed: a months-old commit). Chart installs
+    # issued through the Rancher cluster proxy
+    # (k8s/clusters/<id>/...clusterrepos/rancher-charts?action=install — the
+    # path the validation suites use via GetClusterCatalogClient) resolve
+    # against THAT index, while the suites pick "latest" from the
+    # management-side catalog (the mirror, current). Any chart revision
+    # published after the bundled snapshot then fails the install action with
+    # "no chart version found" — the client masks it as
+    # 'an error on the server ("unknown")'. Repoint the downstream ClusterRepo
+    # at the bastion mirror, exactly like the deploy playbook does for the
+    # management-side one. Downstream nodes reach the bastion mirror over the
+    # VPC (same path they already use for the ui-plugin mirror).
+    - name: Repoint the downstream rancher-charts catalog at the bastion mirror
+      when: enable_charts_mirror | default(false) | bool
+      block:
+        - name: Read the charts mirror local fact on the bastion
+          # The airgap_rke2_charts_mirror role ran in an earlier
+          # ansible-playbook invocation, so its set_fact values are out of
+          # scope here; the role persists url/branch (the SETTLED branch it
+          # serves) as a local fact, which is the single source of truth.
+          ansible.builtin.slurp:
+            src: /etc/ansible/facts.d/charts_mirror.fact
+          register: charts_mirror_fact_raw
+
+        - name: Parse the charts mirror fact
+          ansible.builtin.set_fact:
+            charts_mirror_fact: "{{ charts_mirror_fact_raw.content | b64decode | from_json }}"
+
+        - name: Fail when the charts mirror fact is missing or has no URL
+          ansible.builtin.fail:
+            msg: >-
+              enable_charts_mirror is on but no charts_mirror fact with a 'url'
+              was found on the bastion. Run the airgap_rke2_charts_mirror role
+              first (make rancher ENV=airgap, or the standalone charts-mirror
+              playbook), then re-run this playbook.
+          when: (charts_mirror_fact.url | default('')) | length == 0
+
+        - name: Wait for the agent to seed the downstream rancher-charts ClusterRepo
+          # The cattle-cluster-agent deploys the catalog CRDs and the default
+          # ClusterRepos shortly after it becomes Available (observed ~1m).
+          # kubectl with --request-timeout per the playbook convention: the
+          # apt python-kubernetes client sets no per-request timeout.
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - get
+              - clusterrepos.catalog.cattle.io
+              - rancher-charts
+              - -o
+              - jsonpath={.spec.gitRepo}
+          register: downstream_charts_repo_current
+          until: downstream_charts_repo_current.rc == 0
+          retries: 30
+          delay: 10
+          changed_when: false
+
+        - name: Patch the downstream ClusterRepo to the mirror
+          # Only when it still points elsewhere, so re-runs are no-ops.
+          when: downstream_charts_repo_current.stdout | trim != charts_mirror_fact.url
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - patch
+              - clusterrepos.catalog.cattle.io
+              - rancher-charts
+              - --type
+              - merge
+              - -p
+              - >-
+                {{ {'spec': {'gitRepo': charts_mirror_fact.url,
+                             'gitBranch': charts_mirror_fact.branch | default('release-v2.15-settled')}} | to_json }}
+          # Runs only when spec.gitRepo differs (the `when` above), so every
+          # execution genuinely repoints the catalog.
+          changed_when: true
+
+        - name: Wait for the downstream catalog to re-sync from the mirror
+          # status.url follows spec.gitRepo once the agent's catalog handler
+          # re-clones from the mirror and records a commit; before any sync
+          # it carries the bundled git.rancher.io URL. Requiring
+          # status.url == mirror makes this idempotent (a re-run against an
+          # already-repointed repo passes immediately) while still blocking a
+          # chart install that would race the re-sync and resolve against the
+          # stale bundled index.
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - get
+              - clusterrepos.catalog.cattle.io
+              - rancher-charts
+              - -o
+              - jsonpath={.status.url}{" "}{.status.commit}
+          register: downstream_charts_repo_synced
+          until: >-
+            downstream_charts_repo_synced.rc == 0
+            and (downstream_charts_repo_synced.stdout.split(' ') | first) == charts_mirror_fact.url
+            and (downstream_charts_repo_synced.stdout.split(' ') | last | trim | length) > 0
+          retries: 30
+          delay: 10
+          changed_when: false
+
+        - name: Display downstream catalog repoint
+          ansible.builtin.debug:
+            msg: >-
+              downstream rancher-charts ClusterRepo now clones
+              {{ charts_mirror_fact.url }} (branch
+              {{ charts_mirror_fact.branch | default('release-v2.15-settled') }})
+              synced at {{ downstream_charts_repo_synced.stdout | trim }}
+
     - name: Check if imported cluster is ready
       ansible.builtin.uri:
         url: "https://{{ fqdn }}/v3/clusters/{{ hostvars['localhost']['cluster_id'] }}"
