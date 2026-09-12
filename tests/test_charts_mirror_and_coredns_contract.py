@@ -33,17 +33,37 @@ UI_ROLE_TASKS_PATH = os.path.join(
     REPOSITORY_ROOT, "ansible", "roles", "airgap_rke2_ui_plugin_mirror",
     "tasks", "main.yml",
 )
+AIRGAP_DEPLOY_PLAYBOOK_PATH = os.path.join(
+    REPOSITORY_ROOT, "ansible", "rke2", "airgap", "playbooks", "deploy",
+    "rancher-helm-deploy-playbook.yml",
+)
+SHARED_DEPLOY_PLAYBOOK_PATH = os.path.join(
+    REPOSITORY_ROOT, "ansible", "rke2", "shared", "playbooks", "deploy",
+    "rancher-helm-deploy-playbook.yml",
+)
+DEPLOY_PLAYBOOKS = (AIRGAP_DEPLOY_PLAYBOOK_PATH, SHARED_DEPLOY_PLAYBOOK_PATH)
 
 
 def _tasks(path):
     with open(path) as fh:
-        plays = yaml.safe_load(fh)
-    if plays and isinstance(plays[0], dict) and "tasks" in plays[0]:
+        # One YAML document may hold the whole play list; multi-doc files
+        # yield several. Flatten both, then collect pre_tasks/tasks/post_tasks
+        # in execution order — the helm-deploy playbooks carry their work in
+        # post_tasks alongside their roles: entry, and a tasks:-only scan
+        # would see nothing.
+        docs = [d for d in yaml.safe_load_all(fh) if d is not None]
+    items = [i for d in docs for i in (d if isinstance(d, list) else [d])]
+    if not (items and isinstance(items[0], dict)):
+        return items
+    if "hosts" in items[0] or "import_playbook" in items[0]:
         tasks = []
-        for play in plays:
-            tasks.extend(play.get("tasks", []))
+        for play in items:
+            if isinstance(play, dict):
+                tasks.extend(play.get("pre_tasks", []) or [])
+                tasks.extend(play.get("tasks", []) or [])
+                tasks.extend(play.get("post_tasks", []) or [])
         return tasks
-    return plays
+    return items
 
 
 def _plays(path):
@@ -146,6 +166,18 @@ class TestChartsMirrorRole(unittest.TestCase):
             names.index("Fetch the mirrored branch (initial or refresh)"),
             "the refspec must be set before the fetch runs",
         )
+
+    def test_origin_url_updates_when_source_changes(self):
+        # `remote add` cannot reconfigure an existing origin; a changed
+        # charts_mirror_src must repoint remote.origin.url or every later
+        # fetch keeps using the old source.
+        read = _require(self.tasks, "Read the configured origin URL")
+        self.assertIn("config --get remote.origin.url", read["ansible.builtin.command"]["cmd"])
+        update = _require(self.tasks, "Update the origin remote when the source changed")
+        self.assertIn("config remote.origin.url {{ charts_mirror_src }}",
+                      update["ansible.builtin.command"]["cmd"])
+        self.assertIn("charts_mirror_origin_url.stdout", update["when"])
+        self.assertIn("charts_mirror_src", update["when"])
 
     def test_remote_configuration_recovers_partial_bootstrap(self):
         # An interrupted first run can leave the bare repo without the origin
@@ -398,6 +430,64 @@ class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
         # whenever a patch actually ran (skipped patch == idempotent re-run).
         self.assertIn("downstream_charts_patch is skipped", until)
         self.assertIn("downstream_charts_pre_download", until)
+
+class TestManagementServerUrl(unittest.TestCase):
+    """The management-cluster server-url default and override, per deploy copy."""
+
+    def test_explicit_override_wins_and_default_is_the_public_hostname(self):
+        # server-url bakes into every generated kubeconfig and downstream
+        # enrollment; the default must be the public hostname (external
+        # runners) while an explicit rancher_server_url pin wins.
+        for path in DEPLOY_PLAYBOOKS:
+            with self.subTest(playbook=os.path.basename(os.path.dirname(os.path.dirname(path)))):
+                task = _require(_tasks(path), "Set Rancher server URL")
+                value = task["ansible.builtin.uri"]["body"]["value"]
+                self.assertEqual(
+                    value,
+                    "{{ rancher_server_url | default('https://' ~ rancher_public_hostname) }}",
+                )
+
+
+class TestManagementCatalogRepoint(unittest.TestCase):
+    """The management-side rancher-charts repoint and re-sync, per deploy copy."""
+
+    def test_update_gates_on_repo_and_branch(self):
+        # The mirror URL is stable across Rancher upgrades while the served
+        # branch moves; a repo-only comparison would leave an upgraded cluster
+        # cloning the old release branch.
+        for path in DEPLOY_PLAYBOOKS:
+            with self.subTest(playbook=os.path.basename(os.path.dirname(os.path.dirname(path)))):
+                gate = _require(_tasks(path), "Update the ClusterRepo only when the mirror differs")
+                when = gate["when"]
+                self.assertIn("spec.gitRepo", when)
+                self.assertIn("charts_mirror_fact.url", when)
+                self.assertIn("spec.gitBranch", when)
+                self.assertIn("charts_mirror_fact.branch", when)
+
+    def test_sync_wait_runs_on_every_invocation_and_requires_status_url(self):
+        # The wait must live OUTSIDE the spec-differs block (a prior run can
+        # have repointed the spec and timed out mid-sync) and must require
+        # status.url == mirror — the controller only records that URL after a
+        # successful clone from the mirror — plus the Downloaded condition,
+        # with the downloadTime freshness check gated on the PUT having run.
+        for path in DEPLOY_PLAYBOOKS:
+            with self.subTest(playbook=os.path.basename(os.path.dirname(os.path.dirname(path)))):
+                tasks = _tasks(path)
+                gate = _require(tasks, "Update the ClusterRepo only when the mirror differs")
+                wait_name = "Wait for the catalog to serve the mirror"
+                self.assertIsNone(
+                    _find(gate["block"], wait_name),
+                    "the sync wait must not be nested inside the spec-differs block",
+                )
+                wait = _require(tasks, wait_name)
+                until = wait["until"]
+                self.assertIn("spec.gitRepo", until)
+                self.assertIn("status.url", until)
+                self.assertIn("charts_mirror_fact.url", until)
+                self.assertIn("Downloaded", until)
+                self.assertIn("charts_clusterrepo_update is skipped", until)
+                self.assertIn("downloadTime", until)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -72,6 +72,22 @@
         and 'already exists' not in remote_add.stderr
       register: remote_add
 
+    - name: Read the configured origin URL
+      # `remote add` cannot reconfigure an existing origin: it fails with
+      # "already exists" and that failure is treated as success, so a changed
+      # charts_mirror_src would otherwise leave every later fetch on the old
+      # source. Read and compare so the override works on reruns too.
+      ansible.builtin.command:
+        cmd: git --git-dir={{ charts_mirror_dest }} config --get remote.origin.url
+      register: charts_mirror_origin_url
+      changed_when: false
+      failed_when: false
+
+    - name: Update the origin remote when the source changed
+      ansible.builtin.command:
+        cmd: git --git-dir={{ charts_mirror_dest }} config remote.origin.url {{ charts_mirror_src }}
+      when: (charts_mirror_origin_url.stdout | trim) != charts_mirror_src
+
     # Applied on EVERY run, not just first bootstrap: when charts_mirror_branch
     # changes (e.g. a Rancher minor upgrade), a repo bootstrapped for the old
     # branch would otherwise keep fetching only that branch, and the branch
