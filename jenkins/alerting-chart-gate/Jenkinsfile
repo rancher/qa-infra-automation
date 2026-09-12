@@ -85,10 +85,11 @@ pipeline {
     post {
         failure {
             script {
-                // Best-effort: a missing email plugin or unconfigured SMTP must
-                // not break the canary — the red build is the primary signal.
+                // Best-effort: mower has the core `mail` step but not
+                // email-ext, and SMTP may be unconfigured — the red build is
+                // the primary signal, notification failure must not break it.
                 try {
-                    emailext(
+                    mail(
                         subject: "[alerting-gate] OPEN: rancher-alerting-drivers admits ${params.RANCHER_VERSION} / ${params.K8S_VERSION}",
                         body: """The alerting chart gate is OPEN: a rancher-alerting-drivers revision
 admissible to the airgap matrix is published and on ${params.RELEASE_BRANCH}.
