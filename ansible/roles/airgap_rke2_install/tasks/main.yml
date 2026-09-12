@@ -70,16 +70,35 @@
         mode: "0644"
         owner: "{{ ansible_user }}"
 
-    - name: Fetch bundle from bastion to cluster nodes
+    - name: Check local bundle on cluster node (checksum pre-check for re-runs)
+      ansible.builtin.stat:
+        path: /tmp/rke2-bundle.tar.gz
+      register: local_bundle_precheck
+
+    - name: Calculate local bundle checksum
+      ansible.builtin.command: sha256sum /tmp/rke2-bundle.tar.gz
+      register: local_bundle_precheck_sum
+      changed_when: false
+      when: local_bundle_precheck.stat.exists
+
+    - name: Record local bundle checksum
+      ansible.builtin.set_fact:
+        rke2_local_bundle_sha256: "{{ local_bundle_precheck_sum.stdout.split()[0] if (local_bundle_precheck_sum is not skipped) else '' }}"
+
+    - name: Fetch bundle from bastion to cluster nodes (only nodes with a missing or stale bundle)
       ansible.builtin.shell: |
         scp -o StrictHostKeyChecking=no \
         -i ~/.ssh/{{ ssh_private_key_file | basename }} \
         /opt/rke2-files/rke2-bundle.tar.gz \
         {{ hostvars[item]['ansible_user'] }}@{{ hostvars[item]['ansible_host'] | default(item) }}:/tmp/rke2-bundle.tar.gz
       delegate_to: "{{ groups['bastion'][0] }}"
-      with_items: "{{ groups['airgap_nodes'] }}"
+      with_items: "{{ groups[target_group] }}"
       run_once: true
       become: false
+      # Scoped to the group being installed (previously all airgap_nodes, which
+      # seeded both clusters' nodes during every step) and skipped per node when
+      # the node's bundle checksum already matches the bastion's.
+      when: (hostvars[item]['rke2_local_bundle_sha256'] | default('')) != bastion_checksum.stdout.split()[0]
 
     - name: Verify bundle copy
       block:
@@ -140,22 +159,28 @@
         mode: "0755"
         owner: "{{ ansible_user }}"
         list_files: true
+        # Matches the "Move files" guard below (which keys off the same file):
+        # re-runs with the bundle already organized skip the ~2 GB extraction.
+        creates: /tmp/rke2-install.sh
       register: extract_result
       become: true
 
     - name: Display extracted files
       ansible.builtin.debug:
-        msg: "Extracted files: {{ extract_result.files }}"
+        msg: "Extracted files: {{ extract_result.files | default([]) }}"
+      when: extract_result is not skipped
 
     - name: List temp directory contents
       ansible.builtin.command: ls -la /tmp/rke2-extract/
       register: temp_dir_contents
       changed_when: false
+      when: extract_result is not skipped
 
     - name: Display temp directory contents
       ansible.builtin.debug:
         msg: "Temp directory contents: {{ temp_dir_contents.stdout_lines }}"
       run_once: true
+      when: temp_dir_contents is not skipped
 
     - name: Check if artifacts already organized
       ansible.builtin.stat:

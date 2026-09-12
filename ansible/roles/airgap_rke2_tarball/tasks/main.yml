@@ -7,12 +7,18 @@
     name: airgap_rke2_bundle_manager
 
 - name: Display bundle contents for verification
+  # Skipped when the cached bundle is reused: reading a ~2 GB gzip stream just
+  # to list it costs ~30s and tells us nothing new.
   ansible.builtin.command: tar tvf {{ rke2_bundle_dir | default('/opt/rke2-files') }}/{{ rke2_bundle_filename | default('rke2-bundle.tar.gz') }}
   register: bundle_contents
   changed_when: false
   become: true
+  when: not (rke2_bundle_cached | default(false) | bool)
 
 - name: Show bundle structure
   ansible.builtin.debug:
-    msg: "Bundle contents:\n{{ bundle_contents.stdout_lines | join('\n') }}"
+    # Guarded AND null-safe: when the cached bundle skips the listing above,
+    # bundle_contents is a skipped-result dict without stdout_lines.
+    msg: "Bundle contents:\n{{ bundle_contents.stdout_lines | default([]) | join('\n') }}"
     verbosity: 1
+  when: not (rke2_bundle_cached | default(false) | bool)
