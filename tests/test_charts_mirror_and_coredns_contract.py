@@ -210,14 +210,17 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
         self.assertNotIn("internal_lb_hostname }} '" + "'", content)
 
     def test_play_var_prefers_the_public_hostname(self):
-        # With the generated inventory, rancher_hostname carries the public
-        # (external LB) hostname; fqdn must fall back to the internal name
-        # only when it is unset, so the override pins the public name.
+        # server-url is set to the PUBLIC hostname, so the CoreDNS override
+        # must pin that same name. Generated inventories define
+        # external_lb_hostname and NOT rancher_hostname, so the fallback chain
+        # is rancher_hostname -> external_lb_hostname -> internal_lb_hostname;
+        # an internal-first fallback would make the override a no-op and leave
+        # the imported cluster pending on server-url validation.
         plays = _plays(PLAYBOOK_PATH)
         bastion_play = next(p for p in plays if p.get("hosts") == "bastion")
         self.assertEqual(
             bastion_play["vars"]["fqdn"],
-            "{{ rancher_hostname | default(internal_lb_hostname) }}",
+            "{{ rancher_hostname | default(external_lb_hostname | default(internal_lb_hostname)) }}",
         )
 
     def test_all_kubectl_calls_carry_request_timeouts(self):
@@ -282,6 +285,16 @@ class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
             "the repoint must take url/branch from the fact the mirror role persisted",
         )
 
+    def test_seed_wait_reads_branch_not_just_repo(self):
+        # The mirror URL is stable across Rancher upgrades while the served
+        # branch moves, so a repo-only read cannot detect a stale branch.
+        seed = _require(
+            self.tasks, "Wait for the agent to seed the downstream rancher-charts ClusterRepo"
+        )
+        jsonpath = seed["ansible.builtin.command"]["argv"][-1]
+        self.assertIn("{.spec.gitRepo}", jsonpath)
+        self.assertIn("{.spec.gitBranch}", jsonpath)
+
     def test_patch_targets_downstream_clusterrepo_with_fact_values(self):
         patch = _require(self.tasks, "Patch the downstream ClusterRepo to the mirror")
         argv = patch["ansible.builtin.command"]["argv"]
@@ -290,8 +303,11 @@ class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
         payload = argv[argv.index("-p") + 1]
         self.assertIn("charts_mirror_fact.url", payload)
         self.assertIn("charts_mirror_fact.branch", payload)
-        # Idempotent: only patches while spec still points elsewhere.
-        self.assertIn("charts_mirror_fact.url", patch["when"])
+        # Idempotent on repo AND branch: a Rancher upgrade keeps the mirror
+        # URL but moves the branch, so both comparisons gate the patch.
+        when = patch["when"]
+        self.assertIn("charts_mirror_fact.url", when)
+        self.assertIn("charts_mirror_fact.branch", when)
 
     def test_sync_wait_asserts_mirror_url_and_commit(self):
         wait = _require(self.tasks, "Wait for the downstream catalog to re-sync from the mirror")
@@ -302,7 +318,11 @@ class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
         self.assertIn("charts_mirror_fact.url", until)
         self.assertIn("downstream_charts_repo_synced.stdout", until)
         self.assertIn("> 0", until, "the wait must require a non-empty commit")
-
+        # A branch-only patch leaves status.url unchanged, so the wait must
+        # also require the commit to move past the pre-patch one whenever a
+        # patch actually ran (skipped patch == idempotent re-run).
+        self.assertIn("downstream_charts_patch is skipped", until)
+        self.assertIn("downstream_charts_pre_commit", until)
 
 if __name__ == "__main__":
     unittest.main()

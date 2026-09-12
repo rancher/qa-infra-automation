@@ -234,7 +234,12 @@
   become: true
   vars:
     downstream: "{{ target | default('', true) }}"
-    fqdn: "{{ rancher_hostname | default(internal_lb_hostname) }}"
+    # Prefer the PUBLIC hostname, same as the controller play: server-url is
+    # set to it, so the CoreDNS override below must pin that name (an
+    # internal-name override is a no-op — it already resolves). Generated
+    # inventories define external_lb_hostname (not rancher_hostname), so the
+    # internal name is only a last resort for hand-written inventories.
+    fqdn: "{{ rancher_hostname | default(external_lb_hostname | default(internal_lb_hostname)) }}"
   tasks:
     - name: Read KUBECONFIG content
       block:
@@ -554,6 +559,9 @@
         - name: Wait for the agent to seed the downstream rancher-charts ClusterRepo
           # The cattle-cluster-agent deploys the catalog CRDs and the default
           # ClusterRepos shortly after it becomes Available (observed ~1m).
+          # Read the repo AND branch: the mirror URL stays stable across
+          # Rancher upgrades while the served branch moves (release-v2.15 ->
+          # release-v2.16), so a repo-only read cannot detect a stale branch.
           # kubectl with --request-timeout per the playbook convention: the
           # apt python-kubernetes client sets no per-request timeout.
           ansible.builtin.command:
@@ -565,16 +573,42 @@
               - clusterrepos.catalog.cattle.io
               - rancher-charts
               - -o
-              - jsonpath={.spec.gitRepo}
+              - jsonpath={.spec.gitRepo}{" "}{.spec.gitBranch}
           register: downstream_charts_repo_current
           until: downstream_charts_repo_current.rc == 0
           retries: 30
           delay: 10
           changed_when: false
 
+        - name: Read the current catalog sync commit
+          # Baseline for the re-sync evidence below: a branch-only patch keeps
+          # status.url identical, so only a commit CHANGE proves the catalog
+          # controller re-cloned. The field is absent before the first sync
+          # and kubectl jsonpath errors on missing keys, so tolerate the
+          # failure and treat it as empty.
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+              - --request-timeout=30s
+              - get
+              - clusterrepos.catalog.cattle.io
+              - rancher-charts
+              - -o
+              - jsonpath={.status.commit}
+          register: downstream_charts_pre_commit
+          failed_when: false
+          changed_when: false
+
         - name: Patch the downstream ClusterRepo to the mirror
-          # Only when it still points elsewhere, so re-runs are no-ops.
-          when: downstream_charts_repo_current.stdout | trim != charts_mirror_fact.url
+          # Only when the repo OR branch still differs, so re-runs are no-ops
+          # while a Rancher upgrade (same mirror URL, new branch) still
+          # repoints the catalog.
+          when: >-
+            (downstream_charts_repo_current.stdout.split(' ') | first | trim)
+                != charts_mirror_fact.url
+            or (downstream_charts_repo_current.stdout.split(' ') | last | trim)
+                != (charts_mirror_fact.branch | default('release-v2.15-settled'))
           ansible.builtin.command:
             argv:
               - kubectl
@@ -589,18 +623,19 @@
               - >-
                 {{ {'spec': {'gitRepo': charts_mirror_fact.url,
                              'gitBranch': charts_mirror_fact.branch | default('release-v2.15-settled')}} | to_json }}
-          # Runs only when spec.gitRepo differs (the `when` above), so every
-          # execution genuinely repoints the catalog.
+          register: downstream_charts_patch
+          # Runs only when spec.gitRepo or spec.gitBranch differs (the `when`
+          # above), so every execution genuinely repoints the catalog.
           changed_when: true
 
         - name: Wait for the downstream catalog to re-sync from the mirror
           # status.url follows spec.gitRepo once the agent's catalog handler
           # re-clones from the mirror and records a commit; before any sync
           # it carries the bundled git.rancher.io URL. Requiring
-          # status.url == mirror makes this idempotent (a re-run against an
-          # already-repointed repo passes immediately) while still blocking a
-          # chart install that would race the re-sync and resolve against the
-          # stale bundled index.
+          # status.url == mirror keeps re-runs idempotent, and when a patch
+          # ran the commit must ALSO differ from the pre-patch one — a
+          # branch-only patch leaves status.url unchanged, so the commit
+          # change is the only proof the new branch was actually cloned.
           ansible.builtin.command:
             argv:
               - kubectl
@@ -616,6 +651,9 @@
             downstream_charts_repo_synced.rc == 0
             and (downstream_charts_repo_synced.stdout.split(' ') | first) == charts_mirror_fact.url
             and (downstream_charts_repo_synced.stdout.split(' ') | last | trim | length) > 0
+            and (downstream_charts_patch is skipped
+                 or (downstream_charts_repo_synced.stdout.split(' ') | last | trim)
+                     != (downstream_charts_pre_commit.stdout | default('') | trim))
           retries: 30
           delay: 10
           changed_when: false
