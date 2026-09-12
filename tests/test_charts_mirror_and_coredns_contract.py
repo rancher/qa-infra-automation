@@ -46,6 +46,21 @@ def _tasks(path):
     return plays
 
 
+def _plays(path):
+    with open(path) as fh:
+        return yaml.safe_load(fh)
+
+
+def _walk(node):
+    """Yield every mapping in a task tree, descending into blocks and loops."""
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk(value)
+
 def _find(tasks, name):
     for task in tasks:
         if task.get("name") == name:
@@ -96,10 +111,44 @@ class TestChartsMirrorRole(unittest.TestCase):
         self.assertIn("rancher_image_tag", default)
         self.assertIn("release-v", default)
 
-    def test_lsremote_verifies_the_served_branch(self):
-        task = _require(self.tasks, "Verify the mirror answers smart-HTTP on the published URL")
-        self.assertIn("charts_mirror_served_branch", task["ansible.builtin.command"]["cmd"])
+    def test_fetch_refspec_is_reapplied_on_reruns(self):
+        # Bootstrap must not own the refspec: a repo bootstrapped for one
+        # Rancher minor keeps fetching only that branch after a branch change,
+        # so the refspec task has to run on every invocation, before the fetch.
+        bootstrap = _require(self.tasks, "Bootstrap the bare mirror")
+        self.assertIsNone(
+            _find(bootstrap["block"], "Scope the fetch refspec to the requested branch"),
+            "the fetch refspec must not be gated inside the bootstrap-only block",
+        )
+        refspec = _require(self.tasks, "Scope the fetch refspec to the requested branch")
+        self.assertNotIn("when", refspec, "the fetch refspec must run unconditionally")
+        fetch = _require(self.tasks, "Fetch the mirrored branch (initial or refresh)")
+        outer = _require(self.tasks, "Mirror rancher-charts on the bastion")
+        names = [t.get("name") for t in outer["block"]]
+        self.assertLess(
+            names.index("Scope the fetch refspec to the requested branch"),
+            names.index("Fetch the mirrored branch (initial or refresh)"),
+            "the refspec must be set before the fetch runs",
+        )
 
+    def test_reused_vhost_must_match_listener_port(self):
+        port_fail = _require(
+            self.tasks, "Fail when the existing vhost listens on a different port"
+        )
+        when = port_fail["when"]
+        self.assertIn("charts_mirror_existing_listen", when)
+        self.assertIn("charts_mirror_port | string", when)
+
+    def test_reused_vhost_must_match_git_root(self):
+        root_fail = _require(self.tasks, "Fail when the git roots differ")
+        when = root_fail["when"]
+        self.assertIn("charts_mirror_existing_root", when)
+        self.assertIn("charts_mirror_parent", when)
+
+    def test_reuse_rejects_duplicate_vhost_confs(self):
+        # Two enabled confs each carry a Listen on the shared port; Apache
+        # refuses to restart, so the role must fail loudly instead.
+        _require(self.tasks, "Fail when both mirror vhosts are enabled")
 
 class TestUiPluginVhostCoexistence(unittest.TestCase):
     @classmethod
@@ -113,6 +162,21 @@ class TestUiPluginVhostCoexistence(unittest.TestCase):
         )
         install = _require(self.tasks, "Install Apache smart-HTTP vhost for git-http-backend")
         self.assertEqual(install["when"], "not ui_plugin_charts_vhost.stat.exists")
+
+    def test_reuse_validates_git_root_before_publishing(self):
+        root_fail = _require(self.tasks, "Fail when the git roots differ")
+        when = root_fail["when"]
+        self.assertIn("ui_plugin_existing_root", when)
+        self.assertIn("ui_plugin_mirror_parent", when)
+
+    def test_reuse_validates_listener_port_before_publishing(self):
+        port_fail = _require(self.tasks, "Fail when the ports differ")
+        when = port_fail["when"]
+        self.assertIn("ui_plugin_existing_listen", when)
+        self.assertIn("ui_plugin_mirror_port | string", when)
+
+    def test_reuse_rejects_duplicate_vhost_confs(self):
+        _require(self.tasks, "Fail when both mirror vhosts are enabled")
 
 
 class TestDownstreamCoreDNSOverride(unittest.TestCase):
@@ -131,40 +195,59 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
         inner = _require(self.tasks, "Apply the hosts override when absent")
         self.assertIn("fqdn not in downstream_corefile_raw.stdout", inner["when"])
 
-    def test_override_uses_the_public_hostname(self):
-        render = _find(
+    def test_override_pins_the_internal_lb_ip_to_the_public_hostname(self):
+        # The hosts entry must pair the INTERNAL load balancer's IP (resolved
+        # from internal_lb_hostname) with the PUBLIC fqdn baked into
+        # server-url — anything else leaves the cluster-agent unable to
+        # validate server-url or, worse, resolving the public name elsewhere.
+        render = _require(
             self.tasks, "Render the Corefile with a hosts override for the public hostname"
         )
         content = render["ansible.builtin.copy"]["content"]
-        self.assertIn("fqdn", content)
-        self.assertNotIn("internal_lb_hostname }} '", content.replace("~ fqdn", ""))
+        self.assertIn("downstream_internal_lb.stdout.split()[0]", content)
+        self.assertIn("~ fqdn", content)
+        # The override must never rewrite fqdn itself to the internal name.
+        self.assertNotIn("internal_lb_hostname }} '" + "'", content)
+
+    def test_play_var_prefers_the_public_hostname(self):
+        # With the generated inventory, rancher_hostname carries the public
+        # (external LB) hostname; fqdn must fall back to the internal name
+        # only when it is unset, so the override pins the public name.
+        plays = _plays(PLAYBOOK_PATH)
+        bastion_play = next(p for p in plays if p.get("hosts") == "bastion")
+        self.assertEqual(
+            bastion_play["vars"]["fqdn"],
+            "{{ rancher_hostname | default(internal_lb_hostname) }}",
+        )
 
     def test_all_kubectl_calls_carry_request_timeouts(self):
-        def walk(node):
-            if isinstance(node, dict):
-                yield node
-                for v in node.values():
-                    yield from walk(v)
-            elif isinstance(node, list):
-                for v in node:
-                    yield from walk(v)
-        for task in self.tasks:
-            blob = yaml.safe_dump(task)
-            if "kubectl" in blob and "argv" in blob:
-                argv = task.get("command", {}).get("argv", [])
+        # Descend into nested blocks and read FQCN module keys: the playbook
+        # uses ansible.builtin.command/shell, so short-key lookups see nothing
+        # and a top-level-only scan misses tasks inside blocks.
+        checked_argv = checked_shell = 0
+        for node in _walk(self.tasks):
+            command = node.get("ansible.builtin.command") or node.get("command")
+            if isinstance(command, dict):
+                argv = command.get("argv") or []
                 if argv and argv[0] == "kubectl":
                     self.assertIn(
                         "--request-timeout=30s", argv,
-                        f"kubectl argv without --request-timeout in task: {task.get('name')}",
+                        f"kubectl argv without --request-timeout in task: {node.get('name')}",
                     )
-            shell = task.get("shell")
+                    checked_argv += 1
+            shell = node.get("ansible.builtin.shell") or node.get("shell")
             if shell and "kubectl" in str(shell):
                 for line in str(shell).splitlines():
                     if line.strip().startswith("kubectl"):
                         self.assertIn(
                             "--request-timeout=30s", line,
-                            f"kubectl shell line without --request-timeout in task: {task.get('name')}",
+                            f"kubectl shell line without --request-timeout in task: {node.get('name')}",
                         )
+                        checked_shell += 1
+        # The playbook must exercise both forms, or the contract silently
+        # stopped guarding anything.
+        self.assertGreater(checked_argv, 0, "no kubectl argv calls found to check")
+        self.assertGreater(checked_shell, 0, "no kubectl shell calls found to check")
 
 
 class TestDownstreamChartsCatalogRepoint(unittest.TestCase):

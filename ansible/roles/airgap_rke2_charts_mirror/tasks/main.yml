@@ -72,11 +72,17 @@
             and 'already exists' not in remote_add.stderr
           register: remote_add
 
-        - name: Scope the fetch refspec to the requested branch
-          ansible.builtin.command:
-            cmd: >-
-              git --git-dir={{ charts_mirror_dest }} config
-              remote.origin.fetch +refs/heads/{{ charts_mirror_branch }}:refs/heads/{{ charts_mirror_branch }}
+    # Applied on EVERY run, not just first bootstrap: when charts_mirror_branch
+    # changes (e.g. a Rancher minor upgrade), a repo bootstrapped for the old
+    # branch would otherwise keep fetching only that branch, and the branch
+    # verification below fails instead of refreshing the requested one.
+    # `git config` overwrites the previous value, so re-runs are idempotent.
+    - name: Scope the fetch refspec to the requested branch
+      ansible.builtin.command:
+        cmd: >-
+          git --git-dir={{ charts_mirror_dest }} config
+          remote.origin.fetch +refs/heads/{{ charts_mirror_branch }}:refs/heads/{{ charts_mirror_branch }}
+      changed_when: false
 
     - name: Fetch the mirrored branch (initial or refresh)
       ansible.builtin.command:
@@ -229,6 +235,52 @@
               vhost; skipping the git-root alignment check (both mirrors default
               to /srv/git).
           when: (charts_mirror_existing_root.stdout | trim | length) == 0
+
+        - name: Read the Listen port from the existing vhost
+          ansible.builtin.command:
+            cmd: awk '/^[[:space:]]*Listen/ {print $NF}' /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+          register: charts_mirror_existing_listen
+          changed_when: false
+
+        - name: Fail when the existing vhost listens on a different port
+          # Reusing the vhost means the published URL port must match the
+          # listener actually serving it, so a mismatch is a hard error.
+          ansible.builtin.fail:
+            msg: >-
+              The existing ui-plugin-mirror vhost listens on
+              '{{ charts_mirror_existing_listen.stdout | trim }}' but charts_mirror_port
+              is {{ charts_mirror_port }}; the published mirror URL would point at an
+              unserved port. Align charts_mirror_port (or the ui-plugin mirror's
+              ui_plugin_mirror_port) so both roles publish the shared listener.
+          when: >-
+            (charts_mirror_existing_listen.stdout | trim | length > 0)
+            and (charts_mirror_existing_listen.stdout | trim | split(':'))[-1]
+                != charts_mirror_port | string
+
+        - name: Note when the existing vhost port could not be parsed
+          ansible.builtin.debug:
+            msg: >-
+              Could not parse a Listen directive from the existing ui-plugin-mirror
+              vhost; skipping the port alignment check (both roles default to 8080).
+          when: (charts_mirror_existing_listen.stdout | trim | length) == 0
+
+        - name: Check for a stale charts-mirror vhost enabled alongside
+          # Pre-coexistence-fix bastions can carry BOTH confs, each with its own
+          # Listen on the port; Apache refuses to restart with duplicate Listen
+          # directives, so surface that loudly instead of failing opaquely.
+          ansible.builtin.stat:
+            path: /etc/apache2/conf-enabled/charts-mirror.conf
+          register: charts_mirror_own_vhost_stale
+
+        - name: Fail when both mirror vhosts are enabled
+          ansible.builtin.fail:
+            msg: >-
+              Both ui-plugin-mirror.conf and charts-mirror.conf are enabled; each
+              installs its own Listen directive on the shared port and Apache cannot
+              restart. Disable one of them (sudo a2disconf ui-plugin-mirror, or sudo
+              a2disconf charts-mirror) and re-run: the remaining vhost serves both
+              mirrors from the common GIT_PROJECT_ROOT.
+          when: charts_mirror_own_vhost_stale.stat.exists
 
     - name: Ensure apache2 is enabled and running
       ansible.builtin.service:
