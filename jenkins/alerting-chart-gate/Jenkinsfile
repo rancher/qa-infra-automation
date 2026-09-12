@@ -50,18 +50,33 @@ pipeline {
         stage('Check alerting chart gate') {
             steps {
                 script {
+                    // Parameters are injected as env on the docker invocation
+                    // and passed through with -e: the checker runs inside the
+                    // container, where agent/params env is otherwise absent.
                     def rc = sh(
                         returnStatus: true,
-                        script: '''
+                        script: """
+                            RANCHER_VERSION='${params.RANCHER_VERSION}' \
+                            K8S_VERSION='${params.K8S_VERSION}' \
+                            RELEASE_BRANCH='${params.RELEASE_BRANCH}' \
                             docker run --rm \
-                                -v "$WORKSPACE":/workspace -w /workspace \
+                                -v "\$WORKSPACE":/workspace -w /workspace \
+                                -e RANCHER_VERSION -e K8S_VERSION -e RELEASE_BRANCH \
                                 python:3.12-alpine \
                                 sh -c 'pip install --quiet pyyaml && python3 scripts/alerting_chart_gate.py \
-                                    --rancher-version "$RANCHER_VERSION" \
-                                    --k8s-version "$K8S_VERSION" \
-                                    --release-branch "$RELEASE_BRANCH"'
-                        '''
+                                    --rancher-version "\$RANCHER_VERSION" \
+                                    --k8s-version "\$K8S_VERSION" \
+                                    --release-branch "\$RELEASE_BRANCH"'
+                        """
                     )
+                    if (rc == 2) {
+                        currentBuild.result = 'UNSTABLE'
+                        echo 'poll error (network/parse) — see console; do NOT widen the combined job'
+                    } else if (rc == 1) {
+                        error('ALERTING GATE OPEN — see console for the GO_TEST_CASE widen instructions')
+                    } else if (rc != 0) {
+                        error("unexpected gate checker exit code ${rc}")
+                    }
                 }
             }
         }
