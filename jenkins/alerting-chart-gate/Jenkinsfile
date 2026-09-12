@@ -1,0 +1,101 @@
+// Canary poll: watch for a rancher-alerting-drivers revision admissible to
+// the airgap combined-tests matrix (Rancher v2.15 / RKE2 v1.36 today).
+//
+// The combined job cannot run TestAlertingTestSuite until upstream ships one:
+// Rancher's catalog filtering hides every non-admissible revision, so the
+// suite fails with "failed to find chart" long before any install or image
+// pull — a chart gate, not a registry or test problem.
+//
+// Build-result semantics (the tripwire rides on the build result):
+//   SUCCESS   gate closed — nothing to do
+//   FAILURE   gate OPEN — widen airgap-rke2-combined-tests GO_TEST_CASE
+//             (JJB qa-airgap-rke2-combined-tests.yml) per the console output
+//   UNSTABLE  poll error (network/parse) — fix the poll, do not widen
+//
+// Runs in the rancher-infra-tools container like the other airgap jobs
+// (python3 + pyyaml baked in; no pip on the agent).
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    parameters {
+        string(
+            name: 'RANCHER_VERSION',
+            defaultValue: 'v2.15.0',
+            description: 'Rancher version of the airgap combined-tests matrix'
+        )
+        string(
+            name: 'K8S_VERSION',
+            defaultValue: 'v1.36.2',
+            description: 'Kubernetes version of the downstream cluster (v-prefix tolerated)'
+        )
+        string(
+            name: 'RELEASE_BRANCH',
+            defaultValue: 'release-v2.15',
+            description: 'charts branch the airgap mirror tracks; only revisions on it are installable'
+        )
+        string(
+            name: 'NOTIFY_EMAIL',
+            defaultValue: 'dnewman@suse.com',
+            description: 'Recipient for the gate-open notification'
+        )
+    }
+
+    stages {
+        stage('Check alerting chart gate') {
+            steps {
+                script {
+                    def rc = sh(
+                        returnStatus: true,
+                        script: '''
+                            docker run --rm \
+                                -v "$WORKSPACE":/workspace -w /workspace \
+                                rancher-infra-tools:latest \
+                                python3 scripts/alerting_chart_gate.py \
+                                    --rancher-version "$RANCHER_VERSION" \
+                                    --k8s-version "$K8S_VERSION" \
+                                    --release-branch "$RELEASE_BRANCH"
+                        '''
+                    )
+                    if (rc == 2) {
+                        unstable('poll error (network/parse) — see console; do NOT widen the combined job')
+                    } else if (rc == 1) {
+                        error('ALERTING GATE OPEN — see console for the GO_TEST_CASE widen instructions')
+                    } else if (rc != 0) {
+                        error("unexpected gate checker exit code ${rc}")
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            script {
+                // Best-effort: a missing email plugin or unconfigured SMTP must
+                // not break the canary — the red build is the primary signal.
+                try {
+                    emailext(
+                        subject: "[alerting-gate] OPEN: rancher-alerting-drivers admits ${params.RANCHER_VERSION} / ${params.K8S_VERSION}",
+                        body: """The alerting chart gate is OPEN: a rancher-alerting-drivers revision
+admissible to the airgap matrix is published and on ${params.RELEASE_BRANCH}.
+
+Next step: widen airgap-rke2-combined-tests-pipeline GO_TEST_CASE to
+'-run TestMonitoringTestSuite|TestAlertingTestSuite' and run the combined job.
+
+Console: ${env.BUILD_URL}console
+""",
+                        to: params.NOTIFY_EMAIL
+                    )
+                } catch (error) {
+                    echo "email notification skipped: ${error}"
+                }
+            }
+        }
+    }
+}
