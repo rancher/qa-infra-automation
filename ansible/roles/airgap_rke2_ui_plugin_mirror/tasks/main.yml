@@ -88,16 +88,30 @@
 
     # The mirror is owned by root; git-http-backend runs as the web server user
     # (www-data). git 2.35.2+ refuses cross-user repo access ("dubious
-    # ownership"), so allow it system-wide (the bastion only serves our mirror).
+    # ownership"), so mark ONLY this mirror as safe — a system-wide '*' would
+    # disable the ownership check for every repository on the bastion.
     - name: Check system git safe.directory
       ansible.builtin.command: git config --system --get-all safe.directory
       register: ui_plugin_safe_dir
       changed_when: false
       failed_when: false
 
+    - name: Retire the blanket safe.directory wildcard this role used to set
+      # '\*' is the literal-star value pattern: unset-all removes only the
+      # wildcard entry, leaving any other configured paths untouched.
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - --system
+          - --unset-all
+          - safe.directory
+          - \*
+      when: "'*' in ui_plugin_safe_dir.stdout_lines"
+
     - name: Permit git-http-backend to serve the root-owned mirror
-      ansible.builtin.command: git config --system --add safe.directory '*'
-      when: "'*' not in ui_plugin_safe_dir.stdout_lines"
+      ansible.builtin.command: git config --system --add safe.directory {{ ui_plugin_mirror_dest }}
+      when: ui_plugin_mirror_dest not in ui_plugin_safe_dir.stdout_lines
 
     # Supersede any earlier dumb-HTTP (python http.server) unit from this role.
     - name: Stop and disable obsolete dumb-HTTP python service
@@ -114,6 +128,14 @@
         state: absent
       notify: Reload systemd daemon
 
+    - name: Check for an existing charts-mirror git vhost
+      # Serving order must not matter: when the charts mirror role already
+      # installed the shared smart-HTTP vhost (rooted at the same /srv/git
+      # parent), reuse it instead of installing a second Listen on the port.
+      ansible.builtin.stat:
+        path: /etc/apache2/conf-enabled/charts-mirror.conf
+      register: ui_plugin_charts_vhost
+
     - name: Install Apache smart-HTTP vhost for git-http-backend
       ansible.builtin.template:
         src: ui-plugin-mirror.apache.conf.j2
@@ -121,13 +143,83 @@
         owner: root
         group: root
         mode: "0644"
+      when: not ui_plugin_charts_vhost.stat.exists
       notify: Restart apache2
 
     - name: Enable ui-plugin-mirror apache conf
       ansible.builtin.command: a2enconf ui-plugin-mirror
       args:
         creates: /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+      when: not ui_plugin_charts_vhost.stat.exists
       notify: Restart apache2
+
+    - name: Validate the charts-mirror vhost before reusing it
+      # Vhost existence alone does not make it reusable: it must serve the
+      # same git root and listen on ui_plugin_mirror_port, or the URL this
+      # role publishes below would point at an unserved endpoint.
+      when: ui_plugin_charts_vhost.stat.exists
+      block:
+        - name: Read GIT_PROJECT_ROOT from the charts-mirror vhost
+          ansible.builtin.command:
+            cmd: awk '/GIT_PROJECT_ROOT/ {print $NF}' /etc/apache2/conf-enabled/charts-mirror.conf
+          register: ui_plugin_existing_root
+          changed_when: false
+
+        - name: Fail when the git roots differ
+          ansible.builtin.fail:
+            msg: >-
+              The existing charts-mirror vhost serves GIT_PROJECT_ROOT
+              '{{ ui_plugin_existing_root.stdout | trim }}' but ui_plugin_mirror_dest
+              lives under '{{ ui_plugin_mirror_parent }}'. Align the two mirrors under a
+              common parent (defaults: /srv/git) or serve ui-plugin-charts on its own
+              bastion/port.
+          when: >-
+            (ui_plugin_existing_root.stdout | trim | length > 0)
+            and (ui_plugin_existing_root.stdout | trim) != ui_plugin_mirror_parent
+
+        - name: Read the Listen port from the charts-mirror vhost
+          ansible.builtin.command:
+            cmd: awk '/^[[:space:]]*Listen/ {print $NF}' /etc/apache2/conf-enabled/charts-mirror.conf
+          register: ui_plugin_existing_listen
+          changed_when: false
+
+        - name: Fail when the ports differ
+          ansible.builtin.fail:
+            msg: >-
+              The existing charts-mirror vhost listens on
+              '{{ ui_plugin_existing_listen.stdout | trim }}' but ui_plugin_mirror_port
+              is {{ ui_plugin_mirror_port }}; the published ui-plugin mirror URL would
+              point at an unserved port. Align ui_plugin_mirror_port (or the charts
+              mirror's charts_mirror_port) so both roles publish the shared listener.
+          when: >-
+            (ui_plugin_existing_listen.stdout | trim | length > 0)
+            and (ui_plugin_existing_listen.stdout | trim | split(':'))[-1]
+                != ui_plugin_mirror_port | string
+
+        - name: Check for a stale ui-plugin-mirror vhost enabled alongside
+          # Pre-coexistence-fix bastions can carry BOTH confs, each with its own
+          # Listen on the port; Apache refuses to restart with duplicate Listen
+          # directives, so surface that loudly instead of failing opaquely.
+          ansible.builtin.stat:
+            path: /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+          register: ui_plugin_own_vhost_stale
+
+        - name: Fail when both mirror vhosts are enabled
+          ansible.builtin.fail:
+            msg: >-
+              Both charts-mirror.conf and ui-plugin-mirror.conf are enabled; each
+              installs its own Listen directive on the shared port and Apache cannot
+              restart. Disable one of them (sudo a2disconf ui-plugin-mirror, or sudo
+              a2disconf charts-mirror) and re-run: the remaining vhost serves both
+              mirrors from the common GIT_PROJECT_ROOT.
+          when: ui_plugin_own_vhost_stale.stat.exists
+
+    - name: Note reuse of the charts-mirror vhost
+      ansible.builtin.debug:
+        msg: >-
+          Reusing the existing charts-mirror smart-HTTP vhost for
+          ui-plugin-charts (git root and listener validated above).
+      when: ui_plugin_charts_vhost.stat.exists
 
     # mod_cgi needs the prefork MPM; under mpm_event, mod_cgid fails to reach
     # its CGI daemon ("unable to connect to cgi daemon") when serving git-http-backend.
