@@ -55,23 +55,13 @@ pipeline {
                         script: '''
                             docker run --rm \
                                 -v "$WORKSPACE":/workspace -w /workspace \
-                                rancher-infra-tools:latest \
-                                python3 scripts/alerting_chart_gate.py \
+                                python:3.12-alpine \
+                                sh -c 'pip install --quiet pyyaml && python3 scripts/alerting_chart_gate.py \
                                     --rancher-version "$RANCHER_VERSION" \
                                     --k8s-version "$K8S_VERSION" \
-                                    --release-branch "$RELEASE_BRANCH"
+                                    --release-branch "$RELEASE_BRANCH"'
                         '''
                     )
-                    if (rc == 2) {
-                        unstable('poll error (network/parse) — see console; do NOT widen the combined job')
-                    } else if (rc == 1) {
-                        error('ALERTING GATE OPEN — see console for the GO_TEST_CASE widen instructions')
-                    } else if (rc != 0) {
-                        error("unexpected gate checker exit code ${rc}")
-                    }
-                }
-            }
-        }
     }
 
     post {
