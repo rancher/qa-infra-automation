@@ -179,9 +179,11 @@ else
 	fi
 fi
 
-# Google Chrome in the cypress/factory image is amd64-only, so it is absent on
-# arm64 runners (Apple Silicon under Docker Desktop). Fall back to Cypress's
-# bundled Electron, which is arm64-native. Override with CYPRESS_BROWSER.
+# Chrome is installed into the image only when CHROME_VERSION is set, and not
+# every version is built for every architecture, so a runner can end up without
+# it. Fall back to Cypress's bundled Electron, which is always present. Detected
+# rather than assumed, so the pin can move without touching this. Override with
+# CYPRESS_BROWSER.
 BROWSER="${CYPRESS_BROWSER:-chrome}"
 if [ "$BROWSER" = chrome ] &&
 	! command -v google-chrome >/dev/null 2>&1 &&

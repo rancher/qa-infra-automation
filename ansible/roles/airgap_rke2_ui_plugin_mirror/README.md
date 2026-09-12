@@ -88,8 +88,11 @@ persisted fact from the bastion and injects the mirror URL and branch into
 `CATTLE_TEST_CONFIG` works unchanged:
 
 ```bash
-make downstream ENV=airgap TARGET_GROUP=downstream \
-     EXTRA_VARS="enable_ui_plugin_mirror=true rancher_cattle_config_file=<cattle-config.yaml>"
+# ENABLE_UI_PLUGIN_MIRROR=yes injects enable_ui_plugin_mirror=true into every
+# ansible invocation of the run (incl. `downstream`/`airgap-downstream`), so
+# only the cattle-config path needs to be passed explicitly:
+make downstream ENV=airgap TARGET_GROUP=downstream ENABLE_UI_PLUGIN_MIRROR=yes \
+     EXTRA_VARS="rancher_cattle_config_file=<cattle-config.yaml>"
 ```
 
 Gate off (default): `cattle-config.yaml` gets the cluster name only — byte-identical

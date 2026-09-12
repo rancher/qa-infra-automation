@@ -329,39 +329,26 @@
           ansible.builtin.debug:
             msg: "Injected {{ downstream_ui_plugin_mirror_url }} (branch {{ ui_plugin_mirror_branch | default('main') }}) into {{ rancher_cattle_config_file }} as neuvectorTest.uiPluginChartsURL/uiPluginChartsBranch"
 
-    - name: Check if python3-pip is already installed
-      ansible.builtin.command: python3 -m pip --version
-      register: pip_check
-      changed_when: false
-      failed_when: false
-
-    - name: Install pip3 if not present
-      ansible.builtin.package:
-        name: python3-pip
-        state: present
-        update_cache: true
-      when: pip_check.rc != 0
-      ignore_errors: true
-
-    - name: Display pip installation status
-      ansible.builtin.debug:
-        msg: "Python3-pip installation: {{ 'Already installed' if pip_check.rc == 0 else 'Installation attempted (may have failed in airgap environment)' }}"
-
-    - name: Install kubernetes Python packages
-      ansible.builtin.package:
-        name:
-          - python3-kubernetes
-        state: present
-        update_cache: true
+    # NOTE: no python3-pip/python3-kubernetes install here. This playbook talks
+    # to the downstream apiserver exclusively via kubectl (installed on the
+    # bastion by the cluster install playbook); the apt python-kubernetes
+    # client is only needed by the Rancher helm-deploy playbook, which installs
+    # it itself and runs before this one in the airgap-downstream flow.
 
     - name: Download manifest to register into Rancher
       ansible.builtin.get_url:
         url: "https://{{ fqdn }}/v3/import/{{ hostvars['localhost']['cluster_registration_token'] }}_{{ hostvars['localhost']['cluster_id'] }}.yaml"
-        dest: "/tmp/cluster_registration_manifest_{{ ansible_facts.date_time.iso8601 }}.yaml"
-        mode: "0755"
+        # Stable path (no timestamp) so re-runs overwrite in place instead of
+        # littering /tmp; force refreshes the token-bearing manifest.
+        dest: /tmp/cluster_registration_manifest.yaml
+        mode: "0644"
         timeout: 60
         force: true
         validate_certs: false
+      register: registration_manifest
+      retries: 3
+      delay: 10
+      until: registration_manifest is success
 
     - name: Make the public Rancher hostname resolvable inside the downstream cluster
       # server-url carries the PUBLIC hostname so kubeconfigs generated for
@@ -457,13 +444,24 @@
               changed_when: false
 
     - name: Apply manifest to add cluster to Rancher
-      kubernetes.core.k8s:
-        state: present
-        src: "/tmp/cluster_registration_manifest_{{ ansible_facts.date_time.iso8601 }}.yaml"
-        kubeconfig: "/tmp/kubeconfig-{{ downstream }}.yaml"
-        verify_ssl: false
-      environment:
-        RANCHER_INSECURE: true
+      # kubectl, not kubernetes.core.k8s: the apt python-kubernetes client sets
+      # no per-request timeout, so a stalled connection to the downstream
+      # apiserver wedges the module forever (same reason the rollout wait below
+      # uses kubectl). kubectl bounds every request via --request-timeout; the
+      # kubeconfig embeds the cluster CA, so TLS verification works as-is.
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml
+          - --request-timeout=30s
+          - apply
+          - -f
+          - /tmp/cluster_registration_manifest.yaml
+      register: manifest_apply
+      changed_when: manifest_apply.stdout is not search('unchanged')
+      retries: 3
+      delay: 10
+      until: manifest_apply.rc == 0
 
     - name: Wait for agent deployment to be ready
       block:
