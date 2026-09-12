@@ -141,18 +141,33 @@
       ansible.builtin.set_fact:
         charts_mirror_served_branch: >-
           {{ charts_mirror_branch ~ (charts_mirror_settled_suffix if (charts_mirror_serve_settled | bool) else '') }}
+
     # The mirror is owned by root; git-http-backend runs as the web server user
     # (www-data). git 2.35.2+ refuses cross-user repo access ("dubious
-    # ownership"), so allow it system-wide (the bastion only serves mirrors).
+    # ownership"), so mark ONLY this mirror as safe — a system-wide '*' would
+    # disable the ownership check for every repository on the bastion.
     - name: Check system git safe.directory
       ansible.builtin.command: git config --system --get-all safe.directory
       register: charts_safe_dir
       changed_when: false
       failed_when: false
 
+    - name: Retire the blanket safe.directory wildcard this role used to set
+      # '\*' is the literal-star value pattern: unset-all removes only the
+      # wildcard entry, leaving any other configured paths untouched.
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - --system
+          - --unset-all
+          - safe.directory
+          - \*
+      when: "'*' in charts_safe_dir.stdout_lines"
+
     - name: Permit git-http-backend to serve the root-owned mirror
-      ansible.builtin.command: git config --system --add safe.directory '*'
-      when: "'*' not in charts_safe_dir.stdout_lines"
+      ansible.builtin.command: git config --system --add safe.directory {{ charts_mirror_dest }}
+      when: charts_mirror_dest not in charts_safe_dir.stdout_lines
 
     # Serving layer: reuse the ui-plugin vhost when present (both mirrors live
     # under /srv/git, served by the same GIT_PROJECT_ROOT); install an

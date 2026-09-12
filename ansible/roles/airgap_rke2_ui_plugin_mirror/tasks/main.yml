@@ -88,16 +88,30 @@
 
     # The mirror is owned by root; git-http-backend runs as the web server user
     # (www-data). git 2.35.2+ refuses cross-user repo access ("dubious
-    # ownership"), so allow it system-wide (the bastion only serves our mirror).
+    # ownership"), so mark ONLY this mirror as safe — a system-wide '*' would
+    # disable the ownership check for every repository on the bastion.
     - name: Check system git safe.directory
       ansible.builtin.command: git config --system --get-all safe.directory
       register: ui_plugin_safe_dir
       changed_when: false
       failed_when: false
 
+    - name: Retire the blanket safe.directory wildcard this role used to set
+      # '\*' is the literal-star value pattern: unset-all removes only the
+      # wildcard entry, leaving any other configured paths untouched.
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - --system
+          - --unset-all
+          - safe.directory
+          - \*
+      when: "'*' in ui_plugin_safe_dir.stdout_lines"
+
     - name: Permit git-http-backend to serve the root-owned mirror
-      ansible.builtin.command: git config --system --add safe.directory '*'
-      when: "'*' not in ui_plugin_safe_dir.stdout_lines"
+      ansible.builtin.command: git config --system --add safe.directory {{ ui_plugin_mirror_dest }}
+      when: ui_plugin_mirror_dest not in ui_plugin_safe_dir.stdout_lines
 
     # Supersede any earlier dumb-HTTP (python http.server) unit from this role.
     - name: Stop and disable obsolete dumb-HTTP python service

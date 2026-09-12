@@ -150,6 +150,19 @@ class TestChartsMirrorRole(unittest.TestCase):
         # refuses to restart, so the role must fail loudly instead.
         _require(self.tasks, "Fail when both mirror vhosts are enabled")
 
+    def test_safe_directory_is_scoped_to_the_mirror_not_a_wildcard(self):
+        # A system-wide '*' disables git's ownership protection for every
+        # repository on the bastion; only the mirror path needs to be safe.
+        permit = _require(self.tasks, "Permit git-http-backend to serve the root-owned mirror")
+        module = permit["ansible.builtin.command"]
+        cmd = module["cmd"] if isinstance(module, dict) else module
+        self.assertIn("safe.directory {{ charts_mirror_dest }}", cmd)
+        self.assertNotIn("'*'", cmd)
+        retire = _require(
+            self.tasks, "Retire the blanket safe.directory wildcard this role used to set"
+        )
+        self.assertEqual(retire["ansible.builtin.command"]["argv"][-1], "\\*")
+
 class TestUiPluginVhostCoexistence(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -178,6 +191,17 @@ class TestUiPluginVhostCoexistence(unittest.TestCase):
     def test_reuse_rejects_duplicate_vhost_confs(self):
         _require(self.tasks, "Fail when both mirror vhosts are enabled")
 
+
+    def test_safe_directory_is_scoped_to_the_mirror_not_a_wildcard(self):
+        permit = _require(self.tasks, "Permit git-http-backend to serve the root-owned mirror")
+        module = permit["ansible.builtin.command"]
+        cmd = module["cmd"] if isinstance(module, dict) else module
+        self.assertIn("safe.directory {{ ui_plugin_mirror_dest }}", cmd)
+        self.assertNotIn("'*'", cmd)
+        retire = _require(
+            self.tasks, "Retire the blanket safe.directory wildcard this role used to set"
+        )
+        self.assertEqual(retire["ansible.builtin.command"]["argv"][-1], "\\*")
 
 class TestDownstreamCoreDNSOverride(unittest.TestCase):
     @classmethod
