@@ -36,15 +36,21 @@ UI_PLUGIN_MIRROR_TARGET :=
 UI_PLUGIN_MIRROR_ANSIBLE_VAR :=
 endif
 # Opt-in: include the standalone charts-mirror step in `all`/`setup-from-infra`
-# and set enable_charts_mirror=true for every ansible invocation (airgap only,
-# incl. airgap-downstream, whose downstream catalog-repoint block is otherwise
-# disabled even though the run stood the mirror up). Default off so ordinary
-# airgap runs are unaffected.
+# and set enable_charts_mirror=true for every ansible invocation (airgap +
+# RKE2 only — k3s has no airgap env, so the gate would point at a nonexistent
+# playbook; incl. airgap-downstream, whose downstream catalog-repoint block is
+# otherwise disabled even though the run stood the mirror up). Default off so
+# ordinary airgap runs are unaffected.
 ENABLE_CHARTS_MIRROR ?= no
 ifeq ($(ENV),airgap)
+ifeq ($(DISTRO),rke2)
 ifeq ($(ENABLE_CHARTS_MIRROR),yes)
 CHARTS_MIRROR_TARGET := charts-mirror
 CHARTS_MIRROR_ANSIBLE_VAR := enable_charts_mirror=true
+else
+CHARTS_MIRROR_TARGET :=
+CHARTS_MIRROR_ANSIBLE_VAR :=
+endif
 else
 CHARTS_MIRROR_TARGET :=
 CHARTS_MIRROR_ANSIBLE_VAR :=

@@ -198,11 +198,14 @@ class TestChartsMirrorRole(unittest.TestCase):
         self.assertIn("charts_mirror_settled_ref", cmd)
         self.assertNotIn("charts_mirror_settled_commits_behind", cmd)
 
-    def test_lsremote_is_time_bounded(self):
+    def test_lsremote_is_time_bounded_and_requires_the_ref(self):
         verify = _require(self.tasks, "Verify the mirror answers smart-HTTP on the published URL")
         argv = verify["ansible.builtin.command"]["argv"]
         self.assertEqual(argv[0], "timeout")
         self.assertIn("charts_mirror_verify_timeout", argv[1])
+        # Without --exit-code, ls-remote succeeds on a zero-match ref pattern
+        # and verifies an endpoint that can never serve the branch.
+        self.assertIn("--exit-code", argv)
 
     def test_safe_directory_retirement_migrates_shared_repos(self):
         # Retiring the blanket '*' can strip the only safe.directory entry
@@ -212,6 +215,45 @@ class TestChartsMirrorRole(unittest.TestCase):
         self.assertEqual(find["ansible.builtin.command"]["argv"][0], "find")
         scope = _require(self.tasks, "Scope every shared-vhost repo the wildcard used to cover")
         self.assertIn("map('dirname')", scope["loop"])
+
+    def test_settled_ref_expression_selects_the_right_publication(self):
+        # Evaluate the actual set_fact expression: an unparenthesized boolean
+        # before ternary silently pipes the literal instead of the test, which
+        # name-grep assertions cannot catch but runtime would.
+        try:
+            import jinja2
+        except ImportError:
+            self.skipTest("jinja2 not available for expression evaluation")
+        expr = _require(
+            self.tasks, "Resolve the settled ref to the previous catalog publication"
+        )["ansible.builtin.set_fact"]["charts_mirror_settled_ref"].strip()
+
+        def render(lines):
+            env = jinja2.Environment()
+            env.filters["ternary"] = lambda value, if_true, if_false: if_true if value else if_false
+            return env.from_string(expr).render(
+                charts_mirror_publish_history={"stdout_lines": lines},
+                charts_mirror_branch="release-v2.15",
+            )
+
+        two = ["sha-newest", "sha-previous"]
+        self.assertEqual(render(two).strip(), "sha-previous",
+                         "two publications: the previous one must be selected")
+        self.assertEqual(render(two[:1]).strip(), "sha-newest",
+                         "single publication: the head is served")
+        self.assertEqual(render([]).strip(), "release-v2.15",
+                         "no publications yet: fall back to the branch name")
+
+    def test_makefile_gate_is_rke2_only(self):
+        # k3s has no airgap env; without the DISTRO gate the flag would wire
+        # `make all DISTRO=k3s ENV=airgap ENABLE_CHARTS_MIRROR=yes` at a
+        # nonexistent playbook path.
+        with open(os.path.join(REPOSITORY_ROOT, "Makefile")) as fh:
+            makefile = fh.read()
+        blank_line = chr(10) + chr(10)
+        block = makefile.split("ENABLE_CHARTS_MIRROR ?=")[1].split(blank_line)[0]
+        self.assertIn("ifeq ($(ENV),airgap)", block)
+        self.assertIn("ifeq ($(DISTRO),rke2)", block)
 
     def test_remote_configuration_recovers_partial_bootstrap(self):
         # An interrupted first run can leave the bare repo without the origin
@@ -347,7 +389,11 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
         derivation = derive["ansible.builtin.set_fact"]["downstream_server_url_host"]
         self.assertIn("rancher_server_url", derivation)
         self.assertIn("urlsplit('hostname')", derivation)
-        self.assertIn("else fqdn", derivation)
+        # Mirror the deploy playbook's rancher_public_hostname precedence
+        # (external LB first) — the play-var fqdn prefers rancher_hostname, so
+        # an fqdn fallback pins the wrong host when both are configured.
+        self.assertIn("external_lb_hostname | default(rancher_hostname", derivation)
+        self.assertNotIn("else fqdn", derivation)
 
     def test_play_var_prefers_the_public_hostname(self):
         # server-url is set to the PUBLIC hostname, so the CoreDNS override

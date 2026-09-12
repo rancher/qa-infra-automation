@@ -366,14 +366,16 @@
       when: (internal_lb_hostname | default('')) | length > 0
       block:
         - name: Resolve the hostname the agent will validate as server-url
-          # Matches the deploy playbook's precedence: an explicit
+          # Matches the deploy playbook's EXACT precedence: an explicit
           # rancher_server_url wins (any host it names is what the agent
-          # checks); otherwise the public fqdn baked into server-url.
+          # checks); otherwise rancher_public_hostname — external LB first,
+          # NOT the play-var fqdn (whose chain prefers rancher_hostname; when
+          # both are set and differ, an fqdn fallback pins the wrong host).
           ansible.builtin.set_fact:
             downstream_server_url_host: >-
               {{ (rancher_server_url | default('') | urlsplit('hostname'))
                  if (rancher_server_url | default('') | length > 0)
-                 else fqdn }}
+                 else (external_lb_hostname | default(rancher_hostname | default(internal_lb_hostname))) }}
 
         - name: Resolve the internal load balancer address
           ansible.builtin.command:

@@ -152,11 +152,8 @@
       when: charts_mirror_serve_settled | bool
       block:
         - name: List the last two commits that published catalog content
-          # Commit distance (~N) counts arbitrary history (clean runs,
-          # git-pages updates, infra propagation), so a fixed N can select an
-          # intermediate state instead of a completed publication. rev-list
-          # over the published-content path selects only commits that changed
-          # the catalog.
+          # Publication-based, not commit distance; see the role README for
+          # the determinism rationale and trade-off.
           ansible.builtin.command:
             argv:
               - git
@@ -172,10 +169,12 @@
         - name: Resolve the settled ref to the previous catalog publication
           # Second entry = the last-but-one publication; with no earlier
           # publication the branch head is served (nothing newer to shield
-          # against).
+          # against). The boolean must be PARENTHESIZED before ternary:
+          # filters bind tighter than comparisons, so an unparenthesized
+          # `x > 1 | ternary(...)` pipes the literal 1 instead of the test.
           ansible.builtin.set_fact:
             charts_mirror_settled_ref: >-
-              {{ (charts_mirror_publish_history.stdout_lines | length) > 1
+              {{ ((charts_mirror_publish_history.stdout_lines | default([])) | length > 1)
                  | ternary(charts_mirror_publish_history.stdout_lines[1],
                            charts_mirror_publish_history.stdout_lines[0] | default(charts_mirror_branch)) }}
 
@@ -402,8 +401,12 @@
           - "{{ charts_mirror_verify_timeout }}"
           - git
           - ls-remote
+          - --exit-code
           - "{{ charts_mirror_url }}"
           - refs/heads/{{ charts_mirror_served_branch }}
+          # --exit-code: ls-remote exits 0 even when the ref pattern matches
+          # nothing, which would verify (and persist a fact for) an endpoint
+          # that can never serve the branch.
       register: charts_mirror_lsremote
       changed_when: false
       retries: 3

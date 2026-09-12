@@ -19,9 +19,10 @@ charts_mirror_branch: "{{ 'release-v' ~ (rancher_image_tag | default('v2.15.0') 
 # Determinism against same-day upstream publishes: current Rancher releases
 # lag one publish cycle before recently committed chart revisions show up in
 # the cluster-scoped catalog index, so installing "latest" right after an
-# upstream publish fails ("no chart version found"). Serve a settled ref
-# N commits behind the branch head; consumers (the ClusterRepo) clone that.
-# Set charts_mirror_serve_settled to false to serve the live branch head.
+# upstream publish fails ("no chart version found"). Serve a settled ref —
+# the previous commit that published content under charts_mirror_settled_path
+# — which consumers (the ClusterRepo) clone. Set charts_mirror_serve_settled
+# to false to serve the live branch head.
 charts_mirror_serve_settled: true
 charts_mirror_settled_suffix: "-settled"
 # Path inside the charts repo whose changes constitute a catalog publication;
