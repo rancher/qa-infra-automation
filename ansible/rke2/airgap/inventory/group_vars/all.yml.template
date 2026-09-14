@@ -127,6 +127,10 @@ enable_private_registry: true
 install_helm: true
 
 # rancher_hostname: "rancher.example.com"  # Optional: overrides internal_lb_hostname from inventory
+# rancher_server_url: "https://rancher.example.com"  # Optional: full URL pinned as the Rancher
+#   server-url setting instead of the default https://<external_lb_hostname>. The hostname must
+#   be covered by the TLS cert, and downstream clusters must resolve it (the registration
+#   playbook installs a CoreDNS hosts override when an internal LB exists).
 rancher_bootstrap_password: "<RANCHER_BOOTSTRAP_PASSWORD>"
 rancher_image_tag: <RANCHER_VERSION>
 # Pin the chart version to match the image tag (strip leading 'v'); rc/stable repos

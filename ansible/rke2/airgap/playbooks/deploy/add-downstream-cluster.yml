@@ -588,13 +588,16 @@
           ansible.builtin.set_fact:
             charts_mirror_fact: "{{ charts_mirror_fact_raw.content | b64decode | from_json }}"
 
-        - name: Fail when the charts mirror fact is missing or has no URL
+        - name: Fail when the charts mirror fact is missing url or branch
           ansible.builtin.fail:
             msg: >-
               enable_charts_mirror is on but the charts_mirror fact carries no
-              'url'. Re-run make charts-mirror ENV=airgap to rewrite it (make
-              rancher does not run the mirror role), then re-run this playbook.
-          when: (charts_mirror_fact.url | default('')) | length == 0
+              'url' or no 'branch'. Re-run make charts-mirror ENV=airgap to
+              rewrite it (make rancher does not run the mirror role), then
+              re-run this playbook.
+          when: >-
+            (charts_mirror_fact.url | default('')) | length == 0
+            or (charts_mirror_fact.branch | default('')) | length == 0
 
         - name: Wait for the agent to seed the downstream rancher-charts ClusterRepo
           # The cattle-cluster-agent deploys the catalog CRDs and the default
@@ -649,7 +652,7 @@
             (downstream_charts_repo_current.stdout.split(' ') | first | trim)
                 != charts_mirror_fact.url
             or (downstream_charts_repo_current.stdout.split(' ') | last | trim)
-                != (charts_mirror_fact.branch | default('release-v2.15-settled'))
+                != charts_mirror_fact.branch
           ansible.builtin.command:
             argv:
               - kubectl
@@ -663,7 +666,7 @@
               - -p
               - >-
                 {{ {'spec': {'gitRepo': charts_mirror_fact.url,
-                             'gitBranch': charts_mirror_fact.branch | default('release-v2.15-settled')}} | to_json }}
+                             'gitBranch': charts_mirror_fact.branch}} | to_json }}
           register: downstream_charts_patch
           # Runs only when spec.gitRepo or spec.gitBranch differs (the `when`
           # above), so every execution genuinely repoints the catalog.
@@ -704,7 +707,7 @@
             msg: >-
               downstream rancher-charts ClusterRepo now clones
               {{ charts_mirror_fact.url }} (branch
-              {{ charts_mirror_fact.branch | default('release-v2.15-settled') }})
+              {{ charts_mirror_fact.branch }})
               synced at {{ downstream_charts_repo_synced.stdout | trim }}
 
     - name: Check if imported cluster is ready

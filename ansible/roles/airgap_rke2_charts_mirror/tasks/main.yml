@@ -88,6 +88,55 @@
         cmd: git --git-dir={{ charts_mirror_dest }} config remote.origin.url {{ charts_mirror_src }}
       when: (charts_mirror_origin_url.stdout | trim) != charts_mirror_src
 
+    - name: Resolve the mirror branch when no Rancher version is pinned
+      # charts_mirror_branch derives from rancher_image_tag; with no vX.Y tag
+      # pinned there is no per-minor preference, so serve the NEWEST
+      # release-v* branch upstream (the charts repo has no head/latest). The
+      # set_fact outranks role defaults, so every later charts_mirror_branch
+      # reference (refspec, fetch, settled computation, persisted fact) sees
+      # the resolved value.
+      when: (charts_mirror_branch | default('') | length) == 0
+      block:
+        - name: List the upstream release branches (bounded like the fetch)
+          ansible.builtin.command:
+            argv:
+              - timeout
+              - "{{ charts_mirror_verify_timeout }}"
+              - git
+              - ls-remote
+              - --heads
+              - "{{ charts_mirror_src }}"
+              - refs/heads/release-v*
+          register: charts_mirror_upstream_heads
+          changed_when: false
+
+        - name: Pin the branch to the newest upstream release
+          # Minors compare NUMERICALLY (2.16 > 2.9), so a lexical max would
+          # pick 2.9; the `version` test orders them correctly. Explicit
+          # whitespace control keeps the folded scalar from leaking spaces
+          # into the branch name.
+          ansible.builtin.set_fact:
+            charts_mirror_branch: >-
+              {%- set minors = charts_mirror_upstream_heads.stdout_lines
+                 | map('regex_replace', '^.*refs/heads/release-v', '')
+                 | select('match', '^\d+\.\d+$')
+                 | list -%}
+              {%- set ns = namespace(newest='') -%}
+              {%- for minor in minors %}
+                {%- if ns.newest == '' or minor is version(ns.newest, '>') -%}
+                  {%- set ns.newest = minor -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{- ('release-v' ~ ns.newest) if ns.newest else '' -}}
+
+        - name: Fail when no upstream release branch could be resolved
+          ansible.builtin.fail:
+            msg: >-
+              No refs/heads/release-v* branch found at {{ charts_mirror_src }};
+              cannot pick a default mirror branch. Pin rancher_image_tag in the
+              inventory (e.g. v2.15.0) or set charts_mirror_branch explicitly.
+          when: (charts_mirror_branch | default('') | length) == 0
+
     # Applied on EVERY run, not just first bootstrap: when charts_mirror_branch
     # changes (e.g. a Rancher minor upgrade), a repo bootstrapped for the old
     # branch would otherwise keep fetching only that branch, and the branch

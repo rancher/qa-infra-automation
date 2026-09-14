@@ -9,12 +9,18 @@ charts_mirror_src: "https://git.rancher.io/charts"
 
 # Branch to mirror. Rancher's catalog resolves charts from the release branch
 # matching the deployed Rancher minor (e.g. Rancher v2.15 -> release-v2.15).
+# When the inventory pins no vX.Y rancher_image_tag this default renders EMPTY
+# and the role resolves the NEWEST release-v* branch upstream at setup (see
+# tasks/main.yml): the charts repo publishes per-minor release branches only —
+# there is no head/latest — and a Rancher minor's catalog can only install
+# from its own minor's branch, so "newest" is the only unpinned default that
+# serves installable content.
 # Only this branch is fetched: a full all-branch mirror is multi-GB of history
 # the catalog never serves. The branch carries every chart and every version
 # published for that release line, which is what the monitoring/alerting
 # validation suites need (chart present + at least two versions for the
 # upgrade-path tests).
-charts_mirror_branch: "{{ 'release-v' ~ (rancher_image_tag | default('v2.15.0') | regex_replace('^v(\\d+\\.\\d+).*', '\\1')) }}"
+charts_mirror_branch: "{{ 'release-v' ~ (rancher_image_tag | default('') | regex_replace('^v(\\d+\\.\\d+).*', '\\1')) if (rancher_image_tag | default('') is match('^v\\d+\\.\\d+')) else '' }}"
 
 # Determinism against same-day upstream publishes: current Rancher releases
 # lag one publish cycle before recently committed chart revisions show up in

@@ -355,12 +355,15 @@
           ansible.builtin.set_fact:
             charts_mirror_fact: "{{ charts_mirror_fact_raw.content | b64decode | from_json }}"
 
-        - name: Fail when the charts mirror fact has no URL
+        - name: Fail when the charts mirror fact has no url or branch
           ansible.builtin.fail:
             msg: >-
               Found /etc/ansible/facts.d/charts_mirror.fact on the bastion but it
-              carries no 'url'. Re-run make charts-mirror ENV=airgap to rewrite it.
-          when: (charts_mirror_fact.url | default('')) | length == 0
+              carries no 'url' or no 'branch'. Re-run make charts-mirror ENV=airgap
+              to rewrite it.
+          when: >-
+            (charts_mirror_fact.url | default('')) | length == 0
+            or (charts_mirror_fact.branch | default('')) | length == 0
 
         - name: Read the current ClusterRepo
           ansible.builtin.uri:
@@ -391,7 +394,7 @@
                 body: >-
                   {{ charts_clusterrepo_current.json | combine({'spec': (charts_clusterrepo_current.json.spec | default({})) | combine({
                       'gitRepo': charts_mirror_fact.url,
-                      'gitBranch': charts_mirror_fact.branch | default('release-v2.15')
+                      'gitBranch': charts_mirror_fact.branch
                     })}, recursive=True) | to_json }}
                 body_format: json
                 validate_certs: false
@@ -436,7 +439,7 @@
           ansible.builtin.debug:
             msg: >-
               rancher-charts ClusterRepo now clones {{ charts_mirror_fact.url }}
-              (branch {{ charts_mirror_fact.branch | default('release-v2.15') }})
+              (branch {{ charts_mirror_fact.branch }})
 
     - name: Create Rancher configuration summary
       ansible.builtin.copy:

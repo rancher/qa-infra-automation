@@ -99,6 +99,38 @@ def _require(tasks, name):
         raise AssertionError(f"task not found: {name}")
     return task
 
+def _render_contract(expr, **ctx):
+    """Render a YAML-parsed Jinja expression the way Ansible would.
+
+    Ansible re-escapes backslashes before Jinja compilation (so a regex
+    replacement like '\\1' reaches regex_replace intact), while plain Jinja
+    would unescape it to a control character; re-double them here to match
+    runtime semantics. Returns None when jinja2 is unavailable.
+    """
+    try:
+        import jinja2
+        import re
+    except ImportError:
+        return None
+    env = jinja2.Environment()
+    env.filters["ternary"] = lambda value, if_true, if_false: if_true if value else if_false
+    env.filters["regex_replace"] = lambda value, pattern, replacement: re.sub(
+        pattern, replacement, value
+    )
+    env.tests["match"] = lambda value, pattern: re.match(pattern, value) is not None
+
+    def _version(value, other, operator):
+        key = lambda v: tuple(int(part) for part in v.split("."))
+        return {
+            ">": lambda: key(value) > key(other),
+            "<": lambda: key(value) < key(other),
+            ">=": lambda: key(value) >= key(other),
+            "<=": lambda: key(value) <= key(other),
+        }[operator]()
+
+    env.tests["version"] = _version
+    return env.from_string(expr.replace("\\", "\\\\")).render(**ctx).strip()
+
 
 class TestChartsMirrorRole(unittest.TestCase):
     @classmethod
@@ -147,6 +179,61 @@ class TestChartsMirrorRole(unittest.TestCase):
         default = self.defaults["charts_mirror_branch"]
         self.assertIn("rancher_image_tag", default)
         self.assertIn("release-v", default)
+
+        def render(**ctx):
+            out = _render_contract(default, **ctx)
+            if out is None:
+                self.skipTest("jinja2 not available for expression evaluation")
+            return out
+
+        self.assertEqual(render(rancher_image_tag="v2.16.2"), "release-v2.16")
+        self.assertEqual(render(rancher_image_tag="v2.9"), "release-v2.9")
+        # No vX.Y tag pinned (unset, or a non-version tag like 'head'): the
+        # default renders EMPTY and the role resolves the newest release-v*
+        # branch upstream at setup — no hardcoded minor anywhere.
+        self.assertEqual(render(rancher_image_tag="head"), "")
+        self.assertEqual(render(), "")
+
+    def test_unpinned_tag_resolves_the_newest_upstream_release(self):
+        discovery = _require(
+            self.tasks, "Resolve the mirror branch when no Rancher version is pinned"
+        )
+        # Discovery runs only when the tag-derived default rendered empty.
+        self.assertIn("charts_mirror_branch", discovery["when"])
+        self.assertIn("== 0", discovery["when"])
+        heads = _require(
+            discovery["block"], "List the upstream release branches (bounded like the fetch)"
+        )
+        argv = heads["ansible.builtin.command"]["argv"]
+        self.assertEqual(argv[0], "timeout",
+                         "the upstream ls-remote must be time-bounded like the fetch")
+        self.assertEqual(argv[-1], "refs/heads/release-v*")
+        _require(discovery["block"], "Fail when no upstream release branch could be resolved")
+
+    def test_discovery_expression_picks_the_numeric_newest(self):
+        # Evaluate the actual set_fact expression: minors must compare
+        # NUMERICALLY (2.16 > 2.9), which a lexical max gets backwards.
+        expr = _require(
+            self.tasks, "Pin the branch to the newest upstream release"
+        )["ansible.builtin.set_fact"]["charts_mirror_branch"].strip()
+
+        def render(lines):
+            out = _render_contract(expr, charts_mirror_upstream_heads={"stdout_lines": lines})
+            if out is None:
+                self.skipTest("jinja2 not available for expression evaluation")
+            return out
+
+        heads = [
+            "sha1\trefs/heads/release-v2.9",
+            "sha2\trefs/heads/release-v2.15",
+            "sha3\trefs/heads/release-v2.16",
+        ]
+        self.assertEqual(render(heads), "release-v2.16",
+                         "a lexical max would pick 2.9 over 2.16")
+        self.assertEqual(render(heads[:1]), "release-v2.9")
+        self.assertEqual(render(["sha4\trefs/heads/master"]), "",
+                         "non-release refs must never be picked")
+        self.assertEqual(render([]), "")
 
     def test_fetch_refspec_is_reapplied_on_reruns(self):
         # Bootstrap must not own the refspec: a repo bootstrapped for one
@@ -464,11 +551,40 @@ class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
             "the downstream catalog repoint must be gated on enable_charts_mirror",
         )
 
+
+    def test_branchless_fact_fails_instead_of_pinning_a_release(self):
+        # The role has persisted 'branch' since its first version, so a fact
+        # missing it is malformed: it must fail with the mirror-role
+        # remediation in every consumer, because a hardcoded release literal
+        # (which drifts from what the mirror actually serves — settled suffix,
+        # dynamic newest-release discovery) would silently repoint the catalog
+        # at a branch the mirror may not serve.
+        fail = _require(self.tasks, "Fail when the charts mirror fact is missing url or branch")
+        when = fail["when"]
+        self.assertIn("charts_mirror_fact.url", when)
+        self.assertIn("charts_mirror_fact.branch", when)
+        expected_fail_names = {
+            PLAYBOOK_PATH: "Fail when the charts mirror fact is missing url or branch",
+        }
+        for path in (PLAYBOOK_PATH,) + DEPLOY_PLAYBOOKS:
+            with self.subTest(playbook=os.path.basename(path)):
+                deploy_fail = _require(
+                    _tasks(path),
+                    expected_fail_names.get(path, "Fail when the charts mirror fact has no url or branch"),
+                )
+                self.assertIn("charts_mirror_fact.branch", deploy_fail["when"])
+                with open(path) as fh:
+                    content = fh.read()
+                self.assertNotIn(
+                    "default('release-v", content,
+                    "a hardcoded release literal must not reappear as a fact fallback",
+                )
+
     def test_remediations_point_at_the_charts_mirror_target(self):
         # `make rancher` never runs the mirror role; remediation text must
         # send operators at the target that actually (re)writes the fact.
         for name in ("Fail when the charts mirror fact is missing",
-                     "Fail when the charts mirror fact is missing or has no URL"):
+                     "Fail when the charts mirror fact is missing url or branch"):
             task = _require(self.tasks, name)
             msg = task["ansible.builtin.fail"]["msg"]
             self.assertIn("make charts-mirror ENV=airgap", msg, name)

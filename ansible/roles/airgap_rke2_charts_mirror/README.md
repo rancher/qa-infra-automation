@@ -43,9 +43,12 @@ fact `/etc/ansible/facts.d/charts_mirror.fact` exists and repoints the
 
 See `defaults/main.yml`. Highlights:
 
-- `charts_mirror_branch` (default `release-v2.15`): must match the deployed
-  Rancher minor. Only this branch is fetched; a full all-branch mirror is
-  multi-GB of history the catalog never serves.
+- `charts_mirror_branch` (default: derived from the deployed Rancher minor —
+  `rancher_image_tag` `v2.15.x` -> `release-v2.15`; when the inventory pins no
+  vX.Y tag, the role resolves the **newest** `release-v*` branch upstream at
+  setup, since per-minor release branches are all the charts repo publishes).
+  Only this branch is fetched; a full all-branch mirror is multi-GB of history
+  the catalog never serves.
 - `charts_mirror_dest` (default `/srv/git/charts.git`): must share a parent
   with `ui_plugin_mirror_dest` (default `/srv/git`) when the ui-plugin mirror
   vhost is enabled; the role asserts this and fails otherwise.
