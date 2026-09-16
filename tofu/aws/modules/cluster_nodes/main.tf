@@ -148,13 +148,18 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_default_egress" {
   cidr_ipv4          = each.value
 }
 
-resource "aws_vpc_security_group_egress_rule" "ephemeral_ingress_cidrs_egress" {
-  for_each = local.create_security_group ? toset(var.ephemeral_sg_ingress_cidrs) : []
+resource "aws_vpc_security_group_egress_rule" "ephemeral_listener_egress" {
+  for_each = local.create_security_group ? {
+    for pair in setproduct(["80", "443", "6443", "9345"], var.ephemeral_sg_ingress_cidrs) :
+    "${pair[0]}-${pair[1]}" => { port = pair[0], cidr = pair[1] }
+  } : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Egress to allowed ingress CIDRs (SSH/NLB return traffic)"
-  ip_protocol        = "-1"
-  cidr_ipv4          = each.value
+  description        = "Ephemeral listener ${each.value.port} from allowed CIDRs"
+  ip_protocol        = "tcp"
+  from_port          = tonumber(each.value.port)
+  to_port            = tonumber(each.value.port)
+  cidr_ipv4          = each.value.cidr
 }
 
 resource "aws_vpc_security_group_egress_rule" "ephemeral_self_egress" {
