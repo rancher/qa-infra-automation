@@ -1,5 +1,6 @@
 """Contract tests for K3s configuration and credential file permissions."""
 
+import fnmatch
 import os
 import re
 import unittest
@@ -94,13 +95,25 @@ class TestK3sFilePermissions(unittest.TestCase):
         self.assertLess(task_names.index(find_name), task_names.index(secure_name))
         self.assertLess(task_names.index(secure_name), task_names.index(open_name))
         self.assertEqual(find_config["paths"], "/etc/rancher/k3s/config.yaml.d")
-        self.assertEqual(find_config["patterns"], ["*.yaml"])
+        self.assertNotIn("patterns", find_config)
         self.assertTrue(find_config["recurse"])
         self.assertEqual(
             find_task["when"],
             "k3s_install_config_drop_in_directory.stat.isdir | default(false)",
         )
         self.assertIn("k3s_install_sensitive_config_drop_ins.files", secure_loop)
+
+    def test_configuration_drop_in_backups_are_not_filtered_out(self):
+        find_task = _tasks_by_name()["Find existing K3s configuration drop-ins"]
+        find_config = find_task["ansible.builtin.find"]
+        patterns = find_config.get("patterns", ["*"])
+
+        self.assertEqual(find_config["file_type"], "file")
+        self.assertNotIn("patterns", find_config)
+        for backup_name in ("secret.yaml.bak", "secret.yaml.123456~"):
+            self.assertTrue(
+                any(fnmatch.fnmatch(backup_name, pattern) for pattern in patterns)
+            )
 
     def test_server_logs_remain_private(self):
         task = _tasks_by_name()["Create K3s server logs directory"]

@@ -39,8 +39,6 @@
 - name: Find existing K3s configuration drop-ins
   ansible.builtin.find:
     paths: /etc/rancher/k3s/config.yaml.d
-    patterns:
-      - '*.yaml'
     file_type: file
     recurse: true
   register: k3s_install_sensitive_config_drop_ins
