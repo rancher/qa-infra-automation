@@ -22,24 +22,34 @@
 - name: Find existing K3s sensitive configuration files
   ansible.builtin.find:
     paths: /etc/rancher/k3s
-    patterns:
-      - config.yaml
-      - config.yaml.*
-      - registries.yaml
-      - registries.yaml.*
+    excludes:
+      - k3s.yaml
     file_type: file
+    hidden: true
     recurse: false
   register: k3s_install_sensitive_config_files
 
 - name: Check for existing K3s configuration drop-ins
   ansible.builtin.stat:
     path: /etc/rancher/k3s/config.yaml.d
+    follow: true
   register: k3s_install_config_drop_in_directory
+
+- name: Keep existing K3s configuration drop-ins private
+  ansible.builtin.file:
+    path: /etc/rancher/k3s/config.yaml.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+    follow: true
+  when: k3s_install_config_drop_in_directory.stat.isdir | default(false)
 
 - name: Find existing K3s configuration drop-ins
   ansible.builtin.find:
     paths: /etc/rancher/k3s/config.yaml.d
     file_type: file
+    hidden: true
     recurse: true
   register: k3s_install_sensitive_config_drop_ins
   when: k3s_install_config_drop_in_directory.stat.isdir | default(false)

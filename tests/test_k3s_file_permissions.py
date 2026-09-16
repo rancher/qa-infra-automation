@@ -68,9 +68,11 @@ class TestK3sFilePermissions(unittest.TestCase):
             "{{ omit if k3s_install_config_directory.stat.exists else '0700' }}",
         )
         self.assertEqual(
-            set(existing["patterns"]),
-            {"config.yaml", "config.yaml.*", "registries.yaml", "registries.yaml.*"},
+            existing["excludes"],
+            ["k3s.yaml"],
         )
+        self.assertNotIn("patterns", existing)
+        self.assertTrue(existing["hidden"])
         self.assertEqual(
             tasks_by_name[find_name]["register"],
             "k3s_install_sensitive_config_files",
@@ -96,6 +98,7 @@ class TestK3sFilePermissions(unittest.TestCase):
         self.assertLess(task_names.index(secure_name), task_names.index(open_name))
         self.assertEqual(find_config["paths"], "/etc/rancher/k3s/config.yaml.d")
         self.assertNotIn("patterns", find_config)
+        self.assertTrue(find_config["hidden"])
         self.assertTrue(find_config["recurse"])
         self.assertEqual(
             find_task["when"],
@@ -103,14 +106,36 @@ class TestK3sFilePermissions(unittest.TestCase):
         )
         self.assertIn("k3s_install_sensitive_config_drop_ins.files", secure_loop)
 
-    def test_configuration_drop_in_backups_are_not_filtered_out(self):
+    def test_hidden_and_symlinked_drop_ins_stay_behind_private_directory(self):
+        tasks = _tasks()
+        tasks_by_name = _tasks_by_name()
+        task_names = [task.get("name") for task in tasks]
+
+        private_name = "Keep existing K3s configuration drop-ins private"
+        open_name = "Make K3s configuration directory traversable"
+        stat_task = tasks_by_name["Check for existing K3s configuration drop-ins"]
+        private_task = tasks_by_name[private_name]
+        private_config = private_task["ansible.builtin.file"]
+
+        self.assertLess(task_names.index(private_name), task_names.index(open_name))
+        self.assertTrue(stat_task["ansible.builtin.stat"]["follow"])
+        self.assertEqual(private_config["path"], "/etc/rancher/k3s/config.yaml.d")
+        self.assertEqual(private_config["mode"], "0700")
+        self.assertTrue(private_config["follow"])
+
+    def test_hidden_drop_ins_and_backups_are_not_filtered_out(self):
         find_task = _tasks_by_name()["Find existing K3s configuration drop-ins"]
         find_config = find_task["ansible.builtin.find"]
         patterns = find_config.get("patterns", ["*"])
 
         self.assertEqual(find_config["file_type"], "file")
         self.assertNotIn("patterns", find_config)
-        for backup_name in ("secret.yaml.bak", "secret.yaml.123456~"):
+        self.assertTrue(find_config["hidden"])
+        for backup_name in (
+            ".secret.yaml",
+            "secret.yaml.bak",
+            "secret.yaml.123456~",
+        ):
             self.assertTrue(
                 any(fnmatch.fnmatch(backup_name, pattern) for pattern in patterns)
             )
