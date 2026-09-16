@@ -6,14 +6,21 @@
       - k3s_channel is match("^(stable|testing|latest|v\\d+(\\.\\d+){0,2})$")  
     fail_msg: "Invalid k3s_channel '{{ k3s_channel }}'. Must be stable, testing, latest, or v1[.x][.y]"
 
-- name: Create K3s directories
-  file:
-    path: "{{ item }}"
+- name: Create K3s configuration directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
     state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create K3s server logs directory
+  ansible.builtin.file:
+    path: "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}/logs"
+    state: directory
+    owner: root
+    group: root
     mode: '0700'
-  loop:
-    - /etc/rancher/k3s
-    - "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}/logs"
 
 - name: Create hardening supporting directories only if hardening is enabled
   file:
@@ -94,10 +101,10 @@
     suse_selinux_testing_rpm_site: "{{ k3s_selinux_testing_rpm_site }}"
 
 - name: Generate K3s configuration from template
-  template:
+  ansible.builtin.template:
     src: k3s-config.yaml.j2
     dest: /etc/rancher/k3s/config.yaml
-    mode: '0644'
+    mode: '0600'
     backup: true
 
 - name: Check if k3s_registry.yaml exists in role files
@@ -105,17 +112,10 @@
     path: "{{ role_path }}/files/k3s_registry.yaml"
   register: registry_file
 
-- name: Ensure destination directory for registry exists
-  ansible.builtin.file:
-    path: /etc/rancher/k3s/
-    state: directory
-    mode: '0700'
-  when: registry_file.stat.exists
-
 - name: Copy k3s_registry.yaml to the registry filepath
   ansible.builtin.copy:
     src: "{{ role_path }}/files/k3s_registry.yaml"
-    mode: '0644'
+    mode: '0600'
     dest: /etc/rancher/k3s/registries.yaml
   when: registry_file.stat.exists
 
