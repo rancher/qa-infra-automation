@@ -6,7 +6,37 @@
       - k3s_channel is match("^(stable|testing|latest|v\\d+(\\.\\d+){0,2})$")  
     fail_msg: "Invalid k3s_channel '{{ k3s_channel }}'. Must be stable, testing, latest, or v1[.x][.y]"
 
-- name: Create K3s configuration directory
+- name: Prepare K3s configuration directory privately
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Find existing K3s sensitive configuration files
+  ansible.builtin.find:
+    paths: /etc/rancher/k3s
+    patterns:
+      - config.yaml
+      - config.yaml.*
+      - registries.yaml
+      - registries.yaml.*
+    file_type: file
+    recurse: false
+  register: k3s_install_sensitive_config_files
+
+- name: Secure existing K3s sensitive configuration files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  loop: "{{ k3s_install_sensitive_config_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Make K3s configuration directory traversable
   ansible.builtin.file:
     path: /etc/rancher/k3s
     state: directory
@@ -105,7 +135,7 @@
     src: k3s-config.yaml.j2
     dest: /etc/rancher/k3s/config.yaml
     mode: '0600'
-    backup: true
+    backup: false
 
 - name: Check if k3s_registry.yaml exists in role files
   ansible.builtin.stat:
