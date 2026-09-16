@@ -6,6 +6,19 @@
       - k3s_channel is match("^(stable|testing|latest|v\\d+(\\.\\d+){0,2})$")  
     fail_msg: "Invalid k3s_channel '{{ k3s_channel }}'. Must be stable, testing, latest, or v1[.x][.y]"
 
+- name: Check Rancher configuration parent permissions
+  ansible.builtin.stat:
+    path: /etc/rancher
+    follow: false
+  register: k3s_install_config_parent
+
+- name: Refuse symlinked Rancher configuration parent
+  ansible.builtin.fail:
+    msg: >-
+      Refusing symlinked Rancher configuration parent /etc/rancher.
+      Replace it with a real directory before rerunning; the link and its target have not been modified.
+  when: k3s_install_config_parent.stat.islnk | default(false)
+
 - name: Check for existing K3s configuration directory
   ansible.builtin.stat:
     path: /etc/rancher/k3s
@@ -69,12 +82,6 @@
   loop_control:
     label: "{{ item.path }}"
   when: item.path != '/etc/rancher/k3s/k3s.yaml'
-
-- name: Check Rancher configuration parent permissions
-  ansible.builtin.stat:
-    path: /etc/rancher
-    follow: true
-  register: k3s_install_config_parent
 
 - name: Inspect private Rancher configuration parent
   ansible.builtin.find:

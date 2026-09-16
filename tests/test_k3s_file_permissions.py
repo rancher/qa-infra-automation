@@ -106,6 +106,68 @@ class TestK3sFilePermissions(unittest.TestCase):
         sys.platform == "darwin" and os.environ.get("QA_RUN_ANSIBLE_RUNTIME_TESTS") != "1",
         "local Ansible execution requires running outside the macOS sandbox",
     )
+    def test_symlinked_parent_fails_without_touching_external_target(self):
+        for link_kind in ("absolute", "relative", "dangling", "loop", "missing-k3s"):
+            with self.subTest(link_kind=link_kind), tempfile.TemporaryDirectory() as temp_dir:
+                parent = os.path.join(temp_dir, "rancher")
+                config_root = os.path.join(parent, "k3s")
+                external = os.path.join(temp_dir, "external")
+                os.mkdir(external, mode=0o700)
+                paths = [external]
+                if link_kind != "missing-k3s":
+                    config_target = os.path.join(external, "k3s")
+                    os.mkdir(config_target, mode=0o700)
+                    paths.append(config_target)
+                    for name in (".credentials", "k3s.yaml", "config.yaml.backup"):
+                        path = os.path.join(config_target, name)
+                        with open(path, "w", encoding="utf-8") as target:
+                            target.write("dummy-external-content\n")
+                        os.chmod(path, 0o644)
+                        paths.append(path)
+                if sys.platform == "linux" and os.geteuid() == 0:
+                    for path in paths:
+                        os.chown(path, 65533, 65533)
+                destination = {
+                    "absolute": external,
+                    "relative": "external",
+                    "dangling": "missing-target",
+                    "loop": "rancher",
+                    "missing-k3s": external,
+                }[link_kind]
+                os.symlink(destination, parent)
+                paths.append(parent)
+
+                def snapshot():
+                    result = {}
+                    for path in paths:
+                        info = os.lstat(path)
+                        result[path] = (
+                            info.st_mode, info.st_uid, info.st_gid, info.st_ino,
+                            info.st_mtime_ns, info.st_ctime_ns,
+                        )
+                        if stat.S_ISREG(info.st_mode):
+                            with open(path, "rb") as source:
+                                result[path] += (source.read(),)
+                    return result
+
+                before = snapshot()
+                for check in (False, True, False):
+                    result = _run_permissions(temp_dir, config_root, check=check)
+                    output = result.stdout + result.stderr
+                    self.assertNotEqual(result.returncode, 0, output)
+                    self.assertIn("Refusing symlinked Rancher configuration parent", output)
+                    self.assertRegex(result.stdout, r"changed=0\s")
+                    self.assertNotIn("TASK [Check for existing K3s configuration directory]", output)
+                    self.assertEqual(snapshot(), before)
+                    self.assertEqual(os.readlink(parent), destination)
+                    self.assertFalse(os.path.exists(os.path.join(temp_dir, "missing-target")))
+                    if link_kind == "missing-k3s":
+                        self.assertFalse(os.path.exists(os.path.join(external, "k3s")))
+
+    @unittest.skipIf(
+        sys.platform == "darwin" and os.environ.get("QA_RUN_ANSIBLE_RUNTIME_TESTS") != "1",
+        "local Ansible execution requires running outside the macOS sandbox",
+    )
     def test_symlinked_config_root_fails_without_touching_external_target(self):
         for link_kind in ("absolute", "relative", "dangling", "loop"):
             with self.subTest(link_kind=link_kind), tempfile.TemporaryDirectory() as temp_dir:

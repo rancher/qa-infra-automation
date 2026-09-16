@@ -2,7 +2,7 @@
 
 > **Estimated time:** ~15 minutes
 >
-> **What you'll end up with:** A multi-node RKE2 Kubernetes cluster running on AWS EC2 instances with Calico CNI, a kubeconfig on your local machine, and optionally Rancher installed on top.
+> **What you'll end up with:** A multi-node RKE2 Kubernetes cluster running on AWS EC2 instances with the RKE2 default CNI (Canal) unless explicitly overridden, a kubeconfig on your local machine, and optionally Rancher installed on top.
 
 ## Prerequisites
 
@@ -124,7 +124,8 @@ Create the file `ansible/rke2/default/vars.yaml`:
 # RKE2 version — find versions at https://github.com/rancher/rke2/releases
 kubernetes_version: 'v1.34.2+rke2r1'
 
-# Empty uses the RKE2 default (Canal); set calico or cilium explicitly if needed.
+# Empty uses the RKE2 default (Canal); set any supported CNI explicitly as needed.
+# Examples: flannel, calico, cilium, or multus,canal (Multus plus a primary CNI).
 cni: ""
 
 # Kubeconfig output location

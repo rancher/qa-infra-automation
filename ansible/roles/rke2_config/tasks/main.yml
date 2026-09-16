@@ -69,10 +69,30 @@
     - "'token' not in rke2_additional_config"
     - "'token' not in (rke2_server_config if rke2_config_service_name == 'rke2-server' else rke2_agent_config)"
 
+- name: Validate existing RKE2 join configuration
+  when: rke2_config_previous_content.content is defined
+  block:
+    - name: Parse existing RKE2 configuration without logging secrets
+      ansible.builtin.set_fact:
+        rke2_config_previous_data: "{{ rke2_config_previous_content.content | b64decode | from_yaml }}"
+      no_log: true
+
+    - name: Require an existing YAML mapping or empty configuration
+      ansible.builtin.assert:
+        that: rke2_config_previous_data is none or rke2_config_previous_data is mapping
+        quiet: true
+      no_log: true
+  rescue:
+    - name: Report invalid existing RKE2 configuration
+      ansible.builtin.fail:
+        msg: >-
+          Existing RKE2 config.yaml is not a valid YAML mapping at {{ rke2_config_dir }}/config.yaml.
+          Repair the file before rerunning; its contents have not been logged or overwritten.
+
 - name: Preserve the existing join token unless explicitly configured
   ansible.builtin.set_fact:
     rke2_config_existing_token: >-
-      {{ ((rke2_config_previous_content.content | b64decode | from_yaml) or {}).get('token', '')
+      {{ (rke2_config_previous_data or {}).get('token', '')
          if rke2_config_previous_content.content is defined else '' }}
   no_log: true
 

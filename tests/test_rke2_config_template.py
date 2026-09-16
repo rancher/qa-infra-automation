@@ -92,6 +92,22 @@ class TestRKE2ConfigTemplate(unittest.TestCase):
             ],
         )
 
+    def test_join_tokens_remain_exact_strings_for_servers_and_agents(self):
+        for node_role in ("master", "agent"):
+            for token in ("00123", "no", "null", 'dummy: token # with "quotes"', "dummy\ntoken"):
+                with self.subTest(node_role=node_role, token=token):
+                    self._render_defaults(
+                        {
+                            "rke2_node_role": node_role,
+                            "node_roles": ["worker"] if node_role == "agent" else ["cp", "etcd"],
+                            "rke2_token": token,
+                        },
+                        [
+                            "rendered_config['token'] is string",
+                            "rendered_config['token'] == rke2_token",
+                        ],
+                    )
+
     def test_server_string_values_survive_yaml_parsing(self):
         self._render_defaults(
             {

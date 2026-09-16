@@ -40,6 +40,10 @@ BASE_VARS = {
     "rke2_disable_components": [],
 }
 
+EXTENDED_CNIS = (
+    "flannel", "multus,canal", "multus,calico", "multus,cilium", "multus,flannel",
+)
+
 RENDER_TASKS = [
     {
         "name": "Render configuration",
@@ -184,6 +188,16 @@ class TestCNIPrecedence(unittest.TestCase):
             "cilium",
             [],
         ),
+    ] + [
+        (
+            f"{source} preserves {cni}",
+            {"rke2_cni": ""},
+            {source: cni if source == "rke2_cni" else {"cni": cni}},
+            cni,
+            [],
+        )
+        for cni in EXTENDED_CNIS
+        for source in ("rke2_cni", "rke2_additional_config", "rke2_server_config")
     ]
 
     def _run(self, play, extra_vars=None):
@@ -357,6 +371,20 @@ class TestCNIPrecedence(unittest.TestCase):
                 ],
             ),
         ]
+        for cni in EXTENDED_CNIS:
+            for source in ("cni", "server_flags"):
+                cases.append((
+                    f"server node preserves {cni} via {source}",
+                    {"rke2_node_role": "master", "node_roles": []},
+                    {source: cni if source == "cni" else f"cni: {cni}"},
+                    [f"rendered_config['cni'] == '{cni}'", _cni_line_check(1)],
+                ))
+            cases.append((
+                f"worker node never renders server CNI {cni}",
+                {"rke2_node_role": "agent", "node_roles": ["worker"]},
+                {"cni": cni, "server_flags": f"cni: {cni}"},
+                ["'cni' not in (rendered_config | default({}, true))", _cni_line_check(0)],
+            ))
         for case, facts, flags, checks in cases:
             with self.subTest(case=case):
                 merged = dict(BASE_VARS)

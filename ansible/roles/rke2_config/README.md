@@ -20,7 +20,7 @@ Variables defined in `defaults/main.yml`:
 |----------|---------|-------------|
 | `rke2_config_dir` | `/etc/rancher/rke2` | RKE2 configuration directory |
 | `rke2_token_file` | `{{ rke2_config_dir }}/token` | Path to cluster join token file |
-| `rke2_cni` | `calico` | Preserves the direct-role default. Explicit `""` omits the key and uses the RKE2 default (Canal). For compatibility, `calico` yields to a CNI in `rke2_additional_config` or `rke2_server_config`; other nonempty values take precedence. Agents never render `cni` (server-only option). |
+| `rke2_cni` | `calico` (direct role); `""` (shared playbook when unspecified) | Explicit `""` omits the key and uses the RKE2 default (Canal) when no other CNI input is set. For compatibility, `calico` yields to a CNI in `rke2_additional_config` or `rke2_server_config`; other nonempty values take precedence. Agents never render `cni` (server-only option). |
 | `rke2_server_config` | See defaults | Configuration for server nodes |
 | `rke2_agent_config` | See defaults | Configuration for agent nodes |
 | `rke2_disable_components` | `[]` | List of components to disable |
@@ -33,6 +33,17 @@ explicitly passes an empty CNI when none is requested, and the new-cluster
 examples use `cni: ""` to select RKE2's default, Canal. Direct role consumers
 can opt into that behavior with `rke2_cni: ""`. Existing CNI precedence remains
 unchanged.
+
+The `calico` role default is intentional: changing it would silently select
+Canal on reruns for existing direct-role consumers. Only the shared playbook's
+unspecified CNI and the new-cluster examples default to `""`.
+
+Set any CNI supported by the target RKE2 version and OS explicitly as needed:
+`canal`, `calico`, `cilium`, or `flannel`. Multus combinations are passed through
+as comma-separated strings: `multus,canal`, `multus,calico`, `multus,cilium`, or
+`multus,flannel`. Multus requires a primary CNI; see the
+[RKE2 networking](https://docs.rke2.io/networking/basic_network_options) and
+[Multus](https://docs.rke2.io/networking/multus_sriov) requirements.
 
 Before rerunning against an existing Calico cluster, set `cni: calico` in
 `vars.yaml`; direct consumers relying on the role default need no migration.
@@ -65,6 +76,12 @@ phase, which reads the corrected configuration. An explicit `rke2_installed: fal
 suppresses the handler; those callers must apply the configuration themselves.
 Reruns preserve an existing join token unless a token is explicitly supplied,
 allowing secondary servers and agents to restart before cluster formation.
+Existing configuration read for token preservation must be a YAML mapping;
+an empty file or YAML null is treated as an empty configuration. Invalid YAML
+or another value type stops the role with a clear error before overwriting the
+configuration or restarting RKE2, without logging its contents. Repair the
+existing file before rerunning. Explicit token overrides skip reading the old
+configuration. Join tokens are quoted to preserve their exact string values.
 
 ### Agent Configuration Defaults
 
