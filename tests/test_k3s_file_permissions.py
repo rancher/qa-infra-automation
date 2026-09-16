@@ -43,20 +43,29 @@ class TestK3sFilePermissions(unittest.TestCase):
         tasks_by_name = _tasks_by_name()
         task_names = [task.get("name") for task in tasks]
 
-        prepare_name = "Prepare K3s configuration directory privately"
+        prepare_name = "Ensure K3s configuration directory exists"
         find_name = "Find existing K3s sensitive configuration files"
+        drop_in_find_name = "Find existing K3s configuration drop-ins"
         secure_name = "Secure existing K3s sensitive configuration files"
         open_name = "Make K3s configuration directory traversable"
 
         self.assertLess(task_names.index(prepare_name), task_names.index(find_name))
-        self.assertLess(task_names.index(find_name), task_names.index(secure_name))
+        self.assertLess(
+            task_names.index(find_name), task_names.index(drop_in_find_name)
+        )
+        self.assertLess(
+            task_names.index(drop_in_find_name), task_names.index(secure_name)
+        )
         self.assertLess(task_names.index(secure_name), task_names.index(open_name))
 
         prepare = tasks_by_name[prepare_name]["ansible.builtin.file"]
         existing = tasks_by_name[find_name]["ansible.builtin.find"]
         secure = tasks_by_name[secure_name]
 
-        self.assertEqual(prepare["mode"], "0700")
+        self.assertEqual(
+            prepare["mode"],
+            "{{ omit if k3s_install_config_directory.stat.exists else '0700' }}",
+        )
         self.assertEqual(
             set(existing["patterns"]),
             {"config.yaml", "config.yaml.*", "registries.yaml", "registries.yaml.*"},
@@ -66,9 +75,32 @@ class TestK3sFilePermissions(unittest.TestCase):
             "k3s_install_sensitive_config_files",
         )
         self.assertEqual(secure["ansible.builtin.file"]["mode"], "0600")
-        self.assertEqual(
-            secure["loop"], "{{ k3s_install_sensitive_config_files.files }}"
+        self.assertIn(
+            "k3s_install_sensitive_config_files.files", secure["loop"]
         )
+
+    def test_configuration_drop_ins_are_secured_before_directory_opens(self):
+        tasks = _tasks()
+        tasks_by_name = _tasks_by_name()
+        task_names = [task.get("name") for task in tasks]
+
+        find_name = "Find existing K3s configuration drop-ins"
+        secure_name = "Secure existing K3s sensitive configuration files"
+        open_name = "Make K3s configuration directory traversable"
+        find_task = tasks_by_name[find_name]
+        find_config = find_task["ansible.builtin.find"]
+        secure_loop = tasks_by_name[secure_name]["loop"]
+
+        self.assertLess(task_names.index(find_name), task_names.index(secure_name))
+        self.assertLess(task_names.index(secure_name), task_names.index(open_name))
+        self.assertEqual(find_config["paths"], "/etc/rancher/k3s/config.yaml.d")
+        self.assertEqual(find_config["patterns"], ["*.yaml"])
+        self.assertTrue(find_config["recurse"])
+        self.assertEqual(
+            find_task["when"],
+            "k3s_install_config_drop_in_directory.stat.isdir | default(false)",
+        )
+        self.assertIn("k3s_install_sensitive_config_drop_ins.files", secure_loop)
 
     def test_server_logs_remain_private(self):
         task = _tasks_by_name()["Create K3s server logs directory"]
