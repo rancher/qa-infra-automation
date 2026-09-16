@@ -22,37 +22,34 @@
 - name: Find existing K3s sensitive configuration files
   ansible.builtin.find:
     paths: /etc/rancher/k3s
-    excludes:
-      - k3s.yaml
     file_type: file
     hidden: true
-    recurse: false
+    recurse: true
   register: k3s_install_sensitive_config_files
 
-- name: Check for existing K3s configuration drop-ins
-  ansible.builtin.stat:
-    path: /etc/rancher/k3s/config.yaml.d
-    follow: true
-  register: k3s_install_config_drop_in_directory
+- name: Find existing K3s configuration symlinks
+  ansible.builtin.find:
+    paths: /etc/rancher/k3s
+    file_type: link
+    hidden: true
+    recurse: true
+  register: k3s_install_config_links
 
-- name: Keep existing K3s configuration drop-ins private
+- name: Keep K3s configuration private when symlinks are present
   ansible.builtin.file:
-    path: /etc/rancher/k3s/config.yaml.d
+    path: /etc/rancher/k3s
     state: directory
     owner: root
     group: root
     mode: '0700'
-    follow: true
-  when: k3s_install_config_drop_in_directory.stat.isdir | default(false)
+  when: k3s_install_config_links.matched | int > 0
 
-- name: Find existing K3s configuration drop-ins
-  ansible.builtin.find:
-    paths: /etc/rancher/k3s/config.yaml.d
-    file_type: file
-    hidden: true
-    recurse: true
-  register: k3s_install_sensitive_config_drop_ins
-  when: k3s_install_config_drop_in_directory.stat.isdir | default(false)
+- name: Refuse to expose K3s configuration symlinks
+  ansible.builtin.fail:
+    msg: >-
+      Refusing to make /etc/rancher/k3s traversable because symlinks may expose
+      sensitive targets. Replace them with regular files: {{ k3s_install_config_links.files | map(attribute='path') | join(', ') }}
+  when: k3s_install_config_links.matched | int > 0
 
 - name: Secure existing K3s sensitive configuration files
   ansible.builtin.file:
@@ -60,13 +57,10 @@
     owner: root
     group: root
     mode: '0600'
-  loop: >-
-    {{
-      k3s_install_sensitive_config_files.files
-      + (k3s_install_sensitive_config_drop_ins.files | default([]))
-    }}
+  loop: "{{ k3s_install_sensitive_config_files.files }}"
   loop_control:
     label: "{{ item.path }}"
+  when: item.path != '/etc/rancher/k3s/k3s.yaml'
 
 - name: Make K3s configuration directory traversable
   ansible.builtin.file:
