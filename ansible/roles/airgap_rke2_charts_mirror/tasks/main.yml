@@ -245,10 +245,18 @@
         charts_mirror_served_branch: >-
           {{ charts_mirror_branch ~ (charts_mirror_settled_suffix if (charts_mirror_serve_settled | bool) else '') }}
 
-    # The mirror is owned by root; git-http-backend runs as the web server user
-    # (www-data). git 2.35.2+ refuses cross-user repo access ("dubious
-    # ownership"), so mark ONLY this mirror as safe — a system-wide '*' would
-    # disable the ownership check for every repository on the bastion.
+    # The mirrors are owned by root; git-http-backend runs as www-data, and
+    # git 2.35.2+ refuses cross-user repo access ("dubious ownership"). The
+    # exception CANNOT be a scoped system entry: git-http-backend validates
+    # the repo twice — enter_repo checks the path '.' (only a literal '.' or
+    # '*' entry matches) and upload-pack checks the ABSOLUTE path (only exact
+    # entries match) — so an absolute /etc/gitconfig entry matched neither
+    # check and every clone died with "the remote end hung up unexpectedly"
+    # (combined-pipeline builds #5/#6; only the old blanket '*' ever served).
+    # Instead the vhost passes GIT_CONFIG_GLOBAL pointing at a dedicated file:
+    # it is read solely by processes that receive that env var — this vhost's
+    # CGI — so every interactive user keeps full ownership protection while
+    # the CGI can serve every repo under the shared root.
     - name: Check system git safe.directory
       ansible.builtin.command: git config --system --get-all safe.directory
       register: charts_safe_dir
@@ -256,10 +264,8 @@
       failed_when: false
 
     - name: List bare repositories under the shared vhost root
-      # The blanket wildcard may be the only entry letting git-http-backend
-      # serve OTHER mirrors on an existing bastion (e.g. ui-plugin-charts.git);
-      # collect them so each gets a scoped entry before the wildcard is
-      # retired.
+      # The dedicated CGI git config must cover every mirror the shared vhost
+      # serves, not just this role's, so either mirror role can render it.
       ansible.builtin.command:
         argv:
           - find
@@ -274,14 +280,26 @@
       changed_when: false
       failed_when: false
 
-    - name: Scope every shared-vhost repo the wildcard used to cover
-      ansible.builtin.command: git config --system --add safe.directory {{ item }}
-      loop: "{{ charts_mirror_shared_repos.stdout_lines | default([]) | map('dirname') | list }}"
-      when: item not in charts_safe_dir.stdout_lines
+    - name: Serve the CGI a dedicated git config with scoped safe.directory entries
+      # Exact repo paths satisfy upload-pack's absolute-path check; the
+      # trailing '.' satisfies enter_repo's check. Read only via
+      # GIT_CONFIG_GLOBAL (see the vhost template), never system-wide.
+      ansible.builtin.copy:
+        content: |-
+          [safe]
+          {% for repo in charts_mirror_shared_repos.stdout_lines | default([]) | map('dirname') | list %}
+          directory = {{ repo }}
+          {% endfor %}
+          directory = .
+        dest: /etc/apache2/git-mirror.gitconfig
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Retire the blanket safe.directory wildcard this role used to set
       # '\*' is the literal-star value pattern: unset-all removes only the
-      # wildcard entry, leaving any other configured paths untouched.
+      # wildcard entry, leaving any other configured paths untouched. With the
+      # dedicated CGI config in place the wildcard no longer serves anything.
       ansible.builtin.command:
         argv:
           - git
@@ -291,10 +309,6 @@
           - safe.directory
           - \*
       when: "'*' in charts_safe_dir.stdout_lines"
-
-    - name: Permit git-http-backend to serve the root-owned mirror
-      ansible.builtin.command: git config --system --add safe.directory {{ charts_mirror_dest }}
-      when: charts_mirror_dest not in charts_safe_dir.stdout_lines
 
     # Serving layer: reuse the ui-plugin vhost when present (both mirrors live
     # under /srv/git, served by the same GIT_PROJECT_ROOT); install an
@@ -405,6 +419,29 @@
               Could not parse a Listen directive from the existing ui-plugin-mirror
               vhost; skipping the port alignment check (both roles default to 8080).
           when: (charts_mirror_existing_listen.stdout | trim | length) == 0
+
+        - name: Read the CGI git config wiring from the existing vhost
+          ansible.builtin.command:
+            argv:
+              - grep
+              - -c
+              - GIT_CONFIG_GLOBAL
+              - /etc/apache2/conf-enabled/ui-plugin-mirror.conf
+          register: charts_mirror_existing_cgi_config
+          changed_when: false
+          failed_when: false
+
+        - name: Fail when the existing vhost lacks the CGI git config wiring
+          # A conf rendered before this wiring existed serves a CGI that
+          # cannot read the scoped safe.directory file, so every clone fails
+          # with "the remote end hung up unexpectedly".
+          ansible.builtin.fail:
+            msg: >-
+              The existing ui-plugin-mirror vhost does not pass
+              GIT_CONFIG_GLOBAL to the CGI. Re-render it (sudo a2disconf
+              ui-plugin-mirror, then re-run this role) so the shared vhost
+              hands /etc/apache2/git-mirror.gitconfig to git-http-backend.
+          when: charts_mirror_existing_cgi_config.rc != 0
 
         - name: Check for a stale charts-mirror vhost enabled alongside
           # Pre-coexistence-fix bastions can carry BOTH confs, each with its own

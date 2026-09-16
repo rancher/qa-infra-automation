@@ -5,6 +5,10 @@ Listen {{ charts_mirror_listen }}:{{ charts_mirror_port }}
 
     SetEnv GIT_PROJECT_ROOT {{ charts_mirror_dest | dirname }}
     SetEnv GIT_HTTP_EXPORT_ALL 1
+    # Scoped safe.directory for the CGI (root-owned mirrors, www-data CGI):
+    # git validates the repo twice ('.' and the absolute path), so the file
+    # carries both entry shapes. Read only via this env var, never system-wide.
+    SetEnv GIT_CONFIG_GLOBAL /etc/apache2/git-mirror.gitconfig
 
     ScriptAlias / /usr/lib/git-core/git-http-backend/
 

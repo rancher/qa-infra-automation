@@ -294,14 +294,42 @@ class TestChartsMirrorRole(unittest.TestCase):
         # and verifies an endpoint that can never serve the branch.
         self.assertIn("--exit-code", argv)
 
-    def test_safe_directory_retirement_migrates_shared_repos(self):
-        # Retiring the blanket '*' can strip the only safe.directory entry
-        # serving the ui-plugin mirror on an existing bastion; every bare repo
-        # under the shared vhost root must gain a scoped entry first.
+    def test_cgi_git_config_covers_every_shared_repo_and_the_dot_check(self):
+        # git-http-backend validates the repo twice — enter_repo checks '.'
+        # (matched only by a literal '.'/'*' entry) and upload-pack checks the
+        # ABSOLUTE path (matched only by exact entries). A scoped system
+        # entry matches neither and every clone died with "the remote end
+        # hung up unexpectedly" (combined-pipeline builds #5/#6), so the
+        # exception moved to a dedicated file the vhost passes via
+        # GIT_CONFIG_GLOBAL — covering every bare repo under the shared root
+        # plus the literal '.', and nothing system-wide.
         find = _require(self.tasks, "List bare repositories under the shared vhost root")
         self.assertEqual(find["ansible.builtin.command"]["argv"][0], "find")
-        scope = _require(self.tasks, "Scope every shared-vhost repo the wildcard used to cover")
-        self.assertIn("map('dirname')", scope["loop"])
+        serve = _require(
+            self.tasks, "Serve the CGI a dedicated git config with scoped safe.directory entries"
+        )
+        content = serve["ansible.builtin.copy"]["content"]
+        self.assertIn("map('dirname')", content)
+        self.assertIn("directory = .", content)
+        self.assertEqual(serve["ansible.builtin.copy"]["dest"], "/etc/apache2/git-mirror.gitconfig")
+        # The vhost template must wire the file into the CGI.
+        with open(os.path.join(
+            os.path.dirname(os.path.dirname(ROLE_TASKS_PATH)), "templates", "charts-mirror.apache.conf.j2"
+        )) as fh:
+            self.assertIn("SetEnv GIT_CONFIG_GLOBAL /etc/apache2/git-mirror.gitconfig", fh.read())
+
+    def test_reused_vhost_must_carry_the_cgi_git_config_wiring(self):
+        # A conf rendered before the wiring existed would serve a CGI that
+        # cannot read the scoped safe.directory file; reuse must reject it.
+        wiring = _require(
+            self.tasks, "Read the CGI git config wiring from the existing vhost"
+        )
+        argv = wiring["ansible.builtin.command"]["argv"]
+        self.assertIn("GIT_CONFIG_GLOBAL", argv)
+        fail = _require(
+            self.tasks, "Fail when the existing vhost lacks the CGI git config wiring"
+        )
+        self.assertIn("charts_mirror_existing_cgi_config.rc != 0", fail["when"])
 
     def test_settled_ref_expression_selects_the_right_publication(self):
         # Evaluate the actual set_fact expression: an unparenthesized boolean
@@ -378,14 +406,15 @@ class TestChartsMirrorRole(unittest.TestCase):
         # refuses to restart, so the role must fail loudly instead.
         _require(self.tasks, "Fail when both mirror vhosts are enabled")
 
-    def test_safe_directory_is_scoped_to_the_mirror_not_a_wildcard(self):
-        # A system-wide '*' disables git's ownership protection for every
-        # repository on the bastion; only the mirror path needs to be safe.
-        permit = _require(self.tasks, "Permit git-http-backend to serve the root-owned mirror")
-        module = permit["ansible.builtin.command"]
-        cmd = module["cmd"] if isinstance(module, dict) else module
-        self.assertIn("safe.directory {{ charts_mirror_dest }}", cmd)
-        self.assertNotIn("'*'", cmd)
+    def test_safe_directory_is_scoped_to_the_cgi_config_not_the_system(self):
+        # No system-wide entry may remain: neither the blanket '*' (disables
+        # ownership protection everywhere) nor per-repo absolute entries
+        # (dead letters for the CGI — git validates '.' and the absolute
+        # path, and system entries never reach the former).
+        with open(ROLE_TASKS_PATH) as fh:
+            content = fh.read()
+        self.assertNotIn("--system --add", content,
+                         "no safe.directory entry may be added to the system config")
         retire = _require(
             self.tasks, "Retire the blanket safe.directory wildcard this role used to set"
         )
@@ -420,16 +449,30 @@ class TestUiPluginVhostCoexistence(unittest.TestCase):
         _require(self.tasks, "Fail when both mirror vhosts are enabled")
 
 
-    def test_safe_directory_is_scoped_to_the_mirror_not_a_wildcard(self):
-        permit = _require(self.tasks, "Permit git-http-backend to serve the root-owned mirror")
-        module = permit["ansible.builtin.command"]
-        cmd = module["cmd"] if isinstance(module, dict) else module
-        self.assertIn("safe.directory {{ ui_plugin_mirror_dest }}", cmd)
-        self.assertNotIn("'*'", cmd)
-        retire = _require(
-            self.tasks, "Retire the blanket safe.directory wildcard this role used to set"
+    def test_safe_directory_is_scoped_to_the_cgi_config_not_the_system(self):
+        # Same two-check reality as the charts role: the CGI needs exact
+        # repo paths plus the literal '.' — delivered via GIT_CONFIG_GLOBAL,
+        # never via a system entry (the scoped system entries this role used
+        # to write were dead letters that broke serving in CI builds #5/#6).
+        with open(UI_ROLE_TASKS_PATH) as fh:
+            content = fh.read()
+        self.assertNotIn("--system --add", content,
+                         "no safe.directory entry may be added to the system config")
+        serve = _require(
+            self.tasks, "Serve the CGI a dedicated git config with scoped safe.directory entries"
         )
-        self.assertEqual(retire["ansible.builtin.command"]["argv"][-1], "\\*")
+        rendered = serve["ansible.builtin.copy"]
+        self.assertIn("map('dirname')", rendered["content"])
+        self.assertIn("directory = .", rendered["content"])
+        self.assertEqual(rendered["dest"], "/etc/apache2/git-mirror.gitconfig")
+        with open(os.path.join(
+            os.path.dirname(os.path.dirname(UI_ROLE_TASKS_PATH)), "templates", "ui-plugin-mirror.apache.conf.j2"
+        )) as fh:
+            self.assertIn("SetEnv GIT_CONFIG_GLOBAL /etc/apache2/git-mirror.gitconfig", fh.read())
+        fail = _require(
+            self.tasks, "Fail when the existing vhost lacks the CGI git config wiring"
+        )
+        self.assertIn("ui_plugin_existing_cgi_config.rc != 0", fail["when"])
 
 class TestDownstreamCoreDNSOverride(unittest.TestCase):
     @classmethod
