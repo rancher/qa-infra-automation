@@ -1,0 +1,2 @@
+---
+rke2_config_service_name: "{{ 'rke2-server' if (rke2_node_role == 'master' or 'cp' in node_roles or 'etcd' in node_roles) else 'rke2-agent' }}"

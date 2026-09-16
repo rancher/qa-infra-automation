@@ -126,9 +126,8 @@
         apply:
           tags: ['config', 'rke2']
       vars:
-        # cni wins over a cni inside rke2_additional_config, with one
-        # historical exception: calico (the role default) yields to it.
-        # Empty keeps the RKE2 default (no cni key rendered).
+        # Empty keeps the RKE2 default; other values retain legacy precedence
+        # (explicit calico still yields to a CNI in additional/server config).
         rke2_cni: "{{ _rke2_playbook_cni }}"
         # server_flags/worker_flags are YAML scalars merged into the node's
         # config.yaml; an explicit rke2_additional_config extra-var (DTF) wins.

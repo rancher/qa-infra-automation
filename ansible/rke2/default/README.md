@@ -152,13 +152,18 @@ For manual setup, see [QUICKSTART.md](./QUICKSTART.md) for the expected inventor
 
 ## Sample `vars.yaml`
 
+These new-cluster examples follow RKE2's default (Canal), rather than selecting Calico.
+Before rerunning on an existing Calico cluster, retain `cni: calico`; this is not
+an in-place CNI migration. Direct role consumers keep their historical Calico
+default. See the [role migration notes](../../roles/rke2_config/README.md#cni-default-migration).
+
 ```yaml
 # Required Variables
 kubernetes_version: 'v1.28.15+rke2r1'  # Used by: rke2_config, rke2_install
 kubeconfig_file: './kubeconfig.yaml'   # Used by: rke2_cluster, rke2_health_check
 
 # Network Configuration (Optional — empty keeps the RKE2 default CNI)
-# cni: 'calico'                         # Used by: rke2_config (CNI plugin: calico, canal, cilium)
+cni: ''                               # RKE2 default (Canal); explicit calico/canal/cilium also supported
 
 # Infrastructure Variables (Required if not using Terraform)
 # These are automatically loaded from Terraform state if available

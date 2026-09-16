@@ -51,6 +51,23 @@ ansible-playbook -i my-inventory.yml k3s-playbook.yml --extra-vars "@vars.yaml"
 
 ## Usage
 
+### Configuration permissions
+
+The install role makes `/etc/rancher/k3s` traversable and keeps regular
+configuration files, including hidden files and backups, at `0600`. Only the
+admin kubeconfig `/etc/rancher/k3s/k3s.yaml` remains readable at `0644`; use these
+QA hosts only with trusted local users. Configuration symlinks stop the role
+with the K3s directory private until the links are replaced with regular files.
+If `/etc/rancher/k3s` itself is a symlink, including a broken link, the role
+stops before changing any files or permissions. The link and its target remain
+untouched; replace the link with a real configuration directory before rerunning.
+
+For fresh hosts and legacy `/etc/rancher` parents at `0700`, the role adds only
+directory traversal, preserving existing read/write permissions. If a private
+parent contains anything besides `k3s`, it fails without opening the parent or
+modifying those sibling entries. Secure those entries and explicitly grant
+parent traversal before rerunning; do not recursively relax permissions.
+
 ### Basic Deployment
 
 ```bash

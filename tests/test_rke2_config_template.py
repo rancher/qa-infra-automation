@@ -1,11 +1,14 @@
 """Tests for the rke2_config role template."""
 
+import json
 import os
 import shutil
 import subprocess
 import tempfile
 import textwrap
 import unittest
+
+import yaml
 
 
 REPOSITORY_ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -17,10 +20,109 @@ TEMPLATE_PATH = os.path.join(
     "templates",
     "config.yaml.j2",
 )
+ROLE_DEFAULTS_PATH = os.path.join(
+    REPOSITORY_ROOT, "ansible", "roles", "rke2_config", "defaults", "main.yml"
+)
 
 
 @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
 class TestRKE2ConfigTemplate(unittest.TestCase):
+    def _render_defaults(self, variables, checks):
+        play_vars = {
+            "rke2_node_role": "master",
+            "node_roles": ["cp", "etcd"],
+            "fqdn": "api.example.invalid",
+            "kube_api_host": "192.0.2.10",
+            "ansible_host": "192.0.2.10",
+        }
+        play = {
+            "name": "Render real RKE2 role defaults",
+            "hosts": "localhost",
+            "connection": "local",
+            "gather_facts": False,
+            "vars_files": [ROLE_DEFAULTS_PATH],
+            "vars": play_vars,
+            "tasks": [
+                {
+                    "name": "Parse the real template output",
+                    "ansible.builtin.set_fact": {
+                        "rendered_config": "{{ lookup('ansible.builtin.template', '"
+                        + TEMPLATE_PATH
+                        + "') | from_yaml }}"
+                    },
+                },
+                {
+                    "name": "Verify the parsed values",
+                    "ansible.builtin.assert": {"that": checks},
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            playbook_path = os.path.join(temp_dir, "render.yml")
+            with open(playbook_path, "w", encoding="utf-8") as playbook_file:
+                yaml.safe_dump([play], playbook_file)
+            environment = os.environ.copy()
+            environment["ANSIBLE_LOCAL_TEMP"] = os.path.join(temp_dir, "ansible-local")
+            result = subprocess.run(
+                [
+                    "ansible-playbook",
+                    "-i",
+                    "localhost,",
+                    playbook_path,
+                    "--extra-vars",
+                    json.dumps(variables),
+                ],
+                cwd=REPOSITORY_ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=90,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_default_kubeconfig_mode_survives_yaml_parsing(self):
+        self._render_defaults(
+            {},
+            [
+                "rendered_config['write-kubeconfig-mode'] is string",
+                "rendered_config['write-kubeconfig-mode'] == '0644'",
+                "(rendered_config['write-kubeconfig-mode'] | int(base=8)) == 420",
+                "'192.0.2.10' in rendered_config['tls-san']",
+            ],
+        )
+
+    def test_server_string_values_survive_yaml_parsing(self):
+        self._render_defaults(
+            {
+                "rke2_server_config": {
+                    "write-kubeconfig-mode": "0600",
+                    "node-name": "00123",
+                }
+            },
+            [
+                "rendered_config['write-kubeconfig-mode'] == '0600'",
+                "rendered_config['node-name'] == '00123'",
+            ],
+        )
+
+    def test_agent_string_values_survive_yaml_parsing(self):
+        self._render_defaults(
+            {
+                "rke2_node_role": "agent",
+                "node_roles": ["worker"],
+                "rke2_agent_config": {
+                    "server": "https://192.0.2.10:9345",
+                    "node-name": "no",
+                },
+            },
+            [
+                "rendered_config['node-name'] == 'no'",
+                "rendered_config['server'] == 'https://192.0.2.10:9345'",
+                "'write-kubeconfig-mode' not in rendered_config",
+            ],
+        )
+
     def test_additional_config_preserves_value_types(self):
         playbook = textwrap.dedent(
             f"""

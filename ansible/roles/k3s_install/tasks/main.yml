@@ -9,7 +9,15 @@
 - name: Check for existing K3s configuration directory
   ansible.builtin.stat:
     path: /etc/rancher/k3s
+    follow: false
   register: k3s_install_config_directory
+
+- name: Refuse symlinked K3s configuration directory
+  ansible.builtin.fail:
+    msg: >-
+      Refusing symlinked K3s configuration directory /etc/rancher/k3s.
+      Replace it with a real directory before rerunning; the link and its target have not been modified.
+  when: k3s_install_config_directory.stat.islnk | default(false)
 
 - name: Ensure K3s configuration directory exists
   ansible.builtin.file:
@@ -61,6 +69,40 @@
   loop_control:
     label: "{{ item.path }}"
   when: item.path != '/etc/rancher/k3s/k3s.yaml'
+
+- name: Check Rancher configuration parent permissions
+  ansible.builtin.stat:
+    path: /etc/rancher
+    follow: true
+  register: k3s_install_config_parent
+
+- name: Inspect private Rancher configuration parent
+  ansible.builtin.find:
+    paths: /etc/rancher
+    file_type: any
+    hidden: true
+    recurse: false
+  register: k3s_install_parent_entries
+  when:
+    - k3s_install_config_parent.stat.exists
+    - not (k3s_install_config_parent.stat.xgrp and k3s_install_config_parent.stat.xoth)
+
+- name: Refuse to expose unrelated Rancher configuration
+  ansible.builtin.fail:
+    msg: >-
+      Refusing to make /etc/rancher traversable because it contains entries other
+      than k3s. Secure those entries and grant parent traversal explicitly before rerunning.
+  when:
+    - k3s_install_config_parent.stat.exists
+    - not (k3s_install_config_parent.stat.xgrp and k3s_install_config_parent.stat.xoth)
+    - k3s_install_parent_entries.files | rejectattr('path', 'equalto', '/etc/rancher/k3s') | list | length > 0
+
+# Only add traversal; preserve the parent's existing read/write permissions.
+- name: Make Rancher configuration parent traversable
+  ansible.builtin.file:
+    path: /etc/rancher
+    state: directory
+    mode: 'a+x'
 
 - name: Make K3s configuration directory traversable
   ansible.builtin.file:
