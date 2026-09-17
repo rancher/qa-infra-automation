@@ -63,8 +63,8 @@ DOWNSTREAM_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/add-downstream-cluster.ym
 REGISTRY_TARGET     := registry
 else ifeq ($(ENV),dualstack)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
-CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/$(DISTRO)-playbook-dualstack.yml
-# CLUSTER_PLAYBOOK := ansible/$(DISTRO)/dualstack/playbooks/$(DISTRO)-playbook-ipv6.yml
+PLAYBOOK_FILE    ?= $(DISTRO)-playbook-dualstack.yml
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/$(PLAYBOOK_FILE)
 RANCHER_PLAYBOOK := 
 REGISTRY_TARGET  :=
 else
