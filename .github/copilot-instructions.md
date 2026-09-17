@@ -1,6 +1,6 @@
 # Copilot Instructions for QA Infrastructure Automation
 
-The repository-wide [AGENTS.md](../AGENTS.md) is the shared baseline for every agent. These Copilot instructions supplement it and must not weaken its requirements.
+The repository-wide [AGENTS.md](../AGENTS.md) is the shared baseline for every agent. These Copilot instructions supplement it and must not weaken its requirements. Before opening a PR, or when asked to review a diff, use the [`code-review` skill](skills/code-review/SKILL.md) to check changes against this repository's correctness, contract-preservation, testing, and style conventions.
 
 ## Overview
 
