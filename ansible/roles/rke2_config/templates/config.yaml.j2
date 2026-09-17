@@ -6,6 +6,7 @@
 {% set _cni = _rke2_effective_cni | default(rke2_cni | default('')) %}
 {% set _acfg = _rke2_effective_additional_config | default(rke2_additional_config | default({})) %}
 {% set _scfg = _rke2_effective_server_config | default(rke2_server_config | default({})) %}
+{% set _token = rke2_token | default(rke2_config_existing_token | default('')) %}
 {% if rke2_node_role == 'master' or 'cp' in node_roles or 'etcd' in node_roles %}
 # Server node configuration
 {% if _cni | length > 0 %}
@@ -13,7 +14,7 @@ cni: {{ _cni }}
 {% endif %}
 {% for key, value in _scfg.items() %}
 {% if value is string %}
-{{ key }}: {{ value }}
+{{ key }}: {{ value | to_json }}
 {% elif value is sequence and value is not string %}
 {{ key }}:
 {% for item in value %}
@@ -42,15 +43,15 @@ cni: {{ _cni }}
 server: https://{{ kube_api_host }}:9345
 {% endif %}
 
-{% if rke2_token is defined and rke2_token != '' %}
-token: {{ rke2_token }}
+{% if _token != '' %}
+token: {{ _token | to_json }}
 {% endif %}
 
 {% else %}
 # Agent node configuration
 {% for key, value in rke2_agent_config.items() %}
 {% if value is string %}
-{{ key }}: {{ value }}
+{{ key }}: {{ value | to_json }}
 {% elif value is sequence and value is not string %}
 {{ key }}:
 {% for item in value %}
@@ -61,8 +62,8 @@ token: {{ rke2_token }}
 {% endif %}
 {% endfor %}
 
-{% if rke2_token is defined and rke2_token != '' %}
-token: {{ rke2_token }}
+{% if _token != '' %}
+token: {{ _token | to_json }}
 {% endif %}
 {% endif %}
 

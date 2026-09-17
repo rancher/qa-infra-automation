@@ -6,6 +6,11 @@
   ansible.builtin.debug:
     msg: "Configuring RKE2 on {{ inventory_hostname }} (Role: {{ rke2_node_role }}, Node roles: {{ node_roles }})"
 
+- name: Gather existing services before configuring RKE2
+  ansible.builtin.service_facts:
+  become: true
+  when: rke2_installed is not defined
+
 - name: Ensure RKE2 config directory exists
   ansible.builtin.file:
     path: "{{ rke2_config_dir }}"
@@ -19,9 +24,8 @@
 # vars instead of mutating rke2_additional_config/rke2_cni in place.
 - name: Resolve effective CNI and additional config
   ansible.builtin.set_fact:
-    # Historical contract: any rke2_cni other than the calico default wins;
-    # otherwise a cni inside additional config (rendered last on main) beats
-    # one inside rke2_server_config, which beats the calico default itself.
+    # Additional/server config overrides the historical Calico default;
+    # other explicit CNIs retain their existing precedence.
     _rke2_effective_cni: >-
       {{ (rke2_cni | default(''))
          if ((rke2_cni | default('')) not in ['', 'calico'])
@@ -44,6 +48,53 @@
       (rke2_cni='{{ rke2_cni | default('') }}', additional-config
       cni='{{ (rke2_additional_config | default({})).cni | default('') }}')
   when: "'cni' in (rke2_additional_config | default({}))"
+
+- name: Check for existing RKE2 configuration
+  ansible.builtin.stat:
+    path: "{{ rke2_config_dir }}/config.yaml"
+  register: rke2_config_previous
+  become: true
+
+# Cluster formation injects the join token after this role runs on new nodes.
+# Preserve it on reruns so an existing node can restart before cluster formation.
+- name: Read existing RKE2 join configuration
+  ansible.builtin.slurp:
+    src: "{{ rke2_config_dir }}/config.yaml"
+  register: rke2_config_previous_content
+  become: true
+  no_log: true
+  when:
+    - rke2_config_previous.stat.exists
+    - rke2_token is not defined
+    - "'token' not in rke2_additional_config"
+    - "'token' not in (rke2_server_config if rke2_config_service_name == 'rke2-server' else rke2_agent_config)"
+
+- name: Validate existing RKE2 join configuration
+  when: rke2_config_previous_content.content is defined
+  block:
+    - name: Parse existing RKE2 configuration without logging secrets
+      ansible.builtin.set_fact:
+        rke2_config_previous_data: "{{ rke2_config_previous_content.content | b64decode | from_yaml }}"
+      no_log: true
+
+    - name: Require an existing YAML mapping or empty configuration
+      ansible.builtin.assert:
+        that: rke2_config_previous_data is none or rke2_config_previous_data is mapping
+        quiet: true
+      no_log: true
+  rescue:
+    - name: Report invalid existing RKE2 configuration
+      ansible.builtin.fail:
+        msg: >-
+          Existing RKE2 config.yaml is not a valid YAML mapping at {{ rke2_config_dir }}/config.yaml.
+          Repair the file before rerunning; its contents have not been logged or overwritten.
+
+- name: Preserve the existing join token unless explicitly configured
+  ansible.builtin.set_fact:
+    rke2_config_existing_token: >-
+      {{ (rke2_config_previous_data or {}).get('token', '')
+         if rke2_config_previous_content.content is defined else '' }}
+  no_log: true
 
 - name: Generate RKE2 config.yaml
   ansible.builtin.template:

@@ -70,9 +70,10 @@
   ansible.builtin.lineinfile:
     path: "{{ rke2_config_dir }}/config.yaml"
     regexp: '^token:'
-    line: "token: {{ rke2_token }}"
+    line: "token: {{ rke2_token | to_json }}"
     create: false
   become: true
+  no_log: true
   when: rke2_node_role != 'master'
 
 # Start server nodes (control-plane/etcd)

@@ -6,14 +6,126 @@
       - k3s_channel is match("^(stable|testing|latest|v\\d+(\\.\\d+){0,2})$")  
     fail_msg: "Invalid k3s_channel '{{ k3s_channel }}'. Must be stable, testing, latest, or v1[.x][.y]"
 
-- name: Create K3s directories
-  file:
-    path: "{{ item }}"
+- name: Check Rancher configuration parent permissions
+  ansible.builtin.stat:
+    path: /etc/rancher
+    follow: false
+  register: k3s_install_config_parent
+
+- name: Refuse symlinked Rancher configuration parent
+  ansible.builtin.fail:
+    msg: >-
+      Refusing symlinked Rancher configuration parent /etc/rancher.
+      Replace it with a real directory before rerunning; the link and its target have not been modified.
+  when: k3s_install_config_parent.stat.islnk | default(false)
+
+- name: Check for existing K3s configuration directory
+  ansible.builtin.stat:
+    path: /etc/rancher/k3s
+    follow: false
+  register: k3s_install_config_directory
+
+- name: Refuse symlinked K3s configuration directory
+  ansible.builtin.fail:
+    msg: >-
+      Refusing symlinked K3s configuration directory /etc/rancher/k3s.
+      Replace it with a real directory before rerunning; the link and its target have not been modified.
+  when: k3s_install_config_directory.stat.islnk | default(false)
+
+- name: Ensure K3s configuration directory exists
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
     state: directory
+    owner: root
+    group: root
+    mode: "{{ omit if k3s_install_config_directory.stat.exists else '0700' }}"
+
+- name: Find existing K3s sensitive configuration files
+  ansible.builtin.find:
+    paths: /etc/rancher/k3s
+    file_type: file
+    hidden: true
+    recurse: true
+  register: k3s_install_sensitive_config_files
+
+- name: Find existing K3s configuration symlinks
+  ansible.builtin.find:
+    paths: /etc/rancher/k3s
+    file_type: link
+    hidden: true
+    recurse: true
+  register: k3s_install_config_links
+
+- name: Keep K3s configuration private when symlinks are present
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
     mode: '0700'
-  loop:
-    - /etc/rancher/k3s
-    - "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}/logs"
+  when: k3s_install_config_links.matched | int > 0
+
+- name: Refuse to expose K3s configuration symlinks
+  ansible.builtin.fail:
+    msg: >-
+      Refusing to make /etc/rancher/k3s traversable because symlinks may expose
+      sensitive targets. Replace them with regular files: {{ k3s_install_config_links.files | map(attribute='path') | join(', ') }}
+  when: k3s_install_config_links.matched | int > 0
+
+- name: Secure existing K3s sensitive configuration files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  loop: "{{ k3s_install_sensitive_config_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: item.path != '/etc/rancher/k3s/k3s.yaml'
+
+- name: Inspect private Rancher configuration parent
+  ansible.builtin.find:
+    paths: /etc/rancher
+    file_type: any
+    hidden: true
+    recurse: false
+  register: k3s_install_parent_entries
+  when:
+    - k3s_install_config_parent.stat.exists
+    - not (k3s_install_config_parent.stat.xgrp and k3s_install_config_parent.stat.xoth)
+
+- name: Refuse to expose unrelated Rancher configuration
+  ansible.builtin.fail:
+    msg: >-
+      Refusing to make /etc/rancher traversable because it contains entries other
+      than k3s. Secure those entries and grant parent traversal explicitly before rerunning.
+  when:
+    - k3s_install_config_parent.stat.exists
+    - not (k3s_install_config_parent.stat.xgrp and k3s_install_config_parent.stat.xoth)
+    - k3s_install_parent_entries.files | rejectattr('path', 'equalto', '/etc/rancher/k3s') | list | length > 0
+
+# Only add traversal; preserve the parent's existing read/write permissions.
+- name: Make Rancher configuration parent traversable
+  ansible.builtin.file:
+    path: /etc/rancher
+    state: directory
+    mode: 'a+x'
+
+- name: Make K3s configuration directory traversable
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create K3s server logs directory
+  ansible.builtin.file:
+    path: "{{ k3s_server_dir | default('/var/lib/rancher/k3s/server') }}/logs"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
 
 - name: Create hardening supporting directories only if hardening is enabled
   file:
@@ -94,28 +206,21 @@
     suse_selinux_testing_rpm_site: "{{ k3s_selinux_testing_rpm_site }}"
 
 - name: Generate K3s configuration from template
-  template:
+  ansible.builtin.template:
     src: k3s-config.yaml.j2
     dest: /etc/rancher/k3s/config.yaml
-    mode: '0644'
-    backup: true
+    mode: '0600'
+    backup: false
 
 - name: Check if k3s_registry.yaml exists in role files
   ansible.builtin.stat:
     path: "{{ role_path }}/files/k3s_registry.yaml"
   register: registry_file
 
-- name: Ensure destination directory for registry exists
-  ansible.builtin.file:
-    path: /etc/rancher/k3s/
-    state: directory
-    mode: '0700'
-  when: registry_file.stat.exists
-
 - name: Copy k3s_registry.yaml to the registry filepath
   ansible.builtin.copy:
     src: "{{ role_path }}/files/k3s_registry.yaml"
-    mode: '0644'
+    mode: '0600'
     dest: /etc/rancher/k3s/registries.yaml
   when: registry_file.stat.exists
 

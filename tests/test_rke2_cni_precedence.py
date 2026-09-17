@@ -40,6 +40,10 @@ BASE_VARS = {
     "rke2_disable_components": [],
 }
 
+EXTENDED_CNIS = (
+    "flannel", "multus,canal", "multus,calico", "multus,cilium", "multus,flannel",
+)
+
 RENDER_TASKS = [
     {
         "name": "Render configuration",
@@ -103,7 +107,7 @@ def _cni_line_check(count):
 @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
 @unittest.skipIf(yaml is None, "pyyaml is required")
 class TestCNIPrecedence(unittest.TestCase):
-    """Explicit rke2_cni wins; additional-config cni beats only the calico default."""
+    """Respect the product default and preserve legacy explicit-CNI precedence."""
 
     # (case, vars-in-play, vars-via---extra-vars, expected cni or None, checks)
     CASES = [
@@ -119,6 +123,20 @@ class TestCNIPrecedence(unittest.TestCase):
             {"rke2_cni": "cilium"},
             {},
             "cilium",
+            [],
+        ),
+        (
+            "explicit calico remains supported",
+            {"rke2_cni": "calico"},
+            {},
+            "calico",
+            [],
+        ),
+        (
+            "explicit canal remains supported",
+            {"rke2_cni": "canal"},
+            {},
+            "canal",
             [],
         ),
         (
@@ -141,9 +159,8 @@ class TestCNIPrecedence(unittest.TestCase):
             ["rendered_config['profile'] == 'cis'"],
         ),
         (
-            # direct consumer relying on the historical "additional wins over
-            # the role's calico default" behavior
-            "role calico default + additional cni -> additional wins",
+            # Preserve the legacy precedence for callers that pass calico.
+            "legacy calico + additional cni -> additional wins",
             {"rke2_cni": "calico"},
             {"rke2_additional_config": {"cni": "cilium"}},
             "cilium",
@@ -151,7 +168,7 @@ class TestCNIPrecedence(unittest.TestCase):
         ),
         (
             # previously documented pattern: cni inside rke2_server_config
-            "server_config cni + calico default -> server_config wins, single key",
+            "server_config cni + legacy calico -> server_config wins, single key",
             {"rke2_cni": "calico", "rke2_server_config": {"cni": "cilium"}},
             {},
             "cilium",
@@ -171,6 +188,16 @@ class TestCNIPrecedence(unittest.TestCase):
             "cilium",
             [],
         ),
+    ] + [
+        (
+            f"{source} preserves {cni}",
+            {"rke2_cni": ""},
+            {source: cni if source == "rke2_cni" else {"cni": cni}},
+            cni,
+            [],
+        )
+        for cni in EXTENDED_CNIS
+        for source in ("rke2_cni", "rke2_additional_config", "rke2_server_config")
     ]
 
     def _run(self, play, extra_vars=None):
@@ -200,6 +227,7 @@ class TestCNIPrecedence(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=90,
             )
 
     def test_cni_precedence_renders_expected_config(self):
@@ -241,26 +269,24 @@ class TestCNIPrecedence(unittest.TestCase):
                     result.returncode, 0, msg=result.stdout + result.stderr
                 )
 
-    def test_role_default_stays_calico_for_direct_consumers(self):
-        """Contract: the role alone (no rke2_cni set) still writes calico."""
-        with open(ROLE_DEFAULTS_PATH, encoding="utf-8") as defaults_file:
-            defaults = yaml.safe_load(defaults_file)
-        self.assertEqual(defaults["rke2_cni"], "calico")
-
-        merged = dict(BASE_VARS)
-        merged.update(
-            {"rke2_cni": defaults["rke2_cni"], "rke2_additional_config": {}}
-        )
+    def test_role_default_preserves_calico_for_direct_consumers(self):
+        """Existing direct consumers must not silently change their CNI."""
         play = {
-            "name": "Role default renders calico",
+            "name": "Role default preserves Calico",
             "hosts": "localhost",
             "gather_facts": False,
-            "vars": merged,
+            "vars_files": [ROLE_DEFAULTS_PATH],
+            "vars": {
+                **BASE_VARS,
+                "fqdn": "api.example.invalid",
+                "kube_api_host": "192.0.2.10",
+                "ansible_host": "192.0.2.10",
+            },
             "tasks": [
                 _resolve_cni_task(),
                 *RENDER_TASKS,
                 {
-                    "name": "Verify calico default",
+                    "name": "Verify direct-role compatibility",
                     "ansible.builtin.assert": {
                         "that": [
                             "rendered_config['cni'] == 'calico'",
@@ -272,6 +298,43 @@ class TestCNIPrecedence(unittest.TestCase):
         }
         result = self._run(play)
         self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_example_vars_do_not_force_calico(self):
+        config_vars = _playbook_config_vars()
+        play = {
+            "name": "Example variables leave CNI to RKE2",
+            "hosts": "localhost",
+            "gather_facts": False,
+            "vars_files": [
+                os.path.join(
+                    REPOSITORY_ROOT, "ansible", "rke2", "default", "vars.yaml.example"
+                )
+            ],
+            "vars": dict(BASE_VARS),
+            "tasks": [
+                _playbook_config_input_task(),
+                {
+                    "name": "Bind actual playbook role parameters",
+                    "ansible.builtin.set_fact": {
+                        "rke2_cni": config_vars["rke2_cni"],
+                        "rke2_additional_config": config_vars["rke2_additional_config"],
+                    },
+                },
+                _resolve_cni_task(),
+                *RENDER_TASKS,
+                {
+                    "name": "Verify example does not select a CNI",
+                    "ansible.builtin.assert": {
+                        "that": [
+                            "'cni' not in rendered_config",
+                            _cni_line_check(0),
+                        ]
+                    },
+                },
+            ],
+        }
+        result = self._run(play)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_server_flags_reach_config_through_playbook(self):
         """vars.yaml server_flags/worker_flags land in the rendered config."""
@@ -308,6 +371,20 @@ class TestCNIPrecedence(unittest.TestCase):
                 ],
             ),
         ]
+        for cni in EXTENDED_CNIS:
+            for source in ("cni", "server_flags"):
+                cases.append((
+                    f"server node preserves {cni} via {source}",
+                    {"rke2_node_role": "master", "node_roles": []},
+                    {source: cni if source == "cni" else f"cni: {cni}"},
+                    [f"rendered_config['cni'] == '{cni}'", _cni_line_check(1)],
+                ))
+            cases.append((
+                f"worker node never renders server CNI {cni}",
+                {"rke2_node_role": "agent", "node_roles": ["worker"]},
+                {"cni": cni, "server_flags": f"cni: {cni}"},
+                ["'cni' not in (rendered_config | default({}, true))", _cni_line_check(0)],
+            ))
         for case, facts, flags, checks in cases:
             with self.subTest(case=case):
                 merged = dict(BASE_VARS)
