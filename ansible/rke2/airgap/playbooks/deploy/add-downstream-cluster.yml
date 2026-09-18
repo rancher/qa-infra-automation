@@ -434,22 +434,25 @@
 
         - name: Detect an existing hosts plugin in the downstream server block
           # CoreDNS permits the hosts plugin once per server block: a
-          # pre-existing hosts stanza (stock on K3s) must be merged into, not
-          # duplicated — a second hosts block leaves invalid config and the
-          # reloaded DNS pods fail to start. The tempered scan stays inside
-          # the .:53 server block (it stops at any column-0 line, i.e. the
-          # next server block or the closing brace).
+          # pre-existing hosts stanza (stock on K3s, which ships
+          # "hosts /etc/coredns/NodeHosts {" — the plugin takes a file
+          # argument) must be merged into, not duplicated — a second hosts
+          # block leaves invalid config and the reloaded DNS pods fail to
+          # start. (?m): the stock K3s Corefile begins with header comments,
+          # so a string-start ^ never reaches the ".:53 {" line. The tempered
+          # scan stays inside the .:53 server block (it stops at any
+          # column-0 line, i.e. the next server block or the closing brace).
           ansible.builtin.set_fact:
             downstream_corefile_has_hosts: >-
-              {{ downstream_corefile_cleaned is search('(?s)^\.:53 \{(?:(?!\n\S).*?)\n[ \t]+hosts \{') }}
+              {{ downstream_corefile_cleaned is search('(?sm)^\.:53 \{(?:(?!\n\S).*?)\n[ \t]+hosts(?:[ \t]+[^{\s]+)*[ \t]*\{') }}
 
         - name: Merge the managed override into an existing hosts plugin
           when: downstream_corefile_has_hosts | bool
           ansible.builtin.set_fact:
             downstream_corefile_managed: >-
               {{ downstream_corefile_cleaned
-                 | regex_replace('(?s)^(\.:53 \{(?:(?!\n\S).*?)\n)([ \t]+)hosts \{',
-                    '\1\2hosts {\n\2    # rancher-qa server-url-override begin\n\2    '
+                 | regex_replace('(?sm)^(\.:53 \{(?:(?!\n\S).*?)\n)([ \t]+)(hosts(?:[ \t]+[^{\s]+)*)[ \t]*\{',
+                    '\1\2\3 {\n\2    # rancher-qa server-url-override begin\n\2    '
                     ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ downstream_server_url_host
                     ~ '\n\2    # rancher-qa server-url-override end') }}
 
@@ -458,10 +461,34 @@
           ansible.builtin.set_fact:
             downstream_corefile_managed: >-
               {{ downstream_corefile_cleaned
-                 | regex_replace('^\.:53 \{',
+                 | regex_replace('(?sm)^\.:53 \{',
                     '.:53 {\n    # rancher-qa server-url-override begin\n    hosts {\n        '
                     ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ downstream_server_url_host
                     ~ '\n        fallthrough\n    }\n    # rancher-qa server-url-override end') }}
+
+        - name: Fail when the override could not be placed
+          # The apply block skips silently when the transform is a no-op, so
+          # the import would hang pending on server-url resolution with no
+          # failed task to point at it. Prove placement instead: whichever
+          # path ran, the managed Corefile must carry both markers and the
+          # mapping line — this catches Corefile shapes the anchors did not
+          # anticipate (header comments, plugin arguments, other server
+          # blocks) instead of hanging.
+          when: >-
+            '# rancher-qa server-url-override begin' not in downstream_corefile_managed
+            or '# rancher-qa server-url-override end' not in downstream_corefile_managed
+            or not ((downstream_internal_lb.stdout.split()[0] ~ ' ' ~ downstream_server_url_host)
+                    in downstream_corefile_managed)
+          ansible.builtin.fail:
+            msg: >-
+              The CoreDNS Corefile transform placed no override: no
+              downstream_corefile_managed output carries the
+              rancher-qa server-url markers, so the apply block would skip
+              and the cluster import would hang pending on server-url
+              resolution. Inspect the downstream Corefile (kubectl -n
+              kube-system get configmap {{ downstream_coredns_configmap }}
+              -o jsonpath='{.data.Corefile}') and adjust the anchors in
+              add-downstream-cluster.yml.
 
         - name: Apply the managed hosts override when it changed
           when: downstream_corefile_managed != downstream_corefile_raw.stdout

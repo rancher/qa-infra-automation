@@ -528,31 +528,52 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
         self.assertIn("external_lb_hostname | default(rancher_hostname", derivation)
         self.assertNotIn("else fqdn", derivation)
 
+    K3S_COREFILE = (
+        # Verbatim stock K3s Corefile shape (k3s-io/k3s manifests/coredns.yaml):
+        # header comments, an argument-bearing hosts plugin reading
+        # /etc/coredns/NodeHosts, and the custom-config import hooks.
+        "# File managed by k3s. DO NOT EDIT.\n"
+        "# See: https://docs.k3s.io/advanced#coredns-custom-configuration-imports\n"
+        ".:53 {\n"
+        "    errors\n"
+        "    health\n"
+        "    ready\n"
+        "    kubernetes cluster.local in-addr.arpa ip6.arpa {\n"
+        "      pods insecure\n"
+        "      fallthrough in-addr.arpa ip6.arpa\n"
+        "    }\n"
+        "    hosts /etc/coredns/NodeHosts {\n"
+        "      ttl 60\n"
+        "      reload 15s\n"
+        "      fallthrough\n"
+        "    }\n"
+        "    prometheus :9153\n"
+        "    cache 30\n"
+        "    loop\n"
+        "    reload\n"
+        "    loadbalance\n"
+        "    import /etc/coredns/custom/*.override\n"
+        "    forward . /etc/resolv.conf\n"
+        "}\n"
+        "import /etc/coredns/custom/*.server\n"
+    )
+
     def test_existing_hosts_plugin_is_merged_not_duplicated(self):
         # CoreDNS permits the hosts plugin once per server block; K3s ships
-        # one stock, so blindly inserting a second leaves invalid config and
-        # DNS pods that crash-loop after the ConfigMap patch. Render the real
-        # pipeline (strip -> detect -> merge/insert) against fixture Corefiles
-        # and require exactly one hosts plugin in every outcome, including a
-        # rerun and the broken double-hosts state an older run could leave.
-        k3s_corefile = (
-            ".:53 {\n"
-            "    errors\n"
-            "    kubernetes cluster.local in-addr.arpa ip6.arpa {\n"
-            "        pods insecure\n"
-            "        fallthrough in-addr.arpa ip6.arpa\n"
-            "    }\n"
-            "    hosts {\n"
-            "        10.10.0.1 k3s-node-0\n"
-            "        fallthrough\n"
-            "    }\n"
-            "    forward . /etc/resolv.conf\n"
-            "}\n"
-        )
+        # one stock ("hosts /etc/coredns/NodeHosts {" — the plugin takes a
+        # file argument, and the Corefile opens with header comments), so
+        # blindly inserting a second leaves invalid config, and string-start
+        # anchors silently no-op before it. Render the real pipeline (strip
+        # -> detect -> merge/insert) against the verbatim stock K3s Corefile
+        # and an RKE2-style one, and require exactly one hosts plugin in
+        # every outcome, including a rerun and the broken double-hosts state
+        # an older run could leave.
+        k3s_corefile = self.K3S_COREFILE
         rke2_corefile = k3s_corefile.replace(
-            "    hosts {\n"
-            "        10.10.0.1 k3s-node-0\n"
-            "        fallthrough\n"
+            "    hosts /etc/coredns/NodeHosts {\n"
+            "      ttl 60\n"
+            "      reload 15s\n"
+            "      fallthrough\n"
             "    }\n",
             "",
         )
@@ -578,44 +599,72 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
             name = ("Merge the managed override into an existing hosts plugin"
                     if detected == "True"
                     else "Insert the managed hosts override into the server block")
-            return _render_contract(
+            managed = _render_contract(
                 _require(self.tasks, name)["ansible.builtin.set_fact"]["downstream_corefile_managed"],
                 downstream_corefile_cleaned=cleaned, **ctx,
             )
+            # The placement assert in the playbook must hold for every path.
+            self.assertIn("# rancher-qa server-url-override begin", managed)
+            self.assertIn("# rancher-qa server-url-override end", managed)
+            self.assertIn("10.0.0.5 rancher.example.com", managed)
+            return managed
 
-        def hosts_blocks(corefile):
-            return re.findall(r"^[ \t]+hosts \{", corefile, re.M)
+        hosts_directive = re.compile(r"^[ \t]+hosts(?:[ \t]+[^{\s]+)*[ \t]*\{", re.M)
 
-        # K3s (existing hosts): merge, never duplicate.
+        def hosts_body(corefile):
+            match = re.search(
+                r"(?ms)^[ \t]+hosts(?:[ \t]+[^{\s]+)*[ \t]*\{(.*?)^[ \t]*\}",
+                corefile,
+            )
+            self.assertIsNotNone(match, corefile)
+            return match.group(1)
+
+        # K3s (existing hosts with file argument, header comments): merge,
+        # never duplicate, and keep the plugin's argument and options.
         merged = transform(k3s_corefile)
-        self.assertEqual(len(hosts_blocks(merged)), 1, merged)
-        hosts_body = merged.split("hosts {", 1)[1].split("\n    }", 1)[0]
-        self.assertIn("10.0.0.5 rancher.example.com", hosts_body, merged)
-        self.assertIn("10.10.0.1 k3s-node-0", hosts_body, merged)
-        self.assertIn("fallthrough", hosts_body, merged)
-        # RKE2 (no hosts): insert one managed block with fallthrough.
+        self.assertEqual(len(hosts_directive.findall(merged)), 1, merged)
+        self.assertEqual(merged.count("hosts /etc/coredns/NodeHosts {"), 1, merged)
+        body = hosts_body(merged)
+        self.assertIn("10.0.0.5 rancher.example.com", body, merged)
+        self.assertIn("ttl 60", body, merged)
+        self.assertIn("reload 15s", body, merged)
+        self.assertIn("fallthrough", body, merged)
+        # RKE2-style (no hosts, header comments): insert one managed block
+        # with fallthrough — the (?m) anchor must reach past the comments.
         inserted = transform(rke2_corefile)
-        self.assertEqual(len(hosts_blocks(inserted)), 1, inserted)
-        self.assertIn("fallthrough", inserted.split("hosts {", 1)[1].split("}", 1)[0])
+        self.assertEqual(len(hosts_directive.findall(inserted)), 1, inserted)
+        self.assertIn("fallthrough", hosts_body(inserted))
         # Reruns replace instead of accumulating, on both layouts.
         self.assertEqual(transform(merged), merged)
         self.assertEqual(transform(inserted), inserted)
         # A Corefile left with two hosts plugins by an older run self-heals.
         broken = k3s_corefile.replace(
-            "    hosts {\n",
+            "    hosts /etc/coredns/NodeHosts {\n",
             "    # rancher-qa server-url-override begin\n"
             "    hosts {\n"
             "        10.0.0.1 rancher.example.com\n"
             "        fallthrough\n"
             "    }\n"
             "    # rancher-qa server-url-override end\n"
-            "    hosts {\n",
+            "    hosts /etc/coredns/NodeHosts {\n",
             1,
         )
-        self.assertEqual(len(hosts_blocks(broken)), 2)
+        self.assertEqual(len(hosts_directive.findall(broken)), 2)
         healed = transform(broken)
-        self.assertEqual(len(hosts_blocks(healed)), 1, healed)
+        self.assertEqual(len(hosts_directive.findall(healed)), 1, healed)
         self.assertIn("10.0.0.5 rancher.example.com", healed)
+
+    def test_transform_failure_is_loud_not_silent(self):
+        # A transform that matches nothing leaves managed == raw, so the
+        # apply block skips and the import hangs pending with no failed
+        # task. The playbook must fail explicitly when the markers or the
+        # mapping did not land.
+        fail = _require(self.tasks, "Fail when the override could not be placed")
+        when = fail["when"]
+        self.assertIn("# rancher-qa server-url-override begin", when)
+        self.assertIn("# rancher-qa server-url-override end", when)
+        self.assertIn("downstream_server_url_host", when)
+        self.assertIn("not in downstream_corefile_managed", when)
 
     def test_coredns_resource_names_follow_the_downstream_distro(self):
         # The playbook imports RKE2 and K3s downstreams alike (kubeconfig
