@@ -17,4 +17,3 @@ server_flags: |
   cluster-cidr: 2001:cafe:42:0::/56
   service-cidr: 2001:cafe:43:0::/112
   disable-network-policy: true
-  flannel-ipv6-masq: true

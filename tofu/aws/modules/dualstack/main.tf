@@ -110,16 +110,7 @@ resource "aws_instance" "bastion" {
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-bastion"
   }
-  
-  provisioner "file" {
-    source = var.private_ssh_key
-    destination = "/tmp/${var.key_name}.pem"
-  }
 
-  provisioner "file" {
-    source = "scripts/bastion_prepare.sh"
-    destination = "/tmp/bastion_prepare.sh"
-  }
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
@@ -285,24 +276,4 @@ resource "aws_route53_record" "aws_route53" {
 data "aws_route53_zone" "selected" {
   name = var.aws_route53_zone
   private_zone = false
-}
-
-resource "null_resource" "prepare_bastion" {
-  depends_on = [ aws_instance.bastion ]
-  connection {
-    type          = "ssh"
-    user          = var.aws_ssh_user
-    host          = aws_instance.bastion[0].public_ip
-    private_key   = file(var.private_ssh_key)
-  }
-
-  provisioner "remote-exec" {
-    inline = [<<-EOT
-      sudo cp /tmp/${var.key_name}.pem /tmp/*.sh /tmp/*.ps1 ~/
-      sudo cp -r /tmp/basic-registry ~/
-      sudo chmod +x bastion_prepare.sh
-      sudo ./bastion_prepare.sh
-    EOT
-    ]
-  }
 }

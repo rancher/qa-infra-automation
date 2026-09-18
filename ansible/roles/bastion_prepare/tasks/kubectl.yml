@@ -1,0 +1,9 @@
+---
+- name: Download and install kubectl
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/{{ kubectl_arch_map[ansible_facts['architecture']] }}/kubectl"
+    dest: /usr/local/bin/kubectl
+    mode: '0755'
+    checksum: "sha256:{{ kubectl_sha_map[ansible_facts['architecture']] }}"
+    owner: root
+    group: root

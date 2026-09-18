@@ -21,6 +21,6 @@ server_flags: |
 
 # Agent configuration flags (applied to agent/worker nodes)
 # See https://docs.rke2.io/reference/linux_agent_config for all options
-agent_flags: |
+worker_flags: |
   kubelet-arg: 
     - node-ip=0.0.0.0

@@ -44,8 +44,6 @@
           - kubernetes_version | length > 0
           - kube_api_host is defined
           - kube_api_host | length > 0
-          - cni is defined
-          - cni | length > 0
         fail_msg: "Required variables not defined. Please ensure kubernetes_version, kube_api_host, and cni are set in vars.yaml or environment variables"
 
 - hosts: all:!bastion
@@ -78,13 +76,24 @@
           - kubernetes_version | length > 0
           - kube_api_host is defined
           - kube_api_host | length > 0
-          - cni is defined
-          - cni | length > 0
         fail_msg: "Required variables not defined. Set kubernetes_version, kube_api_host, and cni in vars.yaml or inventory all.vars"
       run_once: true
   roles:
     - role: rke2_setup
       tags: ['setup', 'rke2']
+
+# - hosts: all:!bastion
+#   name: Generate RKE2 configuration files
+#   become: true
+#   gather_facts: true
+#   vars_files:
+#     - ../vars.yaml
+#   roles:
+#     - role: rke2_config
+#       vars:
+#         rke2_server_flags: "{{ server_flags | from_yaml | default({}) }}"
+#         rke2_worker_flags: "{{ worker_flags | from_yaml | default({}) }}"
+#       tags: ['config', 'rke2']
 
 - hosts: all:!bastion
   name: Generate RKE2 configuration files
@@ -92,12 +101,66 @@
   gather_facts: true
   vars_files:
     - ../vars.yaml
-  roles:
-    - role: rke2_config
-      vars:
-        rke2_server_flags: "{{ server_flags | from_yaml | default({}) }}"
-        rke2_agent_flags: "{{ agent_flags | from_yaml | default({}) }}"
+  pre_tasks:
+    # from_yaml turns CLI-style flags ('--disable=traefik') into a plain string,
+    # which would blow up later in combine — reject them up front.
+    - name: Validate server_flags/worker_flags are YAML mappings
+      ansible.builtin.assert:
+        that:
+          - >-
+            (server_flags | default('') | from_yaml) is none or
+            (server_flags | default('') | from_yaml) is mapping
+          - >-
+            (worker_flags | default('') | from_yaml) is none or
+            (worker_flags | default('') | from_yaml) is mapping
+        fail_msg: >-
+          server_flags/worker_flags must be YAML mappings ('key: value' lines),
+          not command-line flags
       tags: ['config', 'rke2']
+
+    # Resolve compatibility inputs before role params take precedence over
+    # vars_files/group_vars. Explicit rke2_* variables retain their historical
+    # behavior; cni and server_flags/worker_flags remain the preferred interface.
+    - name: Resolve RKE2 configuration inputs
+      ansible.builtin.set_fact:
+        _rke2_playbook_cni: >-
+          {{ rke2_cni if rke2_cni is defined else (cni | default('')) }}
+        _rke2_playbook_additional_config: >-
+          {{ rke2_additional_config
+             if rke2_additional_config is defined
+             else (((server_flags
+                     if (rke2_node_role == 'master' or
+                         'cp' in (node_roles | default([])) or
+                         'etcd' in (node_roles | default([])))
+                     else worker_flags) | default('') | from_yaml) or {}) }}
+      tags: ['config', 'rke2']
+  tasks:
+    # Keep this dynamic: a static role declaration exposes rke2_config defaults
+    # to pre_tasks, making rke2_cni/rke2_additional_config always look defined.
+    - name: Generate RKE2 configuration
+      ansible.builtin.include_role:
+        name: rke2_config
+        apply:
+          tags: ['config', 'rke2']
+      vars:
+        # Empty keeps the RKE2 default; other values retain legacy precedence
+        # (explicit calico still yields to a CNI in additional/server config).
+        rke2_cni: "{{ _rke2_playbook_cni }}"
+        # server_flags/worker_flags are YAML scalars merged into the node's
+        # config.yaml; an explicit rke2_additional_config extra-var (DTF) wins.
+        rke2_additional_config: "{{ _rke2_playbook_additional_config }}"
+      tags: ['config', 'rke2']
+
+- hosts: all:!bastion
+  name: Configure CIS prerequisites for RKE2
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../vars.yaml
+  tasks:
+    - name: CIS related system setup
+      ansible.builtin.include_tasks: "../../../tasks/rke2-cis-setup.yml"
+      tags: ['cluster', 'rke2']
 
 - hosts: all:!bastion
   name: Install RKE2 binaries
@@ -133,13 +196,20 @@
   vars_files:
     - ../vars.yaml
   environment:
-    PATH: "/var/lib/rancher/rke2/bin:{{ ansible_env.PATH | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
+    PATH: "/var/lib/rancher/rke2/bin:{{ ansible_facts['env']['PATH'] | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
   roles:
     - role: rke2_health_check
       vars:
         rke2_kubeconfig_path: "/etc/rancher/rke2/rke2.yaml"
         rke2_server_flags: "{{ server_flags | default('') }}"
       tags: ['health', 'rke2']
+
+- hosts: bastion
+  name: Prepare bastion node
+  become: true
+  gather_facts: true
+  roles:
+    - role: bastion_prepare
 
 - hosts: localhost
   name: Format local kubeconfig for IPv6

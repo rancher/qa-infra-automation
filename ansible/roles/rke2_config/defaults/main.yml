@@ -24,7 +24,7 @@ rke2_server_flags: {}
 rke2_agent_config:
   server: "https://{{ kube_api_host }}:9345"
 
-rke2_agent_flags: {}
+rke2_worker_flags: {}
 
 # Whether to disable default components
 rke2_disable_components: []

@@ -37,9 +37,9 @@ cni: {{ _cni }}
 {% endif %}
 {% endfor %}
 
-{% if rke2_server_flags | length > 0 %}
+{% if rke2_server_flags | default({}) | length > 0 %}
 # Additional server node configurations
-{% for key, value in rke2_server_flags.items() %}
+{% for key, value in (rke2_server_flags | default({})).items() %}
 {% if value is string %}
 {{ key }}: {{ value }}
 {% elif value is sequence and value is not string %}
@@ -67,7 +67,7 @@ token: {{ rke2_token }}
 # Join to existing cluster
 server: https://{% if ':' in kube_api_host and '[' not in kube_api_host %}[{{ kube_api_host }}]{% else %}{{ kube_api_host }}{% endif %}:9345
 
-{% for key, value in rke2_agent_config.items() %}
+{% for key, value in (rke2_agent_config | default({})).items() %}
 {% if key != 'server' %}
 {% if value is string %}
 {{ key }}: {{ value }}
@@ -82,9 +82,9 @@ server: https://{% if ':' in kube_api_host and '[' not in kube_api_host %}[{{ ku
 {% endif %}
 {% endfor %}
 
-{% if rke2_agent_flags | length > 0 %}
+{% if rke2_worker_flags | default({}) | length > 0 %}
 # Additional agent node configurations
-{% for key, value in rke2_agent_flags.items() %}
+{% for key, value in (rke2_worker_flags | default({})).items() %}
 {% if value is string %}
 {{ key }}: {{ value }}
 {% elif value is sequence and value is not string %}
@@ -103,10 +103,10 @@ token: {{ rke2_token }}
 {% endif %}
 {% endif %}
 
-{% if rke2_disable_components | length > 0 %}
+{% if rke2_disable_components | default([]) | length > 0 %}
 # Disabled components
 disable:
-{% for component in rke2_disable_components %}
+{% for component in (rke2_disable_components | default([])) %}
   - {{ component }}
 {% endfor %}
 {% endif %}

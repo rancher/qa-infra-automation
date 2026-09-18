@@ -87,7 +87,7 @@ Each role can be executed independently using Ansible tags, enabling selective e
 **Variables:**
 - `rke2_kubeconfig_path` (path to kubeconfig file on localhost)
 - `rke2_server_flags` (optional, passed through from playbook)
-- `rke2_agent_flags` (optional, passed through from playbook)
+- `rke2_worker_flags` (optional, passed through from playbook)
 
 **Requirements:**
 - Ansible `community.general` collection (for `json_query` filter used in pod status parsing)
@@ -171,4 +171,4 @@ install_method: 'online'               # Used by: rke2_install (installation met
 
 # Advanced Configuration (Optional)
 # server_flags: '--disable=traefik'    # Used by: rke2_config (additional server flags)
-# agent_flags: '--node-label=type=worker'  # Used by: rke2_config (additional agent flags)
+# worker_flags: '--node-label=type=worker'  # Used by: rke2_config (additional agent flags)
