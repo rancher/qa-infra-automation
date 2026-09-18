@@ -12,7 +12,7 @@
 # 3.12, so the two move together or not at all. See docs/architecture.md for
 # what raising the cap involves.
 # renovate: datasource=docker depName=python
-FROM python:3.12-alpine3.23@sha256:167bc85084c9df34480efc26b4528fb68feaa8a79183b5658952137025b6f061
+FROM python:3.12-alpine3.23@sha256:fdffa057a79d8883f298e3aa7196b70b73e956e8fedad9bf1586a7aabac3c798
 
 ARG TARGETARCH
 
