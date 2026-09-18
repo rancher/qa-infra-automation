@@ -12,6 +12,7 @@ Covers the review feedback on the airgap charts work:
 """
 
 import os
+import re
 import unittest
 
 import yaml
@@ -118,6 +119,7 @@ def _render_contract(expr, **ctx):
         pattern, replacement, value
     )
     env.tests["match"] = lambda value, pattern: re.match(pattern, value) is not None
+    env.tests["search"] = lambda value, pattern: re.search(pattern, value) is not None
 
     def _version(value, other, operator):
         key = lambda v: tuple(int(part) for part in v.split("."))
@@ -495,13 +497,13 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
             inner["when"],
             "downstream_corefile_managed != downstream_corefile_raw.stdout",
         )
-        compute = _require(self.tasks, "Compute the Corefile with the managed hosts override")
-        expr = compute["ansible.builtin.set_fact"]["downstream_corefile_managed"]
-        self.assertIn("server-url-override begin", expr)
-        self.assertIn("server-url-override end", expr)
-        # The render strips any prior managed block before injecting, so a
-        # changed IP replaces the mapping instead of accumulating entries.
-        self.assertIn("regex_replace", expr)
+        strip = _require(self.tasks, "Strip any previously managed server-url override")
+        self.assertIn("regex_replace", strip["ansible.builtin.set_fact"]["downstream_corefile_cleaned"])
+        for name in ("Merge the managed override into an existing hosts plugin",
+                     "Insert the managed hosts override into the server block"):
+            expr = _require(self.tasks, name)["ansible.builtin.set_fact"]["downstream_corefile_managed"]
+            self.assertIn("server-url-override begin", expr)
+            self.assertIn("server-url-override end", expr)
 
     def test_override_pins_the_internal_lb_ip_to_the_server_url_hostname(self):
         # The hosts entry must pair the INTERNAL load balancer's IP (resolved
@@ -509,10 +511,11 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
         # server-url — the rancher_server_url override's host when set, else
         # the public fqdn — anything else leaves the cluster-agent unable to
         # validate server-url and the import stuck pending.
-        compute = _require(self.tasks, "Compute the Corefile with the managed hosts override")
-        expr = compute["ansible.builtin.set_fact"]["downstream_corefile_managed"]
-        self.assertIn("downstream_internal_lb.stdout.split()[0]", expr)
-        self.assertIn("downstream_server_url_host", expr)
+        for name in ("Merge the managed override into an existing hosts plugin",
+                     "Insert the managed hosts override into the server block"):
+            expr = _require(self.tasks, name)["ansible.builtin.set_fact"]["downstream_corefile_managed"]
+            self.assertIn("downstream_internal_lb.stdout.split()[0]", expr, name)
+            self.assertIn("downstream_server_url_host", expr, name)
         derive = _require(
             self.tasks, "Resolve the hostname the agent will validate as server-url"
         )
@@ -524,6 +527,141 @@ class TestDownstreamCoreDNSOverride(unittest.TestCase):
         # an fqdn fallback pins the wrong host when both are configured.
         self.assertIn("external_lb_hostname | default(rancher_hostname", derivation)
         self.assertNotIn("else fqdn", derivation)
+
+    def test_existing_hosts_plugin_is_merged_not_duplicated(self):
+        # CoreDNS permits the hosts plugin once per server block; K3s ships
+        # one stock, so blindly inserting a second leaves invalid config and
+        # DNS pods that crash-loop after the ConfigMap patch. Render the real
+        # pipeline (strip -> detect -> merge/insert) against fixture Corefiles
+        # and require exactly one hosts plugin in every outcome, including a
+        # rerun and the broken double-hosts state an older run could leave.
+        k3s_corefile = (
+            ".:53 {\n"
+            "    errors\n"
+            "    kubernetes cluster.local in-addr.arpa ip6.arpa {\n"
+            "        pods insecure\n"
+            "        fallthrough in-addr.arpa ip6.arpa\n"
+            "    }\n"
+            "    hosts {\n"
+            "        10.10.0.1 k3s-node-0\n"
+            "        fallthrough\n"
+            "    }\n"
+            "    forward . /etc/resolv.conf\n"
+            "}\n"
+        )
+        rke2_corefile = k3s_corefile.replace(
+            "    hosts {\n"
+            "        10.10.0.1 k3s-node-0\n"
+            "        fallthrough\n"
+            "    }\n",
+            "",
+        )
+        ctx = {
+            "downstream_internal_lb": {"stdout": "10.0.0.5 internal-lb"},
+            "downstream_server_url_host": "rancher.example.com",
+        }
+
+        def transform(corefile):
+            cleaned = _render_contract(
+                _require(self.tasks, "Strip any previously managed server-url override")
+                ["ansible.builtin.set_fact"]["downstream_corefile_cleaned"],
+                downstream_corefile_raw={"stdout": corefile}, **ctx,
+            )
+            if cleaned is None:
+                self.skipTest("jinja2 not available for expression evaluation")
+            detected = _render_contract(
+                _require(self.tasks, "Detect an existing hosts plugin in the downstream server block")
+                ["ansible.builtin.set_fact"]["downstream_corefile_has_hosts"],
+                downstream_corefile_cleaned=cleaned, **ctx,
+            )
+            self.assertIn(detected, ("True", "False"))
+            name = ("Merge the managed override into an existing hosts plugin"
+                    if detected == "True"
+                    else "Insert the managed hosts override into the server block")
+            return _render_contract(
+                _require(self.tasks, name)["ansible.builtin.set_fact"]["downstream_corefile_managed"],
+                downstream_corefile_cleaned=cleaned, **ctx,
+            )
+
+        def hosts_blocks(corefile):
+            return re.findall(r"^[ \t]+hosts \{", corefile, re.M)
+
+        # K3s (existing hosts): merge, never duplicate.
+        merged = transform(k3s_corefile)
+        self.assertEqual(len(hosts_blocks(merged)), 1, merged)
+        hosts_body = merged.split("hosts {", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("10.0.0.5 rancher.example.com", hosts_body, merged)
+        self.assertIn("10.10.0.1 k3s-node-0", hosts_body, merged)
+        self.assertIn("fallthrough", hosts_body, merged)
+        # RKE2 (no hosts): insert one managed block with fallthrough.
+        inserted = transform(rke2_corefile)
+        self.assertEqual(len(hosts_blocks(inserted)), 1, inserted)
+        self.assertIn("fallthrough", inserted.split("hosts {", 1)[1].split("}", 1)[0])
+        # Reruns replace instead of accumulating, on both layouts.
+        self.assertEqual(transform(merged), merged)
+        self.assertEqual(transform(inserted), inserted)
+        # A Corefile left with two hosts plugins by an older run self-heals.
+        broken = k3s_corefile.replace(
+            "    hosts {\n",
+            "    # rancher-qa server-url-override begin\n"
+            "    hosts {\n"
+            "        10.0.0.1 rancher.example.com\n"
+            "        fallthrough\n"
+            "    }\n"
+            "    # rancher-qa server-url-override end\n"
+            "    hosts {\n",
+            1,
+        )
+        self.assertEqual(len(hosts_blocks(broken)), 2)
+        healed = transform(broken)
+        self.assertEqual(len(hosts_blocks(healed)), 1, healed)
+        self.assertIn("10.0.0.5 rancher.example.com", healed)
+
+    def test_coredns_resource_names_follow_the_downstream_distro(self):
+        # The playbook imports RKE2 and K3s downstreams alike (kubeconfig
+        # fallback below), but RKE2 runs CoreDNS as rke2-coredns-rke2-coredns
+        # and K3s as plain coredns: every CoreDNS kubectl call must resolve
+        # its resource through the facts recorded on the kubeconfig path, or
+        # the other distro aborts with NotFound before the registration
+        # manifest applies.
+        recorded = {}
+        for node in _walk(self.tasks):
+            name = node.get("name")
+            if name in ("Record the RKE2 CoreDNS resource names",
+                        "Record the K3s CoreDNS resource names"):
+                facts = node["ansible.builtin.set_fact"]
+                self.assertEqual(
+                    facts["downstream_coredns_configmap"],
+                    facts["downstream_coredns_deployment"],
+                    name,
+                )
+                recorded[name] = facts["downstream_coredns_configmap"]
+        self.assertIn("Record the RKE2 CoreDNS resource names", recorded)
+        self.assertIn("Record the K3s CoreDNS resource names", recorded)
+        self.assertNotEqual(
+            recorded["Record the RKE2 CoreDNS resource names"],
+            recorded["Record the K3s CoreDNS resource names"],
+        )
+        # No kubectl argv or shell may hardcode a distro-specific CoreDNS
+        # resource name; the facts must be the only source.
+        for node in _walk(self.tasks):
+            command = node.get("ansible.builtin.command") or node.get("command")
+            if isinstance(command, dict):
+                argv = command.get("argv") or []
+                if argv and argv[0] == "kubectl":
+                    for item in argv:
+                        self.assertNotIn(
+                            "rke2-coredns", str(item),
+                            f"hardcoded CoreDNS resource in task: {node.get('name')}",
+                        )
+            shell = node.get("ansible.builtin.shell") or node.get("shell")
+            if shell and "kubectl" in str(shell):
+                for line in str(shell).splitlines():
+                    if line.strip().startswith("kubectl"):
+                        self.assertNotIn(
+                            "rke2-coredns", line,
+                            f"hardcoded CoreDNS resource in task: {node.get('name')}",
+                        )
 
     def test_play_var_prefers_the_public_hostname(self):
         # server-url is set to the PUBLIC hostname, so the CoreDNS override
@@ -664,21 +802,30 @@ class TestDownstreamChartsCatalogRepoint(unittest.TestCase):
         self.assertIn("charts_mirror_fact.url", when)
         self.assertIn("charts_mirror_fact.branch", when)
 
-    def test_sync_wait_asserts_mirror_url_and_commit(self):
+    def test_sync_wait_asserts_mirror_url_and_branch(self):
         wait = _require(self.tasks, "Wait for the downstream catalog to re-sync from the mirror")
         argv = wait["ansible.builtin.command"]["argv"]
         self.assertIn("{.status.url}", argv[-1])
+        self.assertIn("{.status.branch}", argv[-1])
         self.assertIn("{.status.downloadTime}", argv[-1])
         until = wait["until"]
         self.assertIn("charts_mirror_fact.url", until)
+        self.assertIn("charts_mirror_fact.branch", until, "the wait must observe the requested branch")
         self.assertIn("downstream_charts_repo_synced.stdout", until)
         self.assertIn("> 0", until, "the wait must require a non-empty download timestamp")
-        # A branch-only patch leaves status.url unchanged and an exact mirror
-        # of the same branch state leaves the commit unchanged, so the wait
-        # must require the downloadTime to move past the pre-patch baseline
-        # whenever a patch actually ran (skipped patch == idempotent re-run).
+        # The controller writes status.branch only after re-cloning the
+        # requested branch, so requiring it covers the skipped-patch case: a
+        # prior invocation can have moved spec.gitBranch at the same mirror
+        # URL and died mid-sync, leaving status.url already at the mirror
+        # while status.branch still names the old branch — a url-only
+        # predicate succeeds on that stale state. A branch-only patch also
+        # leaves status.url unchanged and an exact mirror of the same branch
+        # state leaves the commit unchanged, so the wait must additionally
+        # require the downloadTime to move past the pre-patch baseline
+        # whenever a patch actually ran.
         self.assertIn("downstream_charts_patch is skipped", until)
         self.assertIn("downstream_charts_pre_download", until)
+
 
 class TestManagementServerUrl(unittest.TestCase):
     """The management-cluster server-url default and override, per deploy copy."""
@@ -713,12 +860,18 @@ class TestManagementCatalogRepoint(unittest.TestCase):
                 self.assertIn("spec.gitBranch", when)
                 self.assertIn("charts_mirror_fact.branch", when)
 
-    def test_sync_wait_runs_on_every_invocation_and_requires_status_url(self):
+    def test_sync_wait_runs_on_every_invocation_and_observes_branch(self):
         # The wait must live OUTSIDE the spec-differs block (a prior run can
         # have repointed the spec and timed out mid-sync) and must require
         # status.url == mirror — the controller only records that URL after a
         # successful clone from the mirror — plus the Downloaded condition,
         # with the downloadTime freshness check gated on the PUT having run.
+        # status.branch == mirror branch closes the interrupted branch-only
+        # repoint: the mirror URL is stable across Rancher upgrades, so a
+        # prior run that moved only spec.gitBranch and died mid-sync leaves
+        # status.url already at the mirror while status.branch still names
+        # the old branch; without the branch comparison the skipped-PUT path
+        # succeeds against that stale catalog.
         for path in DEPLOY_PLAYBOOKS:
             with self.subTest(playbook=os.path.basename(os.path.dirname(os.path.dirname(path)))):
                 tasks = _tasks(path)
@@ -733,6 +886,8 @@ class TestManagementCatalogRepoint(unittest.TestCase):
                 self.assertIn("spec.gitRepo", until)
                 self.assertIn("status.url", until)
                 self.assertIn("charts_mirror_fact.url", until)
+                self.assertIn("status.branch", until)
+                self.assertIn("charts_mirror_fact.branch", until)
                 self.assertIn("Downloaded", until)
                 self.assertIn("charts_clusterrepo_update is skipped", until)
                 self.assertIn("downloadTime", until)

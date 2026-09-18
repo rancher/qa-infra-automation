@@ -249,6 +249,15 @@
           register: kubeconfig_content
           delegate_to: "{{ groups[downstream][0] }}"
           become: true
+
+        - name: Record the RKE2 CoreDNS resource names
+          # Every later CoreDNS task (Corefile read, ConfigMap patch, rollout)
+          # resolves its resources through these facts: RKE2 runs CoreDNS as
+          # rke2-coredns-rke2-coredns while K3s runs plain coredns, so a
+          # hardcoded name aborts the other distro's import with NotFound.
+          ansible.builtin.set_fact:
+            downstream_coredns_configmap: rke2-coredns-rke2-coredns
+            downstream_coredns_deployment: rke2-coredns-rke2-coredns
       rescue:
         - name: RKE2 KUBECONFIG not found, trying K3s path
           ansible.builtin.debug:
@@ -260,6 +269,11 @@
           register: kubeconfig_content
           delegate_to: "{{ groups[downstream][0] }}"
           become: true
+
+        - name: Record the K3s CoreDNS resource names
+          ansible.builtin.set_fact:
+            downstream_coredns_configmap: coredns
+            downstream_coredns_deployment: coredns
 
     - name: Write kubeconfig to bastion root
       ansible.builtin.copy:
@@ -399,25 +413,55 @@
               - kube-system
               - get
               - configmap
-              - rke2-coredns-rke2-coredns
+              - "{{ downstream_coredns_configmap }}"
               - -o
               - jsonpath={.data.Corefile}
           register: downstream_corefile_raw
           changed_when: false
 
-        - name: Compute the Corefile with the managed hosts override
-          # The override is wrapped in begin/end markers so reruns can REPLACE
-          # the mapping instead of only testing hostname presence — a hostname
-          # anywhere in the Corefile would suppress this block forever and pin
-          # the cluster agent to a stale internal-LB address after it changes.
+        - name: Strip any previously managed server-url override
+          # Reruns must REPLACE the mapping, not accumulate entries or test
+          # hostname presence — a hostname anywhere in the Corefile would
+          # suppress this block forever and pin the cluster agent to a stale
+          # internal-LB address after it changes. The cleanup matches both
+          # layouts this playbook writes: the whole marked hosts block
+          # (inserted when the server block had no hosts plugin) and the
+          # marked mapping lines (merged into an existing hosts plugin).
+          ansible.builtin.set_fact:
+            downstream_corefile_cleaned: >-
+              {{ downstream_corefile_raw.stdout
+                 | regex_replace('(?s)\n?[ \t]*# rancher-qa server-url-override begin\n.*?[ \t]*# rancher-qa server-url-override end', '') }}
+
+        - name: Detect an existing hosts plugin in the downstream server block
+          # CoreDNS permits the hosts plugin once per server block: a
+          # pre-existing hosts stanza (stock on K3s) must be merged into, not
+          # duplicated — a second hosts block leaves invalid config and the
+          # reloaded DNS pods fail to start. The tempered scan stays inside
+          # the .:53 server block (it stops at any column-0 line, i.e. the
+          # next server block or the closing brace).
+          ansible.builtin.set_fact:
+            downstream_corefile_has_hosts: >-
+              {{ downstream_corefile_cleaned is search('(?s)^\.:53 \{(?:(?!\n\S).*?)\n[ \t]+hosts \{') }}
+
+        - name: Merge the managed override into an existing hosts plugin
+          when: downstream_corefile_has_hosts | bool
           ansible.builtin.set_fact:
             downstream_corefile_managed: >-
-              {{ (downstream_corefile_raw.stdout
-                  | regex_replace('(?s)\n?    # rancher-qa server-url-override begin\n.*?    # rancher-qa server-url-override end', '')
-                  | regex_replace('^\.:53 \{',
-                     '.:53 {\n    # rancher-qa server-url-override begin\n    hosts {\n        '
-                     ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ downstream_server_url_host
-                     ~ '\n        fallthrough\n    }\n    # rancher-qa server-url-override end') ) }}
+              {{ downstream_corefile_cleaned
+                 | regex_replace('(?s)^(\.:53 \{(?:(?!\n\S).*?)\n)([ \t]+)hosts \{',
+                    '\1\2hosts {\n\2    # rancher-qa server-url-override begin\n\2    '
+                    ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ downstream_server_url_host
+                    ~ '\n\2    # rancher-qa server-url-override end') }}
+
+        - name: Insert the managed hosts override into the server block
+          when: not (downstream_corefile_has_hosts | bool)
+          ansible.builtin.set_fact:
+            downstream_corefile_managed: >-
+              {{ downstream_corefile_cleaned
+                 | regex_replace('^\.:53 \{',
+                    '.:53 {\n    # rancher-qa server-url-override begin\n    hosts {\n        '
+                    ~ downstream_internal_lb.stdout.split()[0] ~ ' ' ~ downstream_server_url_host
+                    ~ '\n        fallthrough\n    }\n    # rancher-qa server-url-override end') }}
 
         - name: Apply the managed hosts override when it changed
           when: downstream_corefile_managed != downstream_corefile_raw.stdout
@@ -436,7 +480,7 @@
               ansible.builtin.shell: |
                 set -o pipefail
                 kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s -n kube-system create configmap \
-                  rke2-coredns-rke2-coredns --from-file=Corefile=/tmp/corefile-public-host-override.txt \
+                  {{ downstream_coredns_configmap }} --from-file=Corefile=/tmp/corefile-public-host-override.txt \
                   --dry-run=client -o yaml | \
                 kubectl --kubeconfig=/tmp/kubeconfig-{{ downstream }}.yaml --request-timeout=30s apply -f -
               register: downstream_coredns_patch
@@ -452,7 +496,7 @@
                   - kube-system
                   - rollout
                   - restart
-                  - deployment/rke2-coredns-rke2-coredns
+                  - "deployment/{{ downstream_coredns_deployment }}"
               when: downstream_coredns_patch is changed
 
             - name: Wait for CoreDNS rollout
@@ -465,7 +509,7 @@
                   - kube-system
                   - rollout
                   - status
-                  - deployment/rke2-coredns-rke2-coredns
+                  - "deployment/{{ downstream_coredns_deployment }}"
                   - --timeout=180s
               when: downstream_coredns_patch is changed
               changed_when: false
@@ -673,13 +717,20 @@
           changed_when: true
 
         - name: Wait for the downstream catalog to re-sync from the mirror
-          # status.url follows spec.gitRepo once the agent's catalog handler
-          # re-clones from the mirror; before any sync it carries the bundled
-          # git.rancher.io URL. Requiring status.url == mirror plus a non-empty
-          # commit proves the target is live, and when a patch ran the
-          # downloadTime must ALSO differ from the pre-patch baseline — that
-          # covers branch-only patches (status.url unchanged) and exact
-          # same-commit repoints (commit unchanged) alike.
+          # status.url and status.branch follow spec.gitRepo/gitBranch once
+          # the agent's catalog handler re-clones from the mirror; before any
+          # sync they carry the bundled git.rancher.io values. Requiring both
+          # to match the fact proves the sync OBSERVED the requested source —
+          # critical when the patch is skipped: a prior invocation can have
+          # moved spec.gitBranch at the same mirror URL and died before
+          # reconciliation, leaving status.url already at the mirror while
+          # status.branch still names the old branch; a url-only predicate
+          # would succeed on that stale state and race chart installs
+          # against an old catalog. A non-empty downloadTime proves a sync
+          # completed, and when a patch ran it must ALSO differ from the
+          # pre-patch baseline — that covers branch-only patches (status.url
+          # unchanged) and exact same-commit repoints (commit unchanged)
+          # alike.
           ansible.builtin.command:
             argv:
               - kubectl
@@ -689,11 +740,12 @@
               - clusterrepos.catalog.cattle.io
               - rancher-charts
               - -o
-              - jsonpath={.status.url}{" "}{.status.downloadTime}
+              - jsonpath={.status.url}{" "}{.status.branch}{" "}{.status.downloadTime}
           register: downstream_charts_repo_synced
           until: >-
             downstream_charts_repo_synced.rc == 0
             and (downstream_charts_repo_synced.stdout.split(' ') | first) == charts_mirror_fact.url
+            and (downstream_charts_repo_synced.stdout.split(' '))[1] == charts_mirror_fact.branch
             and (downstream_charts_repo_synced.stdout.split(' ') | last | trim | length) > 0
             and (downstream_charts_patch is skipped
                  or (downstream_charts_repo_synced.stdout.split(' ') | last | trim)
