@@ -72,7 +72,7 @@ You must tell Ansible which version of RKE2 to install and configure other deplo
 kubernetes_version: 'v1.34.2+rke2r1'
 
 # network configuration
-cni: "calico"
+cni: ""  # RKE2 default (Canal); set calico or cilium explicitly if needed
 
 # Only required if using manual inventory (not Tofu-generated):
 # fqdn: a.b.c.d.sslip.io # Your FQDN, or a wildcard DNS like sslip.io with your IP
