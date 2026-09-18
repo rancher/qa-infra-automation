@@ -38,8 +38,9 @@ endif
 
 # Downstream cluster via the Rancher API (tofu/rancher/cluster).
 # Your downstream cluster vars (kubernetes_version, machine_pools,
-# cloud_provider, node_config, ...). See tofu/rancher/cluster/vars.tfvars.
-DOWNSTREAM_TFVARS ?=
+# cloud_provider, node_config, ...). Defaults to the in-repo sample; copy and
+# edit it per environment, then override with DOWNSTREAM_TFVARS=<path>.
+DOWNSTREAM_TFVARS ?= tofu/rancher/cluster/vars.tfvars
 # fqdn + api_key written by the Rancher install. Override if your Rancher
 # outputs live elsewhere.
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
@@ -159,7 +160,7 @@ help: ## Show this help message
 	@echo "  downstream          Register an airgap cluster into Rancher (requires ENV=airgap and TARGET_GROUP=downstream)"
 	@echo ""
 	@echo "RANCHER DOWNSTREAM CLUSTER (TOFU - managed by the Rancher API):"
-	@echo "  downstream-tofu          Create/apply a Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... required)"
+	@echo "  downstream-tofu          Create/apply a Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... optional, defaults to tofu/rancher/cluster/vars.tfvars)"
 	@echo "  downstream-tofu-plan     Plan downstream cluster changes"
 	@echo "  downstream-tofu-destroy  Destroy the downstream cluster (AUTO_APPROVE=yes to skip prompt)"
 	@echo "  downstream-tofu-output   Show downstream cluster tofu outputs"
@@ -748,8 +749,9 @@ downstream: check-inventory ## Register an existing airgap cluster into Rancher 
 # the tofu/rancher/cluster module. This is distinct from the infra modules
 # (TOFU_DIR), which only provision raw VMs. Required inputs:
 #   * DOWNSTREAM_TFVARS - your cluster vars (kubernetes_version, machine_pools,
-#                         cloud_provider, node_config, ...). See
-#                         tofu/rancher/cluster/vars.tfvars for a sample.
+#                         cloud_provider, node_config, ...). Defaults to the
+#                         in-repo sample tofu/rancher/cluster/vars.tfvars;
+#                         override with DOWNSTREAM_TFVARS=<path>.
 #   * RANCHER_TFVARS    - fqdn + api_key written by the Rancher install
 #                         (ansible/rancher/default-ha/generated.tfvars).
 # Override WORKSPACE to manage multiple downstream clusters independently,
@@ -764,8 +766,8 @@ check-downstream-tofu: check-prereqs ## Validate downstream tofu inputs (DOWNSTR
 		echo "Error: downstream tofu module not found: $(DOWNSTREAM_TOFU_DIR)"; exit 1; \
 	fi
 	@if [ -z "$(DOWNSTREAM_TFVARS)" ]; then \
-		echo "Error: DOWNSTREAM_TFVARS is required (your downstream cluster vars)."; \
-		echo "       Example: make downstream-tofu DOWNSTREAM_TFVARS=tofu/rancher/cluster/vars.tfvars"; \
+		echo "Error: DOWNSTREAM_TFVARS is empty (cleared explicitly?)."; \
+		echo "       Pass your cluster vars: make downstream-tofu DOWNSTREAM_TFVARS=<path-to-tfvars>"; \
 		exit 1; \
 	fi
 	@if [ ! -f "$(DOWNSTREAM_TFVARS)" ]; then \
@@ -792,7 +794,7 @@ downstream-tofu-plan: downstream-tofu-init ## Plan downstream cluster changes
 	cd $(DOWNSTREAM_TOFU_DIR) && tofu plan $(DOWNSTREAM_VAR_FILES)
 
 .PHONY: downstream-tofu
-downstream-tofu: downstream-tofu-init ## Create/apply the Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... required)
+downstream-tofu: downstream-tofu-init ## Create/apply the Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... optional, defaults to tofu/rancher/cluster/vars.tfvars)
 	@echo "Applying downstream cluster for workspace '$(WORKSPACE)'..."
 	cd $(DOWNSTREAM_TOFU_DIR) && tofu apply $(DOWNSTREAM_VAR_FILES) $(if $(filter yes,$(AUTO_APPROVE)),-auto-approve)
 
