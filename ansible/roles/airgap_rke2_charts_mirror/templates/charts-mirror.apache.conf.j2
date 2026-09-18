@@ -1,9 +1,9 @@
-Listen {{ ui_plugin_mirror_listen }}:{{ ui_plugin_mirror_port }}
+Listen {{ charts_mirror_listen }}:{{ charts_mirror_port }}
 
-<VirtualHost *:{{ ui_plugin_mirror_port }}>
-    ServerName ui-plugin-mirror
+<VirtualHost *:{{ charts_mirror_port }}>
+    ServerName charts-mirror
 
-    SetEnv GIT_PROJECT_ROOT {{ ui_plugin_mirror_dest | dirname }}
+    SetEnv GIT_PROJECT_ROOT {{ charts_mirror_dest | dirname }}
     SetEnv GIT_HTTP_EXPORT_ALL 1
     # Scoped safe.directory for the CGI (root-owned mirrors, www-data CGI):
     # git validates the repo twice ('.' and the absolute path), so the file
@@ -17,6 +17,6 @@ Listen {{ ui_plugin_mirror_listen }}:{{ ui_plugin_mirror_port }}
         Require all granted
     </Directory>
 
-    ErrorLog ${APACHE_LOG_DIR}/ui-plugin-mirror_error.log
-    CustomLog ${APACHE_LOG_DIR}/ui-plugin-mirror_access.log combined
+    ErrorLog ${APACHE_LOG_DIR}/charts-mirror_error.log
+    CustomLog ${APACHE_LOG_DIR}/charts-mirror_access.log combined
 </VirtualHost>
