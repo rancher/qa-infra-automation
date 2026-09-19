@@ -29,7 +29,7 @@ ROLE_DEFAULTS_PATH = os.path.join(
 class TestRKE2ConfigTemplate(unittest.TestCase):
     def _render_defaults(self, variables, checks):
         play_vars = {
-            "rke2_node_role": "master",
+            "node_type": "master",
             "node_roles": ["cp", "etcd"],
             "fqdn": "api.example.invalid",
             "kube_api_host": "192.0.2.10",
@@ -98,7 +98,7 @@ class TestRKE2ConfigTemplate(unittest.TestCase):
                 with self.subTest(node_role=node_role, token=token):
                     self._render_defaults(
                         {
-                            "rke2_node_role": node_role,
+                            "node_type": node_role,
                             "node_roles": ["worker"] if node_role == "agent" else ["cp", "etcd"],
                             "rke2_token": token,
                         },
@@ -125,7 +125,7 @@ class TestRKE2ConfigTemplate(unittest.TestCase):
     def test_agent_string_values_survive_yaml_parsing(self):
         self._render_defaults(
             {
-                "rke2_node_role": "agent",
+                "node_type": "agent",
                 "node_roles": ["worker"],
                 "rke2_agent_config": {
                     "server": "https://192.0.2.10:9345",

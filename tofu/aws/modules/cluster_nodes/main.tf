@@ -312,7 +312,6 @@ resource "aws_instance" "node" {
   vpc_security_group_ids = compact(concat(
     local.security_group_ids, 
     var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : [],
-    local.has_windows_nodes ? [aws_security_group.windows_overlay[0].id] : [],
   ))
   subnet_id = local.subnet_id
   associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
