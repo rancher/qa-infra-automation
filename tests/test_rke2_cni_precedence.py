@@ -375,13 +375,13 @@ class TestCNIPrecedence(unittest.TestCase):
             for source in ("cni", "server_flags"):
                 cases.append((
                     f"server node preserves {cni} via {source}",
-                    {"rke2_node_role": "master", "node_roles": []},
+                    {"node_type": "master", "node_roles": []},
                     {source: cni if source == "cni" else f"cni: {cni}"},
                     [f"rendered_config['cni'] == '{cni}'", _cni_line_check(1)],
                 ))
             cases.append((
                 f"worker node never renders server CNI {cni}",
-                {"rke2_node_role": "agent", "node_roles": ["worker"]},
+                {"node_type": "agent", "node_roles": ["worker"]},
                 {"cni": cni, "server_flags": f"cni: {cni}"},
                 ["'cni' not in (rendered_config | default({}, true))", _cni_line_check(0)],
             ))
