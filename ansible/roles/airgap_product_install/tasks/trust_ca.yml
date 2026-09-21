@@ -1,0 +1,46 @@
+---
+# Trust store per distribution (legacy only handled Debian/Ubuntu).
+- name: Trust the registry CA (Debian/Ubuntu)
+  when: ansible_facts.os_family == 'Debian'
+  become: true
+  block:
+    - name: Copy CA to /usr/local/share/ca-certificates
+      ansible.builtin.copy:
+        src: "{{ airgap_node_dir }}/registry-ca.crt"
+        dest: /usr/local/share/ca-certificates/airgap-registry.crt
+        remote_src: true
+        mode: "0644"
+    - name: Update the CA store
+      ansible.builtin.command:
+        argv: [update-ca-certificates]
+      changed_when: true
+
+- name: Trust the registry CA (SUSE)
+  when: ansible_facts.os_family == 'Suse'
+  become: true
+  block:
+    - name: Copy CA to /etc/pki/trust/anchors
+      ansible.builtin.copy:
+        src: "{{ airgap_node_dir }}/registry-ca.crt"
+        dest: /etc/pki/trust/anchors/airgap-registry.crt
+        remote_src: true
+        mode: "0644"
+    - name: Update the CA store
+      ansible.builtin.command:
+        argv: [update-ca-certificates]
+      changed_when: true
+
+- name: Trust the registry CA (RHEL family)
+  when: ansible_facts.os_family == 'RedHat'
+  become: true
+  block:
+    - name: Copy CA to /etc/pki/ca-trust/source/anchors
+      ansible.builtin.copy:
+        src: "{{ airgap_node_dir }}/registry-ca.crt"
+        dest: /etc/pki/ca-trust/source/anchors/airgap-registry.crt
+        remote_src: true
+        mode: "0644"
+    - name: Update the CA store
+      ansible.builtin.command:
+        argv: [update-ca-trust]
+      changed_when: true

@@ -1,0 +1,160 @@
+---
+# By IP with TLS verification off. Proof of no egress: a timeout (curl rc 28) or rc 7 with
+# "Network is unreachable"/"No route to host" (subnet without any default route). rc 7 with
+# "Connection refused" means a host answered; rc 0 or a TLS/HTTP error means it got through.
+- name: Probe internet egress by IP (airgap precondition)
+  ansible.builtin.command:
+    argv: [sh, -c, "msg=$(curl -k -sS --max-time 5 -o /dev/null https://140.82.112.3/ 2>&1 >/dev/null); echo \"rc=$? $msg\""]
+  register: airgap_egress_probe
+  changed_when: false
+
+- name: Assert the node cannot reach the internet
+  ansible.builtin.assert:
+    that:
+      - >-
+        airgap_egress_probe.stdout is match('rc=28( |$)') or
+        (airgap_egress_probe.stdout is match('rc=7 ') and
+         (airgap_egress_probe.stdout is search('(?i)unreachable') or airgap_egress_probe.stdout is search('(?i)no route')))
+    fail_msg: "node reached the internet or the probe was inconclusive: {{ airgap_egress_probe.stdout }}"
+
+- name: Assert the node has no global IPv6 address (IPv6 reaches out through a plain IGW)
+  ansible.builtin.command:
+    argv: [ip, -6, addr, show, scope, global]
+  register: airgap_ipv6_probe
+  changed_when: false
+  failed_when: airgap_ipv6_probe.stdout | trim | length > 0
+
+- name: Create the node artifact directory
+  ansible.builtin.file:
+    path: "{{ airgap_node_dir }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+  become: true
+
+# scp from the bastion with the ephemeral key minted in the bastion play (revoked at the end).
+- name: Copy artifacts and install script from the bastion
+  ansible.builtin.command:
+    argv:
+      - scp
+      - -r
+      - -o
+      - StrictHostKeyChecking=no
+      - -o
+      - UserKnownHostsFile=/dev/null
+      - -i
+      - "{{ airgap_node_key }}"
+      - "{{ airgap_artifacts_dir }}/."
+      - "{{ ansible_user }}@{{ ansible_host }}:{{ airgap_node_dir }}/"
+  delegate_to: "{{ airgap_bastion_host }}"
+  become: false
+  changed_when: true
+
+- name: Copy the registry CA from the bastion (registry modes)
+  ansible.builtin.command:
+    argv:
+      - scp
+      - -o
+      - StrictHostKeyChecking=no
+      - -o
+      - UserKnownHostsFile=/dev/null
+      - -i
+      - "{{ airgap_node_key }}"
+      - "{{ hostvars[airgap_bastion_host]['airgap_registry_ca_path_fact'] }}"
+      - "{{ ansible_user }}@{{ ansible_host }}:{{ airgap_node_dir }}/registry-ca.crt"
+  delegate_to: "{{ airgap_bastion_host }}"
+  become: false
+  changed_when: true
+  when: airgap_registry_mode != ''
+
+- name: Create product directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ airgap_config_dir }}"
+    - "{{ airgap_data_dir }}/agent/images"
+  become: true
+
+- name: Install the registry CA into the product config dir (registry modes)
+  ansible.builtin.copy:
+    src: "{{ airgap_node_dir }}/registry-ca.crt"
+    dest: "{{ airgap_ca_dest }}"
+    remote_src: true
+    mode: "0644"
+  become: true
+  when: airgap_registry_mode != ''
+
+- name: Trust the registry CA in the OS store (system-default-registry mode)
+  ansible.builtin.include_tasks: trust_ca.yml
+  when: airgap_registry_mode == 'system_default'
+
+- name: Render registries.yaml (private registry mode)
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: "{{ airgap_config_dir }}/registries.yaml"
+    mode: "0600"
+  become: true
+  no_log: true
+  when: airgap_registry_mode == 'private'
+
+- name: Find image tarballs copied to the node
+  ansible.builtin.find:
+    paths: "{{ airgap_node_dir }}"
+    patterns: "*.{{ tarball_type }}"
+  register: airgap_node_tarballs
+  when: airgap_method == 'tarball'
+
+- name: Copy image tarballs into the agent images dir under {{ airgap_data_dir }}
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "{{ airgap_data_dir }}/agent/images/"
+    remote_src: true
+    mode: "0644"
+  become: true
+  loop: "{{ airgap_node_tarballs.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: airgap_method == 'tarball'
+
+- name: Fetch the join token from the primary server
+  ansible.builtin.set_fact:
+    airgap_join_token: "{{ hostvars[airgap_master_host]['airgap_node_token'] }}"
+  no_log: true
+  when: not airgap_primary
+
+- name: Render config.yaml under {{ airgap_config_dir }}
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ airgap_config_dir }}/config.yaml"
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Install with the official installer in offline mode - {{ product ~ ' ' ~ airgap_node_role }}
+  ansible.builtin.include_tasks: "install_{{ product }}.yml"
+
+- name: Wait for the API port on the primary server
+  ansible.builtin.wait_for:
+    port: 6443
+    host: "{{ ansible_host }}"
+    timeout: "{{ airgap_start_timeout }}"
+  when: airgap_primary
+
+- name: Read the node token on the primary server
+  ansible.builtin.slurp:
+    src: "{{ airgap_data_dir }}/server/node-token"
+  register: airgap_node_token_raw
+  become: true
+  no_log: true
+  when: airgap_primary
+  retries: 30
+  delay: 10
+  until: airgap_node_token_raw is succeeded
+
+- name: Publish the node token as a host fact (primary only)
+  ansible.builtin.set_fact:
+    airgap_node_token: "{{ airgap_node_token_raw.content | b64decode | trim }}"
+  no_log: true
+  when: airgap_primary

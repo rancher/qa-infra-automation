@@ -1,0 +1,143 @@
+---
+# Everything is downloaded and checksum-verified on the bastion BEFORE any node
+# is touched. A failure here stops the play; the caller owns cleanup.
+- name: Validate artifact inputs
+  ansible.builtin.assert:
+    that:
+      - product in ['k3s', 'rke2']
+      - kubernetes_version is search('k3s') or kubernetes_version is search('rke2')
+      - arch in ['amd64', 'arm64']
+      - tarball_type in ['tar.zst', 'tar.gz']
+    fail_msg: "artifacts need product k3s|rke2, a release version (not a commit), arch amd64|arm64 and tarball_type tar.zst|tar.gz"
+
+- name: Show artifact selection
+  ansible.builtin.debug:
+    msg: "origin={{ airgap_origin }} url={{ airgap_release_url }} key={{ airgap_artifact_key }}"
+
+- name: Create artifact directory
+  ansible.builtin.file:
+    path: "{{ airgap_artifacts_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Build the RKE2 image list selection
+  when: product == 'rke2'
+  ansible.builtin.set_fact:
+    # Ref: https://docs.rke2.io/install/airgap — core + one CNI (+ multus) when a CNI is pinned, else the all-in-one list.
+    airgap_rke2_cni_names: "{{ (airgap_effective_cni | default('') | lower | replace(' ', '') | split(',') | reject('equalto', '') | list) }}"
+
+- name: Compose the K3s release file list
+  when: product == 'k3s'
+  ansible.builtin.set_fact:
+    airgap_release_files: >-
+      {{ ['sha256sum-' ~ arch ~ '.txt', 'k3s-images.txt', ('k3s-arm64' if arch == 'arm64' else 'k3s')]
+         + (['k3s-airgap-images-' ~ arch ~ '.' ~ tarball_type] if airgap_method == 'tarball' else []) }}
+
+- name: Compose the RKE2 release file list (core or all-in-one images)
+  when: product == 'rke2'
+  ansible.builtin.set_fact:
+    airgap_release_files: >-
+      {{ ['sha256sum-' ~ arch ~ '.txt', 'rke2.linux-' ~ arch ~ '.tar.gz']
+         + (['rke2-images-core.linux-' ~ arch ~ '.txt'] if airgap_rke2_cni_names | length > 0 else ['rke2-images.linux-' ~ arch ~ '.txt'])
+         + (['rke2-images-core.linux-' ~ arch ~ '.' ~ tarball_type] if (airgap_method == 'tarball' and airgap_rke2_cni_names | length > 0) else [])
+         + (['rke2-images.linux-' ~ arch ~ '.' ~ tarball_type] if (airgap_method == 'tarball' and airgap_rke2_cni_names | length == 0) else []) }}
+
+- name: Add per-CNI RKE2 image lists (calico|canal|cilium|flannel|multus)
+  when: product == 'rke2'
+  ansible.builtin.set_fact:
+    airgap_release_files: >-
+      {{ airgap_release_files
+         + ['rke2-images-' ~ item ~ '.linux-' ~ arch ~ '.txt']
+         + (['rke2-images-' ~ item ~ '.linux-' ~ arch ~ '.' ~ tarball_type] if airgap_method == 'tarball' else []) }}
+  loop: "{{ airgap_rke2_cni_names | select('in', ['calico', 'canal', 'cilium', 'flannel', 'multus']) | list }}"
+
+# ingress-nginx ships inside rke2-images-core; only traefik has its own list.
+- name: Add the RKE2 traefik image list when pinned in server flags
+  when: product == 'rke2' and (server_flags | default('')) is search(item)
+  ansible.builtin.set_fact:
+    airgap_release_files: >-
+      {{ airgap_release_files
+         + ['rke2-images-' ~ item ~ '.linux-' ~ arch ~ '.txt']
+         + (['rke2-images-' ~ item ~ '.linux-' ~ arch ~ '.' ~ tarball_type] if airgap_method == 'tarball' else []) }}
+  loop: [traefik]
+
+- name: Download release files
+  ansible.builtin.get_url:
+    url: "{{ airgap_release_url }}/{{ item }}"
+    dest: "{{ airgap_artifacts_dir }}/{{ item }}"
+    mode: "0644"
+    timeout: "{{ airgap_download_timeout }}"
+  loop: "{{ airgap_release_files | unique }}"
+  register: airgap_release_download
+  retries: "{{ airgap_download_retries }}"
+  delay: "{{ airgap_download_delay }}"
+  until: airgap_release_download is succeeded
+
+- name: Verify release checksums (fail closed on any mismatch)
+  ansible.builtin.command:
+    argv: [sha256sum, --check, --ignore-missing, "sha256sum-{{ arch }}.txt"]
+    chdir: "{{ airgap_artifacts_dir }}"
+  changed_when: false
+
+- name: Resolve the commit behind the release tag
+  ansible.builtin.command:
+    argv: [git, ls-remote, "{{ airgap_install_script_repo }}", "refs/tags/{{ kubernetes_version }}", "refs/tags/{{ kubernetes_version }}^{}"]
+  register: airgap_tag_refs
+  changed_when: false
+  retries: "{{ airgap_download_retries }}"
+  delay: "{{ airgap_download_delay }}"
+  until: airgap_tag_refs.rc == 0 and airgap_tag_refs.stdout | length > 0
+
+# Annotated tags list a peeled "^{}" line with the commit; lightweight tags only the tag line.
+- name: Pin the install script to that commit
+  ansible.builtin.set_fact:
+    airgap_install_script_commit: >-
+      {{ ((airgap_tag_refs.stdout_lines | select('search', '\\^\\{\\}$') | list)
+          or airgap_tag_refs.stdout_lines) | first | split('\t') | first }}
+
+- name: Download the official install script
+  ansible.builtin.get_url:
+    url: "{{ airgap_install_script_raw }}/{{ airgap_install_script_commit }}/install.sh"
+    dest: "{{ airgap_artifacts_dir }}/{{ product }}-install.sh"
+    mode: "0755"
+    timeout: "{{ airgap_download_timeout }}"
+  register: airgap_install_script
+  retries: "{{ airgap_download_retries }}"
+  delay: "{{ airgap_download_delay }}"
+  until: airgap_install_script is succeeded
+
+- name: Validate the install script is a shell script
+  ansible.builtin.command:
+    argv: [sh, -c, "head -1 {{ (airgap_artifacts_dir ~ '/' ~ product ~ '-install.sh') | quote }} | grep -Eq '^#!\\s*/(bin|usr/bin)/(sh|bash|env\\s+(sh|bash))'"]
+  changed_when: false
+
+- name: Rename the K3s binary to its canonical name
+  ansible.builtin.copy:
+    src: "{{ airgap_artifacts_dir }}/k3s-arm64"
+    dest: "{{ airgap_artifacts_dir }}/k3s"
+    remote_src: true
+    mode: "0755"
+  when: product == 'k3s' and arch == 'arm64'
+
+- name: Make the K3s binary executable
+  ansible.builtin.file:
+    path: "{{ airgap_artifacts_dir }}/k3s"
+    mode: "0755"
+  when: product == 'k3s'
+
+- name: Write the artifact manifest
+  ansible.builtin.copy:
+    dest: "{{ airgap_artifacts_dir }}/manifest.json"
+    mode: "0644"
+    content: >-
+      {{ {'product': product, 'version': kubernetes_version, 'arch': arch,
+          'origin': airgap_origin, 'release_url': airgap_release_url,
+          'image_variant': airgap_image_variant, 'cni_key': airgap_cni_key,
+          'install_script_commit': airgap_install_script_commit,
+          'files': airgap_release_files | unique} | to_nice_json }}
+
+- name: Record artifact facts for later plays
+  ansible.builtin.set_fact:
+    airgap_artifacts_dir_fact: "{{ airgap_artifacts_dir }}"
+    airgap_release_url_fact: "{{ airgap_release_url }}"
+    airgap_origin_fact: "{{ airgap_origin }}"

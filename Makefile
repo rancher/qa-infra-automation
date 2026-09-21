@@ -44,13 +44,31 @@ DOWNSTREAM_TFVARS ?=
 # outputs live elsewhere.
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 
+# Opt-in: AIRGAP_WORKFLOW=distros selects the distros QA airgap flow (K3s/RKE2
+# private nodes + bastion from cluster_nodes, installed offline by
+# ansible/airgap/airgap-playbook.yml, see docs/guides/airgap-cluster-nodes.md).
+# Only honored with ENV=airgap; the Rancher airgap flow stays the default.
+AIRGAP_WORKFLOW ?=
+
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
 GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
 INVENTORY   := $(ANSIBLE_DIR)/inventory/inventory.yml
 
 # Environment-specific paths
-ifeq ($(ENV),default)
+ifeq ($(ENV)/$(AIRGAP_WORKFLOW),airgap/distros)
+ANSIBLE_DIR         := ansible/airgap
+GROUP_VARS          := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
+INVENTORY           := $(ANSIBLE_DIR)/inventory/inventory.yml
+TOFU_DIR            := tofu/$(PROVIDER)/modules/cluster_nodes
+CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/airgap-playbook.yml
+RANCHER_PLAYBOOK    :=
+DOWNSTREAM_PLAYBOOK :=
+REGISTRY_TARGET     :=
+# generate_inventory.py has no bastion/ProxyCommand layout: the inventory is hand-written
+# from cluster_nodes_json (docs/guides/airgap-cluster-nodes.md); DTF renders it itself.
+GENERATE_INVENTORY  := echo "" && echo "Infrastructure created. Write $(INVENTORY) from 'tofu output -raw cluster_nodes_json' (bastion + ProxyCommand), see docs/guides/airgap-cluster-nodes.md, then run 'make cluster ENV=airgap AIRGAP_WORKFLOW=distros DISTRO=$(DISTRO)'."
+else ifeq ($(ENV),default)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
@@ -67,6 +85,15 @@ CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.y
 RANCHER_PLAYBOOK := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  :=
 endif
+
+# Inventory generation step of infra-up (the distros airgap opt-in overrides it above).
+GENERATE_INVENTORY ?= python3 scripts/generate_inventory.py \
+		--input /tmp/tofu-nodes-$(DISTRO)-$(ENV).json \
+		--distro $(DISTRO) \
+		--env $(ENV) \
+		--schema ansible/_inventory-schema.yaml \
+		--output-dir $(ANSIBLE_DIR)/inventory \
+	&& { [ -f "$(INVENTORY)" ] && echo "" && echo "Infrastructure created. Inventory generated at $(INVENTORY)" || { echo "Error: Inventory generation failed" && exit 1; }; }
 
 # Extra --extra-vars for selecting a target inventory group (airgap multi-cluster).
 # Applies to targets that install on a node group (cluster, downstream).
@@ -426,13 +453,7 @@ infra-up: infra-init check-state-env ## Create infrastructure (generates Ansible
 		echo "Error: No inventory JSON output found in Tofu module $(TOFU_DIR). Has 'make infra-up' been run?"; \
 		exit 1; \
 	fi
-	@python3 scripts/generate_inventory.py \
-		--input /tmp/tofu-nodes-$(DISTRO)-$(ENV).json \
-		--distro $(DISTRO) \
-		--env $(ENV) \
-		--schema ansible/_inventory-schema.yaml \
-		--output-dir $(ANSIBLE_DIR)/inventory
-	@[ -f "$(INVENTORY)" ] && echo "" && echo "Infrastructure created. Inventory generated at $(INVENTORY)" || (echo "Error: Inventory generation failed" && exit 1)
+	@$(GENERATE_INVENTORY)
 
 .PHONY: infra-down
 infra-down: check-tofu-dir check-state-env ## Destroy infrastructure

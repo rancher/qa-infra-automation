@@ -1,0 +1,12 @@
+---
+# Bastion tooling for the DTF airgap flow: kubectl (cluster version, bastion
+# arch, sha256 verified) and podman (registry host + image publish; docker is
+# not used because get.docker.com refuses SLES bastions).
+airgap_bastion_dir: /opt/dtf-airgap
+airgap_kubectl_dest: /usr/local/bin/kubectl
+# Derived from kubernetes_version (vX.Y.Z+k3s1 -> vX.Y.Z) unless overridden.
+airgap_kubectl_version: "{{ 'v' ~ (kubernetes_version | regex_replace('^v', '') | regex_replace('[+-].*$', '')) }}"
+airgap_kubectl_base_url: "https://dl.k8s.io/release"
+airgap_download_timeout: 120
+airgap_download_retries: 3
+airgap_download_delay: 5

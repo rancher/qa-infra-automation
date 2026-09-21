@@ -1,0 +1,83 @@
+---
+# Replaces legacy bastion_prepare.sh. Runs as root on the bastion (needs internet).
+- name: Resolve bastion architecture
+  ansible.builtin.set_fact:
+    airgap_bastion_arch: "{{ ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
+
+- name: Create the airgap working directory
+  ansible.builtin.file:
+    path: "{{ airgap_bastion_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Install base tools (SUSE)
+  community.general.zypper:
+    name: [curl, wget, tar, gzip, openssl, git, podman]
+    state: present
+    update_cache: true
+  when: ansible_facts.os_family == 'Suse'
+  register: airgap_zypper
+  retries: 3
+  delay: 20
+  until: airgap_zypper is succeeded
+
+- name: Install base tools (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: [curl, wget, tar, gzip, openssl, git, podman, ca-certificates]
+    state: present
+    update_cache: true
+  when: ansible_facts.os_family == 'Debian'
+  register: airgap_apt
+  retries: 3
+  delay: 20
+  until: airgap_apt is succeeded
+
+- name: Install base tools (RHEL family)
+  ansible.builtin.dnf:
+    name: [curl, wget, tar, gzip, openssl, git, podman]
+    state: present
+  when: ansible_facts.os_family == 'RedHat'
+  register: airgap_dnf
+  retries: 3
+  delay: 20
+  until: airgap_dnf is succeeded
+
+# kubectl: exact cluster version for the bastion's own architecture, checksum verified.
+- name: Download kubectl checksum
+  ansible.builtin.get_url:
+    url: "{{ airgap_kubectl_base_url }}/{{ airgap_kubectl_version }}/bin/linux/{{ airgap_bastion_arch }}/kubectl.sha256"
+    dest: "{{ airgap_bastion_dir }}/kubectl.sha256"
+    mode: "0644"
+    timeout: "{{ airgap_download_timeout }}"
+  register: airgap_kubectl_sum
+  retries: "{{ airgap_download_retries }}"
+  delay: "{{ airgap_download_delay }}"
+  until: airgap_kubectl_sum is succeeded
+
+- name: Read kubectl checksum
+  ansible.builtin.slurp:
+    src: "{{ airgap_bastion_dir }}/kubectl.sha256"
+  register: airgap_kubectl_sum_content
+
+- name: Download kubectl with SHA256 verification for {{ airgap_bastion_arch }}
+  ansible.builtin.get_url:
+    url: "{{ airgap_kubectl_base_url }}/{{ airgap_kubectl_version }}/bin/linux/{{ airgap_bastion_arch }}/kubectl"
+    dest: "{{ airgap_kubectl_dest }}"
+    mode: "0755"
+    owner: root
+    group: root
+    checksum: "sha256:{{ (airgap_kubectl_sum_content.content | b64decode).split()[0] }}"
+    timeout: "{{ airgap_download_timeout }}"
+  register: airgap_kubectl_bin
+  retries: "{{ airgap_download_retries }}"
+  delay: "{{ airgap_download_delay }}"
+  until: airgap_kubectl_bin is succeeded
+
+- name: Verify kubectl runs
+  ansible.builtin.command:
+    argv: ["{{ airgap_kubectl_dest }}", "version", "--client", "--output=yaml"]
+  changed_when: false
+
+- name: Record bastion tooling facts
+  ansible.builtin.set_fact:
+    airgap_kubectl_path: "{{ airgap_kubectl_dest }}"

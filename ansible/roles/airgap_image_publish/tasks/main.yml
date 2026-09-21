@@ -1,0 +1,66 @@
+---
+- name: Log podman into the private registry
+  ansible.builtin.command:
+    argv: [podman, login, "{{ airgap_registry_host_fact }}", -u, "{{ registry_username }}", --password-stdin]
+    stdin: "{{ registry_password }}"
+  when: airgap_registry_mode_fact == 'private'
+  changed_when: true
+  no_log: true
+
+- name: Find the image list files in the artifact directory
+  ansible.builtin.find:
+    paths: "{{ airgap_artifacts_dir_fact }}"
+    patterns: "{{ 'k3s-images.txt' if product == 'k3s' else 'rke2-images*.txt' }}"
+  register: airgap_image_lists
+
+- name: Assert at least one image list exists
+  ansible.builtin.assert:
+    that: airgap_image_lists.files | length > 0
+    fail_msg: "no image list (.txt) found in {{ airgap_artifacts_dir_fact }}"
+
+- name: Read the image lists
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ airgap_image_lists.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  register: airgap_image_list_contents
+
+- name: Build the unique image set
+  ansible.builtin.set_fact:
+    airgap_images: >-
+      {{ airgap_image_list_contents.results
+         | map(attribute='content') | map('b64decode') | join('\n')
+         | split('\n') | map('trim') | reject('equalto', '') | unique | list }}
+
+- name: Show how many images will be published
+  ansible.builtin.debug:
+    msg: "{{ airgap_images | length }} images -> {{ airgap_registry_host_fact }}"
+
+# Target name drops only the source registry prefix (docker.io/, registry.rancher.com/, <prime>/),
+# exactly as the legacy script did, so mirrors resolve rancher/<image> unchanged.
+- name: Publish each image (pull, tag, push)
+  ansible.builtin.include_tasks: publish_one.yml
+  loop: "{{ airgap_images }}"
+  loop_control:
+    loop_var: airgap_image
+
+- name: Verify repositories in the target registry
+  ansible.builtin.uri:
+    url: "https://{{ airgap_registry_host_fact }}:{{ airgap_registry_port_fact }}/v2/_catalog?n=1000"
+    ca_path: "{{ airgap_registry_ca_path_fact }}"
+    url_username: "{{ registry_username | default(omit) }}"
+    url_password: "{{ registry_password | default(omit) }}"
+    force_basic_auth: "{{ airgap_registry_mode_fact == 'private' }}"
+    return_content: true
+  register: airgap_catalog
+  no_log: true
+
+- name: Assert every published repository is listed
+  ansible.builtin.assert:
+    that: >-
+      airgap_images
+      | map('regex_replace', '^([^/]*[.:][^/]*|docker\\.io)/', '')
+      | map('regex_replace', '[:@].*$', '')
+      | difference(airgap_catalog.json.repositories) | length == 0
+    fail_msg: "some images are missing from the registry catalog"

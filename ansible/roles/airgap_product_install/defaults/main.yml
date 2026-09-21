@@ -1,0 +1,45 @@
+---
+# Installs K3s/RKE2 on a node WITHOUT internet using the official install.sh in
+# offline mode (replaces legacy copyAssets + install_product.sh).
+airgap_bastion_dir: /opt/dtf-airgap
+airgap_node_role: server        # server|agent
+airgap_primary: false           # true only on the first server
+arch: amd64
+tarball_type: tar.zst
+server_flags: ""
+worker_flags: ""
+cni: ""
+
+# Artifacts are copied bastion -> node by scp (in-VPC) as the SSH user, into that
+# user's home. Facts are gathered under become, so user_dir would be /root here.
+airgap_node_dir: "{{ ('/root' if ansible_user == 'root' else '/home/' ~ ansible_user) ~ '/dtf-airgap' }}"
+airgap_config_dir: "/etc/rancher/{{ product }}"
+airgap_data_dir: "/var/lib/rancher/{{ product }}"
+airgap_ca_dest: "{{ airgap_config_dir }}/airgap-registry-ca.crt"
+airgap_api_port: "{{ 6443 if product == 'k3s' else 9345 }}"
+airgap_service_name: "{{ product if airgap_node_role == 'server' else product ~ '-agent' }}"
+airgap_service_name_rke2: "{{ 'rke2-server' if airgap_node_role == 'server' else 'rke2-agent' }}"
+airgap_start_timeout: 600
+airgap_master_host: "{{ groups['master'][0] }}"
+airgap_master_ip: "{{ hostvars[airgap_master_host]['ansible_host'] }}"
+airgap_bastion_host: "{{ groups['bastion'][0] }}"
+airgap_registry_mode: "{{ hostvars[airgap_bastion_host]['airgap_registry_mode_fact'] | default('') }}"
+airgap_registry_host: "{{ hostvars[airgap_bastion_host]['airgap_registry_host_fact'] | default('') }}"
+airgap_artifacts_dir: "{{ hostvars[airgap_bastion_host]['airgap_artifacts_dir_fact'] }}"
+airgap_node_key: "{{ airgap_bastion_dir }}/.ssh/node_key"
+# Effective CNI (RKE2): the cni extra-var, else the "cni:" line of server_flags.
+# server_flags are YAML lines joined by a literal "\n": parse them as YAML so quoted and
+# list values ("canal", 'canal', [multus, canal]) are read the same way everywhere.
+# Jinja string escapes are not reliable in Ansible 2.19 block scalars; these YAML-defined
+# helpers hold a literal backslash-n and a real newline for the flags conversion.
+airgap_backslash_n: "\\n"
+airgap_newline: "\n"
+airgap_flags_yaml: >-
+  {{ ((server_flags | default('')) | replace(airgap_backslash_n, airgap_newline) | from_yaml) | default({}, true) }}
+airgap_flags_cni: >-
+  {{ (airgap_flags_yaml.cni | default(''))
+     if (airgap_flags_yaml.cni | default('')) is string
+     else (airgap_flags_yaml.cni | join(',')) }}
+airgap_effective_cni: >-
+  {{ ((cni if (cni | default('') | length > 0) else airgap_flags_cni)
+      | string | replace(' ', '') | lower | regex_replace(',,+', ',') | trim(',')) }}

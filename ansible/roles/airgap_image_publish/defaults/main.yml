@@ -1,0 +1,9 @@
+---
+# Pull every image listed in the release .txt files, retag it under the bastion
+# registry and push it (replaces legacy podman_cmds.sh). Verifies via the
+# registry API that each repository landed.
+airgap_bastion_dir: /opt/dtf-airgap
+arch: amd64
+airgap_publish_platform: "linux/{{ arch }}"
+airgap_publish_retries: 3
+airgap_publish_delay: 10

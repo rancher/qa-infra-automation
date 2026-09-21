@@ -1,0 +1,19 @@
+---
+# Official install.sh with INSTALL_RKE2_ARTIFACT_PATH (tarball + sha256sum + image tarballs).
+- name: Run the RKE2 installer from local artifacts
+  ansible.builtin.command:
+    argv: [sh, "{{ airgap_node_dir }}/rke2-install.sh"]
+  environment:
+    INSTALL_RKE2_ARTIFACT_PATH: "{{ airgap_node_dir }}"
+    INSTALL_RKE2_TYPE: "{{ airgap_node_role }}"
+  become: true
+  register: airgap_rke2_install
+  changed_when: true
+
+- name: Enable and start {{ airgap_service_name_rke2 }}
+  ansible.builtin.systemd:
+    name: "{{ airgap_service_name_rke2 }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true

@@ -1,0 +1,24 @@
+{#- Port of legacy install_product.sh create_config/add_to_config -#}
+node-name: "{{ ansible_facts.fqdn | default(inventory_hostname) }}"
+{% if product == 'k3s' and airgap_primary %}
+cluster-init: true
+{% endif %}
+node-ip: {{ ansible_host }}
+{% if not airgap_primary %}
+server: "https://{{ airgap_master_ip }}:{{ airgap_api_port }}"
+token: "{{ airgap_join_token }}"
+{% endif %}
+{% if airgap_registry_mode == 'system_default' %}
+system-default-registry: "{{ airgap_registry_host }}"
+{% endif %}
+{% set _cni = airgap_effective_cni | default('') | trim %}
+{% if product == 'rke2' and airgap_node_role == 'server' and _cni | length > 0 and (airgap_flags_cni | default('') | trim | length == 0) %}
+cni: {{ _cni }}
+{% endif %}
+{% set _raw = ((server_flags if airgap_node_role == 'server' else worker_flags) | default('')) | replace('\\n', '\n') %}
+{#- In system_default mode the registry key above wins over any copy in the flags -#}
+{% set _lines = _raw.split('\n') | reject('match', '^\s*system-default-registry:') | list if airgap_registry_mode == 'system_default' else _raw.split('\n') %}
+{% set _flags = _lines | join('\n') %}
+{% if _flags | trim | length > 0 %}
+{{ _flags }}
+{% endif %}

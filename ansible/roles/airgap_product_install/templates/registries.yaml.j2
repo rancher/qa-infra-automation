@@ -1,0 +1,22 @@
+{#- Port of legacy registries.yaml.example: mirror everything to the bastion registry with basic auth -#}
+---
+mirrors:
+  "{{ airgap_registry_host }}":
+    endpoint:
+      - "https://{{ airgap_registry_host }}"
+  docker.io:
+    endpoint:
+      - "https://{{ airgap_registry_host }}"
+  registry.k8s.io:
+    endpoint:
+      - "https://{{ airgap_registry_host }}"
+  k8s.gcr.io:
+    endpoint:
+      - "https://{{ airgap_registry_host }}"
+configs:
+  "{{ airgap_registry_host }}":
+    auth:
+      username: "{{ registry_username }}"
+      password: "{{ registry_password }}"
+    tls:
+      ca_file: "{{ airgap_ca_dest }}"

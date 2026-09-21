@@ -1,0 +1,13 @@
+---
+# Kubeconfig + kubectl on the bastion for the test runner; facts file for DTF.
+airgap_bastion_dir: /opt/dtf-airgap
+airgap_kubectl_dest: /usr/local/bin/kubectl
+# Legacy path the DTF asserts read (KUBECONFIG on the bastion).
+bastion_kubeconfig_path: "/tmp/{{ product }}_kubeconf.yaml"
+kubeconfig_file: ""
+airgap_facts_file: ""
+airgap_ready_retries: 60
+airgap_ready_delay: 10
+airgap_master_host: "{{ groups['master'][0] }}"
+airgap_master_ip: "{{ hostvars[airgap_master_host]['ansible_host'] }}"
+airgap_expected_nodes: "{{ (groups['master'] | length) + (groups['servers'] | default([]) | length) + (groups['workers'] | default([]) | length) }}"

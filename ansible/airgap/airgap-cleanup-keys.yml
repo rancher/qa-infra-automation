@@ -1,0 +1,31 @@
+---
+# Best-effort revocation of the ephemeral scp key minted by airgap-playbook.yml.
+# Run it after every airgap-playbook.yml invocation, successful or not: hosts that
+# failed mid-install are skipped by the main playbook's final plays. Never fails.
+- name: Revoke the ephemeral key on the nodes
+  hosts: master,servers,workers
+  become: true
+  gather_facts: false
+  ignore_unreachable: true
+  tasks:
+    - name: Remove the dtf-airgap-ephemeral entry from authorized_keys
+      ansible.builtin.lineinfile:
+        path: "{{ ('/root' if ansible_user == 'root' else '/home/' ~ ansible_user) ~ '/.ssh/authorized_keys' }}"
+        regexp: ' dtf-airgap-ephemeral$'
+        state: absent
+      failed_when: false
+
+- name: Remove the ephemeral private key from the bastion
+  hosts: bastion
+  become: true
+  gather_facts: false
+  ignore_unreachable: true
+  tasks:
+    - name: Delete the ephemeral key pair
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ airgap_bastion_dir | default('/opt/dtf-airgap') }}/.ssh/node_key"
+        - "{{ airgap_bastion_dir | default('/opt/dtf-airgap') }}/.ssh/node_key.pub"
+      failed_when: false

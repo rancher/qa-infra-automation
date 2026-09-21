@@ -37,7 +37,7 @@ variable "nodes" {
   description = "Configuration for product nodes."
   type = list(object({
     count         = number
-    role          = list(string) # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
+    role          = list(string)     # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
     instance_type = optional(string) # Override global instance_type for this node group
   }))
   validation {
@@ -46,8 +46,49 @@ variable "nodes" {
     error_message = "At least one node group must include the \"cp\" role with count > 0. K3s/RKE2 clusters need a real control-plane node."
   }
 }
-variable "airgap_setup" {}
-variable "proxy_setup" {}
+variable "airgap_setup" {
+  description = "Place cluster nodes without a public IP. Requires bastion.enabled so the nodes stay reachable; the shared subnet must have no NAT for real isolation."
+  type        = bool
+  default     = false
+}
+variable "proxy_setup" {
+  description = "Place cluster nodes without a public IP behind an operator-provided proxy."
+  type        = bool
+  default     = false
+}
+
+variable "bastion" {
+  description = "Optional bastion host with a public IP in the same subnet/SG as the nodes. Used by airgap runs as the only ingress and as the artifact/registry host. instance_type/ami/volume_size default to the node values."
+  type = object({
+    enabled       = optional(bool, false)
+    instance_type = optional(string)
+    ami           = optional(string)
+    volume_size   = optional(number)
+  })
+  default = {}
+}
+
+variable "run_id" {
+  description = "Caller-owned identifier of this provisioning run (e.g. Jenkins job-build-nonce). Tagged as RunId on every created instance so cleanup can prove ownership. Empty disables the tag."
+  type        = string
+  default     = ""
+}
+
+variable "qa_infra_sha" {
+  description = "Commit of this repository the caller pinned (echoed into cluster_nodes_json metadata for traceability)."
+  type        = string
+  default     = ""
+}
+
+variable "arch" {
+  description = "CPU architecture of the node AMI (amd64|arm64), echoed into cluster_nodes_json metadata. Informational only; the AMI decides."
+  type        = string
+  default     = ""
+  validation {
+    condition     = contains(["", "amd64", "arm64"], var.arch)
+    error_message = "arch must be empty, amd64 or arm64."
+  }
+}
 
 variable "create_ssh_security_group" {
   description = "Create a dedicated SG that grants SSH (22) from stable CIDRs (ssh_allowed_cidrs) plus the VPC CIDR, and attach it alongside var.aws_security_group. Enable when SSH access is granted only via a managed prefix list - prefix-list rules propagate to each new ENI asynchronously and can silently drop SSH to a freshly launched node; plain CIDR rules realize instantly."

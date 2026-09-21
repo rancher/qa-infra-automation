@@ -1,0 +1,27 @@
+---
+- name: Derive the target reference for {{ airgap_image }}
+  ansible.builtin.set_fact:
+    airgap_target_image: "{{ airgap_registry_host_fact }}/{{ airgap_image | regex_replace('^([^/]*[.:][^/]*|docker\\.io)/', '') }}"
+
+- name: Pull {{ airgap_image }}
+  ansible.builtin.command:
+    argv: [podman, pull, --platform, "{{ airgap_publish_platform }}", "{{ airgap_image }}"]
+  register: airgap_pull
+  retries: "{{ airgap_publish_retries }}"
+  delay: "{{ airgap_publish_delay }}"
+  until: airgap_pull.rc == 0
+  changed_when: true
+
+- name: Tag the image for the bastion registry as {{ airgap_target_image }}
+  ansible.builtin.command:
+    argv: [podman, image, tag, "{{ airgap_image }}", "{{ airgap_target_image }}"]
+  changed_when: true
+
+- name: Push {{ airgap_target_image }}
+  ansible.builtin.command:
+    argv: [podman, push, "{{ airgap_target_image }}"]
+  register: airgap_push
+  retries: "{{ airgap_publish_retries }}"
+  delay: "{{ airgap_publish_delay }}"
+  until: airgap_push.rc == 0
+  changed_when: true

@@ -1,0 +1,121 @@
+---
+- name: Create registry directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ airgap_registry_certs_dir }}"
+    - "{{ airgap_registry_auth_dir }}"
+
+# Self-signed certificate whose SAN is the registry hostname (legacy did the same).
+- name: Generate the registry TLS certificate
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -newkey
+      - rsa:4096
+      - -nodes
+      - -sha256
+      - -keyout
+      - "{{ airgap_registry_certs_dir }}/domain.key"
+      - -x509
+      - -days
+      - "{{ airgap_registry_cert_days }}"
+      - -out
+      - "{{ airgap_registry_certs_dir }}/domain.crt"
+      - -subj
+      - "/C=US/ST=AZ/O=Rancher QA/CN={{ airgap_registry_host }}"
+      - -addext
+      - "subjectAltName = DNS:{{ airgap_registry_host }}"
+    creates: "{{ airgap_registry_certs_dir }}/domain.crt"
+
+# certs/ is root 0700 (private key). The public cert gets a world-readable copy that
+# the SSH user can scp to the nodes and that the facts file points at.
+- name: Publish the public certificate at a readable path
+  ansible.builtin.copy:
+    src: "{{ airgap_registry_certs_dir }}/domain.crt"
+    dest: "{{ airgap_registry_ca_public }}"
+    remote_src: true
+    mode: "0644"
+
+- name: Create the podman trust directory for the registry host
+  ansible.builtin.file:
+    path: "/etc/containers/certs.d/{{ airgap_registry_host }}"
+    state: directory
+    mode: "0755"
+
+# certs.d is read per request: no daemon restart needed (podman has none anyway).
+- name: Trust the registry certificate for podman on the bastion
+  ansible.builtin.copy:
+    src: "{{ airgap_registry_certs_dir }}/domain.crt"
+    dest: "/etc/containers/certs.d/{{ airgap_registry_host }}/ca.crt"
+    remote_src: true
+    mode: "0644"
+
+- name: Generate htpasswd credentials (private mode)
+  when: airgap_registry_mode == 'private'
+  block:
+    # -i reads the password from stdin: it never appears in the container argv / ps.
+    - name: Create the bcrypt htpasswd entry with the httpd image
+      ansible.builtin.command:
+        argv: [podman, run, --rm, -i, "{{ airgap_htpasswd_image }}", htpasswd, -Bin, "{{ registry_username }}"]
+        stdin: "{{ registry_password }}"
+      register: airgap_htpasswd
+      changed_when: true
+      no_log: true
+
+    - name: Write the htpasswd file
+      ansible.builtin.copy:
+        dest: "{{ airgap_registry_auth_dir }}/htpasswd"
+        content: "{{ airgap_htpasswd.stdout }}\n"
+        mode: "0600"
+      no_log: true
+
+- name: Remove a stale registry container so configuration changes apply
+  ansible.builtin.command:
+    argv: [podman, rm, -f, "{{ airgap_registry_container }}"]
+  register: airgap_registry_rm
+  changed_when: "'airgap-registry' in airgap_registry_rm.stdout"
+  failed_when: false
+
+- name: Start the registry container
+  ansible.builtin.command:
+    argv: >-
+      {{ ['podman', 'run', '-d', '--restart=always', '--name', airgap_registry_container,
+          '-p', airgap_registry_port ~ ':' ~ airgap_registry_port,
+          '-v', airgap_registry_certs_dir ~ ':/certs:ro,Z',
+          '-e', 'REGISTRY_HTTP_ADDR=0.0.0.0:' ~ airgap_registry_port,
+          '-e', 'REGISTRY_HTTP_TLS_CERTIFICATE=/certs/domain.crt',
+          '-e', 'REGISTRY_HTTP_TLS_KEY=/certs/domain.key']
+         + (['-v', airgap_registry_auth_dir ~ ':/auth:ro,Z',
+             '-e', 'REGISTRY_AUTH=htpasswd',
+             '-e', 'REGISTRY_AUTH_HTPASSWD_REALM=airgap-registry',
+             '-e', 'REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd'] if airgap_registry_mode == 'private' else [])
+         + [airgap_registry_image] }}
+  changed_when: true
+
+- name: Wait for the registry to answer over TLS
+  ansible.builtin.uri:
+    url: "https://{{ airgap_registry_host }}:{{ airgap_registry_port }}/v2/"
+    ca_path: "{{ airgap_registry_certs_dir }}/domain.crt"
+    status_code: [200, 401]
+  register: airgap_registry_ready
+  retries: "{{ airgap_registry_ready_retries }}"
+  delay: "{{ airgap_registry_ready_delay }}"
+  until: airgap_registry_ready is succeeded
+
+- name: Assert the auth mode matches the request
+  ansible.builtin.assert:
+    that:
+      - (airgap_registry_mode == 'private' and airgap_registry_ready.status == 401) or
+        (airgap_registry_mode == 'system_default' and airgap_registry_ready.status == 200)
+    fail_msg: "registry answered {{ airgap_registry_ready.status }} but mode is {{ airgap_registry_mode }}"
+
+- name: Record registry facts for later plays
+  ansible.builtin.set_fact:
+    airgap_registry_host_fact: "{{ airgap_registry_host }}"
+    airgap_registry_mode_fact: "{{ airgap_registry_mode }}"
+    airgap_registry_port_fact: "{{ airgap_registry_port }}"
+    airgap_registry_ca_path_fact: "{{ airgap_registry_ca_public }}"

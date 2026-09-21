@@ -1,0 +1,21 @@
+---
+# TLS registry on the bastion, run with podman (works on Ubuntu, SLES and RHEL
+# bastions; replaces legacy private_registry.sh / system_default_registry.sh).
+# Mode "private" adds htpasswd basic auth.
+airgap_bastion_dir: /opt/dtf-airgap
+airgap_registry_mode: "{{ 'private' if airgap_method == 'private_registry' else 'system_default' }}"
+# Hostname clients use; must match the certificate SAN. Inside the VPC the EC2
+# public DNS name resolves to the private IP, so nodes never leave the VPC.
+airgap_registry_host: "{{ bastion_public_dns | default(ansible_facts.fqdn) }}"
+airgap_registry_port: 443
+airgap_registry_container: airgap-registry
+# Pinned by manifest-list digest (multi-arch) so a moving tag cannot change the run.
+# registry:2 (2.8.x) / httpd:2.4-alpine as of 2026-09-21; bump deliberately.
+airgap_registry_image: "docker.io/library/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
+airgap_htpasswd_image: "docker.io/library/httpd@sha256:4e585da9d0125dec36d4500a9f5c5df7b2c0a01f67cb47865a91a4b05bdbec1b"
+airgap_registry_ca_public: "{{ airgap_bastion_dir }}/registry-ca.crt"
+airgap_registry_certs_dir: "{{ airgap_bastion_dir }}/certs"
+airgap_registry_auth_dir: "{{ airgap_bastion_dir }}/auth"
+airgap_registry_cert_days: 365
+airgap_registry_ready_retries: 30
+airgap_registry_ready_delay: 5

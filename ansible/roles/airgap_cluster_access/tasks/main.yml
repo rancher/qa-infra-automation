@@ -1,0 +1,101 @@
+---
+- name: Create a controller temp file for the kubeconfig
+  ansible.builtin.tempfile:
+    state: file
+    prefix: dtf-airgap-kc-
+  register: airgap_tmp_kubeconfig
+  delegate_to: localhost
+  become: false
+
+- name: Fetch the kubeconfig from the primary server to the controller
+  ansible.builtin.fetch:
+    src: "/etc/rancher/{{ product }}/{{ product }}.yaml"
+    dest: "{{ airgap_tmp_kubeconfig.path }}"
+    flat: true
+  delegate_to: "{{ airgap_master_host }}"
+  become: true
+  register: airgap_kubeconfig_fetched
+  no_log: true
+
+- name: Read the kubeconfig
+  ansible.builtin.slurp:
+    src: "{{ airgap_tmp_kubeconfig.path }}"
+  register: airgap_kubeconfig_raw
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Point the kubeconfig at the primary server private IP (node-ip is a TLS SAN)
+  ansible.builtin.set_fact:
+    airgap_kubeconfig: "{{ airgap_kubeconfig_raw.content | b64decode | replace('127.0.0.1', airgap_master_ip) | replace('[::1]', airgap_master_ip) }}"
+  no_log: true
+
+- name: Write the kubeconfig on the bastion (readable by the SSH user only)
+  ansible.builtin.copy:
+    dest: "{{ bastion_kubeconfig_path }}"
+    content: "{{ airgap_kubeconfig }}"
+    mode: "0600"
+    owner: "{{ ansible_user }}"
+  no_log: true
+
+- name: Write a protected kubeconfig copy on the controller (diagnostics only)
+  ansible.builtin.copy:
+    dest: "{{ kubeconfig_file }}"
+    content: "{{ airgap_kubeconfig }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: kubeconfig_file | length > 0
+
+- name: Remove the controller temp copy
+  ansible.builtin.file:
+    path: "{{ airgap_tmp_kubeconfig.path }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+
+- name: Wait until every node is Ready (kubectl on the bastion)
+  ansible.builtin.command:
+    argv: ["{{ airgap_kubectl_dest }}", --kubeconfig, "{{ bastion_kubeconfig_path }}", get, nodes, --no-headers]
+  register: airgap_nodes
+  changed_when: false
+  retries: "{{ airgap_ready_retries }}"
+  delay: "{{ airgap_ready_delay }}"
+  until: >-
+    airgap_nodes.rc == 0 and
+    (airgap_nodes.stdout_lines | length) == (airgap_expected_nodes | int) and
+    (airgap_nodes.stdout_lines | select('search', ' Ready') | list | length) == (airgap_expected_nodes | int)
+
+- name: Write airgap-facts.json on the controller (paths and hostnames only, never secrets)
+  ansible.builtin.copy:
+    dest: "{{ airgap_facts_file }}"
+    mode: "0600"
+    content: >-
+      {{ {
+          'schema_version': 2,
+          'product': product,
+          'kubernetes_version': kubernetes_version,
+          'arch': arch | default('amd64'),
+          'airgap_method': airgap_method,
+          'registry_mode': airgap_registry_mode_fact | default(''),
+          'registry_host': airgap_registry_host_fact | default(''),
+          'registry_port': airgap_registry_port_fact | default(0) | int,
+          'registry_ca_path_bastion': airgap_registry_ca_path_fact | default(''),
+          'registry_ca_path_nodes': ('/etc/rancher/' ~ product ~ '/airgap-registry-ca.crt') if (airgap_registry_mode_fact | default('')) != '' else '',
+          'artifacts_dir': airgap_artifacts_dir_fact,
+          'artifact_origin': airgap_origin_fact,
+          'release_url': airgap_release_url_fact,
+          'bastion_kubeconfig_path': bastion_kubeconfig_path,
+          'kubectl_path': airgap_kubectl_dest,
+          'bastion_host': bastion_host | default(ansible_host),
+          'bastion_public_dns': bastion_public_dns | default(''),
+          'node_count': airgap_expected_nodes | int
+        } | to_nice_json }}
+  delegate_to: localhost
+  become: false
+  when: airgap_facts_file | length > 0
+
+- name: Show cluster nodes
+  ansible.builtin.debug:
+    msg: "{{ airgap_nodes.stdout_lines }}"

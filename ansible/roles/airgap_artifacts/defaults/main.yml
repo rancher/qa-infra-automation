@@ -1,0 +1,53 @@
+---
+# Downloads every artifact a K3s/RKE2 airgap install needs onto the bastion
+# (replaces legacy get_artifacts.sh). Cache key includes product, version, arch,
+# origin (community|prime), image format and CNI so variants never mix.
+airgap_bastion_dir: /opt/dtf-airgap
+arch: amd64
+tarball_type: tar.zst
+image_registry_url: ""
+cni: ""
+server_flags: ""
+
+airgap_download_timeout: 300
+airgap_download_retries: 3
+airgap_download_delay: 5
+
+# Official install scripts (always online, never from Prime).
+# install.sh comes from the product repo at the COMMIT the release tag points at (resolved
+# with git ls-remote, recorded in manifest.json), not from the moving get.k3s.io/get.rke2.io.
+airgap_install_script_repo: "{{ 'https://github.com/k3s-io/k3s' if product == 'k3s' else 'https://github.com/rancher/rke2' }}"
+airgap_install_script_raw: "{{ 'https://raw.githubusercontent.com/k3s-io/k3s' if product == 'k3s' else 'https://raw.githubusercontent.com/rancher/rke2' }}"
+airgap_k3s_release_base: "https://github.com/k3s-io/k3s/releases/download"
+airgap_rke2_release_base: "https://github.com/rancher/rke2/releases/download"
+
+airgap_origin: "{{ 'prime' if (image_registry_url | default('')) | length > 0 else 'community' }}"
+# Prime layout: <base>/<product>/<version> with the raw '+' (what legacy get_artifacts.sh
+# fetched for years); community: GitHub releases.
+airgap_release_url: >-
+  {{ (image_registry_url | regex_replace('/$', '') ~ '/' ~ product ~ '/' ~ kubernetes_version)
+     if airgap_origin == 'prime'
+     else ((airgap_k3s_release_base if product == 'k3s' else airgap_rke2_release_base) ~ '/' ~ kubernetes_version) }}
+# Normalized CNI key keeps combinations meaningful (multus,canal != canal).
+# Effective CNI: the cni extra-var, else the "cni:" line of server_flags (the jobs carry it there).
+# server_flags are YAML lines joined by a literal "\n": parse them as YAML so quoted and
+# list values ("canal", 'canal', [multus, canal]) are read the same way everywhere.
+# Jinja string escapes are not reliable in Ansible 2.19 block scalars; these YAML-defined
+# helpers hold a literal backslash-n and a real newline for the flags conversion.
+airgap_backslash_n: "\\n"
+airgap_newline: "\n"
+airgap_flags_yaml: >-
+  {{ ((server_flags | default('')) | replace(airgap_backslash_n, airgap_newline) | from_yaml) | default({}, true) }}
+airgap_flags_cni: >-
+  {{ (airgap_flags_yaml.cni | default(''))
+     if (airgap_flags_yaml.cni | default('')) is string
+     else (airgap_flags_yaml.cni | join(',')) }}
+airgap_effective_cni: >-
+  {{ ((cni if (cni | default('') | length > 0) else airgap_flags_cni)
+      | string | replace(' ', '') | lower | regex_replace(',,+', ',') | trim(',')) }}
+airgap_cni_key: >-
+  {{ (airgap_effective_cni | default('') | lower | replace(' ', '')
+      | split(',') | reject('equalto', '') | sort | join('+')) or 'default' }}
+airgap_image_variant: "{{ (airgap_method | default('tarball') == 'tarball') | ternary(tarball_type, 'lists') }}"
+airgap_artifact_key: "{{ product }}-{{ kubernetes_version | replace('+', '_') }}-{{ arch }}-{{ airgap_origin }}-{{ airgap_image_variant }}-{{ airgap_cni_key }}"
+airgap_artifacts_dir: "{{ airgap_bastion_dir }}/artifacts/{{ airgap_artifact_key }}"
