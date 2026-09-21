@@ -42,18 +42,21 @@ This module deploys a downstream cluster on your rancher setup
 ## Using `make` (from the repo root)
 
 The repository `Makefile` wraps the commands above and auto-loads
-`ansible/rancher/default-ha/generated.tfvars` for `fqdn`/`api_key`:
+`ansible/rancher/default-ha/generated.tfvars` for `fqdn`/`api_key`.
+`DOWNSTREAM_TFVARS` defaults to this module's `vars.tfvars`, so the targets
+work without it once you have edited the sample (or copied your own and
+overridden with `DOWNSTREAM_TFVARS=<path>`):
 
 ```bash
 # Plan / create (prompts unless AUTO_APPROVE=yes)
-make downstream-tofu-plan    DOWNSTREAM_TFVARS=/path/to/vars.tfvars
-make downstream-tofu         DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+make downstream-tofu-plan
+make downstream-tofu
 
 # Destroy (prompts unless AUTO_APPROVE=yes)
-make downstream-tofu-destroy DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+make downstream-tofu-destroy AUTO_APPROVE=yes
 
 # Show outputs
-make downstream-tofu-output  DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+make downstream-tofu-output
 ```
 
 Override `RANCHER_TFVARS=<path>` if your Rancher outputs live elsewhere, and
