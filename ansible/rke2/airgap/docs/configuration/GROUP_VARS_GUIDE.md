@@ -165,6 +165,7 @@ Key variables:
 | `deploy_rancher` | Enable Rancher deployment | `true` |
 | `install_helm` | Install Helm 3 on the bastion if absent | `true` |
 | `rancher_hostname` | FQDN for the Rancher UI | `internal_lb_hostname` |
+| `rancher_server_url` | Full URL pinned as the Rancher `server-url` setting (default `https://<external_lb_hostname>`); the hostname must be covered by the TLS cert and resolvable by downstream clusters (the registration playbook installs a CoreDNS hosts override when an internal LB exists) | _(unset)_ |
 | `rancher_bootstrap_password` | Initial admin password | required |
 | `rancher_image_tag` | Rancher version to deploy | — |
 | `rancher_use_bundled_system_charts` | Use bundled charts (airgap) | `true` |
