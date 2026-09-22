@@ -54,7 +54,11 @@ tofu destroy -var-file="terraform.tfvars"
 ```
 ## Outputs
 
-This setup does not produce any direct outputs.
+| Name | Type | Description |
+| --- | --- | --- |
+| `ip` | `list(string)` | The IP addresses of the Elemental VMs, in creation order. |
+| `kube_api_host` | `string` | The IP address of the first Elemental VM, used as the Kubernetes API host. |
+| `image_id` | `string` | The ID of the Harvester image created from `var.image_url`, in `<namespace>/<name>` form. |
 
 ## Sample decoded user data
 
