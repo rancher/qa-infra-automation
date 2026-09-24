@@ -1,14 +1,18 @@
 terraform {
   required_providers {
     aws = {
-      source = "hashicorp/aws"
+      source  = "hashicorp/aws"
       version = "~> 6.0"
     }
-}
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+  }
 }
 
 provider "aws" {
-  region = var.aws_region
+  region     = var.aws_region
   access_key = var.aws_access_key
   secret_key = var.aws_secret_key
 }
@@ -24,6 +28,15 @@ locals {
   # own group id(s) via var.aws_security_group to reuse an existing group.
   create_security_group = length(var.aws_security_group) == 0
   security_group_ids    = local.create_security_group ? [aws_security_group.airgap[0].id] : var.aws_security_group
+
+  name_suffix = var.random_name_suffix ? "-${random_string.name_suffix[0].result}" : ""
+}
+
+resource "random_string" "name_suffix" {
+  count   = var.random_name_suffix ? 1 : 0
+  length  = 6
+  special = false
+  upper   = false
 }
 
 # Security group shared by the bastion, registry (when provisioned) and all
@@ -39,7 +52,7 @@ locals {
 # does not break airgap-ness for the nodes in that subnet.
 resource "aws_security_group" "airgap" {
   count       = local.create_security_group ? 1 : 0
-  name        = "${var.aws_hostname_prefix}-airgap"
+  name        = "${var.aws_hostname_prefix}-airgap${local.name_suffix}"
   description = "Security group for the ${var.aws_hostname_prefix} airgap deployment (bastion, registry, cluster nodes)"
   vpc_id      = var.aws_vpc
 
@@ -85,61 +98,61 @@ resource "aws_security_group" "airgap" {
   }
 
   tags = {
-    Name = "${var.aws_hostname_prefix}-airgap"
+    Name = "${var.aws_hostname_prefix}-airgap${local.name_suffix}"
   }
 }
 
 # Bastion
 module "bastion" {
-  source = "./../ec2_instance"
-  name = "${var.aws_hostname_prefix}-bastion"
-  ami = var.aws_ami
-  instance_type = var.instance_type
-  subnet_id = var.aws_subnet_bastion
-  ssh_key_name = var.ssh_key_name
-  security_group_ids = local.security_group_ids
-  volume_size = var.aws_volume_size
-  user_id = var.user_id
-  ssh_key = var.ssh_key
+  source              = "./../ec2_instance"
+  name                = "${var.aws_hostname_prefix}-bastion${local.name_suffix}"
+  ami                 = var.aws_ami
+  instance_type       = var.instance_type
+  subnet_id           = var.aws_subnet_bastion
+  ssh_key_name        = var.ssh_key_name
+  security_group_ids  = local.security_group_ids
+  volume_size         = var.aws_volume_size
+  user_id             = var.user_id
+  ssh_key             = var.ssh_key
   associate_public_ip = true
 }
 
 # Registry instance
 module "registry" {
-  count = var.provision_registry ? 1 : 0
-  source = "./../ec2_instance"
-  name = "${var.aws_hostname_prefix}-registry"
-  ami = var.aws_ami
-  instance_type = var.instance_type
-  subnet_id = var.aws_subnet_bastion
-  ssh_key_name = var.ssh_key_name
-  security_group_ids = local.security_group_ids
-  volume_size = var.aws_volume_size
-  user_id = var.user_id
-  ssh_key = var.ssh_key
+  count               = var.provision_registry ? 1 : 0
+  source              = "./../ec2_instance"
+  name                = "${var.aws_hostname_prefix}-registry${local.name_suffix}"
+  ami                 = var.aws_ami
+  instance_type       = var.instance_type
+  subnet_id           = var.aws_subnet_bastion
+  ssh_key_name        = var.ssh_key_name
+  security_group_ids  = local.security_group_ids
+  volume_size         = var.aws_volume_size
+  user_id             = var.user_id
+  ssh_key             = var.ssh_key
   associate_public_ip = true
 }
 
 # Load Balance
 module "load_balancer" {
-  count = can(var.node_groups["rancher"]) ? 1 : 0
-  source = "./../load_balancer"
-  name = var.aws_hostname_prefix
-  internal = false
+  count     = can(var.node_groups["rancher"]) ? 1 : 0
+  source    = "./../load_balancer"
+  name      = "${var.aws_hostname_prefix}${local.name_suffix}"
+  internal  = false
   subnet_id = var.aws_subnet_bastion
-  vpc_id = var.aws_vpc
-  ports = local.ports
+  vpc_id    = var.aws_vpc
+  ports     = local.ports
 }
 
 # Internal Load Balance
 module "internal_load_balancer" {
-  count = can(var.node_groups["rancher"]) ? 1 : 0
-  source = "./../load_balancer"
-  name = "${var.aws_hostname_prefix}-internal"
-  internal = true
+  count     = can(var.node_groups["rancher"]) ? 1 : 0
+  source    = "./../load_balancer"
+  name      = "${var.aws_hostname_prefix}-internal${local.name_suffix}"
+  internal  = true
   subnet_id = var.aws_subnet_airgap
-  vpc_id = var.aws_vpc
-  ports = local.ports
+  vpc_id    = var.aws_vpc
+  ports     = local.ports
 }
 
 # Airgapped nodes
@@ -151,15 +164,15 @@ module "airgap_nodes" {
     ]
   ]))
 
-  name = "${var.aws_hostname_prefix}-${each.value}"
-  ami = var.aws_ami
-  instance_type = var.instance_type
-  subnet_id = var.aws_subnet_airgap
-  ssh_key_name = var.ssh_key_name
-  security_group_ids = local.security_group_ids
-  volume_size = var.aws_volume_size
-  user_id = var.user_id
-  ssh_key = var.ssh_key
+  name                = "${var.aws_hostname_prefix}-${each.value}${local.name_suffix}"
+  ami                 = var.aws_ami
+  instance_type       = var.instance_type
+  subnet_id           = var.aws_subnet_airgap
+  ssh_key_name        = var.ssh_key_name
+  security_group_ids  = local.security_group_ids
+  volume_size         = var.aws_volume_size
+  user_id             = var.user_id
+  ssh_key             = var.ssh_key
   associate_public_ip = false
 }
 
@@ -172,39 +185,39 @@ locals {
 
 # Route53 record
 module "route53" {
-  count = can(var.node_groups["rancher"]) ? 1 : 0
-  source = "./../route53"
-  zone_name = var.aws_route53_zone
-  record_name = var.aws_hostname_prefix
-  dns_name = module.load_balancer[0].dns_name
+  count       = can(var.node_groups["rancher"]) ? 1 : 0
+  source      = "./../route53"
+  zone_name   = var.aws_route53_zone
+  record_name = "${var.aws_hostname_prefix}${local.name_suffix}"
+  dns_name    = module.load_balancer[0].dns_name
 }
 
 # Internal Route53 record
 module "internal_route53" {
-  count = can(var.node_groups["rancher"]) ? 1 : 0
-  source = "./../route53"
-  zone_name = var.aws_route53_zone
-  record_name = "${var.aws_hostname_prefix}-internal"
-  dns_name = module.internal_load_balancer[0].dns_name
+  count       = can(var.node_groups["rancher"]) ? 1 : 0
+  source      = "./../route53"
+  zone_name   = var.aws_route53_zone
+  record_name = "${var.aws_hostname_prefix}-internal${local.name_suffix}"
+  dns_name    = module.internal_load_balancer[0].dns_name
 }
 
 locals {
   rancher_node_target_group_product = flatten([
     for target_group in concat(module.load_balancer[0].target_groups, module.internal_load_balancer[0].target_groups) : [
       for id, instance in module.airgap_nodes : {
-          arn = target_group.arn
-          port = target_group.port
-          node = instance.id
-        } if startswith(id, "rancher-")
+        arn  = target_group.arn
+        port = target_group.port
+        node = instance.id
+      } if startswith(id, "rancher-")
     ]
   ])
 }
 
 resource "aws_lb_target_group_attachment" "attachment-server" {
   # Using a "known after apply" value as a key can break tofu.
-  for_each = zipmap(range(length(local.rancher_node_target_group_product)), local.rancher_node_target_group_product)
+  for_each         = zipmap(range(length(local.rancher_node_target_group_product)), local.rancher_node_target_group_product)
   target_group_arn = each.value.arn
-  port = each.value.port
-  target_id = each.value.node
-  depends_on = [module.load_balancer, module.internal_load_balancer, module.airgap_nodes]
+  port             = each.value.port
+  target_id        = each.value.node
+  depends_on       = [module.load_balancer, module.internal_load_balancer, module.airgap_nodes]
 }

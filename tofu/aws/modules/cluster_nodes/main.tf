@@ -38,6 +38,15 @@ locals {
 
   # Egress CIDRs for the ephemeral SGs: caller-supplied, or the VPC's own CIDR by default.
   ephemeral_sg_egress_cidrs = coalesce(var.ephemeral_sg_egress_cidrs, [local.vpc_cidr_block])
+
+  name_suffix = var.random_name_suffix ? "-${random_string.name_suffix[0].result}" : ""
+}
+
+resource "random_string" "name_suffix" {
+  count   = var.random_name_suffix ? 1 : 0
+  length  = 6
+  special = false
+  upper   = false
 }
 
 variable "registry_ip" {
@@ -57,7 +66,7 @@ resource "random_id" "cluster_id" {
 }
 
 resource "aws_key_pair" "ssh_public_key" {
-  key_name = "tf-key-${var.aws_hostname_prefix}-${random_id.cluster_id.hex}"
+  key_name = "tf-key-${var.aws_hostname_prefix}-${random_id.cluster_id.hex}${local.name_suffix}"
   public_key = file(var.public_ssh_key)
 }
 
@@ -65,12 +74,12 @@ resource "aws_key_pair" "ssh_public_key" {
 # intra-group traffic, and the RKE2/Rancher NLB listener ports.
 resource "aws_security_group" "ephemeral" {
   count       = local.create_security_group ? 1 : 0
-  name        = "tf-${var.aws_hostname_prefix}-sg"
+  name        = "tf-${var.aws_hostname_prefix}-sg${local.name_suffix}"
   description = "Ephemeral security group for ${var.aws_hostname_prefix} (created because var.aws_security_group was empty)"
   vpc_id      = local.vpc_id
 
   tags = {
-    Name = "tf-${var.aws_hostname_prefix}-sg"
+    Name = "tf-${var.aws_hostname_prefix}-sg${local.name_suffix}"
   }
 }
 
@@ -231,7 +240,7 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_udp_egress" {
 # port matrix in the shared SG is left untouched.
 resource "aws_security_group" "ssh" {
   count       = var.create_ssh_security_group ? 1 : 0
-  name        = "tf-${var.aws_hostname_prefix}-ssh"
+  name        = "tf-${var.aws_hostname_prefix}-ssh${local.name_suffix}"
   description = "Stable SSH (22) access for ${var.aws_hostname_prefix} (avoids prefix-list propagation lag)."
   vpc_id      = local.vpc_id
 
@@ -263,7 +272,7 @@ resource "aws_security_group" "ssh" {
   }
 
   tags = {
-    Name = "tf-${var.aws_hostname_prefix}-ssh"
+    Name = "tf-${var.aws_hostname_prefix}-ssh${local.name_suffix}"
   }
 }
 
@@ -285,7 +294,7 @@ resource "aws_instance" "node" {
    }
 
   tags = {
-    Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
+    Name = "tf-${var.aws_hostname_prefix}-${each.value.name}${local.name_suffix}"
   }
 }
 
@@ -415,7 +424,7 @@ resource "aws_lb" "aws_nlb" {
   internal = false
   load_balancer_type = "network"
   subnets = [local.subnet_id]
-  name = "${var.aws_hostname_prefix}-nlb"
+  name = "${var.aws_hostname_prefix}-nlb${local.name_suffix}"
 }
 
 resource "aws_lb_target_group" "aws_tg_80" {
@@ -423,7 +432,7 @@ resource "aws_lb_target_group" "aws_tg_80" {
   port = 80
   protocol = "TCP"
   vpc_id = local.vpc_id
-  name = "${var.aws_hostname_prefix}-tg-80"
+  name = "${var.aws_hostname_prefix}-tg-80${local.name_suffix}"
   health_check {
         protocol = "HTTP"
         port = "traffic-port"
@@ -441,7 +450,7 @@ resource "aws_lb_target_group" "aws_tg_443" {
   port = 443
   protocol = "TCP"
   vpc_id = local.vpc_id
-  name = "${var.aws_hostname_prefix}-tg-443"
+  name = "${var.aws_hostname_prefix}-tg-443${local.name_suffix}"
   health_check {
         protocol = "HTTP"
         port = 80
@@ -459,7 +468,7 @@ resource "aws_lb_target_group" "aws_tg_6443" {
   port = 6443
   protocol = "TCP"
   vpc_id = local.vpc_id
-  name = "${var.aws_hostname_prefix}-tg-6443"
+  name = "${var.aws_hostname_prefix}-tg-6443${local.name_suffix}"
   health_check {
         protocol = "HTTP"
         port = 80
@@ -477,7 +486,7 @@ resource "aws_lb_target_group" "aws_tg_9345" {
   port = 9345
   protocol = "TCP"
   vpc_id = local.vpc_id
-  name = "${var.aws_hostname_prefix}-tg-9345"
+  name = "${var.aws_hostname_prefix}-tg-9345${local.name_suffix}"
   health_check {
         protocol = "HTTP"
         port = 80
