@@ -1,5 +1,12 @@
 variable "user_id" {}
 variable "ssh_key" {}
+
+variable "random_name_suffix" {
+  description = "When true, append a random string to resource names to avoid naming conflicts across concurrent deployments. Defaults to false (names are used as-is)."
+  type        = bool
+  default     = false
+}
+
 variable "ssh_key_name" {}
 variable "aws_access_key" {
   type      = string

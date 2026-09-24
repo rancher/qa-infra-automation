@@ -49,6 +49,12 @@ variable "nodes" {
 variable "airgap_setup" {}
 variable "proxy_setup" {}
 
+variable "random_name_suffix" {
+  description = "When true, append a random string to resource names to avoid naming conflicts across concurrent deployments. Defaults to false (names are used as-is)."
+  type        = bool
+  default     = false
+}
+
 variable "create_ssh_security_group" {
   description = "Create a dedicated SG that grants SSH (22) from stable CIDRs (ssh_allowed_cidrs) plus the VPC CIDR, and attach it alongside var.aws_security_group. Enable when SSH access is granted only via a managed prefix list - prefix-list rules propagate to each new ENI asynchronously and can silently drop SSH to a freshly launched node; plain CIDR rules realize instantly."
   type        = bool
