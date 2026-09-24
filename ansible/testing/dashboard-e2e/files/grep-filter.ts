@@ -84,7 +84,7 @@ const testSkip: string = process.env.TEST_SKIP || '';
 const skipSetup: boolean = testSkip.includes('setup') || process.env.TEST_SKIP_SETUP === 'true';
 
 // IMPORTANT: keep in sync with testDirs in cypress.config.jenkins.ts
-const testDirs: string[] = [
+const defaultTestDirs: string[] = [
   'cypress/e2e/tests/priority/**/*.spec.ts',
   'cypress/e2e/tests/components/**/*.spec.ts',
   ...(skipSetup ? [] : ['cypress/e2e/tests/setup/**/*.spec.ts']),
@@ -94,6 +94,10 @@ const testDirs: string[] = [
   'cypress/e2e/tests/features/**/*.spec.ts',
   'cypress/e2e/tests/extensions/**/*.spec.ts',
 ];
+
+// E2E_SPEC_DIRS overrides the globs for a checkout that does not use dashboard's layout.
+const specDirsOverride: string[] = (process.env.E2E_SPEC_DIRS || '').split(',').map((p) => p.trim()).filter((p) => p.length > 0);
+const testDirs: string[] = specDirsOverride.length > 0 ? specDirsOverride : defaultTestDirs;
 
 const cwd: string = process.cwd();
 

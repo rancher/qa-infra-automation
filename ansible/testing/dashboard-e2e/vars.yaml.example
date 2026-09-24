@@ -68,6 +68,12 @@ dashboard_repo: "rancher/dashboard"
 dashboard_branch: "master"
 # dashboard_overlay_branch: "master"
 
+# A repo that does not use dashboard's spec layout supplies its own globs
+# (comma separated), for example the virtual clusters suite:
+#   dashboard_repo: "rancher/virtual-clusters-ui"
+#   e2e_spec_dirs: "cypress/e2e/tests/**/*.spec.ts"
+# e2e_spec_dirs: ""
+
 # --- Cypress ---
 # Tags still filter tests at runtime when using --spec. To run everything in a
 # spec, leave this empty (adjustment yields exclusion-only tags) or use

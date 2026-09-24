@@ -88,6 +88,12 @@
   until: _git_clone is success
   when: dashboard_src is not defined
 
+- name: Ensure the CI file directory exists in the checkout
+  ansible.builtin.file:
+    path: "{{ dashboard_dir }}/cypress/jenkins"
+    state: directory
+    mode: "0755"
+
 - name: Copy CI files from playbook into dashboard checkout
   ansible.builtin.copy:
     src: "{{ item.src }}"
@@ -226,6 +232,7 @@
 - name: Overlay dependency files from dashboard master onto release branches
   when:
     - dashboard_src is not defined
+    - dashboard_repo | regex_replace('\.git$', '') is search('/dashboard$')
     - target_branch != _overlay_source
     - not _branch_manifest.stat.exists
   block:
@@ -263,6 +270,18 @@
           Overlaid dependency files from {{ _overlay_source }} onto {{ target_branch }}
           {{ '(cypress/support/qase.ts not on that branch, skipped)' if _overlay_optional.rc != 0 else '' }}
 
+# A checkout with its own cypress/package.json keeps its Cypress dependencies
+# there (dashboard); one without keeps them in the root manifest. Stat it after
+# the overlay, which is what creates it on older dashboard branches.
+- name: Detect the checkout's Cypress layout
+  ansible.builtin.stat:
+    path: "{{ dashboard_dir }}/cypress/package.json"
+  register: _nested_manifest
+
+- name: Set the Cypress layout flag
+  ansible.builtin.set_fact:
+    _nested_cypress: "{{ _nested_manifest.stat.exists }}"
+
 # Release branches register grep with `import ... from '@cypress/grep/src/support'`.
 # v5+ moved to dist/ behind an exports map that no longer exposes src/*, so with
 # master overlaid dependencies that import cannot resolve. Rewrite it to the
@@ -270,9 +289,12 @@
 #
 # A silent no-op here leaves tag filtering disabled at runtime, which looks like
 # a green run that quietly executed the wrong tests. Every path therefore either
-# rewrites or asserts. Local checkouts are self consistent and are left alone.
+# rewrites or asserts. Local checkouts are self consistent and are left alone,
+# as are root-manifest checkouts, which get grep through @rancher/cypress.
 - name: Adapt the @cypress/grep registration to the overlaid version
-  when: dashboard_src is not defined
+  when:
+    - dashboard_src is not defined
+    - _nested_cypress | bool
   vars:
     _support_file: "{{ dashboard_dir }}/cypress/support/e2e.ts"
     _grep_spec: >-
@@ -433,12 +455,8 @@
 - name: Stat the files the Docker build needs
   ansible.builtin.stat:
     path: "{{ dashboard_dir }}/{{ item }}"
-  loop:
-    - cypress/package.json
-    - cypress/yarn.lock
-    - cypress/jenkins/cypress.sh
-    - cypress/jenkins/Dockerfile.ci
-    - cypress/jenkins/grep-filter.ts
+  loop: "{{ (['cypress/package.json', 'cypress/yarn.lock'] if _nested_cypress | bool else ['package.json', 'yarn.lock'])
+            + ['cypress/jenkins/cypress.sh', 'cypress/jenkins/Dockerfile.ci', 'cypress/jenkins/grep-filter.ts'] }}"
   register: _required_files
 
 - name: Verify overlay files exist before Docker build
@@ -486,7 +504,7 @@
 
 - name: Read the dashboard Cypress manifest
   ansible.builtin.slurp:
-    src: "{{ dashboard_dir }}/cypress/package.json"
+    src: "{{ dashboard_dir }}/{{ 'cypress/package.json' if _nested_cypress | bool else 'package.json' }}"
   register: _cypress_manifest
 
 # The image bakes the binary named by cypress_version, while yarn installs the
@@ -511,7 +529,8 @@
 
 # cypress.sh and grep-filter.ts resolve these at run time inside the container.
 # They come from cypress/yarn.lock and nothing is added at run time, so a
-# checkout that does not declare one cannot be filled in later.
+# checkout that does not declare one cannot be filled in later. A root-manifest
+# checkout gets them transitively from @rancher/cypress, so the assert is skipped.
 - name: Read what the checkout declares
   ansible.builtin.set_fact:
     _missing_runtime_deps: "{{ _runtime_deps | difference(_decl) }}"
@@ -531,6 +550,7 @@
       {{ 'The directory passed to --dashboard-dir has to supply them, so use a newer branch or drop --dashboard-dir.'
          if dashboard_src is defined
          else 'Older branches get them from the overlay, which did not supply them here.' }}
+  when: _nested_cypress | bool
 
 - name: Show Docker build args
   ansible.builtin.debug:
