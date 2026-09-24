@@ -164,7 +164,10 @@ module "airgap_nodes" {
 }
 
 locals {
-  target_groups = toset(concat(module.load_balancer[0].target_groups, module.internal_load_balancer[0].target_groups))
+  target_groups = toset(concat(
+    length(module.load_balancer) > 0 ? module.load_balancer[0].target_groups : [],
+    length(module.internal_load_balancer) > 0 ? module.internal_load_balancer[0].target_groups : []
+  ))
   target_groups_map = {
     for tg in local.target_groups : tg.name => tg
   }
@@ -190,7 +193,10 @@ module "internal_route53" {
 
 locals {
   rancher_node_target_group_product = flatten([
-    for target_group in concat(module.load_balancer[0].target_groups, module.internal_load_balancer[0].target_groups) : [
+    for target_group in concat(
+      length(module.load_balancer) > 0 ? module.load_balancer[0].target_groups : [],
+      length(module.internal_load_balancer) > 0 ? module.internal_load_balancer[0].target_groups : []
+    ) : [
       for id, instance in module.airgap_nodes : {
           arn = target_group.arn
           port = target_group.port
