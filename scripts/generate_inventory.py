@@ -175,6 +175,23 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         for n in group_nodes:
             node_to_group[n["name"]] = group_name
 
+    # Ansible warns against host and group sharing the same name.
+    group_names = set(groups_cfg)
+    existing_names = {node["name"] for node in nodes}
+    host_name_map: dict[str, str] = {}
+    for name in existing_names:
+        if name not in group_names:
+            continue
+        candidate = f"{name}-node"
+        suffix = 1
+        while candidate in existing_names or candidate in group_names or candidate in host_name_map.values():
+            suffix += 1
+            candidate = f"{name}-node-{suffix}"
+        host_name_map[name] = candidate
+
+    def host_key(node_name: str) -> str:
+        return host_name_map.get(node_name, node_name)
+
     # Add all nodes to the 'all' hosts section
     for node in nodes:
         node_roles = node["roles"]
@@ -197,7 +214,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         elif default_key:
             host_entry["ansible_ssh_private_key_file"] = default_key
 
-        inventory["all"]["hosts"][node["name"]] = host_entry
+        inventory["all"]["hosts"][host_key(node["name"])] = host_entry
 
     # Add named groups
     for group_name, group_nodes in groups.items():
@@ -205,7 +222,8 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
             continue
         inventory["all"]["children"][group_name] = {
             "hosts": {
-                node["name"]: {"ansible_host": node[ip_field]} for node in group_nodes
+                host_key(node["name"]): {"ansible_host": node[ip_field]}
+                for node in group_nodes
             }
         }
 
