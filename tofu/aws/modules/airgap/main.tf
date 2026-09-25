@@ -1,4 +1,7 @@
 terraform {
+  # >= 1.9 required for cross-variable references in validation blocks
+  # (aws_hostname_prefix validates the generated names against var.random_name_suffix).
+  required_version = ">= 1.9.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"

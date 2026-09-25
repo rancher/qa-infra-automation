@@ -74,6 +74,18 @@ The first node in the first group with `etcd` role becomes the `master` node.
 
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
 
+### Resource name length
+
+`aws_hostname_prefix` seeds every AWS resource name the module creates: the key
+pair (`tf-<prefix>-<12 hex chars>`), the security groups
+(`tf-<prefix>-sg`, `tf-<prefix>-ssh`), the NLB (`<prefix>-nlb`), the target
+groups (`<prefix>-tg-<port>`) and the DNS record. AWS caps most resource names at
+63 characters and load balancer and target group names cap at **32**.
+So the prefix has to leave room for the decoration the module adds:
+**at most 24 characters, or 17 with `random_name_suffix = true`** (the
+suffix adds 7). The module validates this during `tofu plan` and reports the
+budget instead of letting AWS reject a name halfway through `tofu apply`.
+
 ### Ephemeral networking (security group)
 
 `aws_vpc` and `aws_subnet` are required (pre-existing). `aws_security_group`
