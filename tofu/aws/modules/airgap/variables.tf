@@ -1,5 +1,12 @@
 variable "user_id" {}
 variable "ssh_key" {}
+
+variable "random_name_suffix" {
+  description = "When true, append a random string to resource names to avoid naming conflicts across concurrent deployments. Defaults to false (names are used as-is)."
+  type        = bool
+  default     = false
+}
+
 variable "ssh_key_name" {}
 variable "aws_access_key" {
   type      = string
@@ -13,7 +20,14 @@ variable "aws_secret_key" {
 }
 variable "aws_region" {}
 variable "aws_ami" {}
-variable "aws_hostname_prefix" {}
+variable "aws_hostname_prefix" {
+  description = "Prefix for every AWS resource name this module creates (security group, load balancers, target groups, DNS records). It must leave room for the decorations the module adds on top of it, otherwise AWS rejects the names mid-apply."
+  validation {
+    # AWS resource names are capped at 32 characters for target group names; random_name_suffix adds 7 more. Keep this list in sync with the names built in main.tf.
+    condition     = length("${var.aws_hostname_prefix}-internal-tg-9345", ) + (var.random_name_suffix ? 7 : 0) <= 32
+    error_message = "aws_hostname_prefix \"${var.aws_hostname_prefix}\" is ${length(var.aws_hostname_prefix)} characters long, so the AWS resource names built from it exceed the 32-character AWS limit. Shorten aws_hostname_prefix to ${32 - length("-internal-tg-9345") - (var.random_name_suffix ? 7 : 0)} characters or fewer so the longest one (the internal load balancer target group, \"<prefix>-internal-tg-9345${var.random_name_suffix ? "-<6 chars>" : ""}\") still fits."
+  }
+}
 variable "aws_route53_zone" {}
 variable "aws_ssh_user" {}
 variable "aws_security_group" {

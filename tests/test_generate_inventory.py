@@ -105,13 +105,16 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         self.assertIn("master", result["all"]["children"])
         master_hosts = result["all"]["children"]["master"]["hosts"]
         self.assertEqual(len(master_hosts), 1)
-        self.assertIn("master", master_hosts)
+        # Node named "master" collides with the "master" group, so the host is
+        # renamed to avoid an Ansible host==group name conflict.
+        self.assertIn("master-node", master_hosts)
+        self.assertNotIn("master", master_hosts)
 
     def test_rke2_default_uses_public_ip(self):
         data = load_fixture("rke2_single_master.json")
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
-        master_host = result["all"]["children"]["master"]["hosts"]["master"]
+        master_host = result["all"]["children"]["master"]["hosts"]["master-node"]
         self.assertEqual(master_host["ansible_host"], "1.2.3.4")
 
     def test_all_nodes_present_in_all_section(self):
@@ -138,9 +141,9 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         cfg = self.schema["k3s"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         master_hosts = result["all"]["children"]["master"]["hosts"]
-        self.assertEqual(list(master_hosts.keys()), ["master"])
-        self.assertIn("etcd", result["all"]["hosts"]["master"]["node_roles"])
-        self.assertIn("cp", result["all"]["hosts"]["master"]["node_roles"])
+        self.assertEqual(list(master_hosts.keys()), ["master-node"])
+        self.assertIn("etcd", result["all"]["hosts"]["master-node"]["node_roles"])
+        self.assertIn("cp", result["all"]["hosts"]["master-node"]["node_roles"])
 
     def test_k3s_external_datastore_master_falls_back_to_cp(self):
         """K3s external-datastore topology (no etcd nodes): roles_priority must
@@ -174,9 +177,9 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         cfg = self.schema["k3s"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         master_hosts = result["all"]["children"]["master"]["hosts"]
-        self.assertEqual(list(master_hosts.keys()), ["master"])
+        self.assertEqual(list(master_hosts.keys()), ["master-node"])
         # Master node in the fixture has roles=[etcd]
-        self.assertEqual(result["all"]["hosts"]["master"]["node_roles"], ["etcd"])
+        self.assertEqual(result["all"]["hosts"]["master-node"]["node_roles"], ["etcd"])
 
     def test_k3s_split_role_servers_include_etcd_and_cp(self):
         """K3s split-role: servers group must include both remaining etcd
@@ -222,7 +225,7 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         data = load_fixture("rke2_single_master.json")
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
-        self.assertEqual(result["all"]["hosts"]["master"]["rke2_node_role"], "master")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["rke2_node_role"], "master")
 
     def test_rke2_node_role_agent_for_worker_nodes(self):
         data = load_fixture("rke2_single_master.json")
@@ -251,6 +254,42 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         for host_vars in result["all"]["hosts"].values():
             self.assertIsInstance(host_vars["node_roles"], list)
+
+    def test_host_name_colliding_with_group_is_renamed(self):
+        """Ansible forbids a host and group sharing a name. A node named the
+        same as a group must be renamed in both the `all.hosts` section and the
+        group's hosts, while the group name itself is preserved."""
+        data = load_fixture("rke2_single_master.json")
+        cfg = self.schema["rke2"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+
+        all_hosts = result["all"]["hosts"]
+        children = result["all"]["children"]
+        group_names = set(children.keys())
+        host_names = set(all_hosts.keys())
+        # No host may share a name with any group.
+        self.assertEqual(host_names & group_names, set())
+        # The renamed host appears consistently in all.hosts and the group.
+        self.assertIn("master-node", all_hosts)
+        self.assertIn("master-node", children["master"]["hosts"])
+
+    def test_no_host_group_name_collision_across_fixtures(self):
+        for fixture, distro in (
+            ("rke2_single_master.json", "rke2"),
+            ("k3s_single_master.json", "k3s"),
+            ("k3s_split_role.json", "k3s"),
+            ("rke2_external_datastore.json", "rke2"),
+            ("k3s_external_datastore.json", "k3s"),
+        ):
+            with self.subTest(fixture=fixture):
+                data = load_fixture(fixture)
+                cfg = self.schema[distro]["default"]
+                result = yaml.safe_load(
+                    generate_cluster_nodes_inventory(data, cfg)
+                )
+                hosts = set(result["all"]["hosts"].keys())
+                groups = set(result["all"]["children"].keys())
+                self.assertEqual(hosts & groups, set())
 
 
 class TestGenerateAirgapInventory(unittest.TestCase):
