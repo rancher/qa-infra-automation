@@ -113,6 +113,22 @@ if [ "${CYPRESS_GREP_DEBUG:-false}" = "true" ]; then
 fi
 export NODE_OPTIONS="--max-old-space-size=4096"
 
+# CYPRESS_extensionVersion selects which build of an extension is tested: a published
+# version ("published" or an explicit version, both handled by the specs themselves), or
+# "dev-load" to build it from this checkout. Dev load is the only way to exercise code
+# that has not been published yet. The repo's script builds the extension, serves it, and
+# registers it with Rancher as a developer load. Only the browser fetches that URL, and
+# the browser runs in this container, so the script's 127.0.0.1 endpoint resolves.
+if [ "${CYPRESS_extensionVersion:-published}" = "dev-load" ]; then
+	_ext_script="${_project_root}/scripts/e2e-create-uiplugin.sh"
+	if [ ! -f "$_ext_script" ]; then
+		echo "[cypress.sh] ERROR: CYPRESS_extensionVersion=dev-load but ${_ext_script} does not exist."
+		exit 1
+	fi
+	echo "[cypress.sh] Developer load: building and registering the extension from this checkout"
+	(cd "$_project_root" && bash "$_ext_script")
+fi
+
 # Use CYPRESS_grepTags from env (.env file) if set; fall back to baked-in placeholder
 TAGS="${CYPRESS_grepTags:-CYPRESSTAGS}"
 

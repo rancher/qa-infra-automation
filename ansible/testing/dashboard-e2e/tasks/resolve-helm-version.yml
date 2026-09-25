@@ -154,6 +154,7 @@
   ansible.builtin.set_fact:
     nodejs_version: "22.14.0"
   when:
+    - dashboard_repo | regex_replace('\.git$', '') is search('/dashboard$')
     - rancher_image_tag != 'head'
     - rancher_version | length > 0
     - rancher_version is version('2.14', '<')
