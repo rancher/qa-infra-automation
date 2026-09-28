@@ -5,9 +5,16 @@
   gather_facts: true
   serial: 3 # Process 3 agents at a time instead of 1
   vars:
+    # Test hosts: keep SL Micro's transactional-update.timer off for the whole run; a catch-up
+    # trigger mid-run holds the lock that zypper/rke2-uninstall.sh need. BYO: -e suse_disable_update_timer=false
+    suse_disable_update_timer: true
     target_group: "{{ target | default('master') }}"
     node_token_file: "/tmp/node_token.txt"
   tasks:
+    - name: Keep the SUSE update timer off for the run
+      ansible.builtin.include_role:
+        name: suse_update_timer
+
     - name: Read node_token from local file
       ansible.builtin.slurp:
         src: "{{ node_token_file }}"

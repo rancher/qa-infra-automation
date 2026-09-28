@@ -75,6 +75,10 @@
           - kube_api_host | length > 0
         fail_msg: "Required variables not defined. Set kubernetes_version and kube_api_host in vars.yaml or inventory all.vars"
       run_once: true
+    - name: Keep the SUSE update timer off for the run
+      ansible.builtin.include_role:
+        name: suse_update_timer
+
   roles:
     - role: rke2_setup
       tags: ['setup', 'rke2']
@@ -159,6 +163,10 @@
           install_method must be one of online, airgap, rpm or tar
           (got '{{ install_method | default('') }}')
       tags: ['install', 'rke2']
+    - name: Keep the SUSE update timer off for the run
+      ansible.builtin.include_role:
+        name: suse_update_timer
+
   roles:
     - role: rke2_install
       vars:

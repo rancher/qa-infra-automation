@@ -1,0 +1,20 @@
+---
+# Explicit stop of the OS auto-update timer at the start of a test play. rke2_setup and
+# suse_selinux_policy only pause it inside their own install blocks, which may be skipped.
+- name: Keep the SUSE update timer off for the run
+  when: suse_disable_update_timer | default(false) | bool
+  become: true
+  block:
+    - name: Check whether transactional-update.timer exists
+      ansible.builtin.command: systemctl cat transactional-update.timer
+      register: suse_update_timer_unit
+      changed_when: false
+      failed_when: false
+
+    - name: Stop and disable transactional-update.timer
+      ansible.builtin.systemd_service:
+        name: transactional-update.timer
+        state: stopped
+        enabled: false
+      failed_when: false
+      when: suse_update_timer_unit.rc == 0

@@ -90,6 +90,9 @@
         name: setup
     - name: Gather facts
       setup:
+    - name: Keep the SUSE update timer off for the run
+      ansible.builtin.include_role:
+        name: suse_update_timer
 
   tasks:
     - name: Create K3s server manifests directory on master
@@ -195,6 +198,9 @@
         name: setup
     - name: Gather facts
       setup:
+    - name: Keep the SUSE update timer off for the run
+      ansible.builtin.include_role:
+        name: suse_update_timer
 
   tasks:
     - name: Read node_token from local file
