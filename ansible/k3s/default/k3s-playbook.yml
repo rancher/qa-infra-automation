@@ -80,6 +80,9 @@
   gather_facts: false
   vars_files: [vars.yaml]
   vars:
+    # Test hosts: keep SL Micro's transactional-update.timer off for the whole run; a catch-up
+    # trigger mid-run holds the lock that zypper/rke2-uninstall.sh need. BYO: -e suse_disable_update_timer=false
+    suse_disable_update_timer: true
     node_token_file: "/tmp/node_token.txt"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
@@ -182,6 +185,9 @@
   strategy: free
   vars_files: [vars.yaml]
   vars:
+    # Test hosts: keep SL Micro's transactional-update.timer off for the whole run; a catch-up
+    # trigger mid-run holds the lock that zypper/rke2-uninstall.sh need. BYO: -e suse_disable_update_timer=false
+    suse_disable_update_timer: true
     node_token_file: "/tmp/node_token.txt"
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   pre_tasks:
