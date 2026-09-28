@@ -90,9 +90,11 @@
         name: setup
     - name: Gather facts
       setup:
+    # Static import so the role's tasks inherit 'always' and survive --tags setup/install.
     - name: Keep the SUSE update timer off for the run
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: suse_update_timer
+      tags: ['always']
 
   tasks:
     - name: Create K3s server manifests directory on master
@@ -198,9 +200,11 @@
         name: setup
     - name: Gather facts
       setup:
+    # Static import so the role's tasks inherit 'always' and survive --tags setup/install.
     - name: Keep the SUSE update timer off for the run
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: suse_update_timer
+      tags: ['always']
 
   tasks:
     - name: Read node_token from local file

@@ -1,6 +1,8 @@
 """Every play that runs a role pausing transactional-update.timer keeps it off for the run."""
 
 import os
+import shutil
+import subprocess
 import unittest
 
 try:
@@ -23,7 +25,8 @@ def _role_sequence(play):
 
     def walk(tasks):
         for task in tasks or []:
-            include = task.get("include_role") or task.get("ansible.builtin.include_role") or {}
+            include = (task.get("include_role") or task.get("ansible.builtin.include_role")
+                       or task.get("import_role") or task.get("ansible.builtin.import_role") or {})
             if isinstance(include, dict) and include.get("name"):
                 seq.append(include["name"])
             for section in ("block", "rescue", "always"):
@@ -84,6 +87,29 @@ class TestUpdateTimerStaysOffDuringRuns(unittest.TestCase):
             "ansible/k3s/shared/playbooks/setup/setup-agent-nodes.yml: play 'Setup K3s Agent Nodes'",
         }
         self.assertTrue(expected <= set(checked), f"missing plays: {sorted(expected - set(checked))}")
+
+    def test_guard_runs_under_the_setup_and_install_tag_selections(self):
+        if not shutil.which("ansible-playbook"):
+            self.skipTest("ansible-playbook is required")
+        playbook = os.path.join(ANSIBLE_ROOT, "rke2", "default", "rke2-playbook.yml")
+        for tag in ("setup", "install"):
+            result = subprocess.run(
+                ["ansible-playbook", "-i", "localhost,", "--connection=local", "--list-tasks", "--tags", tag, playbook],
+                cwd=REPOSITORY_ROOT, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            # import_role is expanded statically, so only the role's own tasks are listed.
+            self.assertIn(
+                "suse_update_timer : Stop and disable transactional-update.timer", result.stdout,
+                f"--tags {tag} must still run the guard role tasks",
+            )
+
+    def test_guard_stop_failure_is_not_swallowed(self):
+        tasks_path = os.path.join(ROLES_ROOT, GUARD_ROLE, "tasks", "main.yml")
+        with open(tasks_path, encoding="utf-8") as handle:
+            outer = yaml.safe_load(handle)[0]
+        stop = [t for t in outer["block"] if "ansible.builtin.systemd_service" in t][0]
+        self.assertNotIn("failed_when", stop, "a failed stop on an existing unit must fail the play")
 
     def test_guard_role_stops_and_disables_only_when_asked(self):
         tasks_path = os.path.join(ROLES_ROOT, GUARD_ROLE, "tasks", "main.yml")

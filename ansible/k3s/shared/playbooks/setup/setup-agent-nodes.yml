@@ -11,9 +11,11 @@
     target_group: "{{ target | default('master') }}"
     node_token_file: "/tmp/node_token.txt"
   tasks:
+    # Static import so the role's tasks inherit 'always' and survive --tags setup/install.
     - name: Keep the SUSE update timer off for the run
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: suse_update_timer
+      tags: ['always']
 
     - name: Read node_token from local file
       ansible.builtin.slurp:
