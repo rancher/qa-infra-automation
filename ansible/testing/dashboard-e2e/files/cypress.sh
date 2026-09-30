@@ -126,7 +126,10 @@ if [ "${CYPRESS_extensionVersion:-published}" = "dev-load" ]; then
 		exit 1
 	fi
 	echo "[cypress.sh] Developer load: building and registering the extension from this checkout"
-	(cd "$_project_root" && bash "$_ext_script")
+	if ! (cd "$_project_root" && bash "$_ext_script"); then
+		echo "[cypress.sh] ERROR: developer load failed; the extension was never registered with Rancher, so every spec would run without it."
+		exit 1
+	fi
 fi
 
 # Use CYPRESS_grepTags from env (.env file) if set; fall back to baked-in placeholder
