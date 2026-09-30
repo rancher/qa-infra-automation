@@ -94,26 +94,26 @@ own equivalent instead:
 
 * A security group opening SSH (22, restricted to `ephemeral_sg_ingress_cidrs`),
   plus full intra-group traffic
-* Egress restricted to `ephemeral_sg_egress_cidrs` (defaults to the VPC's own
-  CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
-  additional specific CIDRs if nodes need broader outbound access, e.g. via a
-  NAT gateway/proxy)
-* Outbound-only exceptions to `0.0.0.0/0` on TCP/80, TCP/443, TCP/53, and
-  UDP/53 — required for package managers (apt/yum), RKE2/K3s
-  downloads, and container registries/DNS resolution. These are egress-only
-  (no inbound access is opened) and narrowly scoped to those ports; all other
-  egress remains restricted to `ephemeral_sg_egress_cidrs`.
+* Egress: all protocols, all ports, to `0.0.0.0/0` (a single unrestricted
+  outbound rule). `ephemeral_sg_egress_cidrs` is kept only for backward
+  compatibility with existing callers and no longer has any effect.
+  **Upgrade note:** for any already-`apply`d deployment, this rule replaces
+  several previously separate egress rules. One (`ephemeral_self_egress`) is
+  migrated in place via a `moved` block; the rest (default/listener/HTTP/
+  HTTPS/DNS and the per-node RKE2/LB egress rules) have no equivalent target
+  and will show as destroyed on the next `plan`/`apply`, briefly narrowing
+  egress until the new rule is created.
 * Inbound access on TCP/80 and TCP/443 from `ephemeral_sg_ingress_cidrs`
   plus the VPC's own CIDR (RKE2/Rancher NLB health checks, which originate
   from AWS-managed ENIs inside the VPC rather than instances in this SG).
   Node-to-node LB traffic addressed via public IPs egresses out through the
   IGW and re-enters tagged with the *source node's public IP* - not the VPC
-  CIDR and not `ephemeral_sg_ingress_cidrs` - so per-node `/32` ingress and
-  egress rules are additionally created once each node's public IP is known
-  (standalone `aws_vpc_security_group_ingress_rule`/`egress_rule` resources,
-  same as every other rule on this SG). Only egress on 80/443
-  falls back to `0.0.0.0/0` (grouped with the package-manager/DNS egress
-  exceptions above); ingress on 80/443 never opens to `0.0.0.0/0`.
+  CIDR and not `ephemeral_sg_ingress_cidrs` - so per-node `/32` ingress rules
+  are additionally created once each node's public IP is known (standalone
+  `aws_vpc_security_group_ingress_rule` resources, same as every other
+  ingress rule on this SG); ingress on 80/443 never opens to `0.0.0.0/0`.
+  Egress for this hairpin traffic is already covered by the unrestricted
+  `0.0.0.0/0` egress rule above, so no per-node egress rule is needed.
 
 ### SSH access (avoiding prefix-list propagation lag)
 
