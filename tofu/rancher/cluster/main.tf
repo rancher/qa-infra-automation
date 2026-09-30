@@ -5,8 +5,7 @@ provider "rancher2" {
 }
 
 # Only used to discover the downstream node(s)' public IP(s) (once
-# provisioned) and manage their SG rules natively (see
-# downstream_agent_checkin_ingress/egress below). Reuses the same AWS
+# provisioned) and manage their SG rules natively. Reuses the same AWS
 # credentials/region already supplied in node_config.
 provider "aws" {
   access_key = try(var.node_config.aws_access_key, null)
@@ -21,12 +20,9 @@ resource "random_string" "suffix" {
 }
 
 # Injected into the downstream node(s)' AWS tags so they can be uniquely
-# discovered afterwards via data.aws_instances - the shared ephemeral SG
-# (node_config.aws_security_group) also contains the original RKE2 nodes
-# from cluster_nodes, so filtering by SG alone isn't enough to isolate these
-# downstream nodes. amazonec2_config.tags is a docker-machine style
-# "key1,value1,key2,value2" string (not a map), so the discovery tag is
-# appended to whatever the caller already supplied.
+# discovered afterwards via data.aws_instances. amazonec2_config.tags is a
+# docker-machine style "key1,value1,key2,value2" string, so the discovery tag
+# is appended to whatever the caller already supplied.
 locals {
   downstream_discovery_tag_key   = "qa-infra-downstream-node"
   downstream_discovery_tag_value = "${var.generate_name}-${random_string.suffix.result}"
@@ -40,29 +36,26 @@ locals {
 
 module "rancher2_cloud_credential" {
   source = "../cloudcredential"
-  api_key = var.api_key
 
-  name = "${var.cloud_provider}-${random_string.suffix.result}"
+  api_key       = var.api_key
+  name          = "${var.cloud_provider}-${random_string.suffix.result}"
   cloud_provider = var.cloud_provider
-  node_config = var.node_config
-  fqdn = var.fqdn
-
-  create_new = var.create_new
-  insecure = var.insecure
+  node_config   = var.node_config
+  fqdn          = var.fqdn
+  create_new    = var.create_new
+  insecure      = var.insecure
 }
-
 
 module "rancher2_machine_config_v2" {
   source = "../machineconfig"
   cloud_provider = var.cloud_provider
-  node_config = local.node_config_with_discovery_tag
+  node_config    = local.node_config_with_discovery_tag
 
-  count                    = var.create_new ? 1 : 0
-  generate_name            = var.generate_name
-
-  fleet_namespace         = try(var.fleet_namespace, null)
-  annotations             = try(var.annotations, null)
-  labels                  = try(var.labels, null)
+  count          = var.create_new ? 1 : 0
+  generate_name  = var.generate_name
+  fleet_namespace = try(var.fleet_namespace, null)
+  annotations     = try(var.annotations, null)
+  labels          = try(var.labels, null)
 }
 
 resource "rancher2_cluster_v2" "rancher2_cluster_v2" {
@@ -94,9 +87,9 @@ resource "rancher2_cluster_v2" "rancher2_cluster_v2" {
           for_each = try(var.node_taints, [])
           iterator = taint
           content {
-            key        = try(taint.value.key, null)
-            value      = try(taint.value.value, null)
-            effect     = try(taint.value.effect, null)
+            key    = try(taint.value.key, null)
+            value  = try(taint.value.value, null)
+            effect = try(taint.value.effect, null)
           }
         }
       }
@@ -152,15 +145,9 @@ resource "time_sleep" "wait_120_seconds" {
   create_duration = "120s"
 }
 
-# The downstream node(s)' public IPs can't be read from any native Tofu
-# resource (they're created by the rancher2/node-driver machinery outside
-# this module's resource graph). Instead, discover them via their unique
-# tag (see node_config_with_discovery_tag above) using data.aws_instances.
-#
-# Caveat: unlike a script that can poll/retry, a data source is read once
-# per apply. If the AWS instance(s) somehow still aren't visible by the
-# time this is read, public_ips will be empty and no SG rule is created
-# this apply - re-running `tofu apply` resolves it (idempotent).
+# The downstream nodes are created by Rancher's node-driver machinery outside
+# this module's resource graph. Discover them by the unique tag after allowing
+# time for the instances to be created and tagged.
 data "aws_instances" "downstream_node" {
   count      = var.cloud_provider == "aws" ? 1 : 0
   depends_on = [time_sleep.wait_120_seconds]
@@ -180,36 +167,24 @@ locals {
   ) : []
   downstream_sg_id = length(local.downstream_sg_ids_found) == 1 ? local.downstream_sg_ids_found[0] : ""
 
-  # for_each's key set must be known at plan time. data.aws_instances.downstream_node
-  # is deliberately deferred to apply (depends_on time_sleep.wait_120_seconds, which
-  # gives the node driver time to create/tag the instance before it's queried), so any
-  # collection derived from its result (downstream_node_public_ips) is unknown at
-  # plan and can't drive for_each's key set directly. Instead, bound the key set by
-  # the total node quantity requested in var.machine_pools (a plain variable, known
-  # at plan) - one "slot" per expected node - and only use the (possibly
-  # unknown-until-apply) IP list as a value via try()/index, which is allowed.
-  downstream_node_slots = range(sum([for mp in var.machine_pools : mp.quantity]))
-  downstream_agent_checkin_rules = {
-    for index in local.downstream_node_slots :
-    "${index}" => {
-      index = index
-    }
-  }
+  # The data source is deferred until apply, so the public IP list cannot be
+  # used directly as a for_each key set. The requested machine-pool quantity
+  # is known during planning and provides one deterministic rule per expected
+  # downstream node. The discovered public IP is used only as the rule value.
+  downstream_node_count = sum([for machine_pool in var.machine_pools : machine_pool.quantity])
 }
 
-# NOTE: cidr_ipv4 falls back to a non-matching placeholder ("255.255.255.255/32")
-# for any slot whose IP hasn't been discovered yet (e.g. first apply before the
-# node driver finishes creating the instance), so the resource still applies
-# cleanly without granting an unintended wide-open rule. Re-running `tofu apply`
-# once every configured node is discoverable converges all slots to their real
-# per-node /32 CIDR.
+# Allow all protocols from each downstream node's public IP. A placeholder is
+# used until the node driver makes the corresponding instance discoverable;
+# it does not grant access to a valid address. Re-running `tofu apply` after
+# discovery converges the rule to the real /32 public IP.
 resource "aws_vpc_security_group_ingress_rule" "downstream_agent_checkin_ingress" {
-  for_each = var.cloud_provider == "aws" ? local.downstream_agent_checkin_rules : {}
+  count = var.cloud_provider == "aws" ? local.downstream_node_count : 0
 
   security_group_id = local.downstream_sg_id
-  description        = "Downstream node ${local.downstream_discovery_tag_value} agent checkin (slot ${each.value.index})"
-  ip_protocol        = "-1"
-  cidr_ipv4          = "${try(local.downstream_node_public_ips[each.value.index], "255.255.255.255")}/32"
+  description       = "Downstream node ${local.downstream_discovery_tag_value} agent checkin"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "${try(local.downstream_node_public_ips[count.index], "255.255.255.255")}/32"
 
   lifecycle {
     precondition {
@@ -219,13 +194,15 @@ resource "aws_vpc_security_group_ingress_rule" "downstream_agent_checkin_ingress
   }
 }
 
+# Keep egress as a separate AWS resource because ingress and egress are distinct
+# security-group rule types. It uses the same all-protocol /32 public-IP model.
 resource "aws_vpc_security_group_egress_rule" "downstream_agent_checkin_egress" {
-  for_each = var.cloud_provider == "aws" ? local.downstream_agent_checkin_rules : {}
+  count = var.cloud_provider == "aws" ? local.downstream_node_count : 0
 
   security_group_id = local.downstream_sg_id
-  description        = "Downstream node ${local.downstream_discovery_tag_value} agent checkin (slot ${each.value.index})"
-  ip_protocol        = "-1"
-  cidr_ipv4          = "${try(local.downstream_node_public_ips[each.value.index], "255.255.255.255")}/32"
+  description       = "Downstream node ${local.downstream_discovery_tag_value} agent checkin"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "${try(local.downstream_node_public_ips[count.index], "255.255.255.255")}/32"
 
   lifecycle {
     precondition {

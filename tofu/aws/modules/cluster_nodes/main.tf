@@ -238,52 +238,15 @@ resource "aws_instance" "node" {
   }
 }
 
-# Node-to-node RKE2/Rancher LB traffic (80/443) also hairpins through the IGW
-# the same way 6443/9345 does (nodes/LB targets addressed by public IP), so it
-# re-enters tagged with the source's public IP - not matched by "self = true"
-# or the VPC-CIDR-scoped ingress above. Scope to each node's own public IP
-# (/32) instead of 0.0.0.0/0. Standalone resource for the same reason as
-# rke2_api_node_ingress (avoids a cycle with aws_security_group).
-resource "aws_vpc_security_group_ingress_rule" "rke2_lb_node_ingress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["80", "443"], keys(aws_instance.node)) :
-    "${pair[0]}-${pair[1]}" => {
-      port = tonumber(pair[0])
-      node = pair[1]
-    }
-  } : {}
+# Allow all node-to-node traffic over public IPs. Nodes address each other by
+# public IP, so the traffic does not match the self-referencing rule above.
+resource "aws_vpc_security_group_ingress_rule" "rke2_node_ingress" {
+  for_each = local.create_security_group ? aws_instance.node : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description       = "Kubernetes/Rancher listener ${each.value.port} from node ${each.value.node} public IP"
-  ip_protocol       = "tcp"
-  from_port         = each.value.port
-  to_port           = each.value.port
-  cidr_ipv4         = "${aws_instance.node[each.value.node].public_ip}/32"
-}
-
-# Node-to-node RKE2/Rancher API traffic (6443/9345) hairpins through the IGW
-# because nodes address each other by public IP (see outputs.kube_api_host),
-# so it does NOT match the "self = true" intra-SG rule above (that only
-# matches traffic sourced from a private ENI in this SG). Without this,
-# joining nodes get "context deadline exceeded" hitting the master's
-# /cacerts endpoint. Scope ingress to each node's own public IP (/32) instead
-# of 0.0.0.0/0. Standalone resources avoid a dependency cycle with the
-# inline aws_security_group (which must exist before any instance attaches).
-resource "aws_vpc_security_group_ingress_rule" "rke2_api_node_ingress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["6443", "9345"], keys(aws_instance.node)) :
-    "${pair[0]}-${pair[1]}" => {
-      port = tonumber(pair[0])
-      node = pair[1]
-    }
-  } : {}
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description       = "RKE2/Rancher API ${each.value.port} from node ${each.value.node} public IP"
-  ip_protocol       = "tcp"
-  from_port         = each.value.port
-  to_port           = each.value.port
-  cidr_ipv4         = "${aws_instance.node[each.value.node].public_ip}/32"
+  description       = "All traffic from node ${each.key} public IP"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "${each.value.public_ip}/32"
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
