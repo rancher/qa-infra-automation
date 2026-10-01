@@ -74,6 +74,13 @@ dashboard_branch: "master"
 #   e2e_spec_dirs: "cypress/e2e/tests/**/*.spec.ts"
 # e2e_spec_dirs: ""
 
+# Which build of an extension the specs install. The axis is published vs not
+# published, not GA vs rc. See docs/extensions.md.
+#   published   newest build in the chart repo, GA or rc (default)
+#   <version>   pin an exact published build, e.g. "1.3.0-rc1"
+#   dev-load    build and register the extension from the checkout
+# extension_version: "published"
+
 # --- Cypress ---
 # Tags still filter tests at runtime when using --spec. To run everything in a
 # spec, leave this empty (adjustment yields exclusion-only tags) or use
