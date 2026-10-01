@@ -118,7 +118,7 @@ resource "aws_vpc_security_group_ingress_rule" "ephemeral_self_ingress" {
 # ENIs inside this VPC/subnet (not from instances in this SG, so "self" does
 # not cover them, and their IPs aren't known ahead of time) - scope to the
 # VPC CIDR instead of 0.0.0.0/0. The node-to-node/public-IP-hairpin case is
-# covered separately by the per-node standalone rke2_lb_node_ingress rules
+# covered separately by the per-node standalone rke2_node_ingress rule
 # below.
 resource "aws_vpc_security_group_ingress_rule" "ephemeral_lb_healthcheck_ingress" {
   for_each = local.create_security_group ? toset(["80", "443"]) : []
@@ -154,11 +154,8 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_allow_all_egress" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
-# Reuse the "self" all-protocol egress rule's state slot (same count/index) so
-# existing deployments update this one rule in place instead of destroying it.
-# The other removed egress rules (ephemeral_default/listener/http/https/
-# dns_tcp/dns_udp_egress, rke2_lb_node_egress, rke2_api_node_egress) have no
-# equivalent "to" address and will still be destroyed on the next apply.
+# Migrates the one removed egress rule with a matching state slot; see
+# README's "Upgrade note" for the rest.
 moved {
   from = aws_vpc_security_group_egress_rule.ephemeral_self_egress[0]
   to   = aws_vpc_security_group_egress_rule.ephemeral_allow_all_egress[0]

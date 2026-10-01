@@ -37,22 +37,22 @@ locals {
 module "rancher2_cloud_credential" {
   source = "../cloudcredential"
 
-  api_key       = var.api_key
-  name          = "${var.cloud_provider}-${random_string.suffix.result}"
+  api_key        = var.api_key
+  name           = "${var.cloud_provider}-${random_string.suffix.result}"
   cloud_provider = var.cloud_provider
-  node_config   = var.node_config
-  fqdn          = var.fqdn
-  create_new    = var.create_new
-  insecure      = var.insecure
+  node_config    = var.node_config
+  fqdn           = var.fqdn
+  create_new     = var.create_new
+  insecure       = var.insecure
 }
 
 module "rancher2_machine_config_v2" {
-  source = "../machineconfig"
+  source         = "../machineconfig"
   cloud_provider = var.cloud_provider
   node_config    = local.node_config_with_discovery_tag
 
-  count          = var.create_new ? 1 : 0
-  generate_name  = var.generate_name
+  count           = var.create_new ? 1 : 0
+  generate_name   = var.generate_name
   fleet_namespace = try(var.fleet_namespace, null)
   annotations     = try(var.annotations, null)
   labels          = try(var.labels, null)
@@ -64,7 +64,7 @@ resource "rancher2_cluster_v2" "rancher2_cluster_v2" {
   enable_network_policy                                      = var.is_network_policy
   default_pod_security_admission_configuration_template_name = var.psa
   default_cluster_role_for_project_members                   = "user"
-  
+
   rke_config {
     machine_global_config = var.machine_global_config != null ? yamlencode(var.machine_global_config) : null
 
@@ -167,11 +167,16 @@ locals {
   ) : []
   downstream_sg_id = length(local.downstream_sg_ids_found) == 1 ? local.downstream_sg_ids_found[0] : ""
 
-  # The data source is deferred until apply, so the public IP list cannot be
-  # used directly as a for_each key set. The requested machine-pool quantity
-  # is known during planning and provides one deterministic rule per expected
-  # downstream node. The discovered public IP is used only as the rule value.
-  downstream_node_count = sum([for machine_pool in var.machine_pools : machine_pool.quantity])
+  # for_each's key set must be known at plan time, but the discovered public
+  # IPs are only known at apply, so key by a plain-variable "slot" count
+  # (one per expected node) instead and use the IP list only as a value.
+  downstream_node_slots = range(sum([for machine_pool in var.machine_pools : machine_pool.quantity]))
+  downstream_agent_checkin_rules = {
+    for index in local.downstream_node_slots :
+    "${index}" => {
+      index = index
+    }
+  }
 }
 
 # Allow all protocols from each downstream node's public IP. A placeholder is
@@ -179,12 +184,12 @@ locals {
 # it does not grant access to a valid address. Re-running `tofu apply` after
 # discovery converges the rule to the real /32 public IP.
 resource "aws_vpc_security_group_ingress_rule" "downstream_agent_checkin_ingress" {
-  count = var.cloud_provider == "aws" ? local.downstream_node_count : 0
+  for_each = var.cloud_provider == "aws" ? local.downstream_agent_checkin_rules : {}
 
   security_group_id = local.downstream_sg_id
-  description       = "Downstream node ${local.downstream_discovery_tag_value} agent checkin"
+  description       = "Downstream node ${local.downstream_discovery_tag_value} agent checkin (slot ${each.value.index})"
   ip_protocol       = "-1"
-  cidr_ipv4         = "${try(local.downstream_node_public_ips[count.index], "255.255.255.255")}/32"
+  cidr_ipv4         = "${try(local.downstream_node_public_ips[each.value.index], "255.255.255.255")}/32"
 
   lifecycle {
     precondition {
@@ -197,12 +202,12 @@ resource "aws_vpc_security_group_ingress_rule" "downstream_agent_checkin_ingress
 # Keep egress as a separate AWS resource because ingress and egress are distinct
 # security-group rule types. It uses the same all-protocol /32 public-IP model.
 resource "aws_vpc_security_group_egress_rule" "downstream_agent_checkin_egress" {
-  count = var.cloud_provider == "aws" ? local.downstream_node_count : 0
+  for_each = var.cloud_provider == "aws" ? local.downstream_agent_checkin_rules : {}
 
   security_group_id = local.downstream_sg_id
-  description       = "Downstream node ${local.downstream_discovery_tag_value} agent checkin"
+  description       = "Downstream node ${local.downstream_discovery_tag_value} agent checkin (slot ${each.value.index})"
   ip_protocol       = "-1"
-  cidr_ipv4         = "${try(local.downstream_node_public_ips[count.index], "255.255.255.255")}/32"
+  cidr_ipv4         = "${try(local.downstream_node_public_ips[each.value.index], "255.255.255.255")}/32"
 
   lifecycle {
     precondition {
