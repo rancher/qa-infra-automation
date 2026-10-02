@@ -67,10 +67,25 @@ output "cluster_nodes_json" {
 | `nodes[].roles` | list(string) | Roles from input. Valid values: `etcd`, `cp`, `worker` |
 | `nodes[].public_ip` | string | Public IP — used by Ansible as `ansible_host` |
 | `nodes[].private_ip` | string | Private IP — available but not used in standard deploys |
+| `nodes[].os` | string | Optional. `linux` or `windows`; absent means `linux`. Emit it only if your provider supports Windows agents |
+| `nodes[].ssh_user` | string | Optional per-node override of `metadata.ssh_user`. Windows agents use `Administrator` |
+
+> **Windows nodes are opt-in.** `os` is optional precisely so providers that predate
+> Windows support need no changes. If you do emit `os: "windows"`, the node must carry
+> `roles: ["worker"]` only — RKE2 has no Windows server role — and it must be reachable
+> over OpenSSH with PowerShell as the default shell, since Ansible does not use WinRM
+> here. See `tofu/aws/modules/cluster_nodes/main.tf` for a reference `user_data`.
 
 > **Why `"master"`?** The inventory schema and Ansible roles identify the initial cluster node
-> by the group name `master`. The bridge script assigns `rke2_node_role: master` to any node
+> by the group name `master`. The bridge script assigns `node_type: master` to any node
 > named `"master"` in the JSON. Do not use any other name for the first etcd node.
+
+> **External datastore (kine/RDS) topologies must not emit an `etcd` role at all.**
+> Master selection always prefers an etcd-role node over a cp-role node when one
+> exists (embedded etcd takes priority). If your provider's cluster is meant to use
+> an external datastore, don't include any node with an `etcd` role — declare
+> `cp`-only groups instead, or the etcd node will silently win master selection and
+> defeat the external-datastore intent.
 
 ## Step 3: Implement the node naming locals in `main.tf`
 

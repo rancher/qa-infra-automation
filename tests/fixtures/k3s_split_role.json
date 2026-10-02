@@ -7,10 +7,16 @@
   },
   "nodes": [
     {
-      "name": "master",
-      "roles": ["etcd"],
-      "public_ip": "3.4.5.6",
-      "private_ip": "10.0.3.1"
+      "name": "cp-0",
+      "roles": ["cp"],
+      "public_ip": "3.4.5.8",
+      "private_ip": "10.0.3.3"
+    },
+    {
+      "name": "cp-1",
+      "roles": ["cp"],
+      "public_ip": "3.4.5.9",
+      "private_ip": "10.0.3.4"
     },
     {
       "name": "etcd-1",
@@ -25,16 +31,10 @@
       "private_ip": "10.0.3.6"
     },
     {
-      "name": "cp-0",
-      "roles": ["cp"],
-      "public_ip": "3.4.5.8",
-      "private_ip": "10.0.3.3"
-    },
-    {
-      "name": "cp-1",
-      "roles": ["cp"],
-      "public_ip": "3.4.5.9",
-      "private_ip": "10.0.3.4"
+      "name": "master",
+      "roles": ["etcd"],
+      "public_ip": "3.4.5.6",
+      "private_ip": "10.0.3.1"
     },
     {
       "name": "worker-0",

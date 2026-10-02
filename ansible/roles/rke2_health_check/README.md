@@ -34,7 +34,7 @@ Additional variables used (defined in rke2_config role):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `rke2_node_role` | Yes | Node role: `master`, `server`, or `agent` |
+| `node_type` | Yes | Node role: `master`, `server`, or `agent` |
 | `node_roles` | Yes | Comma-separated roles: `cp`, `etcd`, `worker` |
 
 ## Dependencies

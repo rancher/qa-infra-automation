@@ -71,7 +71,7 @@ class TestRKE2ConfigRuntime(unittest.TestCase):
                 path.write_text(yaml.safe_dump(tasks, sort_keys=False), encoding="utf-8")
 
             play_vars = {
-                "rke2_config_dir": str(config_dir), "rke2_node_role": node_role,
+                "rke2_config_dir": str(config_dir), "node_type": node_role,
                 "node_roles": ["worker"] if node_role == "agent" else ["cp", "etcd"],
                 "fqdn": "api.example.invalid", "kube_api_host": "192.0.2.10",
                 "ansible_host": "192.0.2.10", "ansible_python_interpreter": sys.executable,
