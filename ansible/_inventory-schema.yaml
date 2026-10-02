@@ -4,7 +4,7 @@
 # Schema structure:
 #   <distro>:
 #     <env>:
-#       input_type: cluster_nodes | airgap
+#       input_type: cluster_nodes | airgap | dualstack
 #       ip_field:   public_ip | private_ip  (cluster_nodes only)
 #       groups:
 #         <group_name>:
@@ -32,6 +32,18 @@ rke2:
     # Node groups and bastion are defined by the Tofu airgap module.
     input_type: airgap
 
+  dualstack:
+    input_type: dualstack
+    ip_field: public_ip
+    groups:
+      master:
+        roles: [etcd]
+        first_only: true
+      servers:
+        roles: [cp, etcd]
+      workers:
+        roles: [worker]
+
 k3s:
   default:
     input_type: cluster_nodes
@@ -43,5 +55,17 @@ k3s:
         first_only: true
       servers:
         roles: [etcd, cp]
+      workers:
+        roles: [worker]
+
+  dualstack:
+    input_type: dualstack
+    ip_field: public_ip
+    groups:
+      master:
+        roles: [etcd]
+        first_only: true
+      servers:
+        roles: [cp, etcd]
       workers:
         roles: [worker]

@@ -1,0 +1,28 @@
+---
+- name: Check if Docker binary exists
+  ansible.builtin.command: command -v docker
+  register: docker_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Docker via official convenience script (Only if missing)
+  when: docker_check.rc != 0
+  block:
+    - name: Download Docker convenience script
+      ansible.builtin.get_url:
+        url: https://get.docker.com
+        dest: /tmp/get-docker.sh
+        mode: '0700'
+
+    - name: Execute Docker convenience script
+      ansible.builtin.command: /tmp/get-docker.sh
+      register: docker_install
+      until: docker_install.rc == 0
+      retries: 4
+      delay: 5
+
+  always:
+    - name: Remove temporary installation script
+      ansible.builtin.file:
+        path: /tmp/get-docker.sh
+        state: absent
