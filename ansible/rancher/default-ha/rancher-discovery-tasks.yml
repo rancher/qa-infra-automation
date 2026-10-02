@@ -1,0 +1,34 @@
+---
+# fqdn and kubeconfig discovery shared by the install (rancher-playbook.yml)
+# and upgrade (rancher-upgrade-playbook.yml) playbooks. Expects the including
+# playbook to define kubeconfig_file and the terraform_* vars the same way.
+- name: Set variables based on tofu or environment
+  when: fqdn is not defined
+  block:
+    - name: Check if using tfstate file
+      ansible.builtin.stat:
+        path: "{{ terraform_state_file }}"
+      register: tfstate_file_stat
+
+    - name: Set fqdn content from tfstate file if it exists
+      ansible.builtin.set_fact:
+        fqdn: "{{ lookup('cloud.terraform.tf_output', 'fqdn', state_file=terraform_state_file) }}"
+      when: tfstate_file_stat.stat.exists
+
+    - name: Set fqdn content from env when not using terraform
+      ansible.builtin.set_fact:
+        fqdn: "{{ lookup('env', 'FQDN') }}"
+      when: not tfstate_file_stat.stat.exists
+
+- name: Check if kubeconfig file exists
+  ansible.builtin.stat:
+    path: "{{ kubeconfig_file }}"
+  register: kubeconfig_file_stat
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - kubeconfig_file_stat.stat.exists
+      - fqdn is defined
+      - fqdn | length > 0
+    fail_msg: "Required variables not defined. Please ensure kubeconfig_file and fqdn are set in vars.yaml or environment variables."

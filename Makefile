@@ -70,6 +70,16 @@ DOWNSTREAM_TFVARS ?= tofu/rancher/cluster/vars.tfvars
 # outputs live elsewhere.
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 
+# Rancher server upgrade (make rancher-upgrade). RANCHER_VERSION_TO_UPGRADE
+# 'latest' (default) resolves at runtime to the newest final release in the
+# chart repo index; pin a version (e.g. 2.15.2) to override deterministically.
+# RANCHER_CHART_REPO_FLAVOR selects the community or prime chart repo; an
+# explicit RANCHER_CHART_UPGRADE_REPO_URL wins, as do the repo credentials and
+# system-default registry variables (seams reserved for the airgap leg).
+RANCHER_VERSION_TO_UPGRADE ?= latest
+RANCHER_IMAGE_TAG_TO_UPGRADE ?= latest
+RANCHER_CHART_REPO_FLAVOR ?= community
+
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
 GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
@@ -81,6 +91,7 @@ TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
 REGISTRY_TARGET  :=
+RANCHER_UPGRADE_PLAYBOOK := ansible/rancher/default-ha/rancher-upgrade-playbook.yml
 else ifeq ($(ENV),airgap)
 TOFU_DIR            := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
@@ -733,7 +744,23 @@ registry: check-inventory ## Configure private registry on cluster nodes
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rke2-registry-config-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
-.PHONY: upgrade-cluster
+.PHONY: rancher-upgrade
+rancher-upgrade: check-inventory ## Upgrade the Rancher server in place (ENV=default; RANCHER_VERSION_TO_UPGRADE=latest|<ver>, RANCHER_CHART_REPO_FLAVOR=community|prime)
+	@if [ -z "$(RANCHER_UPGRADE_PLAYBOOK)" ]; then \
+		echo "Error: rancher-upgrade requires ENV=default (HA helm-based Rancher install)"; \
+		exit 1; \
+	fi
+	@echo "Upgrading Rancher server (target=$(RANCHER_VERSION_TO_UPGRADE), flavor=$(RANCHER_CHART_REPO_FLAVOR))..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg KUBECONFIG_FILE=$(KUBECONFIG_FILE); \
+	ansible-playbook -i $(INVENTORY) $(RANCHER_UPGRADE_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) \
+		--extra-vars "$(RANCHER_UPGRADE_EXTRA_VARS)"
+
+.PHONY: rancher-resolve-version
+rancher-resolve-version: ## Resolve a Rancher chart version from the repo index (SOURCE_LINE=2.14 for that line's latest patch; default: latest released final)
+	@python3 scripts/resolve_rancher_version.py --repo-url "$(RANCHER_RESOLVE_REPO_URL)" \
+		$(if $(SOURCE_LINE),--line "$(SOURCE_LINE)")
+
+.PHONY: upgrade
 upgrade: check-inventory ## Upgrade Kubernetes cluster
 	@echo "Upgrading $(DISTRO) cluster..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
@@ -1041,6 +1068,26 @@ ANSIBLE_EXTRA_VARS := --extra-vars "$(ANSIBLE_EXTRA_VARS_KEYS)"
 else
 ANSIBLE_EXTRA_VARS :=
 endif
+
+# Rancher server upgrade inputs, passed target-scoped (later --extra-vars win
+# over ANSIBLE_EXTRA_VARS, so these defaults never leak into other targets).
+# The optional airgap-seam keys are only passed when set.
+RANCHER_UPGRADE_EXTRA_VARS := rancher_version_upgrade=$(RANCHER_VERSION_TO_UPGRADE) rancher_image_tag_upgrade=$(RANCHER_IMAGE_TAG_TO_UPGRADE) rancher_chart_flavor=$(RANCHER_CHART_REPO_FLAVOR)
+ifneq ($(RANCHER_CHART_UPGRADE_REPO_URL),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_chart_upgrade_repo_url=$(RANCHER_CHART_UPGRADE_REPO_URL)
+endif
+ifneq ($(RANCHER_UPGRADE_REPO_USERNAME),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_repo_username=$(RANCHER_UPGRADE_REPO_USERNAME)
+endif
+ifneq ($(RANCHER_UPGRADE_REPO_PASSWORD),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_repo_password=$(RANCHER_UPGRADE_REPO_PASSWORD)
+endif
+ifneq ($(RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_system_default_registry=$(RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY)
+endif
+
+# Repo used by rancher-resolve-version; mirrors the upgrade flavor mapping.
+RANCHER_RESOLVE_REPO_URL := $(if $(RANCHER_CHART_UPGRADE_REPO_URL),$(RANCHER_CHART_UPGRADE_REPO_URL),$(if $(filter prime,$(RANCHER_CHART_REPO_FLAVOR)),https://charts.rancher.com/server-charts/prime,https://releases.rancher.com/server-charts/latest))
 
 # ============================================================================
 # SUPPLY CHAIN VERIFICATION

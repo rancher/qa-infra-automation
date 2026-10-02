@@ -1,14 +1,52 @@
 ---
+# In-place Rancher server upgrade (helm upgrade --reuse-values). Included by
+# rancher-upgrade-playbook.yml (canonical, `make rancher-upgrade`) and by
+# rancher-playbook.yml with upgrade_mode=true (legacy entry point, which may
+# pass rancher_version_upgrade directly instead of the resolved *_final vars).
+#
+# reuse_values preserves all values from the current release (hostname,
+# replicas, ...) so only the chart version, image tag and the optional
+# system-default registry seam are set here.
 - name: Add Rancher Helm repository for upgrade target
   kubernetes.core.helm_repository:
     kubeconfig: "{{ kubeconfig_file }}"
     name: "{{ rancher_chart_repo_upgrade }}"
     repo_url: "{{ rancher_chart_upgrade_repo_url }}"
+    username: "{{ rancher_upgrade_repo_username | default('', true) | ternary(rancher_upgrade_repo_username, omit) }}"
+    password: "{{ rancher_upgrade_repo_password | default('', true) | ternary(rancher_upgrade_repo_password, omit) }}"
 
 - name: Install helm-diff plugin (required by kubernetes.core.helm reuse_values)
+  # helm 4 verifies plugin sources by default and rejects plain URLs, so that
+  # specific error falls through to the --verify=false retry below; helm 3
+  # never emits it and needs no retry.
   ansible.builtin.command: helm plugin install https://github.com/databus23/helm-diff --version v{{ helm_diff_version | default('3.9.12') }}
   register: helm_diff_result
-  failed_when: helm_diff_result.rc != 0 and 'already installed' not in helm_diff_result.stderr
+  changed_when: helm_diff_result.rc == 0
+  failed_when: >-
+    helm_diff_result.rc != 0
+    and 'already installed' not in helm_diff_result.stderr
+    and 'does not support verification' not in helm_diff_result.stderr
+
+- name: Install helm-diff plugin without source verification (helm 4)
+  ansible.builtin.command: helm plugin install https://github.com/databus23/helm-diff --version v{{ helm_diff_version | default('3.9.12') }} --verify=false
+  when: >-
+    helm_diff_result.rc != 0
+    and 'does not support verification' in helm_diff_result.stderr
+
+- name: Build the upgrade helm values
+  # rancherImageTag is omitted unless pinned, so the chart's own appVersion
+  # (always consistent with the chart version) selects the image. The legacy
+  # 'latest' -> 'head' mapping is gone: pin rancher_image_tag_upgrade=head
+  # explicitly for head builds. rancher_version_upgrade_final comes from the
+  # resolution pre_tasks; the fallback keeps the legacy -e upgrade_mode=true
+  # entry point working with a pinned rancher_version_upgrade.
+  vars:
+    _pinned_image_tag: "{{ rancher_image_tag_upgrade | default('latest', true) }}"
+  ansible.builtin.set_fact:
+    rancher_upgrade_helm_values: >-
+      {{ {}
+         | combine({'rancherImageTag': _pinned_image_tag} if _pinned_image_tag not in ('', 'latest') else {})
+         | combine({'systemDefaultRegistry': rancher_upgrade_system_default_registry} if rancher_upgrade_system_default_registry | default('', true) | length > 0 else {}) }}
 
 - name: Upgrade Rancher in-place (verify signed chart)
   block:
@@ -18,13 +56,14 @@
         name: rancher
         chart_ref: "{{ rancher_chart_repo_upgrade }}/rancher"
         release_namespace: cattle-system
-        chart_version: "{{ '' if rancher_version_upgrade == 'latest' else rancher_version_upgrade }}"
+        chart_version: "{{ rancher_version_upgrade_final | default(rancher_version_upgrade, true) }}"
         reuse_values: true
         wait: true
         wait_timeout: "800s"
-        values:
-          rancherImageTag: "{{ 'head' if (rancher_image_tag_upgrade | default('')) == 'latest' else rancher_image_tag_upgrade | default(omit) }}"
+        values: "{{ rancher_upgrade_helm_values }}"
         verify: true
+      retries: 6
+      delay: 120
   rescue:
     - name: Warn about unsigned Rancher upgrade chart
       ansible.builtin.debug:
@@ -36,29 +75,13 @@
         name: rancher
         chart_ref: "{{ rancher_chart_repo_upgrade }}/rancher"
         release_namespace: cattle-system
-        chart_version: "{{ '' if rancher_version_upgrade == 'latest' else rancher_version_upgrade }}"
+        chart_version: "{{ rancher_version_upgrade_final | default(rancher_version_upgrade, true) }}"
         reuse_values: true
         wait: true
         wait_timeout: "800s"
-        values:
-          rancherImageTag: "{{ 'head' if (rancher_image_tag_upgrade | default('')) == 'latest' else rancher_image_tag_upgrade | default(omit) }}"
-  retries: 6
-  delay: 120
-  # reuse_values preserves all values from the current release (hostname, replicas, etc.)
-  # so only the chart version and rancherImageTag are changed.
-  kubernetes.core.helm:
-    kubeconfig: "{{ kubeconfig_file }}"
-    name: rancher
-    chart_ref: "{{ rancher_chart_repo_upgrade }}/rancher"
-    release_namespace: cattle-system
-    chart_version: "{{ '' if rancher_version_upgrade == 'latest' else rancher_version_upgrade }}"
-    reuse_values: true
-    wait: true
-    wait_timeout: "800s"
-    values:
-      rancherImageTag: "{{ 'head' if (rancher_image_tag_upgrade | default('')) == 'latest' else rancher_image_tag_upgrade | default(omit) }}"
-  retries: 6
-  delay: 120
+        values: "{{ rancher_upgrade_helm_values }}"
+      retries: 6
+      delay: 120
 
 - name: Wait for Rancher deployment to be ready after upgrade
   kubernetes.core.k8s_info:
@@ -93,7 +116,7 @@
     url: "https://{{ fqdn }}/v3-public/localproviders/local?action=login"
     body:
       username: admin
-      password: "{{ password }}"
+      password: "{{ password_final | default(password, true) }}"
     method: POST
     force_basic_auth: true
     validate_certs: false
@@ -111,6 +134,7 @@
 - name: Write updated token to generated.tfvars
   ansible.builtin.copy:
     dest: generated.tfvars
+    mode: "0600"
     content: |
       fqdn = "https://{{ fqdn }}"
       api_key = "{{ API_KEY }}"
