@@ -1,0 +1,19 @@
+apiVersion: v1
+entries:
+  rancher:
+    - version: 2.14.2
+      created: "2026-06-01T10:00:00Z"
+    - version: 2.14.3
+      created: "2026-06-29T21:00:00Z"
+    - version: 2.15.0-rc1
+      created: "2026-08-01T10:00:00Z"
+    - version: 2.16.0-rc2
+      created: "2026-10-01T10:00:00Z"
+    - version: 2.15.1
+      created: "2026-09-01T10:00:00Z"
+    - version: 2.15.2
+      created: "2026-09-23T20:00:00Z"
+    - version: 2.16.0-head
+      created: "2026-09-30T10:00:00Z"
+    - version: 102.0.1+up2.9.4
+      created: "2025-01-01T10:00:00Z"

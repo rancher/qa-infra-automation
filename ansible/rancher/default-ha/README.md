@@ -56,17 +56,41 @@ All configuration is in `vars.yaml`. Key variables:
 | `rancher_chart_repo_url` | No | Helm repo URL (default: latest releases) |
 | `rancher_image_tag` | No | Image tag (default: `latest`; use `head` for dev/HEAD builds) |
 
-### Additional variables for Rancher upgrades
+### Upgrading the Rancher server via Makefile
 
-`rancher-upgrade-tasks.yml` is included by `rancher-playbook.yml` when you run the
-playbook with `-e "upgrade_mode=true"`. The upgrade tasks expect:
+`make rancher-upgrade` upgrades the Rancher server in place on the standing HA
+cluster (helm upgrade of the `rancher` release with `--reuse-values`):
 
-| Variable | Description |
-|----------|-------------|
-| `rancher_chart_repo_upgrade` | Helm repo name for upgrade (default: `rancher-latest`) |
-| `rancher_chart_upgrade_repo_url` | Helm repo URL for upgrade |
-| `rancher_version_upgrade` | Target Rancher version (e.g. `latest` for HEAD, or `v2.13.0`) |
-| `rancher_image_tag_upgrade` | Optional image tag override |
+```bash
+# Upgrade to the latest released version, community chart repo
+make rancher-upgrade ENV=default DISTRO=rke2 PROVIDER=aws
+
+# Pin the target (deterministic reproduction) and use the Prime chart repo
+make rancher-upgrade ENV=default DISTRO=rke2 RANCHER_VERSION_TO_UPGRADE=2.15.2 \
+     RANCHER_CHART_REPO_FLAVOR=prime
+```
+
+| Make variable | Ansible variable | Default | Description |
+|---|---|---|---|
+| `RANCHER_VERSION_TO_UPGRADE` | `rancher_version_upgrade` | `latest` | `latest`/empty resolves at runtime to the newest final release in the repo index; a pinned version passes through unchanged |
+| `RANCHER_IMAGE_TAG_TO_UPGRADE` | `rancher_image_tag_upgrade` | `latest` | Omitted unless pinned, so the chart's own appVersion selects the image. Pin `head` explicitly for head builds |
+| `RANCHER_CHART_REPO_FLAVOR` | `rancher_chart_flavor` | `community` | `community` (`releases.rancher.com/server-charts/latest`) or `prime` (`charts.rancher.com/server-charts/prime`) |
+| `RANCHER_CHART_UPGRADE_REPO_URL` | `rancher_chart_upgrade_repo_url` | — | Explicit chart repo URL; overrides the flavor mapping (airgap seam) |
+| `RANCHER_UPGRADE_REPO_USERNAME`/`_PASSWORD` | `rancher_upgrade_repo_username`/`_password` | unset | Chart repo credentials, only passed when set (airgap seam) |
+| `RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY` | `rancher_upgrade_system_default_registry` | unset | Sets the `systemDefaultRegistry` helm value when set (airgap seam) |
+
+Version resolution is also usable standalone, which is how pipelines resolve
+the deploy side (latest 2.14.x patch of the source version):
+
+```bash
+make rancher-resolve-version SOURCE_LINE=2.14
+# {"chart_version": "2.14.3", "image_tag": "v2.14.3", ...}
+```
+
+The `rancher_version_upgrade`/`rancher_image_tag_upgrade` variables from the
+legacy `-e "upgrade_mode=true"` flow still work when passed directly; the
+image-tag `latest` -> `head` mapping is gone (pin `rancher_image_tag_upgrade=head`
+for head builds).
 
 The upgrade tasks authenticate to Rancher with the permanent `password`, not
 `bootstrap_password`, because the bootstrap password is no longer valid after the
@@ -85,18 +109,20 @@ See [QUICKSTART.md](./QUICKSTART.md) for step-by-step usage.
 
 ## Running the Rancher upgrade flow
 
-The Rancher upgrade logic is implemented in `rancher-upgrade-tasks.yml` and is invoked
-through `rancher-playbook.yml`:
+The Rancher upgrade logic is implemented in `rancher-upgrade-tasks.yml`, invoked by
+`rancher-upgrade-playbook.yml` (the `make rancher-upgrade` path above, which also
+resolves `latest` targets at runtime). The legacy entry point through
+`rancher-playbook.yml` is still available for pinned, pre-resolved inputs:
 
 ```bash
-ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml \
-  -e "upgrade_mode=true"
+ansible-playbook ansible/rancher/default-ha/rancher-upgrade-playbook.yml \
+  -e "rancher_version_upgrade=2.15.2"
 ```
 
 The upgrade tasks perform the following actions:
 
 - add the upgrade target Helm repository
-- install the `helm-diff` plugin if it is not already present
+- install the `helm-diff` plugin if it is not already present (the install tolerates helm 4's default plugin-source verification with a `--verify=false` retry; helm 3 is unaffected)
 - run an in-place Helm upgrade of the `rancher` release with `reuse_values: true`
 - wait for the `cattle-system/rancher` deployment to become fully ready
 - wait for `https://<fqdn>` to return HTTP 200
@@ -104,8 +130,11 @@ The upgrade tasks perform the following actions:
 - print a fresh API token and overwrite `generated.tfvars` with the updated `fqdn` and `api_key`
 
 Because `reuse_values` is enabled, the upgrade preserves the release's existing Helm
-values such as hostname and replica count. The upgrade-specific inputs are primarily
-used to select the target chart repository, chart version, and optional image tag.
+values such as hostname and replica count. `rancherImageTag` is deliberately omitted
+from the upgrade values unless explicitly pinned, so the chart's own `appVersion`
+(always consistent with the chart version) selects the image; the legacy
+`latest` → `head` mapping is gone, and head builds are pinned explicitly via
+`rancher_image_tag_upgrade=head`.
 
 ## Upgrading the downstream cluster Kubernetes version
 
