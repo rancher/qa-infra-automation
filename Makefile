@@ -70,12 +70,8 @@ DOWNSTREAM_TFVARS ?= tofu/rancher/cluster/vars.tfvars
 # outputs live elsewhere.
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 
-# Rancher server upgrade (make rancher-upgrade). RANCHER_VERSION_TO_UPGRADE
-# 'latest' (default) resolves at runtime to the newest final release in the
-# chart repo index; pin a version (e.g. 2.15.2) to override deterministically.
-# RANCHER_CHART_REPO_FLAVOR selects the community or prime chart repo; an
-# explicit RANCHER_CHART_UPGRADE_REPO_URL wins, as do the repo credentials and
-# system-default registry variables (seams reserved for the airgap leg).
+# Rancher server upgrade (make rancher-upgrade); semantics in
+# ansible/rancher/default-ha/README.md.
 RANCHER_VERSION_TO_UPGRADE ?= latest
 RANCHER_IMAGE_TAG_TO_UPGRADE ?= latest
 RANCHER_CHART_REPO_FLAVOR ?= community
@@ -1069,9 +1065,7 @@ else
 ANSIBLE_EXTRA_VARS :=
 endif
 
-# Rancher server upgrade inputs, passed target-scoped (later --extra-vars win
-# over ANSIBLE_EXTRA_VARS, so these defaults never leak into other targets).
-# The optional airgap-seam keys are only passed when set.
+# Rancher server upgrade inputs, target-scoped; airgap-seam keys only when set.
 RANCHER_UPGRADE_EXTRA_VARS := rancher_version_upgrade=$(RANCHER_VERSION_TO_UPGRADE) rancher_image_tag_upgrade=$(RANCHER_IMAGE_TAG_TO_UPGRADE) rancher_chart_flavor=$(RANCHER_CHART_REPO_FLAVOR)
 ifneq ($(RANCHER_CHART_UPGRADE_REPO_URL),)
 RANCHER_UPGRADE_EXTRA_VARS += rancher_chart_upgrade_repo_url=$(RANCHER_CHART_UPGRADE_REPO_URL)

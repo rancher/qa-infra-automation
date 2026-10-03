@@ -1,7 +1,6 @@
 ---
-# fqdn and kubeconfig discovery shared by the install (rancher-playbook.yml)
-# and upgrade (rancher-upgrade-playbook.yml) playbooks. Expects the including
-# playbook to define kubeconfig_file and the terraform_* vars the same way.
+# fqdn/kubeconfig discovery shared by the install and upgrade playbooks; the
+# including playbook defines kubeconfig_file and the terraform_* vars.
 - name: Set variables based on tofu or environment
   when: fqdn is not defined
   block:

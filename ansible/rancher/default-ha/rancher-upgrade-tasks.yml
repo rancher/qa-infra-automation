@@ -1,12 +1,6 @@
 ---
-# In-place Rancher server upgrade (helm upgrade --reuse-values). Included by
-# rancher-upgrade-playbook.yml (canonical, `make rancher-upgrade`) and by
-# rancher-playbook.yml with upgrade_mode=true (legacy entry point, which may
-# pass rancher_version_upgrade directly instead of the resolved *_final vars).
-#
-# reuse_values preserves all values from the current release (hostname,
-# replicas, ...) so only the chart version, image tag and the optional
-# system-default registry seam are set here.
+# In-place Rancher server upgrade, included by rancher-upgrade-playbook.yml
+# (canonical) and rancher-playbook.yml with upgrade_mode=true (legacy).
 - name: Add Rancher Helm repository for upgrade target
   kubernetes.core.helm_repository:
     kubeconfig: "{{ kubeconfig_file }}"
@@ -16,9 +10,7 @@
     password: "{{ rancher_upgrade_repo_password | default('', true) | ternary(rancher_upgrade_repo_password, omit) }}"
 
 - name: Install helm-diff plugin (required by kubernetes.core.helm reuse_values)
-  # helm 4 verifies plugin sources by default and rejects plain URLs, so that
-  # specific error falls through to the --verify=false retry below; helm 3
-  # never emits it and needs no retry.
+  # helm 4 rejects unverifiable URL plugin sources; the retry below handles it.
   ansible.builtin.command: helm plugin install https://github.com/databus23/helm-diff --version v{{ helm_diff_version | default('3.9.12') }}
   register: helm_diff_result
   changed_when: helm_diff_result.rc == 0
@@ -34,12 +26,7 @@
     and 'does not support verification' in helm_diff_result.stderr
 
 - name: Build the upgrade helm values
-  # rancherImageTag is omitted unless pinned, so the chart's own appVersion
-  # (always consistent with the chart version) selects the image. The legacy
-  # 'latest' -> 'head' mapping is gone: pin rancher_image_tag_upgrade=head
-  # explicitly for head builds. rancher_version_upgrade_final comes from the
-  # resolution pre_tasks; the fallback keeps the legacy -e upgrade_mode=true
-  # entry point working with a pinned rancher_version_upgrade.
+  # rancherImageTag follows the chart appVersion unless pinned; see README.md.
   vars:
     _pinned_image_tag: "{{ rancher_image_tag_upgrade | default('latest', true) }}"
   ansible.builtin.set_fact:

@@ -1,14 +1,6 @@
 ---
-# In-place Rancher server upgrade for the default-ha environment: helm upgrade
-# of the `rancher` release with --reuse-values. Invoked by `make rancher-upgrade`.
-#
-# Target selection: rancher_version_upgrade 'latest' (or empty) resolves at
-# runtime to the newest final release in the chart repo's index; a pinned
-# version (e.g. 2.15.2) is passed through unchanged so failures reproduce
-# deterministically. rancher_chart_flavor selects the community or prime chart
-# repo; an explicit rancher_chart_upgrade_repo_url always wins and is the seam
-# the deferred airgap leg will use, together with the registry credentials
-# below.
+# In-place Rancher server upgrade (helm upgrade --reuse-values), run by `make
+# rancher-upgrade`. Version/flavor/seam semantics: see README.md.
 - hosts: localhost
   connection: local
   gather_facts: false

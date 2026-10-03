@@ -33,9 +33,8 @@ class TestSelectVersion(unittest.TestCase):
         self.assertEqual(select_version(self.entries, line="v2.14")["version"], "2.14.3")
 
     def test_line_without_final_returns_empty(self):
-        # 2.16 exists only as head/rc builds; without the prerelease flag a
-        # fixed input must not resolve to a build whose identity changes on
-        # every commit.
+        # 2.16 has only head/rc builds; a fixed input must never resolve to a
+        # build whose identity changes on every commit.
         self.assertEqual(select_version(self.entries, line="2.16"), {})
 
     def test_prerelease_flag_admits_rc_above_newest_final(self):

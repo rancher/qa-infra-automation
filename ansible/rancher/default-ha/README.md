@@ -122,7 +122,7 @@ ansible-playbook ansible/rancher/default-ha/rancher-upgrade-playbook.yml \
 The upgrade tasks perform the following actions:
 
 - add the upgrade target Helm repository
-- install the `helm-diff` plugin if it is not already present
+- install the `helm-diff` plugin if it is not already present (the install tolerates helm 4's default plugin-source verification with a `--verify=false` retry; helm 3 is unaffected)
 - run an in-place Helm upgrade of the `rancher` release with `reuse_values: true`
 - wait for the `cattle-system/rancher` deployment to become fully ready
 - wait for `https://<fqdn>` to return HTTP 200
@@ -130,8 +130,11 @@ The upgrade tasks perform the following actions:
 - print a fresh API token and overwrite `generated.tfvars` with the updated `fqdn` and `api_key`
 
 Because `reuse_values` is enabled, the upgrade preserves the release's existing Helm
-values such as hostname and replica count. The upgrade-specific inputs are primarily
-used to select the target chart repository, chart version, and optional image tag.
+values such as hostname and replica count. `rancherImageTag` is deliberately omitted
+from the upgrade values unless explicitly pinned, so the chart's own `appVersion`
+(always consistent with the chart version) selects the image; the legacy
+`latest` → `head` mapping is gone, and head builds are pinned explicitly via
+`rancher_image_tag_upgrade=head`.
 
 ## Upgrading the downstream cluster Kubernetes version
 
