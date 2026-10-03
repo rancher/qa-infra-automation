@@ -28,15 +28,17 @@ bootstrap_password: ""
 password: ""
 ```
 
-### Step 2. Run Playbook
+### Optional: Upgrade inputs in `vars.yaml`
 
-If you plan to upgrade Rancher later, add these upgrade-specific variables to `vars.yaml`:
+If you plan to upgrade Rancher later (Step 4), you may pre-set the upgrade
+inputs in `vars.yaml`. `make rancher-upgrade` parameters override these, and
+`rancher_version_upgrade: "latest"` resolves at runtime to the newest final
+release in the chart repo:
 
 ```yaml
-rancher_chart_repo_upgrade: rancher-latest
-rancher_chart_upgrade_repo_url: https://releases.rancher.com/server-charts/latest
-rancher_version_upgrade: "latest"
-rancher_image_tag_upgrade: head # Optional
+rancher_chart_flavor: "community"   # or "prime"
+rancher_version_upgrade: "latest"   # or a pinned version like "2.15.2"
+rancher_image_tag_upgrade: "latest" # only needed to pin, e.g. "head" for head builds
 ```
 
 ### Step 2. Run Playbook
@@ -69,12 +71,36 @@ Log in with the username `admin` and the `password` you defined.
 
 ### Step 4. Upgrade Rancher (optional)
 
-The Rancher upgrade logic lives in `rancher-upgrade-tasks.yml` and is executed through `rancher-playbook.yml` when `upgrade_mode=true`.
+The recommended path is `make rancher-upgrade`, which resolves `latest` at
+runtime to the newest released version and selects the community or Prime
+chart repo for you:
 
 ```sh
-ansible-playbook ansible/rancher/default-ha/rancher-playbook.yml \
-  -e "upgrade_mode=true"
+# Latest released version, community chart repo
+make rancher-upgrade ENV=default DISTRO=rke2 PROVIDER=aws
+
+# Pinned target on Prime
+make rancher-upgrade ENV=default DISTRO=rke2 \
+     RANCHER_VERSION_TO_UPGRADE=2.15.2 RANCHER_CHART_REPO_FLAVOR=prime
 ```
+
+To see what a run would upgrade to without touching a cluster (also how
+pipelines resolve the source version):
+
+```sh
+make rancher-resolve-version                 # latest released final
+make rancher-resolve-version SOURCE_LINE=2.14  # latest 2.14.x patch
+```
+
+Manual equivalent with a pinned, pre-resolved version:
+
+```sh
+ansible-playbook ansible/rancher/default-ha/rancher-upgrade-playbook.yml \
+  -e "rancher_version_upgrade=2.15.2"
+```
+
+See the [README](./README.md) for the full parameter table (including the
+airgap seams) and the legacy `upgrade_mode=true` entry point.
 
 What the upgrade tasks do:
 
