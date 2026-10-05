@@ -25,3 +25,8 @@ variable "block_public_access" {
   default     = true
   description = "Enable S3 block public access."
 }
+
+variable "aws_default_tags" {
+  type    = map(string)
+  default = {}
+}
