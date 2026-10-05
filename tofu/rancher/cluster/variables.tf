@@ -93,3 +93,8 @@ variable insecure {
     default = true
     type    = bool
 }
+
+variable "aws_default_tags" {
+  type    = map(string)
+  default = {}
+}
