@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cis-config
+  namespace: kube-system
+data:
+  config.yaml: |
+    # CIS benchmark configuration
+    version: cis-1.6
+    target: master
+    controls:
+      skip:
+        - 1.1.12  # Ensure that the etcd data directory permissions are set to 700 or more restrictive
+        - 1.1.13  # Ensure that the etcd data directory ownership is set to etcd:etcd
