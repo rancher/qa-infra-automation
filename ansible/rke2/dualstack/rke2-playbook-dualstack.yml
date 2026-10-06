@@ -55,6 +55,10 @@
   gather_facts: false
   vars_files:
     - ./vars.yaml
+  vars:
+    # Test hosts: keep SL Micro's transactional-update.timer off for the whole run; a catch-up
+    # trigger mid-run holds the lock that zypper/rke2-uninstall.sh need. BYO: -e suse_disable_update_timer=false
+    suse_disable_update_timer: true
   pre_tasks:
     - name: Wait for SSH to become available
       ansible.builtin.wait_for_connection:
@@ -81,6 +85,11 @@
           - kube_api_host | length > 0
         fail_msg: "Required variables not defined. Set kubernetes_version and kube_api_host in vars.yaml or inventory all.vars"
       run_once: true
+    # Static import so the role's tasks inherit 'always' and survive --tags setup/install.
+    - name: Keep the SUSE update timer off for the run
+      ansible.builtin.import_role:
+        name: suse_update_timer
+      tags: ['always']
   roles:
     - role: rke2_setup
       tags: ['setup', 'rke2']
@@ -158,6 +167,8 @@
   gather_facts: true
   vars_files:
     - ./vars.yaml
+  vars:
+    suse_disable_update_timer: true
   pre_tasks:
     # Fail fast on typos (e.g. 'rmp') before the mapping below silently
     # normalizes them to an online install with the automatic method.
@@ -169,6 +180,10 @@
           install_method must be one of online, airgap, rpm or tar
           (got '{{ install_method | default('') }}')
       tags: ['install', 'rke2']
+    - name: Keep the SUSE update timer off for the run
+      ansible.builtin.import_role:
+        name: suse_update_timer
+      tags: ['always']
   roles:
     - role: rke2_install
       vars:
