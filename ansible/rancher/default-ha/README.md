@@ -68,12 +68,15 @@ make rancher-upgrade ENV=default DISTRO=rke2 PROVIDER=aws
 # Pin the target (deterministic reproduction) and use the Prime chart repo
 make rancher-upgrade ENV=default DISTRO=rke2 RANCHER_VERSION_TO_UPGRADE=2.15.2 \
      RANCHER_CHART_REPO_FLAVOR=prime
+
+# Latest patch of the 2.15 line (resolved at runtime)
+make rancher-upgrade ENV=default DISTRO=rke2 RANCHER_UPGRADE_LINE=2.15
 ```
 
 | Make variable | Ansible variable | Default | Description |
 |---|---|---|---|
 | `RANCHER_VERSION_TO_UPGRADE` | `rancher_version_upgrade` | `latest` | `latest`/empty resolves at runtime to the newest final release in the repo index; a pinned version passes through unchanged |
-| `RANCHER_IMAGE_TAG_TO_UPGRADE` | `rancher_image_tag_upgrade` | `latest` | Omitted unless pinned, so the chart's own appVersion selects the image. Pin `head` explicitly for head builds |
+| `RANCHER_UPGRADE_LINE` | `rancher_upgrade_line` | — | Resolves at runtime to the newest final release of that line (e.g. `2.15`); cannot be combined with a pinned `RANCHER_VERSION_TO_UPGRADE` |
 | `RANCHER_CHART_REPO_FLAVOR` | `rancher_chart_flavor` | `community` | `community` (`releases.rancher.com/server-charts/latest`) or `prime` (`charts.rancher.com/server-charts/prime`) |
 | `RANCHER_CHART_UPGRADE_REPO_URL` | `rancher_chart_upgrade_repo_url` | — | Explicit chart repo URL; overrides the flavor mapping (airgap seam) |
 | `RANCHER_UPGRADE_REPO_USERNAME`/`_PASSWORD` | `rancher_upgrade_repo_username`/`_password` | unset | Chart repo credentials, only passed when set (airgap seam) |

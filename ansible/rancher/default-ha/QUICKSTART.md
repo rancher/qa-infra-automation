@@ -38,6 +38,7 @@ release in the chart repo:
 ```yaml
 rancher_chart_flavor: "community"   # or "prime"
 rancher_version_upgrade: "latest"   # or a pinned version like "2.15.2"
+rancher_upgrade_line: ""            # or a line like "2.15" = latest patch of that line
 rancher_image_tag_upgrade: "latest" # only needed to pin, e.g. "head" for head builds
 ```
 
@@ -82,6 +83,9 @@ make rancher-upgrade ENV=default DISTRO=rke2 PROVIDER=aws
 # Pinned target on Prime
 make rancher-upgrade ENV=default DISTRO=rke2 \
      RANCHER_VERSION_TO_UPGRADE=2.15.2 RANCHER_CHART_REPO_FLAVOR=prime
+
+# Latest patch of the 2.15 line, resolved at runtime
+make rancher-upgrade ENV=default DISTRO=rke2 PROVIDER=aws RANCHER_UPGRADE_LINE=2.15
 ```
 
 To see what a run would upgrade to without touching a cluster (also how
@@ -149,7 +153,11 @@ ansible-playbook ansible/rancher/downstream/downstream-upgrade-playbook.yml \
   -e "kubernetes_version_upgrade=v1.31.0"
 ```
 
-Replace `v1.31.0` with your target Kubernetes version. The playbook updates both the
-selected downstream cluster and Rancher's local cluster to the same Kubernetes version.
+Replace `v1.31.0` with your target Kubernetes version. The playbook patches the
+selected downstream cluster's `spec.kubernetesVersion` and waits for it to
+converge. It requires at least one downstream cluster in `fleet-default`; it
+does not touch the Rancher hosting (local) cluster. To upgrade the hosting
+cluster's Kubernetes version instead, change `kubernetes_version` in
+`ansible/rke2/default/vars.yaml` and rerun `make cluster`.
 
 > `k8s_upgrade_mode` is `false` by default — the playbook is a no-op unless you pass `-e "k8s_upgrade_mode=true"`.
