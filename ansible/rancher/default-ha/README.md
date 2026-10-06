@@ -81,6 +81,7 @@ make rancher-upgrade ENV=default DISTRO=rke2 RANCHER_UPGRADE_LINE=2.15
 | `RANCHER_CHART_UPGRADE_REPO_URL` | `rancher_chart_upgrade_repo_url` | — | Explicit chart repo URL; overrides the flavor mapping (airgap seam) |
 | `RANCHER_UPGRADE_REPO_USERNAME`/`_PASSWORD` | `rancher_upgrade_repo_username`/`_password` | unset | Chart repo credentials, only passed when set (airgap seam) |
 | `RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY` | `rancher_upgrade_system_default_registry` | unset | Sets the `systemDefaultRegistry` helm value when set (airgap seam) |
+| — (direct `-e`) | `rancher_private_hostname`/`rancher_public_hostname` | unset | Airgap: after the helm upgrade, re-patches the Rancher Ingress to serve both hostnames (helm re-renders it back to the single `values.hostname`); unset skips the patch (airgap seam) |
 
 Version resolution is also usable standalone, which is how pipelines resolve
 the deploy side (latest 2.14.x patch of the source version):

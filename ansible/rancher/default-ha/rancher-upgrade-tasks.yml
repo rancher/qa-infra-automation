@@ -140,6 +140,18 @@
       retries: 6
       delay: 120
 
+
+- name: Restore airgap ingress hostnames after the helm upgrade
+  # helm re-rendered the Ingress it owns, resetting the deploy-time patch that
+  # adds the public hostname alongside the helm values.hostname (internal LB).
+  # Skipped unless both hostnames are passed; default-env upgrades skip it.
+  when:
+    - rancher_private_hostname is defined
+    - rancher_public_hostname is defined
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/../../rke2/shared/tasks/rancher-ingress-hostnames.yml"
+  vars:
+    ingress_kubeconfig: "{{ kubeconfig_file }}"
+
 - name: Wait for Rancher deployment to be ready after upgrade
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig_file }}"
