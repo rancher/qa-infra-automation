@@ -75,6 +75,9 @@ RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 RANCHER_VERSION_TO_UPGRADE ?= latest
 RANCHER_IMAGE_TAG_TO_UPGRADE ?= latest
 RANCHER_CHART_REPO_FLAVOR ?= community
+# Latest final release of a line (e.g. 2.15), resolved at runtime; mutually
+# exclusive with a pinned RANCHER_VERSION_TO_UPGRADE.
+RANCHER_UPGRADE_LINE ?=
 
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
@@ -741,7 +744,7 @@ registry: check-inventory ## Configure private registry on cluster nodes
 	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rke2-registry-config-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: rancher-upgrade
-rancher-upgrade: check-inventory ## Upgrade the Rancher server in place (ENV=default; RANCHER_VERSION_TO_UPGRADE=latest|<ver>, RANCHER_CHART_REPO_FLAVOR=community|prime)
+rancher-upgrade: check-inventory ## Upgrade the Rancher server in place (ENV=default; RANCHER_VERSION_TO_UPGRADE=latest|<ver>, RANCHER_UPGRADE_LINE=2.15, RANCHER_CHART_REPO_FLAVOR=community|prime)
 	@if [ -z "$(RANCHER_UPGRADE_PLAYBOOK)" ]; then \
 		echo "Error: rancher-upgrade requires ENV=default (HA helm-based Rancher install)"; \
 		exit 1; \
@@ -1069,6 +1072,9 @@ endif
 RANCHER_UPGRADE_EXTRA_VARS := rancher_version_upgrade=$(RANCHER_VERSION_TO_UPGRADE) rancher_image_tag_upgrade=$(RANCHER_IMAGE_TAG_TO_UPGRADE) rancher_chart_flavor=$(RANCHER_CHART_REPO_FLAVOR)
 ifneq ($(RANCHER_CHART_UPGRADE_REPO_URL),)
 RANCHER_UPGRADE_EXTRA_VARS += rancher_chart_upgrade_repo_url=$(RANCHER_CHART_UPGRADE_REPO_URL)
+endif
+ifneq ($(RANCHER_UPGRADE_LINE),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_line=$(RANCHER_UPGRADE_LINE)
 endif
 ifneq ($(RANCHER_UPGRADE_REPO_USERNAME),)
 RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_repo_username=$(RANCHER_UPGRADE_REPO_USERNAME)

@@ -34,6 +34,9 @@
     # 'latest' (or empty) resolves at runtime; a pinned version passes through.
     rancher_version_upgrade: "latest"
     rancher_image_tag_upgrade: "latest"
+    # Request the latest final release of a line (e.g. "2.15") instead of a
+    # pin or overall 'latest'; resolved at runtime from the chart index.
+    rancher_upgrade_line: ""
 
     # Airgap seams, reserved from day one (empty = not in use):
     # chart repo credentials and a system-default registry for the images.
@@ -53,6 +56,16 @@
           Unknown rancher_chart_flavor '{{ rancher_chart_flavor }}'.
           Valid flavors: {{ rancher_upgrade_repos.keys() | list | join(', ') }}
 
+    - name: Validate the upgrade line request
+      ansible.builtin.assert:
+        that:
+          - rancher_upgrade_line | default('') | length == 0 or rancher_upgrade_line is match('^\d+\.\d+$')
+          - rancher_upgrade_line | default('') | length == 0 or (rancher_version_upgrade | default('latest', true)) in ('', 'latest')
+        fail_msg: >-
+          rancher_upgrade_line must look like '2.15' and cannot be combined
+          with a pinned rancher_version_upgrade ('{{ rancher_version_upgrade | default('', true) }}').
+          Pass only one of the two.
+
     - name: Apply the flavor's chart repo name unless set explicitly
       ansible.builtin.set_fact:
         rancher_chart_repo_upgrade: "{{ rancher_upgrade_repos[rancher_chart_flavor].name }}"
@@ -66,7 +79,9 @@
     - name: Resolve the upgrade target version at runtime
       # Only the 'latest'/empty request resolves; a pinned version is taken as
       # written so an explicit pin is never silently upgraded.
-      when: (rancher_version_upgrade | default('latest', true)) in ('', 'latest')
+      when:
+        - (rancher_version_upgrade | default('latest', true)) in ('', 'latest')
+        - rancher_upgrade_line | default('', true) | length == 0
       block:
         - name: Run the chart version resolver against the repo index
           ansible.builtin.command:
@@ -79,6 +94,24 @@
         - name: Record the resolved upgrade target
           ansible.builtin.set_fact:
             rancher_version_upgrade_final: "{{ (rancher_upgrade_resolution.stdout | from_json).chart_version }}"
+
+    - name: Resolve the upgrade line target at runtime
+      # rancher_upgrade_line (e.g. "2.15") resolves to that line's newest
+      # final release; it takes the place of both 'latest' and pinned targets.
+      when: rancher_upgrade_line | default('', true) | length > 0
+      block:
+        - name: Run the chart version resolver for the requested line
+          ansible.builtin.command:
+            cmd: >-
+              python3 {{ playbook_dir | dirname | dirname | dirname }}/scripts/resolve_rancher_version.py
+              --repo-url {{ rancher_chart_upgrade_repo_url }}
+              --line {{ rancher_upgrade_line }}
+          register: rancher_upgrade_line_resolution
+          changed_when: false
+
+        - name: Record the resolved line target
+          ansible.builtin.set_fact:
+            rancher_version_upgrade_final: "{{ (rancher_upgrade_line_resolution.stdout | from_json).chart_version }}"
 
     - name: Keep a pinned upgrade target as written
       ansible.builtin.set_fact:
