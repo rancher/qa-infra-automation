@@ -31,21 +31,26 @@ resource "harvester_virtualmachine" "elemental-vm" {
   }
 
   disk {
-    name       = "rootdisk"
-    type       = "disk"
-    size       = var.disk_size
-    bus        = "virtio"
-    boot_order = 1
+    name        = "rootdisk"
+    type        = "disk"
+    size        = var.disk_size
+    bus         = "virtio"
+    boot_order  = 1
     auto_delete = true
   }
 
   network_interface {
-    name         = "default"
-    model        = "virtio"
-    type         = "bridge"
+    name  = "default"
+    model = "virtio"
+    type  = "bridge"
+
+    # Without this the VM is considered ready as soon as the VMI reports
+    # Running, which happens before a DHCP lease is assigned. The `ip` and
+    # `kube_api_host` outputs would then resolve to empty strings.
+    wait_for_lease = true
   }
 
-  run_strategy    = "RerunOnFailure"
+  run_strategy = "RerunOnFailure"
 
   cloudinit {
     user_data_base64 = var.user_data_base64
@@ -53,6 +58,6 @@ resource "harvester_virtualmachine" "elemental-vm" {
 
   efi         = true
   secure_boot = true
-  
+
   tpm {}
 }

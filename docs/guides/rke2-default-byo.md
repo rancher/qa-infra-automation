@@ -32,10 +32,12 @@ all:
     kube_api_host: "1.2.3.4"
 
   children:
-    # The initial control-plane node — must be named "master"
+    # The initial control-plane node — the GROUP must be named "master".
+    # Host names must not match a group name (Ansible warns and group lookups
+    # become ambiguous), hence "master-node" rather than "master".
     master:
       hosts:
-        master:
+        master-node:
           ansible_host: "1.2.3.4"
           ansible_user: "root"
           rke2_node_role: master
@@ -47,7 +49,7 @@ all:
     # Additional control-plane / etcd nodes (optional)
     servers:
       hosts:
-        server-1:
+        servers-node-0:
           ansible_host: "5.6.7.8"
           ansible_user: "root"
           rke2_node_role: server
@@ -58,13 +60,13 @@ all:
     # Worker-only nodes (optional)
     workers:
       hosts:
-        worker-0:
+        workers-node-0:
           ansible_host: "9.10.11.12"
           ansible_user: "root"
           rke2_node_role: agent
           node_roles:
             - worker
-        worker-1:
+        workers-node-1:
           ansible_host: "13.14.15.16"
           ansible_user: "root"
           rke2_node_role: agent
@@ -96,7 +98,7 @@ all:
   children:
     master:
       hosts:
-        master:
+        master-node:
           ansible_host: "1.2.3.4"
           ansible_user: "root"
           rke2_node_role: master

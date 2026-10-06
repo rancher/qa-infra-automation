@@ -1,0 +1,13 @@
+---
+- name: Mirror rancher-charts on the bastion for airgap catalog installs
+  hosts: bastion
+  become: true
+  gather_facts: true
+  vars:
+    # The standalone playbook's sole purpose is to stand up the mirror, so
+    # force the gate on. Override with EXTRA_VARS="enable_charts_mirror=false".
+    enable_charts_mirror: true
+  roles:
+    - role: airgap_rke2_charts_mirror
+      tags:
+        - charts-mirror

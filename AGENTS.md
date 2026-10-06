@@ -10,7 +10,7 @@ These vendor-neutral guidelines apply to every AI agent, automated reviewer, and
 
 ## Existing Repository Guidance
 
-- All agents must read and follow the existing [Copilot code-style guidelines](.github/agents/pit.crew.code.style.agent.md), even outside Copilot.
+- All agents must read and follow the existing [code-review skill](.github/skills/code-review/SKILL.md), even outside Copilot.
 - Treat its Ansible, OpenTofu, README reference files, and checklist as the repository's established style baseline.
 - These guidelines supplement that document with testing, compatibility, security, and handoff requirements.
 

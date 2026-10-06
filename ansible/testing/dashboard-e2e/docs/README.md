@@ -14,6 +14,7 @@ when you are changing the thing itself.
 | [jenkins.md](jenkins.md) | The Jenkins path: parent matrix job, child job, `init.sh`, and the two containers a build runs |
 | [resolver.md](resolver.md) | Which chart, image and build type a row resolves to, and why each signal was chosen |
 | [ci-files.md](ci-files.md) | `files/`, and how it is laid over the `cypress/jenkins/` directory of the dashboard checkout |
+| [extensions.md](extensions.md) | Pointing the pipeline at a UI extension repo instead of the dashboard: the variables, what switches itself off, and the Virtual Clusters jobs |
 
 ## The whole thing in one picture
 

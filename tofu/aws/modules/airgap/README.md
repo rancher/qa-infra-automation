@@ -134,6 +134,18 @@ IAM policy (example)
 
 Refer to `variables.tf` for a list of configurable variables.
 
+### Resource name length
+
+`aws_hostname_prefix` seeds every AWS resource name the module creates: the
+security group (`<prefix>-airgap`), the load balancers (`<prefix>`,
+`<prefix>-internal`), their target groups (`<prefix>-tg-<port>`,
+`<prefix>-internal-tg-<port>`) and the DNS records. AWS caps resource names at
+63 characters and load balancer and target group names cap at **32**.
+So the prefix has to leave room for the decoration the module adds:
+**at most 15 characters, or 8 with `random_name_suffix = true`** (the
+suffix adds 7). The module validates this during `tofu plan` and reports the
+budget instead of letting AWS reject a name halfway through `tofu apply`.
+
 ## Outputs
 
 Refer to `outputs.tf` for a list of exported values.

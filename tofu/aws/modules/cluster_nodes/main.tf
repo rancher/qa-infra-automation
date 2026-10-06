@@ -16,8 +16,8 @@ locals {
   first_master_index = local.first_etcd_index >= 0 ? local.first_etcd_index : local.first_cp_index
   node_names = [
     for idx, node in local.temp_node_names : {
-      name = node.name == local.temp_node_names[local.first_master_index].name ? "master" : node.name
-      role = node.role
+      name          = node.name == local.temp_node_names[local.first_master_index].name ? "master" : node.name
+      role          = node.role
       instance_type = node.instance_type
     }
   ]
@@ -36,20 +36,26 @@ locals {
   create_security_group = length(var.aws_security_group) == 0
   security_group_ids    = local.create_security_group ? [aws_security_group.ephemeral[0].id] : var.aws_security_group
 
-  # Egress CIDRs for the ephemeral SGs: caller-supplied, or the VPC's own CIDR by default.
-  ephemeral_sg_egress_cidrs = coalesce(var.ephemeral_sg_egress_cidrs, [local.vpc_cidr_block])
+  name_suffix = var.random_name_suffix ? "-${random_string.name_suffix[0].result}" : ""
+}
+
+resource "random_string" "name_suffix" {
+  count   = var.random_name_suffix ? 1 : 0
+  length  = 6
+  special = false
+  upper   = false
 }
 
 variable "registry_ip" {
-    type = string
-    default = null
+  type    = string
+  default = null
 }
 
 provider "random" {}
 provider "aws" {
   access_key = var.aws_access_key
   secret_key = var.aws_secret_key
-  region =  var.aws_region
+  region     = var.aws_region
 }
 
 resource "random_id" "cluster_id" {
@@ -57,7 +63,7 @@ resource "random_id" "cluster_id" {
 }
 
 resource "aws_key_pair" "ssh_public_key" {
-  key_name = "tf-key-${var.aws_hostname_prefix}-${random_id.cluster_id.hex}"
+  key_name   = "tf-key-${var.aws_hostname_prefix}-${random_id.cluster_id.hex}${local.name_suffix}"
   public_key = file(var.public_ssh_key)
 }
 
@@ -65,12 +71,12 @@ resource "aws_key_pair" "ssh_public_key" {
 # intra-group traffic, and the RKE2/Rancher NLB listener ports.
 resource "aws_security_group" "ephemeral" {
   count       = local.create_security_group ? 1 : 0
-  name        = "tf-${var.aws_hostname_prefix}-sg"
+  name        = "tf-${var.aws_hostname_prefix}-sg${local.name_suffix}"
   description = "Ephemeral security group for ${var.aws_hostname_prefix} (created because var.aws_security_group was empty)"
   vpc_id      = local.vpc_id
 
   tags = {
-    Name = "tf-${var.aws_hostname_prefix}-sg"
+    Name = "tf-${var.aws_hostname_prefix}-sg${local.name_suffix}"
   }
 }
 
@@ -78,11 +84,11 @@ resource "aws_vpc_security_group_ingress_rule" "ephemeral_ssh_ingress" {
   for_each = local.create_security_group ? toset(var.ephemeral_sg_ingress_cidrs) : []
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "SSH from allowed CIDRs"
-  ip_protocol        = "tcp"
-  from_port          = 22
-  to_port            = 22
-  cidr_ipv4          = each.value
+  description       = "SSH from allowed CIDRs"
+  ip_protocol       = "tcp"
+  from_port         = 22
+  to_port           = 22
+  cidr_ipv4         = each.value
 }
 
 resource "aws_vpc_security_group_ingress_rule" "ephemeral_lb_listener_ingress" {
@@ -92,19 +98,19 @@ resource "aws_vpc_security_group_ingress_rule" "ephemeral_lb_listener_ingress" {
   } : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "NLB listener ${each.value.port} from allowed CIDRs"
-  ip_protocol        = "tcp"
-  from_port          = tonumber(each.value.port)
-  to_port            = tonumber(each.value.port)
-  cidr_ipv4          = each.value.cidr
+  description       = "NLB listener ${each.value.port} from allowed CIDRs"
+  ip_protocol       = "tcp"
+  from_port         = tonumber(each.value.port)
+  to_port           = tonumber(each.value.port)
+  cidr_ipv4         = each.value.cidr
 }
 
 resource "aws_vpc_security_group_ingress_rule" "ephemeral_self_ingress" {
   count = local.create_security_group ? 1 : 0
 
   security_group_id            = aws_security_group.ephemeral[0].id
-  description                   = "All traffic between instances in this security group"
-  ip_protocol                   = "-1"
+  description                  = "All traffic between instances in this security group"
+  ip_protocol                  = "-1"
   referenced_security_group_id = aws_security_group.ephemeral[0].id
 }
 
@@ -112,17 +118,17 @@ resource "aws_vpc_security_group_ingress_rule" "ephemeral_self_ingress" {
 # ENIs inside this VPC/subnet (not from instances in this SG, so "self" does
 # not cover them, and their IPs aren't known ahead of time) - scope to the
 # VPC CIDR instead of 0.0.0.0/0. The node-to-node/public-IP-hairpin case is
-# covered separately by the per-node standalone rke2_lb_node_ingress rules
+# covered separately by the per-node standalone rke2_node_ingress rule
 # below.
 resource "aws_vpc_security_group_ingress_rule" "ephemeral_lb_healthcheck_ingress" {
   for_each = local.create_security_group ? toset(["80", "443"]) : []
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Kubernetes/Rancher listener ${each.value} from within the VPC (NLB health checks)"
-  ip_protocol        = "tcp"
-  from_port          = tonumber(each.value)
-  to_port            = tonumber(each.value)
-  cidr_ipv4          = local.vpc_cidr_block
+  description       = "Kubernetes/Rancher listener ${each.value} from within the VPC (NLB health checks)"
+  ip_protocol       = "tcp"
+  from_port         = tonumber(each.value)
+  to_port           = tonumber(each.value)
+  cidr_ipv4         = local.vpc_cidr_block
 }
 
 resource "aws_vpc_security_group_ingress_rule" "ephemeral_rke2_api_ingress" {
@@ -132,87 +138,27 @@ resource "aws_vpc_security_group_ingress_rule" "ephemeral_rke2_api_ingress" {
   } : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Kubernetes/Rancher listener ${each.value.port} from allowed CIDRs (jumpbox/bastion/office)"
-  ip_protocol        = "tcp"
-  from_port          = tonumber(each.value.port)
-  to_port            = tonumber(each.value.port)
-  cidr_ipv4          = each.value.cidr
+  description       = "Kubernetes/Rancher listener ${each.value.port} from allowed CIDRs (jumpbox/bastion/office)"
+  ip_protocol       = "tcp"
+  from_port         = tonumber(each.value.port)
+  to_port           = tonumber(each.value.port)
+  cidr_ipv4         = each.value.cidr
 }
 
-resource "aws_vpc_security_group_egress_rule" "ephemeral_default_egress" {
-  for_each = local.create_security_group ? toset(local.ephemeral_sg_egress_cidrs) : []
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Egress to runner/jumpbox/bastion/office CIDRs"
-  ip_protocol        = "-1"
-  cidr_ipv4          = each.value
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_listener_egress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["80", "443", "6443", "9345"], var.ephemeral_sg_ingress_cidrs) :
-    "${pair[0]}-${pair[1]}" => { port = pair[0], cidr = pair[1] }
-  } : {}
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Ephemeral listener ${each.value.port} from allowed CIDRs"
-  ip_protocol        = "tcp"
-  from_port          = tonumber(each.value.port)
-  to_port            = tonumber(each.value.port)
-  cidr_ipv4          = each.value.cidr
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_self_egress" {
-  count = local.create_security_group ? 1 : 0
-
-  security_group_id            = aws_security_group.ephemeral[0].id
-  description                   = "All traffic between instances in this security group"
-  ip_protocol                   = "-1"
-  referenced_security_group_id = aws_security_group.ephemeral[0].id
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_http_egress" {
+resource "aws_vpc_security_group_egress_rule" "ephemeral_allow_all_egress" {
   count = local.create_security_group ? 1 : 0
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Outbound HTTP"
-  ip_protocol        = "tcp"
-  from_port          = 80
-  to_port            = 80
-  cidr_ipv4          = "0.0.0.0/0"
+  description       = "All outbound traffic"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
 }
 
-resource "aws_vpc_security_group_egress_rule" "ephemeral_https_egress" {
-  count = local.create_security_group ? 1 : 0
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Outbound HTTPS"
-  ip_protocol        = "tcp"
-  from_port          = 443
-  to_port            = 443
-  cidr_ipv4          = "0.0.0.0/0"
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_tcp_egress" {
-  count = local.create_security_group ? 1 : 0
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Outbound DNS (TCP)"
-  ip_protocol        = "tcp"
-  from_port          = 53
-  to_port            = 53
-  cidr_ipv4          = "0.0.0.0/0"
-}
-
-resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_udp_egress" {
-  count = local.create_security_group ? 1 : 0
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Outbound DNS (UDP)"
-  ip_protocol        = "udp"
-  from_port          = 53
-  to_port            = 53
-  cidr_ipv4          = "0.0.0.0/0"
+# Migrates the one removed egress rule with a matching state slot; see
+# README's "Upgrade note" for the rest.
+moved {
+  from = aws_vpc_security_group_egress_rule.ephemeral_self_egress[0]
+  to   = aws_vpc_security_group_egress_rule.ephemeral_allow_all_egress[0]
 }
 
 # Dedicated SSH security group with stable CIDR rules.
@@ -231,7 +177,7 @@ resource "aws_vpc_security_group_egress_rule" "ephemeral_dns_udp_egress" {
 # port matrix in the shared SG is left untouched.
 resource "aws_security_group" "ssh" {
   count       = var.create_ssh_security_group ? 1 : 0
-  name        = "tf-${var.aws_hostname_prefix}-ssh"
+  name        = "tf-${var.aws_hostname_prefix}-ssh${local.name_suffix}"
   description = "Stable SSH (22) access for ${var.aws_hostname_prefix} (avoids prefix-list propagation lag)."
   vpc_id      = local.vpc_id
 
@@ -255,295 +201,213 @@ resource "aws_security_group" "ssh" {
   }
 
   egress {
-    description = "Egress to allowed CIDRs (ssh security group)"
+    description = "All outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = local.create_security_group ? local.ephemeral_sg_egress_cidrs : ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = {
-    Name = "tf-${var.aws_hostname_prefix}-ssh"
+    Name = "tf-${var.aws_hostname_prefix}-ssh${local.name_suffix}"
   }
 }
 
 resource "aws_instance" "node" {
-  for_each = { for node in local.node_names : node.name => node }
-  ami = var.aws_ami
-  instance_type = each.value.instance_type != null ? each.value.instance_type : var.instance_type
-  key_name = aws_key_pair.ssh_public_key.key_name
-  vpc_security_group_ids = compact(concat(local.security_group_ids, var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : []))
-  subnet_id = local.subnet_id
+  for_each                    = { for node in local.node_names : node.name => node }
+  ami                         = var.aws_ami
+  instance_type               = each.value.instance_type != null ? each.value.instance_type : var.instance_type
+  key_name                    = aws_key_pair.ssh_public_key.key_name
+  vpc_security_group_ids      = compact(concat(local.security_group_ids, var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : []))
+  subnet_id                   = local.subnet_id
   associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
 
   ebs_block_device {
-     device_name = "/dev/sda1"
-     volume_size = var.aws_volume_size
-     volume_type = var.aws_volume_type
-     encrypted = true
-     delete_on_termination = true
-   }
+    device_name           = "/dev/sda1"
+    volume_size           = var.aws_volume_size
+    volume_type           = var.aws_volume_type
+    encrypted             = true
+    delete_on_termination = true
+  }
 
   tags = {
-    Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
+    Name = "tf-${var.aws_hostname_prefix}-${each.value.name}${local.name_suffix}"
   }
 }
 
-# Node-to-node RKE2/Rancher LB traffic (80/443) also hairpins through the IGW
-# the same way 6443/9345 does (nodes/LB targets addressed by public IP), so it
-# re-enters tagged with the source's public IP - not matched by "self = true"
-# or the VPC-CIDR-scoped ingress above. Scope to each node's own public IP
-# (/32) instead of 0.0.0.0/0. Standalone resource for the same reason as
-# rke2_api_node_ingress (avoids a cycle with aws_security_group).
-resource "aws_vpc_security_group_ingress_rule" "rke2_lb_node_ingress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["80", "443"], keys(aws_instance.node)) :
-    "${pair[0]}-${pair[1]}" => {
-      port = tonumber(pair[0])
-      node = pair[1]
-    }
-  } : {}
+# Allow all node-to-node traffic over public IPs. Nodes address each other by
+# public IP, so the traffic does not match the self-referencing rule above.
+resource "aws_vpc_security_group_ingress_rule" "rke2_node_ingress" {
+  for_each = local.create_security_group ? aws_instance.node : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Kubernetes/Rancher listener ${each.value.port} from node ${each.value.node} public IP"
-  ip_protocol        = "tcp"
-  from_port          = each.value.port
-  to_port            = each.value.port
-  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
-}
-
-# Egress counterpart to rke2_lb_node_ingress above: nodes DIAL OUT to each
-# other's public IPs on 80/443 (e.g. a joining node reaching the NLB/master
-# via its public IP). Scoped per-node-IP instead of 0.0.0.0/0.
-resource "aws_vpc_security_group_egress_rule" "rke2_lb_node_egress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["80", "443"], keys(aws_instance.node)) :
-    "${pair[0]}-${pair[1]}" => {
-      port = tonumber(pair[0])
-      node = pair[1]
-    }
-  } : {}
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "Kubernetes/Rancher listener ${each.value.port} to node ${each.value.node} public IP"
-  ip_protocol        = "tcp"
-  from_port          = each.value.port
-  to_port            = each.value.port
-  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
-}
-
-# Node-to-node RKE2/Rancher API traffic (6443/9345) hairpins through the IGW
-# because nodes address each other by public IP (see outputs.kube_api_host),
-# so it does NOT match the "self = true" intra-SG rule above (that only
-# matches traffic sourced from a private ENI in this SG). Without this,
-# joining nodes get "context deadline exceeded" hitting the master's
-# /cacerts endpoint. Scope ingress to each node's own public IP (/32) instead
-# of 0.0.0.0/0. Standalone resources avoid a dependency cycle with the
-# inline aws_security_group (which must exist before any instance attaches).
-resource "aws_vpc_security_group_ingress_rule" "rke2_api_node_ingress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["6443", "9345"], keys(aws_instance.node)) :
-    "${pair[0]}-${pair[1]}" => {
-      port = tonumber(pair[0])
-      node = pair[1]
-    }
-  } : {}
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "RKE2/Rancher API ${each.value.port} from node ${each.value.node} public IP"
-  ip_protocol        = "tcp"
-  from_port          = each.value.port
-  to_port            = each.value.port
-  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
-}
-
-# Egress counterpart to rke2_api_node_ingress above: nodes DIAL OUT to each
-# other's public IPs on 6443/9345 to join/read the cluster (e.g. an agent
-# calling https://<master_public_ip>:9345/cacerts). None of the existing
-# inline egress rules (VPC CIDR, jumpbox CIDR, 80/443/53 to 0.0.0.0/0) cover
-# egress to another node's public IP on these ports, so without this rule
-# outbound join traffic is dropped and nodes hang/fail joining the master.
-# Scoped per-node-IP instead of 0.0.0.0/0. Standalone resource for the same
-# reason as the ingress rule (avoids a cycle with aws_security_group).
-resource "aws_vpc_security_group_egress_rule" "rke2_api_node_egress" {
-  for_each = local.create_security_group ? {
-    for pair in setproduct(["6443", "9345"], keys(aws_instance.node)) :
-    "${pair[0]}-${pair[1]}" => {
-      port = tonumber(pair[0])
-      node = pair[1]
-    }
-  } : {}
-
-  security_group_id = aws_security_group.ephemeral[0].id
-  description        = "RKE2/Rancher API ${each.value.port} to node ${each.value.node} public IP"
-  ip_protocol        = "tcp"
-  from_port          = each.value.port
-  to_port            = each.value.port
-  cidr_ipv4          = "${aws_instance.node[each.value.node].public_ip}/32"
+  description       = "All traffic from node ${each.key} public IP"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "${each.value.public_ip}/32"
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
-  for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
+  for_each         = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_80[0].arn
-  target_id = aws_instance.node[each.key].id
-  port = 80
+  target_id        = aws_instance.node[each.key].id
+  port             = 80
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_443" {
-  for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
+  for_each         = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_443[0].arn
-  target_id = aws_instance.node[each.key].id
-  port = 443
+  target_id        = aws_instance.node[each.key].id
+  port             = 443
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_9345" {
-  for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
+  for_each         = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_9345[0].arn
-  target_id = aws_instance.node[each.key].id
-  port = 9345
+  target_id        = aws_instance.node[each.key].id
+  port             = 9345
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_6443" {
-  for_each = local.cp_node_count > 1 ? local.cp_nodes : {}
+  for_each         = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_6443[0].arn
-  target_id = aws_instance.node[each.key].id
-  port = 6443
+  target_id        = aws_instance.node[each.key].id
+  port             = 6443
 }
 
 resource "aws_lb" "aws_nlb" {
-  count = local.cp_node_count  > 1 ? 1 : 0
-  internal = false
+  count              = local.cp_node_count > 1 ? 1 : 0
+  internal           = false
   load_balancer_type = "network"
-  subnets = [local.subnet_id]
-  name = "${var.aws_hostname_prefix}-nlb"
+  subnets            = [local.subnet_id]
+  name               = "${var.aws_hostname_prefix}-nlb${local.name_suffix}"
 }
 
 resource "aws_lb_target_group" "aws_tg_80" {
-  count = local.cp_node_count  > 1 ? 1 : 0
-  port = 80
+  count    = local.cp_node_count > 1 ? 1 : 0
+  port     = 80
   protocol = "TCP"
-  vpc_id = local.vpc_id
-  name = "${var.aws_hostname_prefix}-tg-80"
+  vpc_id   = local.vpc_id
+  name     = "${var.aws_hostname_prefix}-tg-80${local.name_suffix}"
   health_check {
-        protocol = "HTTP"
-        port = "traffic-port"
-        path = "/ping"
-        interval = 10
-        timeout = 6
-        healthy_threshold = 3
-        unhealthy_threshold = 3
-        matcher = "200-399"
+    protocol            = "HTTP"
+    port                = "traffic-port"
+    path                = "/ping"
+    interval            = 10
+    timeout             = 6
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
+    matcher             = "200-399"
   }
 }
 
 resource "aws_lb_target_group" "aws_tg_443" {
-  count = local.cp_node_count  > 1 ? 1 : 0
-  port = 443
+  count    = local.cp_node_count > 1 ? 1 : 0
+  port     = 443
   protocol = "TCP"
-  vpc_id = local.vpc_id
-  name = "${var.aws_hostname_prefix}-tg-443"
+  vpc_id   = local.vpc_id
+  name     = "${var.aws_hostname_prefix}-tg-443${local.name_suffix}"
   health_check {
-        protocol = "HTTP"
-        port = 80
-        path = "/ping"
-        interval = 10
-        timeout = 6
-        healthy_threshold = 3
-        unhealthy_threshold = 3
-        matcher = "200-399"
+    protocol            = "HTTP"
+    port                = 80
+    path                = "/ping"
+    interval            = 10
+    timeout             = 6
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
+    matcher             = "200-399"
   }
 }
 
 resource "aws_lb_target_group" "aws_tg_6443" {
-  count = local.cp_node_count  > 1 ? 1 : 0
-  port = 6443
+  count    = local.cp_node_count > 1 ? 1 : 0
+  port     = 6443
   protocol = "TCP"
-  vpc_id = local.vpc_id
-  name = "${var.aws_hostname_prefix}-tg-6443"
+  vpc_id   = local.vpc_id
+  name     = "${var.aws_hostname_prefix}-tg-6443${local.name_suffix}"
   health_check {
-        protocol = "HTTP"
-        port = 80
-        path = "/ping"
-        interval = 10
-        timeout = 6
-        healthy_threshold = 3
-        unhealthy_threshold = 3
-        matcher = "200-399"
+    protocol            = "HTTP"
+    port                = 80
+    path                = "/ping"
+    interval            = 10
+    timeout             = 6
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
+    matcher             = "200-399"
   }
 }
 
 resource "aws_lb_target_group" "aws_tg_9345" {
-  count = local.cp_node_count  > 1 ? 1 : 0
-  port = 9345
+  count    = local.cp_node_count > 1 ? 1 : 0
+  port     = 9345
   protocol = "TCP"
-  vpc_id = local.vpc_id
-  name = "${var.aws_hostname_prefix}-tg-9345"
+  vpc_id   = local.vpc_id
+  name     = "${var.aws_hostname_prefix}-tg-9345${local.name_suffix}"
   health_check {
-        protocol = "HTTP"
-        port = 80
-        path = "/ping"
-        interval = 10
-        timeout = 6
-        healthy_threshold = 3
-        unhealthy_threshold = 3
-        matcher = "200-399"
+    protocol            = "HTTP"
+    port                = 80
+    path                = "/ping"
+    interval            = 10
+    timeout             = 6
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
+    matcher             = "200-399"
   }
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_80" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count             = local.cp_node_count > 1 ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
-  port = "80"
-  protocol = "TCP"
+  port              = "80"
+  protocol          = "TCP"
   default_action {
-    type = "forward"
+    type             = "forward"
     target_group_arn = aws_lb_target_group.aws_tg_80[0].arn
   }
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_443" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count             = local.cp_node_count > 1 ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
-  port = "443"
-  protocol = "TCP"
+  port              = "443"
+  protocol          = "TCP"
   default_action {
-    type = "forward"
+    type             = "forward"
     target_group_arn = aws_lb_target_group.aws_tg_443[0].arn
   }
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_6443" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count             = local.cp_node_count > 1 ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
-  port = "6443"
-  protocol = "TCP"
+  port              = "6443"
+  protocol          = "TCP"
   default_action {
-    type = "forward"
+    type             = "forward"
     target_group_arn = aws_lb_target_group.aws_tg_6443[0].arn
   }
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_9345" {
-  count = local.cp_node_count  > 1 ? 1 : 0
+  count             = local.cp_node_count > 1 ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
-  port = "9345"
-  protocol = "TCP"
+  port              = "9345"
+  protocol          = "TCP"
   default_action {
-    type = "forward"
+    type             = "forward"
     target_group_arn = aws_lb_target_group.aws_tg_9345[0].arn
   }
 }
 
 resource "aws_route53_record" "aws_route53" {
   zone_id = data.aws_route53_zone.selected.zone_id
-  name = var.aws_hostname_prefix
-  type = local.cp_node_count > 1 ? "CNAME" : "A"
-  ttl = "300"
+  name    = var.aws_hostname_prefix
+  type    = local.cp_node_count > 1 ? "CNAME" : "A"
+  ttl     = "300"
   records = local.cp_node_count > 1 ? [aws_lb.aws_nlb[0].dns_name] : [aws_instance.node[keys(local.cp_nodes)[0]].public_ip]
 }
 
 data "aws_route53_zone" "selected" {
-  name = var.aws_route53_zone
+  name         = var.aws_route53_zone
   private_zone = false
 }
 

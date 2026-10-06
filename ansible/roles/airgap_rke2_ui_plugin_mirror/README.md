@@ -31,8 +31,8 @@ The role runs on `hosts: bastion` and is **gated by `enable_ui_plugin_mirror`** 
    it differs) so clones check out that branch.
 4. Serves the bare repo over **smart HTTP** via Apache + `git-http-backend` (prefork MPM
    + `mod_cgi`), configured as `/etc/apache2/conf-available/ui-plugin-mirror.conf` and
-   listening on `ui_plugin_mirror_listen:ui_plugin_mirror_port`. A system-wide
-   `safe.directory *` lets the web-server user (`www-data`) serve the root-owned repo.
+   listening on `ui_plugin_mirror_listen:ui_plugin_mirror_port`. A `safe.directory`
+   entry scoped to the mirror lets the web-server user (`www-data`) serve the root-owned repo.
 5. Exposes `ui_plugin_mirror_url`
    (`http://<bastion>:<port>/ui-plugin-charts.git`) for consumers.
 6. Persists the URL and branch as an Ansible **local fact** on the bastion

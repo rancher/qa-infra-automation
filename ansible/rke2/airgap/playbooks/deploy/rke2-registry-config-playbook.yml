@@ -99,3 +99,12 @@
     - role: airgap_rke2_ui_plugin_mirror
       tags:
         - ui-plugin-mirror
+
+- name: Mirror rancher-charts on the bastion (airgap catalog installs)
+  hosts: bastion
+  become: true
+  gather_facts: true
+  roles:
+    - role: airgap_rke2_charts_mirror
+      tags:
+        - charts-mirror

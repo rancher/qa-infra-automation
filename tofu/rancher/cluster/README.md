@@ -42,18 +42,21 @@ This module deploys a downstream cluster on your rancher setup
 ## Using `make` (from the repo root)
 
 The repository `Makefile` wraps the commands above and auto-loads
-`ansible/rancher/default-ha/generated.tfvars` for `fqdn`/`api_key`:
+`ansible/rancher/default-ha/generated.tfvars` for `fqdn`/`api_key`.
+`DOWNSTREAM_TFVARS` defaults to this module's `vars.tfvars`, so the targets
+work without it once you have edited the sample (or copied your own and
+overridden with `DOWNSTREAM_TFVARS=<path>`):
 
 ```bash
 # Plan / create (prompts unless AUTO_APPROVE=yes)
-make downstream-tofu-plan    DOWNSTREAM_TFVARS=/path/to/vars.tfvars
-make downstream-tofu         DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+make downstream-tofu-plan
+make downstream-tofu
 
 # Destroy (prompts unless AUTO_APPROVE=yes)
-make downstream-tofu-destroy DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+make downstream-tofu-destroy AUTO_APPROVE=yes
 
 # Show outputs
-make downstream-tofu-output  DOWNSTREAM_TFVARS=/path/to/vars.tfvars
+make downstream-tofu-output
 ```
 
 Override `RANCHER_TFVARS=<path>` if your Rancher outputs live elsewhere, and
@@ -72,7 +75,7 @@ lookup accordingly, and must resolve to exactly one security group or
 until well after each node boots, so they can't get a per-IP SG rule at
 plan time the way the RKE2/master nodes do in `cluster_nodes`.
 
-Without inbound/outbound access on 80/443, the Rancher agent(s) can spend
+Without inbound/outbound access, the Rancher agent(s) can spend
 60-100+ minutes retrying their check-in, after which their registration
 token(s) expire and they 401 forever. To avoid `0.0.0.0/0`, this module tags
 each downstream node with a unique discovery tag
@@ -81,10 +84,10 @@ IP(s) via `data "aws_instances"` filtered on that tag (the shared SG also
 contains the original RKE2 nodes from `cluster_nodes`, so filtering by SG
 alone wouldn't isolate these nodes). Those IPs feed native
 `aws_vpc_security_group_ingress_rule`/`aws_vpc_security_group_egress_rule`
-resources for ports 80 and 443 (`downstream_agent_checkin_ingress`/`egress`),
-one pair per expected node ("slot"), so the rules are fully managed by Tofu
-and automatically cleaned up on `tofu destroy`. Confirmed via live testing
-that both ports (not just 443), in both directions, are required.
+resources, one all-protocol `/32` rule pair per expected node, so the rules
+are fully managed by Tofu and automatically cleaned up on `tofu destroy`.
+Confirmed via live testing that all-protocol access, in both directions, is
+required (not just 80/443).
 
 ## Outputs
 Refer to [outputs.tf](./outputs.tf) for a list of exported values.

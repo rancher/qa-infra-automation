@@ -206,6 +206,7 @@ rancher_system_default_registry: "privateregistry.example.com:5000"
 | `install_helm` | Install Helm on bastion if not present | `true` |
 | `rancher_hostname` | FQDN for accessing Rancher | `internal_lb_hostname` from inventory file |
 | `public_hostname` | FQDN for accessing Rancher from outside its network | `external_lb_hostname` from inventory file |
+| `rancher_server_url` | Full URL pinned as the Rancher `server-url` setting (default `https://<external_lb_hostname>`); hostname must be TLS-covered and resolvable by downstream clusters | _(unset)_ |
 | `rancher_bootstrap_password` | Initial admin password | Required |
 | `rancher_image_tag` | Rancher version to deploy | `v2.12.2` |
 | `rancher_use_bundled_system_charts` | Use bundled charts for airgap | `true` |

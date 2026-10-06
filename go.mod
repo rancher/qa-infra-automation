@@ -1,3 +1,3 @@
 module github.com/rancher/qa-infra-automation
 
-go 1.25.5
+go 1.27.0

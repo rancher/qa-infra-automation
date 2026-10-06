@@ -1,7 +1,6 @@
 /* eslint-disable no-console */
 import { defineConfig } from 'cypress';
 import { removeDirectory } from 'cypress-delete-downloads-folder';
-import websocketTasks from '../../cypress/support/utils/webSocket-utils';
 import path from 'path';
 import * as os from 'os';
 
@@ -12,7 +11,7 @@ require('dotenv').config();
  * VARIABLES
  */
 
-const testDirs = [
+const defaultTestDirs = [
   'cypress/e2e/tests/priority/**/*.spec.ts',
   'cypress/e2e/tests/components/**/*.spec.ts',
   'cypress/e2e/tests/setup/**/*.spec.ts',
@@ -22,6 +21,11 @@ const testDirs = [
   'cypress/e2e/tests/features/**/*.spec.ts',
   'cypress/e2e/tests/extensions/**/*.spec.ts'
 ];
+
+// E2E_SPEC_DIRS overrides the globs for a checkout that does not use
+// dashboard's layout. Keep in sync with grep-filter.ts.
+const specDirsOverride = (process.env.E2E_SPEC_DIRS || '').split(',').map((p) => p.trim()).filter((p) => p.length > 0);
+const testDirs = specDirsOverride.length > 0 ? specDirsOverride : defaultTestDirs;
 const skipSetup = process.env.TEST_SKIP?.includes('setup');
 const baseUrl = (process.env.TEST_BASE_URL || 'https://localhost:8005').replace(/\/$/, '');
 const DEFAULT_USERNAME = 'admin';
@@ -308,7 +312,15 @@ export default defineConfig({
           };
         }
       });
-      websocketTasks(on, config);
+      // webSocket-utils is dashboard's own, so another repo's checkout lacks it.
+      try {
+        require('../../cypress/support/utils/webSocket-utils').default(on, config);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException)?.code !== 'MODULE_NOT_FOUND') {
+          throw e;
+        }
+        console.log('WebSocket tasks: cypress/support/utils/webSocket-utils not present in this checkout, skipping.');
+      }
 
       require('cypress-terminal-report/src/installLogsPrinter')(on, {
         outputRoot:           `${ config.projectRoot }/browser-logs/`,
