@@ -115,7 +115,7 @@ make cluster ENV=dualstack
 **Manually** — run from the repository root:
 
 ```bash
-ansible-playbook -i ansible/rke2/dualstack/inventory/inventory.yml ansible/rke2/dualstack/rke2-playbook-dualstack.yml
+ansible-playbook -i ansible/rke2/ipv6/inventory/inventory.yml ansible/rke2/ipv6/rke2-playbook-ipv6.yml
 ```
 
 ### Run Specific Phases Using Tags (Optional)
@@ -134,13 +134,13 @@ The role-based architecture supports selective execution using Ansible tags. Thi
 
 ```bash
 # Run only health checks (useful after cluster is already deployed)
-ansible-playbook -i ansible/rke2/dualstack/inventory/inventory.yml ansible/rke2/dualstack/rke2-playbook-dualstack.yml --tags health
+ansible-playbook -i ansible/rke2/ipv6/inventory/inventory.yml ansible/rke2/ipv6/rke2-playbook-ipv6.yml --tags health
 
 # Run only setup and config (skip installation and cluster formation)
-ansible-playbook -i ansible/rke2/dualstack/inventory/inventory.yml ansible/rke2/dualstack/rke2-playbook-dualstack.yml --tags setup,config
+ansible-playbook -i ansible/rke2/ipv6/inventory/inventory.yml ansible/rke2/ipv6/rke2-playbook-ipv6.yml --tags setup,config
 
 # Skip setup phase (if nodes already prepared)
-ansible-playbook -i ansible/rke2/dualstack/inventory/inventory.yml ansible/rke2/dualstack/rke2-playbook-dualstack.yml --skip-tags setup
+ansible-playbook -i ansible/rke2/ipv6/inventory/inventory.yml ansible/rke2/ipv6/rke2-playbook-ipv6.yml --skip-tags setup
 ```
 
 ## Inventory

@@ -205,10 +205,10 @@ node_token_file: "/tmp/node_token.txt"
 
 server_flags: |
   ingress-controller: traefik
-  cluster-cidr: 10.42.0.0/16,2001:cafe:42:0::/56
-  service-cidr: 10.43.0.0/16,2001:cafe:43:0::/112
-  node-ip: "{{ ansible_host }},{{ ansible_host_ipv6 }}"
+  cluster-cidr: 2001:cafe:42:0::/56
+  service-cidr: 2001:cafe:43:0::/112
+  node-ip: "{{ ansible_host_ipv6 }}"
 
 worker_flags: |
-  node-ip: "{{ ansible_host }},{{ ansible_host_ipv6 }}"
+  node-ip: "{{ ansible_host_ipv6 }}"
 ```

@@ -43,10 +43,10 @@ nodes = [
 no_of_bastion_nodes = 1
 aws_bastion_subnet = "subnet"
 
-# Dualstack deployments - Both IPv4 and IPv6 enabled for nodes and bastion node. 
+# IPv6-only deployment - cluster nodes get IPv6 only; the bastion keeps IPv4+IPv6.
 enable_ipv6  = true # Set IPv6 IP for the nodes and bastion node. 
-enable_public_ip  = true # Set IPv4 address to the nodes. 
-kube_api_host_ipv6 = false # Set to true to use IPv6 address for kube_api_host. Set to false to use IPv4 address for kube_api_host.
+enable_public_ip  = false # No public IPv4 on the cluster nodes.
+kube_api_host_ipv6 = true # kube_api_host must be the IPv6 address.
 
 # DNS64 resolver for IPv6-only nodes (enable_public_ip = false).
 # Defaults to the public nat64.net service; override with a VPC DNS64 resolver.

@@ -9,6 +9,15 @@
     python_local_path: "/tmp/python39.tar.gz"
     has_bastion: "{{ bastion_host is defined and bastion_user is defined }}"
 
+  pre_tasks:
+    # This is the first play `make cluster` runs, so it hits nodes straight out
+    # of `infra-up` while sshd may still be coming up.
+    - name: Wait for SSH to become available
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+      become: false
+
   tasks:
     - name: Check if Python 3.9+ exists
       ansible.builtin.raw: python3.9 --version 2>/dev/null || echo "NEEDS_INSTALL"

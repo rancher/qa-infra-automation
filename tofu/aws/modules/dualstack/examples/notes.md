@@ -13,11 +13,3 @@ enable_ipv6  = true
 enable_public_ip  = true  
 kube_api_host_ipv6 = true 
 ```
-
-3. IPv6 Only scenario. Bastion node will have both ipv4 and ipv6 enabled. The rke2 cluster will have ONLY IPv6 enabled. 
-
-```
-enable_ipv6  = true 
-enable_public_ip  = false  
-kube_api_host_ipv6 = true 
-```

@@ -1,5 +1,6 @@
 # rke2 version and installation settings
 kubernetes_version: 'v1.36.2+rke2r1'
+install_method: "tar"
 
 # kubeconfig file
 kubeconfig_file: './kubeconfig.yaml'
