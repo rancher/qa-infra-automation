@@ -251,16 +251,20 @@
           Cluster Kubernetes version: {{ k8s_cluster_version }}
           - Rancher chart kubeVersion: {{ rancher_chart_kube_version | default('not specified') }}
 
-    - name: Dry-run Rancher install to verify Kubernetes version compatibility
+    - name: Verify chart kubeVersion against the cluster version
+      # helm 4 changed `install --dry-run` to a client-side render and dropped
+      # --kube-version from install, so the chart's kubeVersion constraint was
+      # checked against helm's built-in default version instead of the cluster's.
+      # helm template + --kube-version checks the constraint against the real
+      # cluster version on both helm 3 and 4, with no cluster contact.
       ansible.builtin.command:
         cmd: >-
-          helm install rancher {{ rancher_chart_repo_final }}/rancher
-          --dry-run
+          helm template rancher {{ rancher_chart_repo_final }}/rancher
+          --kube-version {{ k8s_cluster_version }}
           --namespace cattle-system
           {{ ('--version ' + rancher_chart_version) if rancher_chart_version else '' }}
           --set hostname={{ fqdn }}
           --set bootstrapPassword={{ bootstrap_password_final }}
-          --kubeconfig {{ kubeconfig_file }}
       register: rancher_dry_run
       changed_when: false
       # Don't fail yet if the error is about kubeVersion incompatibility;
@@ -316,26 +320,62 @@
         rancher_helm_values: "{{ rancher_helm_values | combine(extra_helm_values_final, recursive=True) }}"
       when: extra_helm_values_final | length > 0
 
-    - name: Install Rancher (verify signed chart)
+    - name: Fetch and verify the Rancher chart
+      # kubernetes.core.helm has no provenance-verification parameter (`verify_ssl`
+      # is a TLS-validation alias), so verification happens here: `helm pull
+      # --verify` fetches chart + .prov and checks the signature. A verified
+      # pull installs the exact verified tarball below; a missing provenance
+      # file (community charts publish none) routes to the repo chart. Skipped
+      # for unpinned installs and when skip_rancher_chart_verification is true.
+      when:
+        - not skip_rancher_chart_verification | bool
+        - rancher_chart_version | length > 0
+      ansible.builtin.command:
+        cmd: >-
+          helm pull {{ rancher_chart_repo_final }}/rancher
+          --version {{ rancher_chart_version }}
+          --verify --destination /tmp
+      register: rancher_chart_pull
+      changed_when: false
+      # Only provenance failures fall through to the unsigned path; anything
+      # else (network, repo errors) is a real failure and stops the run.
+      failed_when: >-
+        rancher_chart_pull.rc != 0
+        and 'provenance' not in rancher_chart_pull.stderr
+
+    - name: Record install chart verification outcome
+      ansible.builtin.set_fact:
+        rancher_chart_verified: "{{ rancher_chart_pull.rc | default(1) == 0 }}"
+        rancher_install_chart_ref: >-
+          {{ '/tmp/rancher-' ~ rancher_chart_version ~ '.tgz'
+             if (rancher_chart_pull.rc | default(1) == 0)
+             else rancher_chart_repo_final ~ '/rancher' }}
+
+    - name: Install Rancher (verified tarball when signed, repo chart otherwise)
       block:
-        - name: Install Rancher with chart verification
+        - name: Install Rancher
+          # Short, fast retry loop: a deterministic provenance failure fails
+          # identically on every attempt, so a long backoff here just delays
+          # the unsigned fallback below. Transient repo/API blips still get a
+          # few retries; the heavy retry budget lives on the fallback.
+          # Chart ref/version come from the verification outcome above;
+          # verify_ssl is a TLS alias, not provenance verification.
           kubernetes.core.helm:
             kubeconfig: "{{ kubeconfig_file }}"
             name: rancher
-            chart_ref: "{{ rancher_chart_repo_final }}/rancher"
+            chart_ref: "{{ rancher_install_chart_ref }}"
             release_namespace: cattle-system
             create_namespace: true
-            chart_version: "{{ rancher_chart_version }}"
+            chart_version: "{{ rancher_chart_verified | bool | ternary(omit, rancher_chart_version) }}"
             wait: true
             wait_timeout: "800s"
             values: "{{ rancher_helm_values }}"
-            verify_ssl: "{{ not skip_rancher_chart_verification | bool }}"
-          retries: 6
-          delay: 120
+          retries: 3
+          delay: 10
       rescue:
-        - name: Warn about chart verification failure
+        - name: Warn about unsigned Rancher chart
           ansible.builtin.debug:
-            msg: "WARNING: Rancher chart verification failed. Installing without verification."
+            msg: "WARNING: Rancher chart has no signed provenance (or the verified install failed). Installing without provenance verification."
 
         - name: Install Rancher (fallback without verification)
           kubernetes.core.helm:
@@ -348,7 +388,7 @@
             wait: true
             wait_timeout: "800s"
             values: "{{ rancher_helm_values }}"
-            verify_ssl: false
+            # No verify_ssl here: it is a TLS alias; TLS validation stays on.
           retries: 6
           delay: 120
       when: rancher_version != ""
