@@ -97,6 +97,13 @@ CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playboo
 RANCHER_PLAYBOOK    := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 DOWNSTREAM_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/add-downstream-cluster.yml
 REGISTRY_TARGET     := registry
+# The upgrade playbook runs on the controller; for airgap, fqdn and the
+# ingress hostnames are read from the generated inventory (the tofu module
+# has no fqdn output and node IPs are private). Overridable via
+# RANCHER_UPGRADE_FQDN/_PRIVATE_HOSTNAME/_PUBLIC_HOSTNAME below.
+RANCHER_UPGRADE_PLAYBOOK := ansible/rancher/default-ha/rancher-upgrade-playbook.yml
+AIRGAP_FQDN := $(shell awk -F': *' '/external_lb_hostname:/{print $$2; exit}' $(INVENTORY))
+AIRGAP_INTERNAL_LB := $(shell awk -F': *' '/internal_lb_hostname:/{print $$2; exit}' $(INVENTORY))
 else
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
@@ -744,9 +751,9 @@ registry: check-inventory ## Configure private registry on cluster nodes
 	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rke2-registry-config-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: rancher-upgrade
-rancher-upgrade: check-inventory ## Upgrade the Rancher server in place (ENV=default; RANCHER_VERSION_TO_UPGRADE=latest|<ver>, RANCHER_UPGRADE_LINE=2.15, RANCHER_CHART_REPO_FLAVOR=community|prime)
+rancher-upgrade: check-inventory ## Upgrade the Rancher server in place (ENV=default|airgap; RANCHER_VERSION_TO_UPGRADE=latest|<ver>, RANCHER_UPGRADE_LINE=2.15, RANCHER_CHART_REPO_FLAVOR=community|prime)
 	@if [ -z "$(RANCHER_UPGRADE_PLAYBOOK)" ]; then \
-		echo "Error: rancher-upgrade requires ENV=default (HA helm-based Rancher install)"; \
+		echo "Error: rancher-upgrade requires ENV=default or ENV=airgap (HA helm-based Rancher install)"; \
 		exit 1; \
 	fi
 	@echo "Upgrading Rancher server (target=$(RANCHER_VERSION_TO_UPGRADE), flavor=$(RANCHER_CHART_REPO_FLAVOR))..."
@@ -1084,6 +1091,21 @@ RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_repo_password=$(RANCHER_UPGRADE_RE
 endif
 ifneq ($(RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY),)
 RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_system_default_registry=$(RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY)
+endif
+
+# Upgrade discovery defaults (airgap): fqdn + ingress hostnames derive from the
+# generated inventory when ENV=airgap; default env discovers via tofu state.
+RANCHER_UPGRADE_FQDN ?= $(AIRGAP_FQDN)
+RANCHER_PRIVATE_HOSTNAME ?= $(AIRGAP_INTERNAL_LB)
+RANCHER_PUBLIC_HOSTNAME ?= $(AIRGAP_FQDN)
+ifneq ($(RANCHER_UPGRADE_FQDN),)
+RANCHER_UPGRADE_EXTRA_VARS += fqdn=$(RANCHER_UPGRADE_FQDN)
+endif
+ifneq ($(RANCHER_PRIVATE_HOSTNAME),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_private_hostname=$(RANCHER_PRIVATE_HOSTNAME)
+endif
+ifneq ($(RANCHER_PUBLIC_HOSTNAME),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_public_hostname=$(RANCHER_PUBLIC_HOSTNAME)
 endif
 
 # Repo used by rancher-resolve-version; mirrors the upgrade flavor mapping.

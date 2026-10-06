@@ -73,6 +73,15 @@ make rancher-upgrade ENV=default DISTRO=rke2 RANCHER_VERSION_TO_UPGRADE=2.15.2 \
 make rancher-upgrade ENV=default DISTRO=rke2 RANCHER_UPGRADE_LINE=2.15
 ```
 
+Airgap runs the same target with `ENV=airgap`; the fqdn and ingress hostnames
+are derived from the generated inventory, and the kubeconfig must have been
+copied to `ansible/rke2/airgap/kubeconfig.yaml` (scp from the bastion):
+
+```bash
+make rancher-upgrade ENV=airgap DISTRO=rke2 RANCHER_UPGRADE_LINE=2.15 \
+     RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY=privateregistry.qa.rancher.space/proxycache
+```
+
 | Make variable | Ansible variable | Default | Description |
 |---|---|---|---|
 | `RANCHER_VERSION_TO_UPGRADE` | `rancher_version_upgrade` | `latest` | `latest`/empty resolves at runtime to the newest final release in the repo index; a pinned version passes through unchanged |
@@ -81,7 +90,7 @@ make rancher-upgrade ENV=default DISTRO=rke2 RANCHER_UPGRADE_LINE=2.15
 | `RANCHER_CHART_UPGRADE_REPO_URL` | `rancher_chart_upgrade_repo_url` | — | Explicit chart repo URL; overrides the flavor mapping (airgap seam) |
 | `RANCHER_UPGRADE_REPO_USERNAME`/`_PASSWORD` | `rancher_upgrade_repo_username`/`_password` | unset | Chart repo credentials, only passed when set (airgap seam) |
 | `RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY` | `rancher_upgrade_system_default_registry` | unset | Sets the `systemDefaultRegistry` helm value when set (airgap seam) |
-| — (direct `-e`) | `rancher_private_hostname`/`rancher_public_hostname` | unset | Airgap: after the helm upgrade, re-patches the Rancher Ingress to serve both hostnames (helm re-renders it back to the single `values.hostname`); unset skips the patch (airgap seam) |
+| `RANCHER_UPGRADE_FQDN`/`_PRIVATE_HOSTNAME`/`_PUBLIC_HOSTNAME` | `fqdn`/`rancher_private_hostname`/`rancher_public_hostname` | derived from the airgap inventory | Upgrade discovery for airgap (no fqdn in tofu state, private node IPs); also gate the post-upgrade Ingress re-patch for both hostnames. Unset in default env (tofu-state discovery) |
 
 Version resolution is also usable standalone, which is how pipelines resolve
 the deploy side (latest 2.14.x patch of the source version):
