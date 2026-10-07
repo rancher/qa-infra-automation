@@ -196,6 +196,16 @@
 
 # Fetch kubeconfig from master
 - name: Fetch kubeconfig from master
+  vars:
+    _rke2_fallback_api_host: "{{ (groups.get('servers', []) + groups.get('master', []))[0] }}"
+    # Only cp nodes serve :6443; a split-role etcd-only node refuses the connection.
+    _rke2_cp_hosts: >-
+      {{ (groups.get('servers', []) + groups.get('master', []))
+         | map('extract', hostvars)
+         | selectattr('node_roles', 'defined')
+         | selectattr('node_roles', 'contains', 'cp')
+         | map(attribute='inventory_hostname') | list }}
+    _rke2_api_host: "{{ _rke2_cp_hosts | first | default(_rke2_fallback_api_host, true) }}"
   block:
     - name: Retrieve kubeconfig from master
       ansible.builtin.fetch:
@@ -203,14 +213,14 @@
         dest: "{{ rke2_kubeconfig_dest }}"
         flat: true
       become: true
-      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
+      delegate_to: "{{ _rke2_api_host }}"
       run_once: true
 
     - name: Replace localhost with master IP in kubeconfig
       ansible.builtin.replace:
         path: "{{ rke2_kubeconfig_dest }}"
         regexp: '127\.0\.0\.1'
-        replace: "{{ hostvars[(groups.get('servers', []) + groups['master'])[0]]['ansible_host'] }}"
+        replace: "{{ hostvars[_rke2_api_host]['ansible_host'] }}"
       delegate_to: localhost
       run_once: true
       become: false
