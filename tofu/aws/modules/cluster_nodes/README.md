@@ -74,6 +74,32 @@ The first node in the first group with `etcd` role becomes the `master` node.
 
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
 
+### Nested virtualization for Kata workers
+
+`worker_nested_virtualization = true` sets EC2 `cpu_options.nested_virtualization`
+to `enabled` on **worker-only** node groups. It defaults to `false`: existing
+callers make no additional instance-type queries and send no new CPU option.
+Control-plane/combined-role nodes are never opted in. AWS provider 6.62.0 or
+newer (below 7.0) is required; refresh older consumer provider locks with
+`tofu init -upgrade` and review the plan before applying.
+
+Example addition to an existing configuration (reuse its VPC/subnet/SG):
+
+```hcl
+worker_nested_virtualization = true
+nodes = [
+  { count = 1, role = ["etcd", "cp", "worker"] },
+  { count = 2, role = ["worker"], instance_type = "c7i.2xlarge" },
+]
+```
+
+The module checks `DescribeInstanceTypes` through `aws_ec2_instance_type` before
+creating instances; unsupported worker types fail closed. The caller needs
+`ec2:DescribeInstanceTypes` in addition to its existing provisioning permissions.
+This enables hardware virtualization only; it does not install Kata or select
+Kubernetes runtimes. Changing the option on existing workers can stop/start them.
+See [AWS nested virtualization](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html).
+
 ### Resource name length
 
 `aws_hostname_prefix` seeds every AWS resource name the module creates: the key
