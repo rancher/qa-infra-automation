@@ -94,6 +94,7 @@ See the [Group Vars Guide](../../ansible/rke2/airgap/docs/configuration/GROUP_VA
 | `aws_ami` | Yes | — | AMI ID for instances |
 | `aws_ssh_user` | Yes | — | Default SSH user for the AMI |
 | `instance_type` | Yes | — | EC2 instance type |
+| `worker_nested_virtualization` | No | `null` | Nullable bool, worker-only nodes: `null` leaves CPU settings unmanaged; `true` requires support and enables nested virtualization; `false` disables it on supported types and omits the CPU option on unsupported types. Combined-role nodes are unchanged. See [nested virtualization](../../tofu/aws/modules/cluster_nodes/README.md#nested-virtualization-for-kata-workers). |
 | `aws_hostname_prefix` | Yes | — | Name tag prefix |
 | `public_ssh_key` | Yes | — | Path to public SSH key |
 | `nodes` | Yes | — | Node groups (see below) |

@@ -30,7 +30,12 @@ locals {
 
   nested_workers = {
     for node in local.node_names : node.name => node
-    if var.worker_nested_virtualization && length(node.role) == 1 && contains(node.role, "worker")
+    if var.worker_nested_virtualization != null && length(node.role) == 1 && contains(node.role, "worker")
+  }
+
+  nested_cpu_workers = {
+    for name, instance_type in data.aws_ec2_instance_type.nested_worker : name => instance_type
+    if contains(instance_type.supported_cpu_features, "nested-virtualization")
   }
 
   vpc_id         = var.aws_vpc
@@ -224,7 +229,7 @@ data "aws_ec2_instance_type" "nested_worker" {
 
   lifecycle {
     postcondition {
-      condition     = contains(self.supported_cpu_features, "nested-virtualization")
+      condition     = var.worker_nested_virtualization != true || contains(self.supported_cpu_features, "nested-virtualization")
       error_message = "Instance type ${self.instance_type} does not advertise EC2 nested virtualization. Select a supported worker instance type."
     }
   }
@@ -240,14 +245,11 @@ resource "aws_instance" "node" {
   associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
 
   dynamic "cpu_options" {
-    for_each = contains(keys(local.nested_workers), each.key) ? [true] : []
+    for_each = contains(keys(local.nested_cpu_workers), each.key) ? [true] : []
     content {
-      nested_virtualization = "enabled"
+      nested_virtualization = var.worker_nested_virtualization ? "enabled" : "disabled"
     }
   }
-
-  # Check all selected worker types before creating any cluster instance.
-  depends_on = [data.aws_ec2_instance_type.nested_worker]
 
   ebs_block_device {
     device_name           = "/dev/sda1"
