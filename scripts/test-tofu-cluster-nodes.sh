@@ -26,14 +26,19 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Copy only module sources and fixtures, never local tfvars, backends or state.
-cp "$module_dir"/{main.tf,variables.tf,outputs.tf,terraform.tf,.terraform.lock.hcl} "$test_dir/"
+# Discover tracked root-module sources without copying local backends/tfvars/state.
+git -C "$repo_dir" ls-files -z -- ':(top,glob)tofu/aws/modules/cluster_nodes/*.tf' |
+    while IFS= read -r -d '' module_file; do
+        cp "$repo_dir/$module_file" "$test_dir/"
+    done
+
+cp "$module_dir/.terraform.lock.hcl" "$test_dir/"
 cp -R "$module_dir/tests" "$test_dir/tests"
 
 # Keep inherited CLI/data settings from redirecting tests to an existing workspace.
 unset TF_DATA_DIR TF_WORKSPACE TF_CLI_ARGS TF_CLI_ARGS_init TF_CLI_ARGS_validate TF_CLI_ARGS_test TF_CLI_ARGS_fmt
 
-tofu -chdir="$test_dir" fmt -check main.tf variables.tf outputs.tf terraform.tf tests
+tofu -chdir="$test_dir" fmt -check -recursive
 tofu -chdir="$test_dir" init -backend=false -input=false -lockfile=readonly -no-color
 tofu -chdir="$test_dir" validate -no-color
 tofu -chdir="$test_dir" test -no-color

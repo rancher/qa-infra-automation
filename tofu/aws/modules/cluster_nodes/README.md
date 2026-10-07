@@ -124,8 +124,10 @@ From the repository root, run:
 make test-tofu-cluster-nodes
 ```
 
-The target copies the module and test fixtures into a temporary directory, checks
-formatting, initializes with the committed lockfile, validates, and runs the tests.
+The target discovers the module's tracked root-level `.tf` files with `git ls-files`
+and copies them and the test fixtures into a temporary directory. Stage newly added
+module source files before testing so discovery includes them. It checks formatting,
+initializes with the committed lockfile, validates, and runs the tests.
 Creation/cleanup and ordinary plans use mocked AWS/random providers. The `null`
 preservation test uses the real AWS planner against that mock state, with refresh
 disabled, data sources overridden, fake credentials and loopback-only endpoints.
