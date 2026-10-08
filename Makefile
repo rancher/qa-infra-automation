@@ -71,10 +71,12 @@ DOWNSTREAM_TFVARS ?= tofu/rancher/cluster/vars.tfvars
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 
 # Rancher server upgrade (make rancher-upgrade); semantics in
-# ansible/rancher/default-ha/README.md.
-RANCHER_VERSION_TO_UPGRADE ?= latest
-RANCHER_IMAGE_TAG_TO_UPGRADE ?= latest
-RANCHER_CHART_REPO_FLAVOR ?= community
+# ansible/rancher/default-ha/README.md. Empty = not passed to the playbook,
+# so vars.yaml pre-seeds (see QUICKSTART.md) stay effective; the playbook
+# defaults are then: latest resolved at runtime, community flavor.
+RANCHER_VERSION_TO_UPGRADE ?=
+RANCHER_IMAGE_TAG_TO_UPGRADE ?=
+RANCHER_CHART_REPO_FLAVOR ?=
 # Latest final release of a line (e.g. 2.15), resolved at runtime; mutually
 # exclusive with a pinned RANCHER_VERSION_TO_UPGRADE.
 RANCHER_UPGRADE_LINE ?=
@@ -756,7 +758,7 @@ rancher-upgrade: check-inventory ## Upgrade the Rancher server in place (ENV=def
 		echo "Error: rancher-upgrade requires ENV=default or ENV=airgap (HA helm-based Rancher install)"; \
 		exit 1; \
 	fi
-	@echo "Upgrading Rancher server (target=$(RANCHER_VERSION_TO_UPGRADE), flavor=$(RANCHER_CHART_REPO_FLAVOR))..."
+	@echo "Upgrading Rancher server (target=$(if $(RANCHER_VERSION_TO_UPGRADE),$(RANCHER_VERSION_TO_UPGRADE),latest), flavor=$(if $(RANCHER_CHART_REPO_FLAVOR),$(RANCHER_CHART_REPO_FLAVOR),community))..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg KUBECONFIG_FILE=$(KUBECONFIG_FILE); \
 	ansible-playbook -i $(INVENTORY) $(RANCHER_UPGRADE_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) \
 		--extra-vars "$(RANCHER_UPGRADE_EXTRA_VARS)"
@@ -1075,8 +1077,19 @@ else
 ANSIBLE_EXTRA_VARS :=
 endif
 
-# Rancher server upgrade inputs, target-scoped; airgap-seam keys only when set.
-RANCHER_UPGRADE_EXTRA_VARS := rancher_version_upgrade=$(RANCHER_VERSION_TO_UPGRADE) rancher_image_tag_upgrade=$(RANCHER_IMAGE_TAG_TO_UPGRADE) rancher_chart_flavor=$(RANCHER_CHART_REPO_FLAVOR)
+# Rancher server upgrade inputs, target-scoped; passed only when set so
+# vars.yaml pre-seeds (QUICKSTART.md) stay effective. Airgap-seam keys follow
+# the same only-when-set rule.
+RANCHER_UPGRADE_EXTRA_VARS :=
+ifneq ($(RANCHER_VERSION_TO_UPGRADE),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_version_upgrade=$(RANCHER_VERSION_TO_UPGRADE)
+endif
+ifneq ($(RANCHER_IMAGE_TAG_TO_UPGRADE),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_image_tag_upgrade=$(RANCHER_IMAGE_TAG_TO_UPGRADE)
+endif
+ifneq ($(RANCHER_CHART_REPO_FLAVOR),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_chart_flavor=$(RANCHER_CHART_REPO_FLAVOR)
+endif
 ifneq ($(RANCHER_CHART_UPGRADE_REPO_URL),)
 RANCHER_UPGRADE_EXTRA_VARS += rancher_chart_upgrade_repo_url=$(RANCHER_CHART_UPGRADE_REPO_URL)
 endif

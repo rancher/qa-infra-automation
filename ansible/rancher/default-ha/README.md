@@ -84,9 +84,10 @@ make rancher-upgrade ENV=airgap DISTRO=rke2 RANCHER_UPGRADE_LINE=2.15 \
 
 | Make variable | Ansible variable | Default | Description |
 |---|---|---|---|
-| `RANCHER_VERSION_TO_UPGRADE` | `rancher_version_upgrade` | `latest` | `latest`/empty resolves at runtime to the newest final release in the repo index; a pinned version passes through unchanged |
+| `RANCHER_VERSION_TO_UPGRADE` | `rancher_version_upgrade` | unset (latest) | When unset, a `vars.yaml` value applies; `latest`/empty resolves at runtime to the newest final release in the repo index; a pinned version passes through unchanged |
 | `RANCHER_UPGRADE_LINE` | `rancher_upgrade_line` | — | Resolves at runtime to the newest final release of that line (e.g. `2.15`); cannot be combined with a pinned `RANCHER_VERSION_TO_UPGRADE` |
-| `RANCHER_CHART_REPO_FLAVOR` | `rancher_chart_flavor` | `community` | `community` (`releases.rancher.com/server-charts/latest`) or `prime` (`charts.rancher.com/server-charts/prime`) |
+| `RANCHER_CHART_REPO_FLAVOR` | `rancher_chart_flavor` | unset (community) | When unset, a `vars.yaml` value applies; `community` (`releases.rancher.com/server-charts/latest`) or `prime` (`charts.rancher.com/server-charts/prime`) |
+| `RANCHER_IMAGE_TAG_TO_UPGRADE` | `rancher_image_tag_upgrade` | unset (latest) | When unset, a `vars.yaml` value applies; `latest`/empty uses the target chart's `appVersion` |
 | `RANCHER_CHART_UPGRADE_REPO_URL` | `rancher_chart_upgrade_repo_url` | — | Explicit chart repo URL; overrides the flavor mapping (airgap seam) |
 | `RANCHER_UPGRADE_REPO_USERNAME`/`_PASSWORD` | `rancher_upgrade_repo_username`/`_password` | unset | Chart repo credentials, only passed when set (airgap seam) |
 | `RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY` | `rancher_upgrade_system_default_registry` | unset | Sets the `systemDefaultRegistry` helm value when set (airgap seam) |

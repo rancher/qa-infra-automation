@@ -31,7 +31,8 @@ password: ""
 ### Optional: Upgrade inputs in `vars.yaml`
 
 If you plan to upgrade Rancher later (Step 4), you may pre-set the upgrade
-inputs in `vars.yaml`. `make rancher-upgrade` parameters override these, and
+inputs in `vars.yaml`. They apply to `make rancher-upgrade` too; an explicitly
+set `RANCHER_*` make variable takes precedence, and
 `rancher_version_upgrade: "latest"` resolves at runtime to the newest final
 release in the chart repo:
 

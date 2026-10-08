@@ -76,6 +76,18 @@
         rancher_chart_upgrade_repo_url: "{{ rancher_upgrade_repos[rancher_chart_flavor].url }}"
       when: rancher_chart_upgrade_repo_url is not defined or rancher_chart_upgrade_repo_url | length == 0
 
+    - name: Warn when an explicit repo overrides the flavor mapping
+      # vars.yaml leftovers from the pre-flavor quickstart (explicit repo
+      # name/URL keys) silently defeat rancher_chart_flavor; surface it.
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: explicit rancher_chart_upgrade_repo_url '{{ rancher_chart_upgrade_repo_url }}'
+          overrides the rancher_chart_flavor '{{ rancher_chart_flavor }}' mapping
+          ('{{ rancher_upgrade_repos[rancher_chart_flavor].url }}'), so the flavor
+          setting does not select the repo. Unset the explicit URL (vars.yaml or -e)
+          to upgrade from the flavor's repo.
+      when: rancher_chart_upgrade_repo_url != rancher_upgrade_repos[rancher_chart_flavor].url
+
     - name: Resolve the upgrade target version at runtime
       # Only the 'latest'/empty request resolves; a pinned version is taken as
       # written so an explicit pin is never silently upgraded.
