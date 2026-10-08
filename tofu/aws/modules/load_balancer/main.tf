@@ -15,15 +15,19 @@ resource "aws_lb_target_group" "tg" {
   protocol = "TCP"
   vpc_id = var.vpc_id
 
+  # 6443 fronts the kube-apiserver, which 401s every HTTP path (RKE2 disables
+  # anonymous auth), so no HTTP health check can pass; TCP is the only probe
+  # that works. The other ports serve /ping (rancher via the ingress on
+  # 80/443, the rke2 supervisor on 9345).
   health_check {
-    protocol = "HTTP"
+    protocol = each.key == "6443" ? "TCP" : "HTTP"
     port = "traffic-port"
-    path = "/ping"
+    path = each.key == "6443" ? null : "/ping"
     interval = 10
     timeout = 6
     healthy_threshold = 3
     unhealthy_threshold = 3
-    matcher = "200-399"
+    matcher = each.key == "6443" ? null : "200-399"
   }
 }
 

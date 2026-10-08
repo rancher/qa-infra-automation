@@ -1,20 +1,151 @@
 ---
+# In-place Rancher server upgrade (helm upgrade --reuse-values), run by `make
+# rancher-upgrade`. Version/flavor/seam semantics: see README.md.
 - hosts: localhost
   connection: local
   gather_facts: false
   vars_files:
-    - vars.yaml # Assuming this file contains rancher_version and cert_manager_version
+    - vars.yaml
   vars:
-    # Use default values if not defined in vars.yaml
-    rancher_chart_repo_upgrade: "rancher-upgrade"
-    rancher_chart_upgrade_repo_url: "https://releases.rancher.com/server-charts/latest"
-    rancher_version_upgrade: ">=0.0.0-0"
+    # terraform integration (optional), mirrors rancher-playbook.yml so
+    # rancher-discovery-tasks.yml can find the tfstate that holds the fqdn.
+    terraform_workspace: "{{ lookup('env', 'TF_WORKSPACE') | default('', true) }}"
+    terraform_module_path: "{{ lookup('env', 'TERRAFORM_NODE_SOURCE') | default('tofu/aws/modules/cluster_nodes') }}"
+    terraform_state_path: "{{ 'terraform.tfstate.d/' ~ terraform_workspace ~ '/terraform.tfstate' if terraform_workspace != '' else 'terraform.tfstate' }}"
+    terraform_state_file: "{{ playbook_dir | dirname | dirname | dirname }}/{{ terraform_module_path }}/{{ terraform_state_path }}"
+
+    # Kubeconfig location - from env or default to RKE2 playbook output
+    kubeconfig_file: "{{ lookup('env', 'KUBECONFIG_FILE') | default(playbook_dir + '/../rke2/default/kubeconfig.yaml', true) }}"
+
+    # The upgrade re-authenticates with the permanent admin password.
+    password_final: "{{ lookup('env', 'RANCHER_PASSWORD') | default(password, true) }}"
+
+    # Chart repo flavor -> name/url. An explicit rancher_chart_upgrade_repo_url
+    # or rancher_chart_repo_upgrade (vars.yaml or -e) overrides the mapping.
+    rancher_chart_flavor: "community"
+    rancher_upgrade_repos:
+      community:
+        name: "rancher-upgrade"
+        url: "https://releases.rancher.com/server-charts/latest"
+      prime:
+        name: "rancher-prime-upgrade"
+        url: "https://charts.rancher.com/server-charts/prime"
+
+    # 'latest' (or empty) resolves at runtime; a pinned version passes through.
+    rancher_version_upgrade: "latest"
     rancher_image_tag_upgrade: "latest"
-    # Set to true via -e "upgrade_mode=true" to skip the initial install/first-boot
-    # tasks and run rancher-upgrade-tasks.yml instead (helm upgrade --reuse-values).
-    upgrade_mode: true
+    # Request the latest final release of a line (e.g. "2.15") instead of a
+    # pin or overall 'latest'; resolved at runtime from the chart index.
+    rancher_upgrade_line: ""
+
+    # Airgap seams, reserved from day one (empty = not in use):
+    # chart repo credentials and a system-default registry for the images.
+    rancher_upgrade_repo_username: ""
+    rancher_upgrade_repo_password: ""
+    rancher_upgrade_system_default_registry: ""
+
+  pre_tasks:
+    - name: Discover fqdn and kubeconfig (tofu state or environment)
+      ansible.builtin.include_tasks: rancher-discovery-tasks.yml
+
+    - name: Validate chart repo flavor
+      ansible.builtin.assert:
+        that:
+          - rancher_chart_flavor in rancher_upgrade_repos
+        fail_msg: >-
+          Unknown rancher_chart_flavor '{{ rancher_chart_flavor }}'.
+          Valid flavors: {{ rancher_upgrade_repos.keys() | list | join(', ') }}
+
+    - name: Validate the upgrade line request
+      ansible.builtin.assert:
+        that:
+          - rancher_upgrade_line | default('') | length == 0 or rancher_upgrade_line is match('^\d+\.\d+$')
+          - rancher_upgrade_line | default('') | length == 0 or (rancher_version_upgrade | default('latest', true)) in ('', 'latest')
+        fail_msg: >-
+          rancher_upgrade_line must look like '2.15' and cannot be combined
+          with a pinned rancher_version_upgrade ('{{ rancher_version_upgrade | default('', true) }}').
+          Pass only one of the two.
+
+    - name: Apply the flavor's chart repo name unless set explicitly
+      ansible.builtin.set_fact:
+        rancher_chart_repo_upgrade: "{{ rancher_upgrade_repos[rancher_chart_flavor].name }}"
+      when: rancher_chart_repo_upgrade is not defined or rancher_chart_repo_upgrade | length == 0
+
+    - name: Apply the flavor's chart repo URL unless set explicitly
+      ansible.builtin.set_fact:
+        rancher_chart_upgrade_repo_url: "{{ rancher_upgrade_repos[rancher_chart_flavor].url }}"
+      when: rancher_chart_upgrade_repo_url is not defined or rancher_chart_upgrade_repo_url | length == 0
+
+    - name: Warn when an explicit repo overrides the flavor mapping
+      # vars.yaml leftovers from the pre-flavor quickstart (explicit repo
+      # name/URL keys) silently defeat rancher_chart_flavor; surface it.
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: explicit rancher_chart_upgrade_repo_url '{{ rancher_chart_upgrade_repo_url }}'
+          overrides the rancher_chart_flavor '{{ rancher_chart_flavor }}' mapping
+          ('{{ rancher_upgrade_repos[rancher_chart_flavor].url }}'), so the flavor
+          setting does not select the repo. Unset the explicit URL (vars.yaml or -e)
+          to upgrade from the flavor's repo.
+      when: rancher_chart_upgrade_repo_url != rancher_upgrade_repos[rancher_chart_flavor].url
+
+    - name: Resolve the upgrade target version at runtime
+      # Only the 'latest'/empty request resolves; a pinned version is taken as
+      # written so an explicit pin is never silently upgraded.
+      when:
+        - (rancher_version_upgrade | default('latest', true)) in ('', 'latest')
+        - rancher_upgrade_line | default('', true) | length == 0
+      block:
+        - name: Run the chart version resolver against the repo index
+          ansible.builtin.command:
+            cmd: >-
+              python3 {{ playbook_dir | dirname | dirname | dirname }}/scripts/resolve_rancher_version.py
+              --repo-url {{ rancher_chart_upgrade_repo_url }}
+          register: rancher_upgrade_resolution
+          changed_when: false
+
+        - name: Record the resolved upgrade target
+          ansible.builtin.set_fact:
+            rancher_version_upgrade_final: "{{ (rancher_upgrade_resolution.stdout | from_json).chart_version }}"
+
+    - name: Resolve the upgrade line target at runtime
+      # rancher_upgrade_line (e.g. "2.15") resolves to that line's newest
+      # final release; it takes the place of both 'latest' and pinned targets.
+      when: rancher_upgrade_line | default('', true) | length > 0
+      block:
+        - name: Run the chart version resolver for the requested line
+          ansible.builtin.command:
+            cmd: >-
+              python3 {{ playbook_dir | dirname | dirname | dirname }}/scripts/resolve_rancher_version.py
+              --repo-url {{ rancher_chart_upgrade_repo_url }}
+              --line {{ rancher_upgrade_line }}
+          register: rancher_upgrade_line_resolution
+          changed_when: false
+
+        - name: Record the resolved line target
+          ansible.builtin.set_fact:
+            rancher_version_upgrade_final: "{{ (rancher_upgrade_line_resolution.stdout | from_json).chart_version }}"
+
+    - name: Keep a pinned upgrade target as written
+      ansible.builtin.set_fact:
+        rancher_version_upgrade_final: "{{ rancher_version_upgrade | default('latest', true) }}"
+      when: (rancher_version_upgrade | default('latest', true)) not in ('', 'latest')
+
+    - name: Validate the upgrade target
+      ansible.builtin.assert:
+        that:
+          - rancher_version_upgrade_final | default('', true) | length > 0
+          - rancher_version_upgrade_final is match('^\d+\.\d+\.\d+')
+        fail_msg: >-
+          rancher_version_upgrade '{{ rancher_version_upgrade | default('', true) }}' did not resolve to a
+          concrete chart version. Pin one (e.g. 2.15.2) or check the repo
+          {{ rancher_chart_upgrade_repo_url | default('') }}.
+
+    - name: Report the upgrade target
+      ansible.builtin.debug:
+        msg: >-
+          Upgrading Rancher to {{ rancher_version_upgrade_final }}
+          from {{ rancher_chart_upgrade_repo_url }}
 
   tasks:
     - name: Upgrade Rancher
       ansible.builtin.include_tasks: rancher-upgrade-tasks.yml
-      when: upgrade_mode | bool

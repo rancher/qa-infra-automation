@@ -101,3 +101,9 @@ Do not format the entire repository to fix unrelated legacy files. Follow the se
 - Review the final diff for accidental files, unrelated edits, stale comments, and secret material.
 - Document user-visible or operator-visible changes and update examples when an interface changes.
 - Do not claim completion from build or lint success alone when the changed behavior has not been exercised.
+
+## Memory Routing (cognee)
+
+- remember → dataset_name: "repo:<this-repo>" (repo knowledge) or "global" (cross-cutting lessons)
+- recall → datasets: "repo:<this-repo>,global"
+- remember takes `data`, not `content`; datasets is a comma-separated string

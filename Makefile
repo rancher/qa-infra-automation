@@ -70,6 +70,17 @@ DOWNSTREAM_TFVARS ?= tofu/rancher/cluster/vars.tfvars
 # outputs live elsewhere.
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 
+# Rancher server upgrade (make rancher-upgrade); semantics in
+# ansible/rancher/default-ha/README.md. Empty = not passed to the playbook,
+# so vars.yaml pre-seeds (see QUICKSTART.md) stay effective; the playbook
+# defaults are then: latest resolved at runtime, community flavor.
+RANCHER_VERSION_TO_UPGRADE ?=
+RANCHER_IMAGE_TAG_TO_UPGRADE ?=
+RANCHER_CHART_REPO_FLAVOR ?=
+# Latest final release of a line (e.g. 2.15), resolved at runtime; mutually
+# exclusive with a pinned RANCHER_VERSION_TO_UPGRADE.
+RANCHER_UPGRADE_LINE ?=
+
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
 GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
@@ -81,12 +92,20 @@ TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
 REGISTRY_TARGET  :=
+RANCHER_UPGRADE_PLAYBOOK := ansible/rancher/default-ha/rancher-upgrade-playbook.yml
 else ifeq ($(ENV),airgap)
 TOFU_DIR            := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playbook.yml
 RANCHER_PLAYBOOK    := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 DOWNSTREAM_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/add-downstream-cluster.yml
 REGISTRY_TARGET     := registry
+# The upgrade playbook runs on the controller; for airgap, fqdn and the
+# ingress hostnames are read from the generated inventory (the tofu module
+# has no fqdn output and node IPs are private). Overridable via
+# RANCHER_UPGRADE_FQDN/_PRIVATE_HOSTNAME/_PUBLIC_HOSTNAME below.
+RANCHER_UPGRADE_PLAYBOOK := ansible/rancher/default-ha/rancher-upgrade-playbook.yml
+AIRGAP_FQDN := $(shell awk -F': *' '/external_lb_hostname:/{print $$2; exit}' $(INVENTORY))
+AIRGAP_INTERNAL_LB := $(shell awk -F': *' '/internal_lb_hostname:/{print $$2; exit}' $(INVENTORY))
 else
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
@@ -733,7 +752,23 @@ registry: check-inventory ## Configure private registry on cluster nodes
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/deploy/rke2-registry-config-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
-.PHONY: upgrade-cluster
+.PHONY: rancher-upgrade
+rancher-upgrade: check-inventory ## Upgrade the Rancher server in place (ENV=default|airgap; RANCHER_VERSION_TO_UPGRADE=latest|<ver>, RANCHER_UPGRADE_LINE=2.15, RANCHER_CHART_REPO_FLAVOR=community|prime)
+	@if [ -z "$(RANCHER_UPGRADE_PLAYBOOK)" ]; then \
+		echo "Error: rancher-upgrade requires ENV=default or ENV=airgap (HA helm-based Rancher install)"; \
+		exit 1; \
+	fi
+	@echo "Upgrading Rancher server (target=$(if $(RANCHER_VERSION_TO_UPGRADE),$(RANCHER_VERSION_TO_UPGRADE),latest), flavor=$(if $(RANCHER_CHART_REPO_FLAVOR),$(RANCHER_CHART_REPO_FLAVOR),community))..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg KUBECONFIG_FILE=$(KUBECONFIG_FILE); \
+	ansible-playbook -i $(INVENTORY) $(RANCHER_UPGRADE_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS) \
+		--extra-vars "$(RANCHER_UPGRADE_EXTRA_VARS)"
+
+.PHONY: rancher-resolve-version
+rancher-resolve-version: ## Resolve a Rancher chart version from the repo index (SOURCE_LINE=2.14 for that line's latest patch; default: latest released final)
+	@python3 scripts/resolve_rancher_version.py --repo-url "$(RANCHER_RESOLVE_REPO_URL)" \
+		$(if $(SOURCE_LINE),--line "$(SOURCE_LINE)")
+
+.PHONY: upgrade
 upgrade: check-inventory ## Upgrade Kubernetes cluster
 	@echo "Upgrading $(DISTRO) cluster..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
@@ -1041,6 +1076,53 @@ ANSIBLE_EXTRA_VARS := --extra-vars "$(ANSIBLE_EXTRA_VARS_KEYS)"
 else
 ANSIBLE_EXTRA_VARS :=
 endif
+
+# Rancher server upgrade inputs, target-scoped; passed only when set so
+# vars.yaml pre-seeds (QUICKSTART.md) stay effective. Airgap-seam keys follow
+# the same only-when-set rule.
+RANCHER_UPGRADE_EXTRA_VARS :=
+ifneq ($(RANCHER_VERSION_TO_UPGRADE),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_version_upgrade=$(RANCHER_VERSION_TO_UPGRADE)
+endif
+ifneq ($(RANCHER_IMAGE_TAG_TO_UPGRADE),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_image_tag_upgrade=$(RANCHER_IMAGE_TAG_TO_UPGRADE)
+endif
+ifneq ($(RANCHER_CHART_REPO_FLAVOR),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_chart_flavor=$(RANCHER_CHART_REPO_FLAVOR)
+endif
+ifneq ($(RANCHER_CHART_UPGRADE_REPO_URL),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_chart_upgrade_repo_url=$(RANCHER_CHART_UPGRADE_REPO_URL)
+endif
+ifneq ($(RANCHER_UPGRADE_LINE),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_line=$(RANCHER_UPGRADE_LINE)
+endif
+ifneq ($(RANCHER_UPGRADE_REPO_USERNAME),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_repo_username=$(RANCHER_UPGRADE_REPO_USERNAME)
+endif
+ifneq ($(RANCHER_UPGRADE_REPO_PASSWORD),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_repo_password=$(RANCHER_UPGRADE_REPO_PASSWORD)
+endif
+ifneq ($(RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_upgrade_system_default_registry=$(RANCHER_UPGRADE_SYSTEM_DEFAULT_REGISTRY)
+endif
+
+# Upgrade discovery defaults (airgap): fqdn + ingress hostnames derive from the
+# generated inventory when ENV=airgap; default env discovers via tofu state.
+RANCHER_UPGRADE_FQDN ?= $(AIRGAP_FQDN)
+RANCHER_PRIVATE_HOSTNAME ?= $(AIRGAP_INTERNAL_LB)
+RANCHER_PUBLIC_HOSTNAME ?= $(AIRGAP_FQDN)
+ifneq ($(RANCHER_UPGRADE_FQDN),)
+RANCHER_UPGRADE_EXTRA_VARS += fqdn=$(RANCHER_UPGRADE_FQDN)
+endif
+ifneq ($(RANCHER_PRIVATE_HOSTNAME),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_private_hostname=$(RANCHER_PRIVATE_HOSTNAME)
+endif
+ifneq ($(RANCHER_PUBLIC_HOSTNAME),)
+RANCHER_UPGRADE_EXTRA_VARS += rancher_public_hostname=$(RANCHER_PUBLIC_HOSTNAME)
+endif
+
+# Repo used by rancher-resolve-version; mirrors the upgrade flavor mapping.
+RANCHER_RESOLVE_REPO_URL := $(if $(RANCHER_CHART_UPGRADE_REPO_URL),$(RANCHER_CHART_UPGRADE_REPO_URL),$(if $(filter prime,$(RANCHER_CHART_REPO_FLAVOR)),https://charts.rancher.com/server-charts/prime,https://releases.rancher.com/server-charts/latest))
 
 # ============================================================================
 # SUPPLY CHAIN VERIFICATION
