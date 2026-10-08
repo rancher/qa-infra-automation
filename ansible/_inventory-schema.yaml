@@ -4,12 +4,16 @@
 # Schema structure:
 #   <distro>:
 #     <env>:
-#       input_type: cluster_nodes | airgap
-#       ip_field:   public_ip | private_ip  (cluster_nodes only)
+#       input_type: cluster_nodes | airgap | dualstack
+#       ip_field:   public_ip | private_ip | ipv6  (cluster_nodes/dualstack only)
 #       groups:
 #         <group_name>:
-#           roles:      [list of roles to include]
+#           roles:          [list of roles; a node matching any of them joins the group]
+#           roles_priority: [[etcd], [cp]]  (optional, alternative to `roles`:
+#                            try each role set in order, stop at the first match)
 #           first_only: true  (optional, include only the first matching node)
+#
+# A distro/env pair that is absent here is rejected by the generator.
 
 rke2:
   default:
@@ -27,10 +31,34 @@ rke2:
         roles: [worker]
       # 'all' is implicit in Ansible and includes every host
 
+  ipv6:
+    input_type: cluster_nodes
+    ip_field: ipv6
+    groups:
+      master:
+        roles_priority: [[etcd], [cp]]
+        first_only: true
+      servers:
+        roles: [etcd, cp]
+      workers:
+        roles: [worker]
+
   airgap:
     # Airgap inventory is generated directly from the airgap_inventory_json output.
     # Node groups and bastion are defined by the Tofu airgap module.
     input_type: airgap
+
+  dualstack:
+    input_type: dualstack
+    ip_field: public_ip
+    groups:
+      master:
+        roles_priority: [[etcd], [cp]]
+        first_only: true
+      servers:
+        roles: [etcd, cp]
+      workers:
+        roles: [worker]
 
 k3s:
   default:
@@ -45,3 +73,6 @@ k3s:
         roles: [etcd, cp]
       workers:
         roles: [worker]
+
+  # No k3s dualstack/ipv6 entries: ansible/k3s has no playbooks for those
+  # environments yet, so the combination is rejected rather than half-wired.
