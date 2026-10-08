@@ -74,6 +74,69 @@ The first node in the first group with `etcd` role becomes the `master` node.
 
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
 
+### Nested virtualization for Kata workers
+
+`worker_nested_virtualization` manages EC2 `cpu_options.nested_virtualization`
+on **worker-only** node groups:
+
+| Value | Behavior |
+| --- | --- |
+| Omitted or `null` (default) | Unmanaged: no additional instance-type query or CPU option; preserves existing settings |
+| `true` | Require a supported instance type and explicitly request `enabled` |
+| `false` | Request `disabled` on supported types, including previously enabled workers; omit the CPU option on unsupported types |
+
+Control-plane/combined-role nodes are never managed by this input. AWS provider
+6.34.0 or newer (below 7.0) is required for in-place CPU-option changes; the module
+lock remains at 6.66.0. Refresh older consumer provider locks with
+`tofu init -upgrade` and review the plan before applying.
+
+Removing an existing `true` does not switch virtualization off: use `false` and
+apply the reviewed plan before returning to unmanaged, if desired.
+
+Example addition to an existing configuration (reuse its VPC/subnet/SG):
+
+```hcl
+worker_nested_virtualization = true
+nodes = [
+  { count = 1, role = ["etcd", "cp", "worker"] },
+  { count = 2, role = ["worker"], instance_type = "c7i.2xlarge" },
+]
+```
+
+For either explicit boolean, the module checks `DescribeInstanceTypes` through
+`aws_ec2_instance_type` before changing instances. Unsupported worker types fail
+closed only when enabling. With `false`, types that do not advertise the feature
+(for example, `t3.large` or `m5.xlarge`) receive no nested CPU option. The caller
+needs `ec2:DescribeInstanceTypes` in addition to its existing provisioning permissions.
+This enables hardware virtualization only; it does not install Kata or select
+Kubernetes runtimes. Changing the option on existing workers can stop/start them.
+Restrict both kata-deploy installation and Kata pod placement to eligible workers
+with node selectors/affinity; the combined-role master may have no `/dev/kvm`.
+See [AWS nested virtualization](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html).
+The provider added the field in [6.33.0](https://github.com/hashicorp/terraform-provider-aws/releases/tag/v6.33.0)
+and in-place changes in [6.34.0](https://github.com/hashicorp/terraform-provider-aws/releases/tag/v6.34.0).
+
+### Module tests
+
+From the repository root, run:
+
+```bash
+make test-tofu-cluster-nodes
+```
+
+The target discovers the module's tracked root-level `.tf` files with `git ls-files`
+and copies them and the test fixtures into a temporary directory. Stage newly added
+module source files before testing so discovery includes them. It checks formatting,
+initializes with the committed lockfile, validates, and runs the tests.
+Creation/cleanup and ordinary plans use mocked AWS/random providers. The `null`
+preservation test uses the real AWS planner against that mock state, with refresh
+disabled, data sources overridden, fake credentials and loopback-only endpoints.
+This exercises Optional+Computed CPU-setting preservation rather than assuming
+the mock implements it. No AWS credentials or resources are needed.
+Local tfvars, backend configuration and state are not copied; the repository's
+lockfile is not modified. Provider installation requires network access unless
+the providers are available through your configured OpenTofu cache/mirror.
+
 ### Resource name length
 
 `aws_hostname_prefix` seeds every AWS resource name the module creates: the key

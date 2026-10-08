@@ -40,6 +40,12 @@ variable "aws_subnet" {
   type        = string
 }
 variable "instance_type" {}
+variable "worker_nested_virtualization" {
+  description = "Manage EC2 nested virtualization on worker-only nodes: null leaves it unmanaged, true enables it and requires a supported instance type, false explicitly disables it on supported types and omits the CPU option on unsupported types. Combined control-plane nodes are unchanged."
+  type        = bool
+  default     = null
+}
+
 variable "nodes" {
   description = "Configuration for product nodes."
   type = list(object({
