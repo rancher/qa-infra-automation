@@ -2,16 +2,16 @@
 # Manual edits may be lost in future updates.
 
 provider "registry.opentofu.org/harvester/harvester" {
-  version     = "1.8.2"
+  version     = "1.9.0"
   constraints = ">= 1.6.0"
   hashes = [
-    "h1:91Qklt90BNHGQe0QIgNf6u5r4rUqDReCF3Reoxc7ZK8=",
-    "h1:Iuybul8sgofPPt9naAy2eZooZt/VAsQExttPR3kxmy0=",
-    "h1:RRId2veOYRdifXDauzf5QCqML88GaVr6WmihP+249+8=",
-    "h1:n9ZmmlN0o5eYRUl2ZUejXeU/XNiGxVsj6dJUMLZ+foQ=",
-    "zh:acdc6161f71ae03603263a6d99b246d8a494ba17961ef0d57def7b89576ce9c9",
-    "zh:b9045794645bd45608decd0930de2e474396688954e008ca9b35ef971dd57031",
-    "zh:c96262f984ed6037685c5b479701158eb266ae9bc750aa33f12f35e266b962c8",
-    "zh:f8b08fd012d52f3cf19f122bd22291d90ae74cea1772354d44f917b04f98e10d",
+    "h1:2889S38+vg6C6qkrP6l/FzucL0jQoP98Aey5b5stBwI=",
+    "h1:9OurG25EDvI2of6F+QA9wK7wILcp76MDIHgNa/nQ96U=",
+    "h1:9Z3MIMrhIDxCVx1tJR29t2zlcyLVa5APgL/69fG6X50=",
+    "h1:cxNn2AhKeO64BNEwqAn+V7+Wk0Ix/br9t/LuuB/Pdp8=",
+    "zh:b29a860ea765ef4f62e532a3f0b93cc8e5de33d122330aed3bbd62db93dc9f5d",
+    "zh:b5971be4fa03298d3cd89f769863e9a95fd0d93410526f9cf4f22911a981a4e7",
+    "zh:d318a86310c6a40382160cb50e671965b7e7d93beeb8ea2f9a3943dd702d4ced",
+    "zh:e1cd01f026b464f95a9eab682bac901c74f0ba1e79bf69b63684e2968effd00c",
   ]
 }
