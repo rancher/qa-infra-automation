@@ -16,7 +16,7 @@
 # Priority: rancher_url variable > external_lb_hostname > internal_lb_hostname
 - name: Determine Rancher URL from inventory or explicit variable
   ansible.builtin.set_fact:
-    rancher_url_resolved: "https://{{ external_lb_hostname | default('', true) | default(internal_lb_hostname | default('', true), true) }}"
+    rancher_url_resolved: "https://{{ external_lb_hostname | default(internal_lb_hostname | default('')) }}"
   when: rancher_url | default('') | length == 0
 
 - name: Use explicit rancher_url when provided

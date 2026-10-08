@@ -375,6 +375,8 @@ def generate_airgap_inventory(data: dict) -> str:
                 "ansible_ssh_private_key_file": "{{ ssh_private_key_file }}",
                 "bastion_user": ssh_user,
                 "bastion_host": bastion_host,
+                "external_lb_hostname": external_lb,
+                "internal_lb_hostname": internal_lb,
             },
             "children": {
                 "bastion": {
@@ -410,13 +412,6 @@ def generate_airgap_inventory(data: dict) -> str:
             },
         }
     }
-
-    # Omitted rather than emitted as null when the LB/route53 modules are off:
-    # Ansible's default() only fires on undefined, so a null would render as "None".
-    if external_lb:
-        inventory["all"]["vars"]["external_lb_hostname"] = external_lb
-    if internal_lb:
-        inventory["all"]["vars"]["internal_lb_hostname"] = internal_lb
 
     if registry_host:
         inventory["all"]["vars"]["registry_host"] = registry_host

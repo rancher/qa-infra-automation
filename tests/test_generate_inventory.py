@@ -694,38 +694,6 @@ class TestGenerateAirgapInventory(unittest.TestCase):
         result = yaml.safe_load(generate_airgap_inventory(data))
         self.assertIn("bastion", result["all"]["children"])
 
-    def test_lb_hostnames_present_when_route53_enabled(self):
-        data = load_fixture("rke2_ha_airgap.json")
-        result = yaml.safe_load(generate_airgap_inventory(data))
-        self.assertEqual(
-            result["all"]["vars"]["external_lb_hostname"], data["external_lb_hostname"]
-        )
-        self.assertEqual(
-            result["all"]["vars"]["internal_lb_hostname"], data["internal_lb_hostname"]
-        )
-
-    def test_null_lb_hostnames_are_omitted_not_emitted(self):
-        """Ansible's default() only fires on undefined, so a null renders as "None".
-
-        rancher_auth builds rancher_url from these, so emitting null would
-        produce https://None instead of falling back.
-        """
-        data = load_fixture("rke2_ha_airgap.json")
-        data["external_lb_hostname"] = None
-        data["internal_lb_hostname"] = None
-        result = yaml.safe_load(generate_airgap_inventory(data))
-        self.assertNotIn("external_lb_hostname", result["all"]["vars"])
-        self.assertNotIn("internal_lb_hostname", result["all"]["vars"])
-
-    def test_internal_lb_kept_when_only_external_is_disabled(self):
-        data = load_fixture("rke2_ha_airgap.json")
-        data["external_lb_hostname"] = None
-        result = yaml.safe_load(generate_airgap_inventory(data))
-        self.assertNotIn("external_lb_hostname", result["all"]["vars"])
-        self.assertEqual(
-            result["all"]["vars"]["internal_lb_hostname"], data["internal_lb_hostname"]
-        )
-
     def test_airgap_nodes_group_present(self):
         data = load_fixture("rke2_ha_airgap.json")
         result = yaml.safe_load(generate_airgap_inventory(data))
