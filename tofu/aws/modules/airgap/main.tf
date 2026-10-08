@@ -212,7 +212,7 @@ locals {
     for target_group in concat(
       length(module.load_balancer) > 0 ? module.load_balancer[0].target_groups : [],
       length(module.internal_load_balancer) > 0 ? module.internal_load_balancer[0].target_groups : []
-    ) : [
+      ) : [
       for id, instance in module.airgap_nodes : {
         arn  = target_group.arn
         port = target_group.port

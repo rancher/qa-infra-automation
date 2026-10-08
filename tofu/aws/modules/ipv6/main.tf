@@ -41,19 +41,30 @@ locals {
 
   # Without public IPv4 the nodes are IPv6-only and reach IPv4-only endpoints
   # through a DNS64/NAT64 resolver. See README "IPv6-only DNS".
-  ipv6_only           = !var.enable_public_ip && var.enable_ipv6
-  ipv6_only_user_data = <<-EOT
-    #!/bin/bash
-    set -eu
+  ipv6_only = !var.enable_public_ip && var.enable_ipv6
+  # Opt out to leave the image's own resolver in place (e.g. VPC-provided DNS64).
+  ipv6_manage_dns = local.ipv6_only && var.ipv6_manage_dns
+
+  # IPv6-only hosts have no 127.0.0.1 entry to resolve their own hostname against.
+  ipv6_hosts_fixup = <<-EOT
+    sed -i -e 's/127.0.0.1/::1/g' -e "s/ip6-loopback/ip6-loopback $(hostname)/g" /etc/hosts
+  EOT
+
+  ipv6_dns_fixup = <<-EOT
     systemctl stop systemd-resolved.service || true
     systemctl disable systemd-resolved.service || true
-    sed -i -e 's/127.0.0.1/::1/g' -e "s/ip6-loopback/ip6-loopback $(hostname)/g" /etc/hosts
     rm -f /etc/resolv.conf
     cat > /etc/resolv.conf <<'RESOLVCONF'
     ${join("\n", [for resolver in var.ipv6_dns64_resolvers : "nameserver ${resolver}"])}
     RESOLVCONF
   EOT
-  node_user_data      = local.ipv6_only ? local.ipv6_only_user_data : null
+
+  node_user_data = local.ipv6_only ? join("\n", compact([
+    "#!/bin/bash",
+    "set -eu",
+    trimspace(local.ipv6_hosts_fixup),
+    local.ipv6_manage_dns ? trimspace(local.ipv6_dns_fixup) : "",
+  ])) : null
 }
 
 variable "registry_ip" {

@@ -98,6 +98,31 @@ class TestK3sDatastoreWarning(unittest.TestCase):
         data = load_fixture("k3s_external_datastore.json")
         self.assertEqual(self.capture_warning("rke2", data), "")
 
+    def _main_warns(self, fixture, distro, env):
+        """Did main() consult the etcd check for this input type?"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "input.json")
+            with open(input_path, "w") as handle:
+                json.dump(load_fixture(fixture), handle)
+            argv = ["generate_inventory.py", "--input", input_path, "--distro",
+                    distro, "--env", env, "--output-dir", tmpdir]
+            with mock.patch.object(
+                generate_inventory, "warn_if_k3s_needs_datastore"
+            ) as warn:
+                with mock.patch.object(sys, "argv", argv):
+                    generate_inventory.main()
+            return warn.called
+
+    def test_airgap_input_skips_the_etcd_check(self):
+        # Airgap JSON has no 'nodes' key, so the check would always report an
+        # empty topology regardless of how the airgap groups are actually built.
+        self.assertFalse(self._main_warns("rke2_ha_airgap.json", "rke2", "airgap"))
+
+    def test_cluster_nodes_input_still_runs_the_etcd_check(self):
+        self.assertTrue(
+            self._main_warns("rke2_single_master.json", "rke2", "default")
+        )
+
 
 class TestValidateDualstack(unittest.TestCase):
     def test_valid_dualstack_payload_passes(self):
@@ -668,6 +693,38 @@ class TestGenerateAirgapInventory(unittest.TestCase):
         data = load_fixture("rke2_ha_airgap.json")
         result = yaml.safe_load(generate_airgap_inventory(data))
         self.assertIn("bastion", result["all"]["children"])
+
+    def test_lb_hostnames_present_when_route53_enabled(self):
+        data = load_fixture("rke2_ha_airgap.json")
+        result = yaml.safe_load(generate_airgap_inventory(data))
+        self.assertEqual(
+            result["all"]["vars"]["external_lb_hostname"], data["external_lb_hostname"]
+        )
+        self.assertEqual(
+            result["all"]["vars"]["internal_lb_hostname"], data["internal_lb_hostname"]
+        )
+
+    def test_null_lb_hostnames_are_omitted_not_emitted(self):
+        """Ansible's default() only fires on undefined, so a null renders as "None".
+
+        rancher_auth builds rancher_url from these, so emitting null would
+        produce https://None instead of falling back.
+        """
+        data = load_fixture("rke2_ha_airgap.json")
+        data["external_lb_hostname"] = None
+        data["internal_lb_hostname"] = None
+        result = yaml.safe_load(generate_airgap_inventory(data))
+        self.assertNotIn("external_lb_hostname", result["all"]["vars"])
+        self.assertNotIn("internal_lb_hostname", result["all"]["vars"])
+
+    def test_internal_lb_kept_when_only_external_is_disabled(self):
+        data = load_fixture("rke2_ha_airgap.json")
+        data["external_lb_hostname"] = None
+        result = yaml.safe_load(generate_airgap_inventory(data))
+        self.assertNotIn("external_lb_hostname", result["all"]["vars"])
+        self.assertEqual(
+            result["all"]["vars"]["internal_lb_hostname"], data["internal_lb_hostname"]
+        )
 
     def test_airgap_nodes_group_present(self):
         data = load_fixture("rke2_ha_airgap.json")

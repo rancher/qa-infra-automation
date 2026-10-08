@@ -41,7 +41,7 @@
       delegate_to: localhost
       become: false
       run_once: true
-      when: 
+      when:
         - has_bastion
         - "'airgap_nodes' in groups"
 
@@ -60,7 +60,7 @@
         scp {% if ansible_ssh_private_key_file is defined %}-i {{ ansible_ssh_private_key_file }} {% endif %}{{ ansible_ssh_common_args | default('-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null') }} "{{ python_local_path }}" {{ ansible_user ~ '@' if ansible_user is defined else '' }}{% if ':' in ansible_host %}[{{ ansible_host }}]{% else %}{{ ansible_host }}{% endif %}:/tmp/python39.tar.gz
       delegate_to: localhost
       become: false
-      when: 
+      when:
         - has_bastion
         - "'airgap_nodes' not in groups"
         - "'NEEDS_INSTALL' in check_python.stdout"

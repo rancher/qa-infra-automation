@@ -84,18 +84,29 @@ reaches the nodes with an SSH `ProxyCommand` that keeps the key on the controlle
 
 ### IPv6-only DNS
 
-When `enable_public_ip = false`, the nodes are IPv6-only and cannot reach
-IPv4-only endpoints (container registries, `get.rke2.io`, ...) without DNS64 and
-NAT64. Instance user data writes `ipv6_dns64_resolvers` into `/etc/resolv.conf`.
+When `enable_public_ip = false` the nodes are IPv6-only. Reaching IPv4-only
+endpoints (container registries, `get.rke2.io`, ...) then needs DNS64 and NAT64.
 
-It defaults to the public `nat64.net` service (`2a00:1098:2c::1`), which is what
-these QA clusters use today. Override it where a VPC-native resolver is
-available - enable DNS64 on the subnet, add a `64:ff9b::/96` route to a NAT
-gateway, and set the VPC `+2` address:
+By default the module takes over host DNS: instance user data stops
+`systemd-resolved` and writes `ipv6_dns64_resolvers` into `/etc/resolv.conf`.
+The default resolver is the public `nat64.net` service (`2a00:1098:2c::1`),
+which is what these QA clusters use today.
 
-```terraform
-ipv6_dns64_resolvers = ["2001:db8::2"]
-```
+Three supported configurations:
+
+| Goal | Settings |
+|------|----------|
+| Public DNS64 (default) | nothing to set |
+| VPC-native DNS64 | `ipv6_dns64_resolvers = ["<vpc +2 address>"]` — enable DNS64 on the subnet and add a `64:ff9b::/96` route to a NAT gateway |
+| Leave host DNS alone | `ipv6_manage_dns = false` |
+
+`ipv6_manage_dns = false` suppresses the `systemd-resolved` and `/etc/resolv.conf`
+changes entirely, for images that manage their own resolver or VPCs that already
+hand out a DNS64 resolver via DHCPv6. `ipv6_dns64_resolvers` is then ignored.
+
+Independently of this setting, IPv6-only nodes always get an `/etc/hosts` fixup
+so they can resolve their own hostname: there is no `127.0.0.1` entry to match
+against once the node has no IPv4 address.
 
 ## Outputs
 

@@ -92,8 +92,14 @@ variable "kube_api_host_ipv6" {
   }
 }
 
+variable "ipv6_manage_dns" {
+  description = "On IPv6-only nodes (enable_public_ip = false), replace /etc/resolv.conf with ipv6_dns64_resolvers and stop systemd-resolved. Set to false to leave the image's existing DNS configuration untouched - use this when the VPC already provides DNS64 or the AMI manages its own resolver."
+  type        = bool
+  default     = true
+}
+
 variable "ipv6_dns64_resolvers" {
-  description = "DNS64 resolver(s) for IPv6-only nodes. Defaults to the public nat64.net service used by QA today; override with a VPC DNS64 resolver where available."
+  description = "DNS64 resolver(s) for IPv6-only nodes. Defaults to the public nat64.net service; override with a VPC DNS64 resolver where available. Ignored when ipv6_manage_dns = false."
   type        = list(string)
   default     = ["2a00:1098:2c::1"]
 }

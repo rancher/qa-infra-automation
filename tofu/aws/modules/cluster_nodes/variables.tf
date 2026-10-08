@@ -55,13 +55,13 @@ variable "nodes" {
 }
 
 variable "airgap_setup" {
-  type        = bool
-  default     = false
+  type    = bool
+  default = false
 }
 
 variable "proxy_setup" {
-  type        = bool
-  default     = false
+  type    = bool
+  default = false
 }
 
 variable "random_name_suffix" {

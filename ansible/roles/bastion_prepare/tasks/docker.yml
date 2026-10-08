@@ -1,6 +1,8 @@
 ---
 - name: Check if Docker binary exists
-  ansible.builtin.command: command -v docker
+  # Needs a shell: `command` is a builtin, so ansible.builtin.command cannot exec it
+  # and would report rc=2 on every host, reinstalling Docker each run.
+  ansible.builtin.shell: command -v docker
   register: docker_check
   failed_when: false
   changed_when: false
