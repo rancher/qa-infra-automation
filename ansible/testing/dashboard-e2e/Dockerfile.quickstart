@@ -17,9 +17,9 @@ FROM python:3.12-alpine3.23@sha256:1fd55c2f838c4f76262f9eeed899ff9168ea96ac383c6
 ARG TARGETARCH
 
 # renovate: datasource=github-release-attachments depName=opentofu/opentofu
-ARG TOFU_VERSION=v1.12.6
-# renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.12.6
-ARG TOFU_SUM_AMD64=5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
+ARG TOFU_VERSION=v1.13.1
+# renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.13.1
+ARG TOFU_SUM_AMD64=8ccbc6f8ee21d2827715f3c6e08a9b3e0209b1e62057c05067ef117e047c1a80
 ARG TOFU_SUM_ARM64=e573979ba68a17fe7b881752051a694a7efcd970e39521f6a25775197861ed4d
 
 # Held on helm 3, which is current: 3.21.4 shipped the day after 4.2.4. Do not
