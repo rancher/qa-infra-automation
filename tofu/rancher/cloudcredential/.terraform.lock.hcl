@@ -2,27 +2,26 @@
 # Manual edits may be lost in future updates.
 
 provider "registry.opentofu.org/rancher/rancher2" {
-  version     = "14.1.1"
+  version     = "14.2.2"
   constraints = ">= 6.0.0"
   hashes = [
-    "h1:751MPGOhzawweO8e2TS6wyZrzTXAqHPloSiX0sEbTvs=",
-    "h1:SD0B/LZfmI+2FeWgVXEHQIead3b7cyopzRzXrwsTPBo=",
-    "h1:VhppJs/74LaK+OhVZ1/DgkNpiKLfgG1QGETj0PQn6gI=",
-    "h1:XguC/YWN5PuuX+oQ9U7HZdrpLZ/z32XFTmWcTZTO/AY=",
-    "h1:bKL/7cYa+LzIPqjMsfac19bcjivHF7CteZtW36WO2Gs=",
-    "h1:gfmTW1LLsu1SpRmURcFOuoWlJA9Vi8EggKLqHMzWnco=",
-    "h1:pmUu+kc1Va9qeNzHNxEjVyoCjFTNnkwBk04AQDEB5Dc=",
-    "h1:qwtn8mKflLQg0yoOcC67ZVommD6hZwbdJV8/RlsNqGo=",
-    "h1:rbEfIRw5srYsQs/PUY4Z6ywNEXf0hlfRdEBIj58Es74=",
-    "zh:11c4c34ba996b633d116e83f48b0baecaa1e0cbf50562abdfd9424cd6f6141a4",
-    "zh:205a3a4b5f078b2eeea06f4a13ab15bcf34864460f789568d384a03e47f0a009",
-    "zh:2dc7df1fc9c6bb23ca9b0be326aac125212d525cde029a3c44c943f82e07c59f",
-    "zh:50752ce808ff054c36e7a594bec9807299f3dbe2febf5ffa501239aa5a4b3125",
-    "zh:515d787138ba9a750506ccc45f95a707ccf6bd2601e6bcc732e39f18e1436837",
-    "zh:8b8ae8881596dc865e3998701ff0048ace2670a73c6ea990dcee0ea9ea8006bc",
-    "zh:a54086f41c125b7460b8cf1b588f778b8e971a131a8713cd12806e3724e198a8",
-    "zh:b346815aac1ba419e12210fc03da57cc8606366a5817c6fbb7ce84bc26a65ef0",
-    "zh:c8b5fae14df8195c3ab21781913f929d3db2f4576d9b6ed5353b663d9f6b7940",
-    "zh:d990f1b187d1c6779d38a2620c685b2c3efc79be4d603ed6b041ecbdfcc1e79b",
+    "h1:4fB6nmleEc+W/pwYMtxrVn5bei7qAB1NAqrs2OtijtM=",
+    "h1:7WkLSPX9zAmq3I3wGIe/YJ18d0wnTy4es8t3NZfB3OE=",
+    "h1:9Nf4e/Z0mYyakL4n9rqrlKg4LPzQKA/w85Qg4ePLNcc=",
+    "h1:QykhIQEPKLxh4k2PMF/z0J10TV6FvAWXq1vJ/jGGNAI=",
+    "h1:a2UMU7TU6YKnSDUeMMxWnbtSU9REFYBK5EieUYc1DXc=",
+    "h1:i/eRC9w7WP2C3XtlLi7WM7+lrJFIiSd7uqxLPOHolKE=",
+    "h1:kE3xWGW1NvMyoeHsGBZmLvFejKerHm4aWKHGKl+w1u8=",
+    "h1:lu6/31LWxFXlIiRN4Vli7tTbiBYDoXpdrIB1FosioMk=",
+    "h1:rYoots8yBQerNql165qGo3OGYr7FV2KSD50FsG9poIE=",
+    "zh:138db85a85fdbb42b9adbe3645a406e054dd16904dfd05c7c27d01f6cb3a8f1a",
+    "zh:3cb8b2b029b3a720c820d06f7609394d7ed5fc2d8a7155e6f5d932337a6f38c1",
+    "zh:7720915668baba487a076119e5dce45a2a8987368a670e3e3d43dd9c2b99fa66",
+    "zh:7b89be5e7a41b20f227109ef34ac9a7d5d4252ccbdc0aff25f6535f18e4c0614",
+    "zh:982f9638a6c49bcc5bac069a7f4c9afb31fbbd1c6a8b1dbc6fb2c79580ccfcc0",
+    "zh:e1ec5f8ef220dc8acebcce4da24451e9c701e7e46603c32a0203d24847daa83e",
+    "zh:e223b91e4a4eb1472f8d19345bac6da3cf50a7a24c889070475449ce5dae3e4e",
+    "zh:e47d40fc5da47946bc3dacfba67a2939ff17ea97bb20b8771767b26b35ac50a9",
+    "zh:f28927cc79551965335eafcd951ea9368b2938d7e5df6b566ae9b47f4e91066d",
   ]
 }
