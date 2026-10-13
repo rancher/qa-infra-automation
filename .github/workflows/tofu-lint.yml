@@ -1,0 +1,36 @@
+name: Tofu Lint
+
+on:
+  pull_request:
+    paths:
+      - "tofu/**"
+      - ".github/workflows/tofu-lint.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "tofu/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tofu-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tofu-fmt:
+    name: tofu fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
+        with:
+          tofu_version: 1.10.9
+
+      - name: Check formatting
+        run: tofu fmt -check -diff -recursive tofu/
