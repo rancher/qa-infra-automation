@@ -222,6 +222,7 @@ help: ## Show this help message
 	@echo "  ssh-bastion         SSH to bastion host"
 	@echo "  ping                Ping all hosts"
 	@echo "  validate            Validate configuration and prerequisites"
+	@echo "  test-tofu-cluster-nodes  Validate/test the AWS cluster_nodes module offline (no AWS resources)"
 	@echo "  verify              Verify supply chain integrity"
 	@echo "  clean               Clean local temporary files"
 	@echo ""
@@ -268,6 +269,10 @@ help: ## Show this help message
 # ============================================================================
 # VALIDATION
 # ============================================================================
+
+.PHONY: test-tofu-cluster-nodes
+test-tofu-cluster-nodes: ## Validate/test AWS cluster_nodes without AWS resources
+	bash scripts/test-tofu-cluster-nodes.sh
 
 .PHONY: validate
 validate: check-prereqs check-config ## Validate configuration and prerequisites

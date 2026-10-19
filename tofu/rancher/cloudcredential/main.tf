@@ -7,7 +7,7 @@ provider "rancher2" {
 resource "rancher2_cloud_credential" "this" {
   count = var.create_new ? 1 : 0
   name  = var.name
-  
+
   dynamic "amazonec2_credential_config" {
     for_each = var.cloud_provider == "aws" ? [1] : []
     content {

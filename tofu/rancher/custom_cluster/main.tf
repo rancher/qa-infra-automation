@@ -17,7 +17,7 @@ resource "rancher2_cluster_v2" "rancher2_cluster_v2" {
   enable_network_policy                                      = var.is_network_policy
   default_pod_security_admission_configuration_template_name = var.psa
   default_cluster_role_for_project_members                   = "user"
-  
+
   rke_config {
     upgrade_strategy {
       control_plane_concurrency = "10%"

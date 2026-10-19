@@ -4,29 +4,29 @@ variable "kubernetes_version" {
 
 variable "is_network_policy" {
   description = "boolean, whether or not to set network policy"
-  default = false
-  type    = bool
+  default     = false
+  type        = bool
 }
 variable "psa" {
   description = "valid PSA. Should already be available in rancher setup."
-  default = "" # "rancher-privileged"
+  default     = "" # "rancher-privileged"
 }
 
 variable "generate_name" {
   description = "short name to append to created resources"
-  type     = string
-  default = "tf"
-  nullable = false
+  type        = string
+  default     = "tf"
+  nullable    = false
 }
 
-variable fqdn {
+variable "fqdn" {
   description = "https://your-rancher-setup"
 }
-variable api_key {
+variable "api_key" {
   description = "valid api key from your rancher setup."
 }
-variable insecure {
+variable "insecure" {
   description = "use insecure if your TLS certs aren't officially signed."
-  default = true
-  type    = bool
+  default     = true
+  type        = bool
 }
