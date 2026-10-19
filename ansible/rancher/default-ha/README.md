@@ -136,7 +136,13 @@ ansible-playbook ansible/rancher/default-ha/rancher-upgrade-playbook.yml \
 The upgrade tasks perform the following actions:
 
 - add the upgrade target Helm repository
+- resolve the target version (runtime `latest`/line) and log the upgrade path as
+  `Rancher upgrade: <installed> (chart <x.y.z>) -> <target>` so pipeline
+  reporting can record the tested path
 - install the `helm-diff` plugin if it is not already present (the install tolerates helm 4's default plugin-source verification with a `--verify=false` retry; helm 3 is unaffected)
+- optionally fetch and verify the target chart (`skip_rancher_chart_verification`,
+  default true: verification is best-effort and falls back to the unsigned repo
+  chart when no provenance is published or no keyring is prepared)
 - run an in-place Helm upgrade of the `rancher` release with `reuse_values: true`
 - wait for the `cattle-system/rancher` deployment to become fully ready
 - wait for `https://<fqdn>` to return HTTP 200

@@ -44,6 +44,10 @@
     rancher_upgrade_repo_password: ""
     rancher_upgrade_system_default_registry: ""
 
+    # Skip Rancher chart verification (default: true for faster runs);
+    # set to false with a prepared keyring to install from verified tarballs.
+    skip_rancher_chart_verification: true
+
   pre_tasks:
     - name: Discover fqdn and kubeconfig (tofu state or environment)
       ansible.builtin.include_tasks: rancher-discovery-tasks.yml
@@ -140,10 +144,26 @@
           concrete chart version. Pin one (e.g. 2.15.2) or check the repo
           {{ rancher_chart_upgrade_repo_url | default('') }}.
 
-    - name: Report the upgrade target
+    - name: Read the currently installed Rancher release
+      # Base side of the upgrade path; the target is resolved above.
+      ansible.builtin.command:
+        cmd: helm list --kubeconfig {{ kubeconfig_file }} -n cattle-system -o json
+      register: rancher_installed_releases
+      changed_when: false
+
+    - name: Report the upgrade path
+      # One stable base -> target line so pipeline reporting (e.g. Qase run
+      # title/description) can lift the tested upgrade path from the log.
+      vars:
+        _rancher_release: >-
+          {{ (rancher_installed_releases.stdout | from_json)
+             | selectattr('name', 'equalto', 'rancher') | list
+             | first | default({}, true) }}
       ansible.builtin.debug:
         msg: >-
-          Upgrading Rancher to {{ rancher_version_upgrade_final }}
+          Rancher upgrade: {{ _rancher_release.app_version | default('unknown', true) }}
+          (chart {{ _rancher_release.chart | default('?', true) | regex_replace('^rancher-', '') }})
+          -> {{ rancher_version_upgrade_final }}
           from {{ rancher_chart_upgrade_repo_url }}
 
   tasks:

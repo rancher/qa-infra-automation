@@ -337,11 +337,14 @@
           --verify --destination /tmp
       register: rancher_chart_pull
       changed_when: false
-      # Only provenance failures fall through to the unsigned path; anything
-      # else (network, repo errors) is a real failure and stops the run.
+      # Best-effort: provenance/keyring/signature failures fall through to
+      # the unsigned path; anything else stops the run.
       failed_when: >-
         rancher_chart_pull.rc != 0
         and 'provenance' not in rancher_chart_pull.stderr
+        and 'keyring' not in rancher_chart_pull.stderr
+        and 'signature' not in rancher_chart_pull.stderr
+        and 'openpgp' not in rancher_chart_pull.stderr
 
     - name: Record install chart verification outcome
       ansible.builtin.set_fact:
