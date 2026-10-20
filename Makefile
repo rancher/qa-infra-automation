@@ -18,6 +18,9 @@ WORKSPACE     ?= default
 TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
 AUTO_APPROVE  ?= no
+# Set OFFLINE=1 to require pinned Ansible collections to be pre-installed;
+# check-collections then fails instead of auto-installing from galaxy
+OFFLINE       ?= no
 # Opt-in: include the standalone ui-plugin-mirror step in `all`/`setup-from-infra`
 # and set enable_ui_plugin_mirror=true for every ansible invocation (airgap
 # only, incl. airgap-downstream, which has no standalone mirror step). Default
@@ -256,7 +259,7 @@ test-tofu-cluster-nodes: ## Validate/test AWS cluster_nodes without AWS resource
 	bash scripts/test-tofu-cluster-nodes.sh
 
 .PHONY: validate
-validate: check-prereqs check-config ## Validate configuration and prerequisites
+validate: check-prereqs check-collections check-config ## Validate configuration and prerequisites
 	@echo "Validation complete"
 
 .PHONY: check-prereqs
@@ -266,12 +269,23 @@ check-prereqs: ## Check all prerequisites are installed
 	@command -v ansible >/dev/null 2>&1 || { echo "Error: ansible is not installed"; exit 1; }
 	@command -v ansible-playbook >/dev/null 2>&1 || { echo "Error: ansible-playbook is not installed"; exit 1; }
 	@python3 -c "import yaml" 2>/dev/null || { echo "Installing Python dependencies..."; if [ -n "$$VIRTUAL_ENV" ]; then pip3 install -r requirements.txt; else pip3 install --user -r requirements.txt; fi; }
-	@ansible-galaxy collection list 2>/dev/null | grep -q kubernetes.core || { echo "Installing Ansible collections..."; ansible-galaxy collection install -r requirements.yml; }
 	@echo "All prerequisites found"
 
 .PHONY: collections
 collections: ## Install pinned Ansible collections
 	ansible-galaxy collection install -r requirements.yml
+
+.PHONY: check-collections
+check-collections: ## Ensure installed Ansible collections match requirements.yml pins (auto-installs drift unless OFFLINE=1)
+	@if python3 scripts/check_collections.py; then \
+		exit 0; \
+	elif [ "$(OFFLINE)" = "1" ]; then \
+		echo "Error: OFFLINE=1 set; install pinned collections into the image or run 'make collections' in a networked environment."; \
+		exit 1; \
+	else \
+		echo "Installing pinned Ansible collections from requirements.yml..."; \
+		ansible-galaxy collection install -r requirements.yml && python3 scripts/check_collections.py; \
+	fi
 
 .PHONY: check-config
 check-config: ## Validate configuration parameters
@@ -288,8 +302,10 @@ check-config: ## Validate configuration parameters
 	fi
 	@echo "Configuration valid"
 
+# check-inventory gates every ansible-invoking target, so verifying the pinned
+# collections here guarantees plays never run against drifted bundles.
 .PHONY: check-inventory
-check-inventory: ## Verify inventory exists and is not stale
+check-inventory: check-collections ## Verify inventory exists and is not stale
 	@if [ ! -f "$(INVENTORY)" ]; then \
 		echo "Error: Inventory file not found at $(INVENTORY)"; \
 		echo "Run 'make infra-up' first to generate inventory"; \
