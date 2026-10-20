@@ -1,0 +1,58 @@
+---
+# Idempotently ensure the Rancher Ingress serves both the internal and the
+# public hostname in airgap topologies. The chart renders exactly one host
+# (values.hostname); the second is patched in here because helm re-renders the
+# Ingress it owns on every upgrade, which resets spec.rules and spec.tls and
+# drops this patch. Any flow that upgrades the `rancher` release must re-run
+# these tasks afterwards.
+#
+# Inputs (both required, else the tasks skip):
+#   rancher_private_hostname - internal LB hostname (helm values.hostname)
+#   rancher_public_hostname  - external LB hostname to add
+#   ingress_kubeconfig       - kubeconfig for the kubernetes.core.k8s calls
+- name: Set fact for the two-host Ingress rules
+  when:
+    - rancher_private_hostname is defined
+    - rancher_public_hostname is defined
+  ansible.builtin.set_fact:
+    rancher_ingress_rules:
+      - host: "{{ rancher_private_hostname }}"
+        http:
+          paths:
+            - backend:
+                service:
+                  name: rancher
+                  port:
+                    number: 80
+              path: /
+              pathType: ImplementationSpecific
+      - host: "{{ rancher_public_hostname }}"
+        http:
+          paths:
+            - backend:
+                service:
+                  name: rancher
+                  port:
+                    number: 80
+              path: /
+              pathType: ImplementationSpecific
+
+- name: Patch the Ingress to serve both hostnames
+  when:
+    - rancher_private_hostname is defined
+    - rancher_public_hostname is defined
+  kubernetes.core.k8s:
+    state: patched
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    name: rancher
+    namespace: cattle-system
+    kubeconfig: "{{ ingress_kubeconfig }}"
+    definition:
+      spec:
+        rules: "{{ rancher_ingress_rules }}"
+        tls:
+          - hosts:
+              - "{{ rancher_private_hostname }}"
+              - "{{ rancher_public_hostname }}"
+            secretName: tls-rancher-ingress
