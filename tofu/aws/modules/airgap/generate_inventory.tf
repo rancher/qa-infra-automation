@@ -32,8 +32,8 @@ output "airgap_inventory_json" {
     registry_host        = length(module.registry) > 0 ? module.registry[0].public_dns : null
     ssh_key              = var.ssh_key
     ssh_user             = var.aws_ssh_user
-    external_lb_hostname = module.route53[0].record_fqdn
-    internal_lb_hostname = module.internal_route53[0].record_fqdn
+    external_lb_hostname = length(module.route53) > 0 ? module.route53[0].record_fqdn : null
+    internal_lb_hostname = length(module.internal_route53) > 0 ? module.internal_route53[0].record_fqdn : null
     node_groups          = local.group_addresses
   })
 }
