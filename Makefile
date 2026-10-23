@@ -87,6 +87,16 @@ CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-tarball-playboo
 RANCHER_PLAYBOOK    := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 DOWNSTREAM_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/add-downstream-cluster.yml
 REGISTRY_TARGET     := registry
+else ifeq ($(ENV),dualstack)
+TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook-$(ENV).yml
+RANCHER_PLAYBOOK :=
+REGISTRY_TARGET  :=
+else ifeq ($(ENV),ipv6)
+TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
+CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook-$(ENV).yml
+RANCHER_PLAYBOOK :=
+REGISTRY_TARGET  :=
 else
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.yml
@@ -114,8 +124,26 @@ export ANSIBLE_HOST_KEY_CHECKING := False
 
 # Validate configuration
 VALID_DISTROS   := rke2 k3s
-VALID_ENVS      := airgap default proxy
+VALID_ENVS      := airgap default proxy dualstack ipv6
 VALID_PROVIDERS := aws gcp harvester
+
+# Environments that have no Rancher deploy step yet. `all`/`setup-from-infra`
+# drop the 'rancher' prerequisite for these instead of invoking ansible-playbook
+# with an empty RANCHER_PLAYBOOK.
+RANCHERLESS_ENVS := dualstack ipv6
+ifeq ($(filter $(ENV),$(RANCHERLESS_ENVS)),)
+RANCHER_TARGET := rancher
+else
+RANCHER_TARGET :=
+endif
+
+# ansible/k3s has no dualstack/ipv6 playbooks; fail here rather than deep inside
+# a target with a missing-file error.
+ifneq ($(filter $(ENV),$(RANCHERLESS_ENVS)),)
+ifeq ($(DISTRO),k3s)
+$(error DISTRO=k3s is not supported with ENV=$(ENV): ansible/k3s/$(ENV) has no playbooks yet. Use DISTRO=rke2.)
+endif
+endif
 
 # ============================================================================
 # HELP
@@ -129,13 +157,18 @@ help: ## Show this help message
 	@echo ""
 	@echo "Current Configuration:"
 	@echo "  DISTRO   = $(DISTRO)      (options: rke2, k3s)"
-	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy)"
+	@echo "  ENV      = $(ENV)     (options: airgap, default, proxy, dualstack, ipv6)"
 	@echo "  PROVIDER = $(PROVIDER)       (options: aws, gcp, harvester)"
 	@echo "  WORKSPACE = $(WORKSPACE)    (tofu workspace name)"
 	@echo "  TARGET_GROUP = $(if $(TARGET_GROUP),$(TARGET_GROUP),<unset>)  (airgap node group, e.g. rancher/downstream; required for 'downstream')"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws WORKSPACE=myworkspace"
-	@echo "At the moment this only supports rke2, default/airgap, and aws"
+	@echo "At the moment this only supports rke2, default/airgap/dualstack/ipv6, and aws"
+	@echo ""
+	@echo "NETWORKING MODES (rke2 + aws only):"
+	@echo "  ENV=dualstack   IPv4 + IPv6 on every node (tofu/aws/modules/dualstack)"
+	@echo "  ENV=ipv6        IPv6-only cluster nodes behind an IPv4+IPv6 bastion (tofu/aws/modules/ipv6)"
+	@echo "  Both skip the Rancher deploy step; 'make all' runs infra-up + cluster only."
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. Configure $(TOFU_DIR)/terraform.tfvars"
@@ -728,6 +761,9 @@ agents: check-inventory ## Setup additional agent nodes
 
 .PHONY: rancher
 rancher: check-inventory ## Deploy Rancher to cluster
+	@if [ -z "$(RANCHER_PLAYBOOK)" ]; then \
+		echo "ERROR: 'rancher' is not supported for ENV=$(ENV) (no Rancher playbook)."; exit 1; \
+	fi
 	@echo "Deploying Rancher..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg KUBECONFIG_FILE=$(KUBECONFIG_FILE); \
 	ansible-playbook -i $(INVENTORY) $(RANCHER_PLAYBOOK) -v $(ANSIBLE_EXTRA_VARS)
@@ -880,6 +916,8 @@ status: check-inventory ## Show cluster status
 	elif [ -f "$(KUBECONFIG_FILE)" ]; then \
 		echo "=== Nodes ==="; \
 		kubectl --kubeconfig $(KUBECONFIG_FILE) get nodes -o wide || echo "Could not get cluster status"; \
+		echo "=== kube-system Pods ==="; \
+		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -n kube-system -o wide || echo "Could not get cluster status"; \
 		echo ""; \
 		echo "=== Rancher Pods ==="; \
 		kubectl --kubeconfig $(KUBECONFIG_FILE) get pods -n cattle-system 2>/dev/null || echo "Rancher not deployed"; \
@@ -959,16 +997,22 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) $(RANCHER_TARGET) ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
+	@if [ -z "$(RANCHER_TARGET)" ]; then \
+		echo "NOTE: ENV=$(ENV) has no Rancher deploy step; skipped 'rancher'."; \
+	fi
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) $(RANCHER_TARGET) ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
+	@if [ -z "$(RANCHER_TARGET)" ]; then \
+		echo "NOTE: ENV=$(ENV) has no Rancher deploy step; skipped 'rancher'."; \
+	fi
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
