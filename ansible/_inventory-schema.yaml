@@ -9,22 +9,39 @@
 #       groups:
 #         <group_name>:
 #           roles:      [list of roles to include]
-#           first_only: true  (optional, include only the first matching node)
+#           name:       exact node name to match (e.g. "master" - Terraform
+#                       always renames exactly one node to this literal name;
+#                       see docs/adding-a-provider.md). Mutually exclusive
+#                       with roles - use this whenever a group must resolve to
+#                       one specific, pre-designated node rather than "whichever
+#                       matching node happens to sort first" (JSON node order
+#                       is not meaningful - it comes from a Terraform map
+#                       iteration, not from any deliberate placement).
+#           os:         linux | windows  (optional; omit to match any OS)
 
 rke2:
   default:
     input_type: cluster_nodes
     ip_field: public_ip
     groups:
-      # Prefer etcd; fall back to cp for external-datastore (kine) topologies
-      # that have no etcd nodes. Etcd clusters are unaffected (etcd still wins).
+      # Terraform always renames exactly one node (first etcd, falling back to
+      # first cp for external-datastore/kine topologies) to the literal name
+      # "master" - match on that name directly, not on role + array position.
       master:
-        roles_priority: [[etcd], [cp]]
-        first_only: true
+        name: master
+        os: linux
       servers:
         roles: [etcd, cp]
+        os: linux
       workers:
         roles: [worker]
+        os: linux
+      # Windows can only ever be an RKE2 agent. Kept in its own group so the
+      # Linux plays can exclude it with `hosts: all:!windows_workers` — they are
+      # all `become: true` and use systemd/dnf/zypper, which do not exist there.
+      windows_workers:
+        roles: [worker]
+        os: windows
       # 'all' is implicit in Ansible and includes every host
 
   airgap:
@@ -37,11 +54,18 @@ k3s:
     input_type: cluster_nodes
     ip_field: public_ip
     groups:
-      # Prefer etcd (embedded etcd); fall back to cp (external-datastore topology — needs datastore-endpoint via server_flags).
+      # Terraform always renames exactly one node (first etcd, falling back to
+      # first cp for external-datastore topologies - needs datastore-endpoint
+      # via server_flags) to the literal name "master" - match on that name
+      # directly, not on role + array position.
+      # K3s has no Windows support, so every group is pinned to linux; a windows
+      # node in a k3s inventory matches nothing and the generator errors out.
       master:
-        roles_priority: [[etcd], [cp]]
-        first_only: true
+        name: master
+        os: linux
       servers:
         roles: [etcd, cp]
+        os: linux
       workers:
         roles: [worker]
+        os: linux

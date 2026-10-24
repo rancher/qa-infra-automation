@@ -38,6 +38,14 @@ Every Tofu `cluster_nodes` module must output this exact JSON shape:
       "roles": ["worker"],
       "public_ip": "1.2.3.5",
       "private_ip": "10.0.1.2"
+    },
+    {
+      "name": "windows-worker-0",
+      "roles": ["worker"],
+      "public_ip": "1.2.3.6",
+      "private_ip": "10.0.1.3",
+      "os": "windows",
+      "ssh_user": "Administrator"
     }
   ]
 }
@@ -49,10 +57,34 @@ Every Tofu `cluster_nodes` module must output this exact JSON shape:
 | `metadata.kube_api_host` | string | IP of the Kubernetes API endpoint |
 | `metadata.fqdn` | string | FQDN for TLS SANs and API access |
 | `metadata.ssh_user` | string | OS SSH user for Ansible |
+| `metadata.ssh_private_key` | string | Optional. Path to the SSH key; becomes `ansible_ssh_private_key_file` for every node |
 | `nodes[].name` | string | Node hostname. First etcd node **must** be `"master"` |
 | `nodes[].roles` | list | Valid values: `etcd`, `cp`, `worker` |
 | `nodes[].public_ip` | string | Used as `ansible_host` |
 | `nodes[].private_ip` | string | Available but not used in standard deployments |
+| `nodes[].os` | string | Optional. `linux` (default when absent) or `windows` |
+| `nodes[].ssh_user` | string | Optional per-node override of `metadata.ssh_user` |
+| `nodes[].ssh_private_key` | string | Optional per-node override of `metadata.ssh_private_key` |
+
+### Windows nodes
+
+`os: windows` is only valid for RKE2, and only for `roles: ["worker"]` — RKE2 has no
+Windows server role, so the generator rejects a Windows node carrying `cp` or `etcd`.
+It also rejects a Windows node in a K3s inventory rather than letting it silently
+vanish from every play.
+
+Windows hosts get connection variables that Linux hosts do not:
+
+```yaml
+ansible_connection: ssh          # OpenSSH, not WinRM
+ansible_shell_type: powershell
+ansible_become: false            # the win_* modules already run as Administrator
+ansible_pipelining: false        # pipelining is POSIX-only and breaks win_* modules
+ansible_user: Administrator      # from nodes[].ssh_user
+```
+
+They land in the `windows_workers` group, never in `workers`. See the
+[Windows agent guide](../guides/rke2-windows-agent-aws.md).
 
 ## Inventory Schema
 
@@ -67,10 +99,16 @@ rke2:
       master:
         roles: [etcd]
         first_only: true        # Only the first matching node
+        os: linux               # Optional; omit to match any OS
       servers:
         roles: [cp]
+        os: linux
       workers:
         roles: [worker]
+        os: linux
+      windows_workers:
+        roles: [worker]
+        os: windows
 
 k3s:
   default:
@@ -105,23 +143,31 @@ all:
         master:
           ansible_host: "1.2.3.4"
           ansible_user: "ec2-user"
-          rke2_node_role: master
+          node_type: master
           node_roles: [etcd, cp, worker]
     servers:
       hosts:
         cp-0:
           ansible_host: "1.2.3.5"
           ansible_user: "ec2-user"
-          rke2_node_role: server
+          node_type: server
           node_roles: [cp]
     workers:
       hosts:
         worker-0:
           ansible_host: "1.2.3.6"
           ansible_user: "ec2-user"
-          rke2_node_role: agent
+          node_type: agent
           node_roles: [worker]
+    windows_workers:
+      hosts:
+        windows-worker-0:
+          ansible_host: "1.2.3.7"
 ```
+
+Groups with no members are still emitted (as `hosts: {}`) so that host patterns which
+exclude them — the RKE2 playbook's `all:!windows_workers` — do not warn on Linux-only
+clusters.
 
 ## Manual Inventory (BYO Nodes)
 
@@ -133,7 +179,7 @@ See the [RKE2 BYO guide](../guides/rke2-default-byo.md#step-1-create-the-ansible
 
 Key requirements:
 - Bootstrap node must be in the `master` group
-- `rke2_node_role`: `master` (first node), `server` (additional CP), or `agent` (worker)
+- `node_type`: `master` (first node), `server` (additional CP), or `agent` (worker)
 - `node_roles`: list of `etcd`, `cp`, `worker`
 - `fqdn` and `kube_api_host` in `all.vars`
 
