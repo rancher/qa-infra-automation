@@ -87,7 +87,7 @@ class TestFindDrift(unittest.TestCase):
 class TestCli(unittest.TestCase):
     """End-to-end runs against a fake ansible-galaxy shim on PATH."""
 
-    def run_cli(self, requirements_text, galaxy_json):
+    def run_cli(self, requirements_text, galaxy_json=None, shim_lines=None):
         with tempfile.TemporaryDirectory() as tmp:
             req_path = os.path.join(tmp, "requirements.yml")
             with open(req_path, "w") as f:
@@ -95,7 +95,10 @@ class TestCli(unittest.TestCase):
             shim = os.path.join(tmp, "ansible-galaxy")
             with open(shim, "w") as f:
                 f.write("#!/bin/sh\n")
-                f.write("printf '%s' '" + json.dumps(galaxy_json) + "'\n")
+                if shim_lines is None:
+                    f.write("printf '%s' '" + json.dumps(galaxy_json or {}) + "'\n")
+                else:
+                    f.write("\n".join(shim_lines) + "\n")
             os.chmod(shim, 0o755)
             env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"])
             return subprocess.run(
@@ -140,6 +143,37 @@ class TestCli(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 2)
         self.assertIn("cannot parse", proc.stderr)
+
+    def test_known_empty_listing_is_drift_not_undeterminable(self):
+        # ansible-galaxy (core <= 2.19) exits 1 with this exact message when
+        # no configured path holds any collection: that is a determinate
+        # empty set, so pins must report as missing (exit 1), not exit 2.
+        proc = self.run_cli(
+            "collections:\n  - name: cloud.terraform\n    version: \"4.0.0\"\n",
+            shim_lines=[
+                "echo 'ERROR! - None of the provided paths were usable. "
+                "Please specify a valid path with --collections-path' >&2",
+                "exit 1",
+            ],
+        )
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("cloud.terraform: missing (want 4.0.0)", proc.stderr)
+        self.assertIn("None of the provided paths were usable", proc.stderr)
+        self.assertNotIn("undeterminable", proc.stderr)
+
+    def test_other_listing_failure_exits_two(self):
+        # Any other non-zero exit (config errors, permissions) means the
+        # installed set is undeterminable: exit 2, never a normal drift run.
+        proc = self.run_cli(
+            "collections:\n  - name: cloud.terraform\n    version: \"4.0.0\"\n",
+            shim_lines=[
+                "echo 'ERROR! Invalid configuration file' >&2",
+                "exit 1",
+            ],
+        )
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("collection list failed", proc.stderr)
+        self.assertNotIn("Collections OK", proc.stdout)
 
 
 if __name__ == "__main__":

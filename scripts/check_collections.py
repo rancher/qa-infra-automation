@@ -67,11 +67,20 @@ def list_installed():
         print("Error: ansible-galaxy not found on PATH.", file=sys.stderr)
         sys.exit(2)
     if proc.returncode != 0:
-        # ansible-galaxy exits non-zero when no configured path holds any
-        # collection (e.g. a bare pip ansible-core): treat that as empty.
-        if proc.stderr.strip():
-            print(f"Warning: {proc.stderr.strip()}", file=sys.stderr)
-        return {}
+        output = (proc.stderr + proc.stdout).strip()
+        # Only the known empty result is determinate: ansible-galaxy (up to
+        # core 2.19) exits non-zero with "None of the provided paths were
+        # usable" when no configured path holds any collection (e.g. a bare
+        # pip ansible-core). Everything else (config errors, permissions)
+        # leaves the installed set undeterminable.
+        if "None of the provided paths were usable" in output:
+            print(f"Warning: {output}", file=sys.stderr)
+            return {}
+        print(
+            f"Error: ansible-galaxy collection list failed (rc={proc.returncode}): {output}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     try:
         return effective_versions(json.loads(proc.stdout))
     except json.JSONDecodeError as exc:
