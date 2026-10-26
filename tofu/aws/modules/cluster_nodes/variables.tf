@@ -114,3 +114,8 @@ variable "ephemeral_sg_egress_cidrs" {
   type        = list(string)
   default     = null
 }
+
+variable "aws_default_tags" {
+  type    = map(string)
+  default = {}
+}
