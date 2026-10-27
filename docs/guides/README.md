@@ -10,6 +10,7 @@ End-to-end guides for deploying Kubernetes clusters. Each guide takes you from z
 |-------|--------|-------------|----------------|------------|
 | [RKE2 on AWS](rke2-default-aws.md) | RKE2 | Default | AWS (Tofu) | ⭐ Easiest starting point |
 | [RKE2 on your own nodes](rke2-default-byo.md) | RKE2 | Default | BYO / on-premise | ⭐ No cloud needed |
+| [RKE2 Windows agent on AWS](rke2-windows-agent-aws.md) | RKE2 | Default | AWS (Tofu) | ⭐⭐ Requires Calico or Flannel |
 | [RKE2 airgap on AWS](rke2-airgap-aws.md) | RKE2 | Airgap | AWS (Tofu) | ⭐⭐⭐ Advanced |
 | [K3s on AWS](k3s-default-aws.md) | K3s | Default | AWS (Tofu) | ⭐ |
 | [K3s on your own nodes](k3s-default-byo.md) | K3s | Default | BYO / on-premise | ⭐ |
@@ -38,7 +39,8 @@ Once you have a running cluster, you typically:
 
 1. **Install Rancher** → [Rancher HA guide](rancher-ha.md)
 2. **Add more workers** → Update your inventory and re-run the cluster playbook
-3. **Import downstream clusters** → See [importing clusters in airgap](../import_cluster_on_airgap.md)
+3. **Add Windows agents** → [RKE2 Windows agent guide](rke2-windows-agent-aws.md) (`make windows-agents`)
+4. **Import downstream clusters** → See [importing clusters in airgap](../import_cluster_on_airgap.md)
 
 ## Adding a New Provider
 
