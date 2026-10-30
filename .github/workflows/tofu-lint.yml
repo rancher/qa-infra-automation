@@ -23,14 +23,35 @@ jobs:
     name: tofu fmt
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # renovate: datasource=github-release-attachments depName=opentofu/opentofu
+      TOFU_VERSION: v1.12.6
+      # renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.12.6
+      TOFU_SUM_AMD64: 5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
 
-      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
-        with:
-          tofu_version: 1.10.9
+      # opentofu/setup-opentofu is blocked by the enterprise action allowlist.
+      - name: Install OpenTofu
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_ARCH" != "X64" ]; then
+            echo "Unsupported runner arch: $RUNNER_ARCH (only X64 checksum is pinned)" >&2
+            exit 1
+          fi
+          zip="$RUNNER_TEMP/tofu.zip"
+          bin_dir="$RUNNER_TEMP/tofu-bin"
+          trap 'rm -f "$zip"' EXIT
+          curl -fsSL --retry 3 --max-time 120 \
+            "https://github.com/opentofu/opentofu/releases/download/${TOFU_VERSION}/tofu_${TOFU_VERSION#v}_linux_amd64.zip" \
+            -o "$zip"
+          echo "${TOFU_SUM_AMD64}  $zip" | sha256sum -c -
+          mkdir -p "$bin_dir"
+          unzip -o -q "$zip" tofu -d "$bin_dir"
+          "$bin_dir/tofu" version
+          echo "$bin_dir" >> "$GITHUB_PATH"
 
       - name: Check formatting
         run: tofu fmt -check -diff -recursive tofu/
