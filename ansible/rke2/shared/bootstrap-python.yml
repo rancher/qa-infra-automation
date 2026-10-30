@@ -9,6 +9,15 @@
     python_local_path: "/tmp/python39.tar.gz"
     has_bastion: "{{ bastion_host is defined and bastion_user is defined }}"
 
+  pre_tasks:
+    # This is the first play `make cluster` runs, so it hits nodes straight out
+    # of `infra-up` while sshd may still be coming up.
+    - name: Wait for SSH to become available
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+      become: false
+
   tasks:
     - name: Check if Python 3.9+ exists
       ansible.builtin.raw: python3.9 --version 2>/dev/null || echo "NEEDS_INSTALL"
@@ -32,7 +41,9 @@
       delegate_to: localhost
       become: false
       run_once: true
-      when: has_bastion
+      when:
+        - has_bastion
+        - "'airgap_nodes' in groups"
 
     - name: Copy Python binary from bastion to target nodes (airgap)
       ansible.builtin.shell: |
@@ -41,7 +52,19 @@
       become: false
       when:
         - has_bastion
+        - "'airgap_nodes' in groups"
         - "'NEEDS_INSTALL' in check_python.stdout"
+
+    - name: Copy Python binary to target nodes (dualstack/ipv6)
+      ansible.builtin.shell: |
+        scp {% if ansible_ssh_private_key_file is defined %}-i {{ ansible_ssh_private_key_file }} {% endif %}{{ ansible_ssh_common_args | default('-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null') }} "{{ python_local_path }}" {{ ansible_user ~ '@' if ansible_user is defined else '' }}{% if ':' in ansible_host %}[{{ ansible_host }}]{% else %}{{ ansible_host }}{% endif %}:/tmp/python39.tar.gz
+      delegate_to: localhost
+      become: false
+      when:
+        - has_bastion
+        - "'airgap_nodes' not in groups"
+        - "'NEEDS_INSTALL' in check_python.stdout"
+
 
     - name: Copy Python binary directly to target nodes (default)
       ansible.builtin.shell: |

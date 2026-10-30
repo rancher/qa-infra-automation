@@ -1,0 +1,55 @@
+# AWS Credentials (optional - omit to use the provider's standard credential
+# chain: ~/.aws/credentials, AWS_PROFILE, env vars, SSO, IMDS)
+# aws_access_key    = "yourkey"
+# aws_secret_key    = "yoursecret"
+
+# Region and Networking settings: 
+aws_region          = "region"
+aws_vpc             = "vpc"
+aws_subnet          = "subnet"
+aws_security_group  = ["sg"]
+
+# DNS settings/hosted zone: 
+aws_route53_zone    =  "zone"
+
+# Instance settings:
+aws_ami             = "ami"
+instance_type       = "t3.xlarge"
+aws_ssh_user        = "user"
+aws_volume_size     = "40"
+aws_volume_type     = "gp3"
+aws_hostname_prefix  = "prefix"
+
+# SSH Key settings:
+public_ssh_key      = "/Path_to/jenkins.pub"
+private_ssh_key   = "/Path_to/jenkins.pem"
+key_name           = "jenkins"
+# Cluster topology settings:
+nodes = [
+  {
+    count = 1
+    role  = ["etcd"]
+  },
+  {
+    count = 1
+    role  = ["cp"]
+  },
+  {
+    count = 1
+    role  = ["worker"]
+  }
+]
+
+no_of_bastion_nodes = 1
+aws_bastion_subnet = "subnet"
+
+# IPv6-only deployment - cluster nodes get IPv6 only; the bastion keeps IPv4+IPv6.
+enable_ipv6  = true # Set IPv6 IP for the nodes and bastion node. 
+enable_public_ip  = false # No public IPv4 on the cluster nodes.
+kube_api_host_ipv6 = true # kube_api_host must be the IPv6 address.
+
+# DNS64 for IPv6-only nodes (enable_public_ip = false).
+# Defaults to the public nat64.net service; override with a VPC DNS64 resolver,
+# or set ipv6_manage_dns = false to leave the image's DNS configuration alone.
+# ipv6_dns64_resolvers = ["2001:db8::2"]
+# ipv6_manage_dns = false
