@@ -25,9 +25,9 @@ jobs:
     timeout-minutes: 10
     env:
       # renovate: datasource=github-release-attachments depName=opentofu/opentofu
-      TOFU_VERSION: v1.12.6
-      # renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.12.6
-      TOFU_SUM_AMD64: 5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
+      TOFU_VERSION: v1.13.2
+      # renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.13.2
+      TOFU_SUM_AMD64: 723bebb0df8411daff1e5fc3862e28ff5581fe5634087f4c29a9aa41d78208b5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
