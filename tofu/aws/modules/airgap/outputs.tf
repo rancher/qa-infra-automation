@@ -20,9 +20,9 @@ output "non_rancher_airgap_nodes_private_ips" {
 }
 
 output "external_lb_hostname" {
-  value = module.route53[0].record_fqdn
+  value = length(module.route53) > 0 ? module.route53[0].record_fqdn : null
 }
 
 output "internal_lb_hostname" {
-  value = module.internal_route53[0].record_fqdn
+  value = length(module.internal_route53) > 0 ? module.internal_route53[0].record_fqdn : null
 }
