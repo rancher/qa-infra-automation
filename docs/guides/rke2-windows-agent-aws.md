@@ -111,18 +111,8 @@ cni: "calico"        # or "flannel" — NOT canal
 kubeconfig_file: './kubeconfig.yaml'
 ```
 
-No CNI tuning is needed for the default path: the bundled `rke2-calico` chart already
-ships `bgp: Disabled`, `encapsulation: VXLAN` and `ipamConfig.strictAffinity: true`, which
-is exactly what Windows requires. If you do need to override chart values (MTU, pod CIDR),
-set `rke2_cni_values_content` and the `rke2_config` role writes a `HelmChartConfig` into
-the server manifests directory before first start:
-
-```yaml
-rke2_cni_values_content: |
-  installation:
-    calicoNetwork:
-      mtu: 1400
-```
+No CNI tuning is needed: the bundled `rke2-calico` chart already ships `bgp: Disabled`,
+`encapsulation: VXLAN` and `ipamConfig.strictAffinity: true`, which is exactly what Windows requires.
 
 ## Step 4: Deploy
 
