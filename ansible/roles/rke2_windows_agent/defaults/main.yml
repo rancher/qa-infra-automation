@@ -47,3 +47,6 @@ rke2_windows_additional_config: {}
 
 # Seconds to wait for the agent service to come up
 rke2_windows_wait_timeout: 900
+
+# Keys the role writes itself; rke2_windows_additional_config must not repeat them.
+rke2_windows_reserved_config_keys: [server, token, node-label, node-ip]

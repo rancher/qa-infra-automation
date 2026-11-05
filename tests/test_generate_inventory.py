@@ -384,6 +384,14 @@ class TestWindowsAgentInventory(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "windows-worker-0"):
             generate_cluster_nodes_inventory(data, cfg)
 
+    def test_windows_node_without_ssh_user_uses_metadata_user(self):
+        data = load_fixture("rke2_windows_agent.json")
+        for node in data["nodes"]:
+            node.pop("ssh_user", None)
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, self.cfg))
+        host = result["all"]["hosts"]["windows-worker-0"]
+        self.assertEqual(host["ansible_user"], data["metadata"]["ssh_user"])
+
     def test_no_identities_only_without_key_file(self):
         data = load_fixture("rke2_single_master.json")
         result = yaml.safe_load(

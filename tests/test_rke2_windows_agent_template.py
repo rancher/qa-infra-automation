@@ -1,5 +1,6 @@
 """Tests for the rke2_windows_agent role template."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -111,6 +112,48 @@ class TestRKE2WindowsAgentTemplate(unittest.TestCase):
 
         result = run_render_playbook(playbook)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+ROLE_PATH = os.path.join(REPOSITORY_ROOT, "ansible", "roles", "rke2_windows_agent")
+
+
+def run_role_prerequisites(extra_vars: dict) -> subprocess.CompletedProcess:
+    """Run the role against localhost; the prerequisite assert fails before any win_* task."""
+    role_vars = {
+        "kube_api_host": "10.0.1.1",
+        "rke2_token": "tok",
+        "cni": "calico",
+        **extra_vars,
+    }
+    playbook = (
+        "- hosts: localhost\n"
+        "  gather_facts: false\n"
+        f"  vars: {json.dumps(role_vars)}\n"
+        f"  roles:\n    - role: {ROLE_PATH}\n"
+    )
+    return run_render_playbook(playbook)
+
+
+@unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
+class TestRKE2WindowsAgentPrerequisites(unittest.TestCase):
+    def test_rejects_host_without_node_os(self):
+        result = run_role_prerequisites({})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("node_os: windows", result.stdout + result.stderr)
+
+    def test_rejects_reserved_additional_config_keys(self):
+        result = run_role_prerequisites(
+            {"node_os": "windows", "rke2_windows_additional_config": {"token": "x"}}
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("managed by this role", result.stdout + result.stderr)
+
+    def test_rejects_unsupported_resolved_cni(self):
+        result = run_role_prerequisites(
+            {"node_os": "windows", "rke2_windows_cni": "canal"}
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("calico or flannel", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

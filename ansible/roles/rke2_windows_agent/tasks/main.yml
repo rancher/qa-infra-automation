@@ -8,19 +8,21 @@
 - name: Verify prerequisites for the Windows agent
   ansible.builtin.assert:
     that:
-      - node_os | default('windows') == 'windows'
+      - node_os is defined and node_os == 'windows'
       - kube_api_host is defined and kube_api_host | length > 0
       - rke2_token is defined and rke2_token | length > 0
-      - cni | default('canal') in ['calico', 'flannel']
+      - (rke2_windows_cni | default(cni | default('canal'))) in ['calico', 'flannel']
+      - (rke2_windows_additional_config | default({})).keys() | list | intersect(rke2_windows_reserved_config_keys) | length == 0
     fail_msg: >-
-      rke2_windows_agent requires a Windows host, a reachable kube_api_host, a
-      cluster token, and cni set to calico or flannel. RKE2's default CNI (canal)
+      rke2_windows_agent requires node_os: windows, a reachable kube_api_host, a
+      cluster token, cni set to calico or flannel, and an rke2_windows_additional_config
+      that does not set {{ rke2_windows_reserved_config_keys | join(', ') }} (managed by this role). RKE2's default CNI (canal)
       has no Windows support - a Windows agent joined to a canal cluster comes up
       NotReady and never recovers.
 
 - name: Display node configuration info
   ansible.builtin.debug:
-    msg: "Joining Windows agent {{ inventory_hostname }} to https://{{ kube_api_host }}:9345 (CNI: {{ cni }})"
+    msg: "Joining Windows agent {{ inventory_hostname }} to https://{{ kube_api_host }}:9345 (CNI: {{ rke2_windows_cni | default(cni | default('')) }})"
 
 # Sampled before anything is changed, and used for two things: skipping the
 # non-idempotent `agent service --add` below, and deciding whether the restart
@@ -186,6 +188,16 @@
     delay: 15
     timeout: "{{ rke2_windows_wait_timeout }}"
   when: rke2_windows_service_start is changed
+
+# Bounded wait for the kubelet to register; without it the standalone
+# `make windows-agents` path can report success while the node is absent.
+- name: Wait for the kubelet kubeconfig
+  ansible.windows.win_stat:
+    path: "{{ rke2_windows_data_dir }}\\agent\\kubelet.kubeconfig"
+  register: rke2_windows_kubelet_kubeconfig
+  until: rke2_windows_kubelet_kubeconfig.stat.exists
+  retries: "{{ (rke2_windows_wait_timeout | int / 15) | round(0, 'ceil') | int }}"
+  delay: 15
 
 - name: Display join completion
   ansible.builtin.debug:

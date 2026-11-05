@@ -247,7 +247,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
             # shell (the Tofu user_data sets that up). No become — the win_*
             # modules already run as the connecting Administrator — and no
             # pipelining, which is POSIX-only and breaks them.
-            host_entry["ansible_user"] = node.get("ssh_user", "Administrator")
+            host_entry["ansible_user"] = node.get("ssh_user") or metadata["ssh_user"]
             host_entry["ansible_connection"] = "ssh"
             host_entry["ansible_shell_type"] = "powershell"
             host_entry["ansible_become"] = False

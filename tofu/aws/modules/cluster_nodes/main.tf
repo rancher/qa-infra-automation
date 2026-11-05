@@ -326,17 +326,6 @@ resource "aws_security_group" "windows_overlay" {
     cidr_blocks = [data.aws_vpc.selected.cidr_block]
   }
 
-  dynamic "ingress" {
-    for_each = (var.windows_enable_rdp && length(var.ssh_allowed_cidrs) > 0) ? [1] : []
-    content {
-      description = "RDP for interactive debugging"
-      from_port   = 3389
-      to_port     = 3389
-      protocol    = "tcp"
-      cidr_blocks = var.ssh_allowed_cidrs
-    }
-  }
-
   egress {
     description = "Allow all egress"
     from_port   = 0
@@ -350,6 +339,27 @@ resource "aws_security_group" "windows_overlay" {
   }
 }
 
+# RDP is attached to Windows instances only, so the overlay SG shared with the
+# Linux nodes never opens 3389 on the control plane.
+resource "aws_security_group" "windows_rdp" {
+  count       = (local.has_windows_nodes && var.windows_enable_rdp && length(var.ssh_allowed_cidrs) > 0) ? 1 : 0
+  name        = "tf-${var.aws_hostname_prefix}-windows-rdp${local.name_suffix}"
+  description = "RDP for Windows agents in ${var.aws_hostname_prefix}."
+  vpc_id      = var.aws_vpc
+
+  ingress {
+    description = "RDP for interactive debugging"
+    from_port   = 3389
+    to_port     = 3389
+    protocol    = "tcp"
+    cidr_blocks = var.ssh_allowed_cidrs
+  }
+
+  tags = {
+    Name = "tf-${var.aws_hostname_prefix}-windows-rdp${local.name_suffix}"
+  }
+}
+
 resource "aws_instance" "windows" {
   for_each      = local.windows_instances_map
   ami           = var.aws_ami_windows
@@ -360,9 +370,10 @@ resource "aws_instance" "windows" {
   # slowest to become reachable, so they are the likeliest to hit the
   # prefix-list propagation lag it exists to work around.
   vpc_security_group_ids = compact(concat(
-    var.aws_security_group,
+    local.security_group_ids,
     var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : [],
     [aws_security_group.windows_overlay[0].id],
+    aws_security_group.windows_rdp[*].id,
   ))
   key_name                    = aws_key_pair.ssh_public_key.key_name
   associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true

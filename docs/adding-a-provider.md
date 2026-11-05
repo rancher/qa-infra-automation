@@ -68,7 +68,7 @@ output "cluster_nodes_json" {
 | `nodes[].public_ip` | string | Public IP — used by Ansible as `ansible_host` |
 | `nodes[].private_ip` | string | Private IP — available but not used in standard deploys |
 | `nodes[].os` | string | Optional. `linux` or `windows`; absent means `linux`. Emit it only if your provider supports Windows agents |
-| `nodes[].ssh_user` | string | Optional per-node override of `metadata.ssh_user`. Windows agents use `Administrator` |
+| `nodes[].ssh_user` | string | Optional per-node override of `metadata.ssh_user`. Windows nodes should set it (e.g. `Administrator`), otherwise `metadata.ssh_user` is used |
 
 > **Windows nodes are opt-in.** `os` is optional precisely so providers that predate
 > Windows support need no changes. If you do emit `os: "windows"`, the node must carry

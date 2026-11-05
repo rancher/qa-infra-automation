@@ -419,6 +419,7 @@
     - role: rke2_windows_agent
       vars:
         rke2_windows_version: "{{ kubernetes_version }}"
+        rke2_windows_cni: "{{ hostvars['localhost']['_windows_cni'] | default(cni | default('')) }}"
         rke2_windows_channel: "{{ channel | default('stable') }}"
         rke2_token: "{{ hostvars[groups['master'][0]]['rke2_cluster_token'] }}"
       tags: ['windows', 'rke2']
