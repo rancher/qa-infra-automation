@@ -87,12 +87,15 @@ ansible-inventory -i ansible/rke2/default/inventory/inventory.yml --graph
 ```
 @all:
   |--@master:
-  |  |--master
+  |  |--master-node
   |--@workers:
   |  |--worker-0
   |--@windows_workers:
   |  |--windows-worker-0
 ```
+
+The node Tofu names `master` is listed as `master-node`, because a host cannot share a name
+with the `master` group.
 
 The Windows host must be in `windows_workers` and **not** in `workers`. The Linux plays
 run against `all:!windows_workers`; they are all `become: true` and use systemd and

@@ -450,6 +450,34 @@ resource "aws_vpc_security_group_ingress_rule" "rke2_node_ingress" {
   cidr_ipv4         = "${each.value.public_ip}/32"
 }
 
+# With a caller-supplied SG the all-traffic rules above are skipped, and the VPC
+# CIDR rules on the overlay SG do not match public-IP sources, so admit each node.
+locals {
+  overlay_peer_nodes = (local.has_windows_nodes && !local.create_security_group) ? merge(aws_instance.node, aws_instance.windows) : {}
+}
+
+resource "aws_vpc_security_group_ingress_rule" "windows_overlay_vxlan" {
+  for_each = local.overlay_peer_nodes
+
+  security_group_id = aws_security_group.windows_overlay[0].id
+  description       = "VXLAN overlay from node ${each.key} public IP"
+  ip_protocol       = "udp"
+  from_port         = 4789
+  to_port           = 4789
+  cidr_ipv4         = "${each.value.public_ip}/32"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "windows_overlay_kubelet" {
+  for_each = local.overlay_peer_nodes
+
+  security_group_id = aws_security_group.windows_overlay[0].id
+  description       = "kubelet from node ${each.key} public IP"
+  ip_protocol       = "tcp"
+  from_port         = 10250
+  to_port           = 10250
+  cidr_ipv4         = "${each.value.public_ip}/32"
+}
+
 # Windows agents reach the Linux supervisor/API over public IPs too.
 resource "aws_vpc_security_group_ingress_rule" "rke2_windows_node_ingress" {
   for_each = local.create_security_group ? aws_instance.windows : {}

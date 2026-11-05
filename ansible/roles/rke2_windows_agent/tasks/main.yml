@@ -207,6 +207,11 @@
 
 # The CNI can drop the SSH session again after the reconnect above, so nothing
 # below touches the Windows host. Readiness is read from a control-plane node.
+# Handlers run after the role, so flush a queued restart first or the check below
+# could pass against the old Ready node.
+- name: Apply any pending restart before checking readiness
+  ansible.builtin.meta: flush_handlers
+
 - name: Wait for this run's Windows nodes to become Ready
   ansible.builtin.include_tasks: wait_for_nodes_ready.yml
 

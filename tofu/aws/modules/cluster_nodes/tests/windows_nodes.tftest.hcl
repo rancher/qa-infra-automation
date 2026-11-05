@@ -109,3 +109,25 @@ run "linux_nodes_keep_master_first_order" {
     error_message = "master must stay first so the first-etcd bootstrap pick matches kube_api_host; Windows nodes are appended after Linux."
   }
 }
+
+run "overlay_peers_admitted_with_custom_sg" {
+  command = plan
+  variables {
+    aws_security_group = ["sg-0123456789abcdef0"]
+  }
+  assert {
+    condition = (
+      length(aws_vpc_security_group_ingress_rule.windows_overlay_vxlan) == 3
+      && length(aws_vpc_security_group_ingress_rule.windows_overlay_kubelet) == 3
+    )
+    error_message = "A caller-supplied SG must still admit every Linux and Windows node on the overlay ports."
+  }
+}
+
+run "overlay_peer_rules_skipped_with_ephemeral_sg" {
+  command = plan
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.windows_overlay_vxlan) == 0
+    error_message = "The ephemeral SG already admits node public IPs; the overlay peer rules must not duplicate it."
+  }
+}

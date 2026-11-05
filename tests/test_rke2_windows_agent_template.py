@@ -259,5 +259,23 @@ class TestWindowsReadinessByNodeIdentity(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestWindowsRoleFlushesHandlersBeforeReadiness(unittest.TestCase):
+    def test_flush_precedes_readiness_wait(self):
+        import yaml
+
+        path = os.path.join(
+            REPOSITORY_ROOT, "ansible", "roles", "rke2_windows_agent", "tasks", "main.yml"
+        )
+        with open(path, encoding="utf-8") as tasks_file:
+            tasks = yaml.safe_load(tasks_file)
+        names = [list(t.keys() & {"ansible.builtin.meta", "ansible.builtin.include_tasks"}) for t in tasks]
+        flush = next(i for i, t in enumerate(tasks) if t.get("ansible.builtin.meta") == "flush_handlers")
+        ready = next(
+            i for i, t in enumerate(tasks)
+            if t.get("ansible.builtin.include_tasks") == "wait_for_nodes_ready.yml"
+        )
+        self.assertLess(flush, ready, names)
+
+
 if __name__ == "__main__":
     unittest.main()
