@@ -16,14 +16,24 @@
   become: true
   gather_facts: false
   tasks:
+    # Same resolution as the CNI gate in rke2-playbook.yml: rke2_cni, cni,
+    # rke2_additional_config or server_flags may each carry the CNI.
+    - name: Resolve effective CNI for Windows validation
+      ansible.builtin.set_fact:
+        _windows_cni: >-
+          {%- set base = rke2_cni | default(cni | default('')) -%}
+          {%- set extra = rke2_additional_config | default((server_flags | default('') | from_yaml) or {}) -%}
+          {{ base if base not in ['', 'calico'] else (extra.cni | default(base)) or 'canal' }}
+      run_once: true
+
     - name: Validate required variables
       ansible.builtin.assert:
         that:
           - kubernetes_version is defined and kubernetes_version | length > 0
-          - cni is defined and cni in ['calico', 'flannel']
+          - _windows_cni in ['calico', 'flannel']
           - groups['windows_workers'] | default([]) | length > 0
         fail_msg: >-
-          Needs kubernetes_version and a Windows-capable cni (calico or flannel) -
+          Needs kubernetes_version and a Windows-capable effective CNI (calico or flannel) -
           RKE2's default canal has no Windows support - plus at least one host in
           the windows_workers inventory group. Pass vars with
           -e @ansible/rke2/default/vars.yaml
@@ -46,12 +56,11 @@
       ansible.builtin.wait_for_connection:
         delay: 10
         timeout: 900
-    - name: Gather facts
-      ansible.builtin.setup:
   roles:
     - role: rke2_windows_agent
       vars:
         rke2_windows_version: "{{ kubernetes_version }}"
+        rke2_windows_cni: "{{ hostvars[groups['master'][0]]['_windows_cni'] }}"
         rke2_windows_channel: "{{ channel | default('stable') }}"
         rke2_token: "{{ hostvars[groups['master'][0]]['rke2_cluster_token'] }}"
       tags: ['windows', 'rke2']

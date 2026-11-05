@@ -17,8 +17,10 @@ What it does:
 5. Downloads and runs `install.ps1` (skipped when the requested version is already installed).
 6. Registers the `rke2` Windows service with `rke2.exe agent service --add` and starts it.
 7. Waits for the host to be reachable again — starting the agent attaches an HNS
-   external network to the physical NIC, which drops the SSH session — then waits for
-   the kubelet kubeconfig to appear.
+   external network to the physical NIC, which drops the SSH session. The session can drop
+   again after reconnecting, so readiness is then checked from the first control-plane
+   node: the role waits (bounded by `rke2_windows_wait_timeout`) until as many Windows nodes
+   are `Ready` as there are hosts in the play.
 
 ## Requirements
 

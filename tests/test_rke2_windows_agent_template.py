@@ -156,5 +156,52 @@ class TestRKE2WindowsAgentPrerequisites(unittest.TestCase):
         self.assertIn("calico or flannel", result.stdout + result.stderr)
 
 
+STANDALONE_PLAYBOOK = os.path.join(
+    REPOSITORY_ROOT,
+    "ansible", "rke2", "shared", "playbooks", "setup", "setup-windows-agent-nodes.yml",
+)
+
+
+def run_standalone_cni_gate(extra_vars: dict) -> subprocess.CompletedProcess:
+    """Run the standalone playbook's first play against localhost as master."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        inventory = os.path.join(temporary_directory, "inventory.ini")
+        with open(inventory, "w", encoding="utf-8") as inventory_file:
+            inventory_file.write(
+                "[master]\nlocalhost ansible_connection=local\n"
+                "[windows_workers]\nwin-0 ansible_host=203.0.113.1\n"
+            )
+        variables = {
+            "kubernetes_version": "v1.34.2+rke2r1",
+            "ansible_become": False,
+            **extra_vars,
+        }
+        environment = os.environ.copy()
+        environment["ANSIBLE_LOCAL_TEMP"] = os.path.join(temporary_directory, "tmp")
+        return subprocess.run(
+            ["ansible-playbook", "-i", inventory, STANDALONE_PLAYBOOK,
+             "-e", json.dumps(variables), "--limit", "master"],
+            cwd=REPOSITORY_ROOT, env=environment,
+            capture_output=True, text=True, check=False,
+        )
+
+
+@unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
+class TestStandaloneWindowsPlaybookCniGate(unittest.TestCase):
+    def test_rejects_canal_from_server_flags(self):
+        result = run_standalone_cni_gate({"cni": "", "server_flags": "cni: canal"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Windows-capable effective CNI", result.stdout + result.stderr)
+
+    def test_accepts_calico_from_server_flags(self):
+        result = run_standalone_cni_gate({"cni": "", "server_flags": "cni: calico"})
+        # The play later fails reading the node token; only the gate is under test.
+        self.assertRegex(
+            result.stdout,
+            r"TASK \[Validate required variables\][^\n]*\n(?:ok|changed): \[localhost\]",
+        )
+        self.assertIn("Read cluster token from master", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

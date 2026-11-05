@@ -74,6 +74,10 @@ installs your `public_ssh_key` into `C:\ProgramData\ssh\administrators_authorize
 and enables the Containers feature, which reboots the instance. **Expect the node to take
 5–10 minutes to become reachable** — considerably longer than a Linux node.
 
+**Use an RSA key pair.** Windows EC2 instances only work with RSA keys; Ed25519 is not
+supported, so generate one with `ssh-keygen -t rsa -b 4096` and point `public_ssh_key` and
+`private_ssh_key` at it.
+
 Confirm the generated inventory placed the node correctly:
 
 ```bash
@@ -172,7 +176,7 @@ overlay networking, curl the Windows pod's IP from a Linux pod.
 Give it 5–10 minutes: the `user_data` reboot happens after OpenSSH is configured. Then:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519 Administrator@<public-ip> 'hostname'
+ssh -i ~/.ssh/id_rsa Administrator@<public-ip> 'hostname'
 ```
 
 A password prompt means the authorized-keys file was not written. Retrieve the

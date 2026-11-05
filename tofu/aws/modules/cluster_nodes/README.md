@@ -108,7 +108,8 @@ The Windows `user_data` installs OpenSSH Server, sets PowerShell as the default 
 writes `public_ssh_key` into `C:\ProgramData\ssh\administrators_authorized_keys`, and
 enables the Containers feature with a reboot. Writing the key by hand is not optional:
 EC2 Windows AMIs use the key pair *only* to encrypt the Administrator password, so
-without it Ansible's key-based SSH cannot authenticate.
+without it Ansible's key-based SSH cannot authenticate. The key pair must be **RSA** (enforced by a plan-time precondition);
+Windows instances do not support Ed25519.
 
 For RDP or console debugging, the Administrator password is exported separately:
 

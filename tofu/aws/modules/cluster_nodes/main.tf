@@ -62,7 +62,7 @@ locals {
   # single instance via the for_each map below.
   windows_nodes_unnamed = flatten([
     for group in var.nodes : [
-      for i in range(group.count) : { roles = ["worker"] }
+      for i in range(group.count) : { roles = ["worker"], instance_type = group.instance_type }
     ] if group.os == "windows"
   ])
   windows_temp_nodes = [
@@ -363,7 +363,7 @@ resource "aws_security_group" "windows_rdp" {
 resource "aws_instance" "windows" {
   for_each      = local.windows_instances_map
   ami           = var.aws_ami_windows
-  instance_type = var.instance_type_windows
+  instance_type = each.value.instance_type != null ? each.value.instance_type : var.instance_type_windows
   subnet_id     = var.aws_subnet
   # Same SG set as the Linux nodes, plus the overlay SG. The dedicated SSH SG in
   # particular matters more here than anywhere else: Windows nodes are the
@@ -427,6 +427,10 @@ resource "aws_instance" "windows" {
       condition     = var.instance_type_windows != null
       error_message = "instance_type_windows must be set when var.nodes contains a group with os = \"windows\"."
     }
+    precondition {
+      condition     = startswith(trimspace(file(var.public_ssh_key)), "ssh-rsa ")
+      error_message = "public_ssh_key must be an RSA key (ssh-rsa); Windows instances do not support Ed25519."
+    }
   }
 
   tags = {
@@ -439,6 +443,16 @@ resource "aws_instance" "windows" {
 # public IP, so the traffic does not match the self-referencing rule above.
 resource "aws_vpc_security_group_ingress_rule" "rke2_node_ingress" {
   for_each = local.create_security_group ? aws_instance.node : {}
+
+  security_group_id = aws_security_group.ephemeral[0].id
+  description       = "All traffic from node ${each.key} public IP"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "${each.value.public_ip}/32"
+}
+
+# Windows agents reach the Linux supervisor/API over public IPs too.
+resource "aws_vpc_security_group_ingress_rule" "rke2_windows_node_ingress" {
+  for_each = local.create_security_group ? aws_instance.windows : {}
 
   security_group_id = aws_security_group.ephemeral[0].id
   description       = "All traffic from node ${each.key} public IP"

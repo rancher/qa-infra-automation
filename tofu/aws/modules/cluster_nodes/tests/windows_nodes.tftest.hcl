@@ -1,0 +1,87 @@
+mock_provider "aws" {
+  mock_data "aws_vpc" {
+    defaults = { cidr_block = "10.0.0.0/16" }
+  }
+  mock_resource "aws_instance" {
+    defaults = { public_ip = "198.51.100.7" }
+  }
+}
+
+mock_provider "random" {}
+
+variables {
+  public_ssh_key             = "tests/fixtures/windows-rsa.pub"
+  aws_region                 = "us-east-2"
+  aws_ami                    = "ami-0123456789abcdef0"
+  aws_ami_windows            = "ami-0fedcba9876543210"
+  aws_hostname_prefix        = "unit-win"
+  aws_route53_zone           = "example.invalid"
+  aws_ssh_user               = "example"
+  aws_security_group         = []
+  aws_vpc                    = "vpc-0123456789abcdef0"
+  aws_subnet                 = "subnet-0123456789abcdef0"
+  aws_volume_size            = 40
+  aws_volume_type            = "gp3"
+  instance_type              = "t3.large"
+  instance_type_windows      = "t3.xlarge"
+  airgap_setup               = false
+  proxy_setup                = false
+  windows_enable_rdp         = true
+  ssh_allowed_cidrs          = ["203.0.113.10/32"]
+  ephemeral_sg_ingress_cidrs = ["203.0.113.10/32"]
+  nodes = [
+    { count = 1, role = ["etcd", "cp", "worker"] },
+    { count = 1, role = ["worker"], os = "windows" },
+    { count = 1, role = ["worker"], os = "windows", instance_type = "m5.2xlarge" },
+  ]
+}
+
+run "windows_instance_type_honors_group_override" {
+  command = plan
+  assert {
+    condition = (
+      aws_instance.windows["windows-worker-0"].instance_type == "t3.xlarge"
+      && aws_instance.windows["windows-worker-1"].instance_type == "m5.2xlarge"
+    )
+    error_message = "Windows groups must use their own instance_type and fall back to instance_type_windows."
+  }
+}
+
+run "rdp_is_attached_to_windows_only" {
+  command = plan
+  assert {
+    condition     = length(aws_security_group.windows_rdp) == 1
+    error_message = "windows_enable_rdp must create the RDP security group."
+  }
+  assert {
+    condition     = length(aws_security_group.windows_overlay[0].ingress) == 2
+    error_message = "The overlay SG shared with Linux must not carry the RDP rule."
+  }
+}
+
+run "windows_nodes_admitted_by_ephemeral_sg" {
+  command = plan
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.rke2_windows_node_ingress) == 2
+    error_message = "Each Windows node public IP must be admitted by the shared ephemeral SG."
+  }
+}
+
+run "windows_requires_worker_role" {
+  command = plan
+  variables {
+    nodes = [
+      { count = 1, role = ["etcd", "cp", "worker"] },
+      { count = 1, role = ["cp"], os = "windows" },
+    ]
+  }
+  expect_failures = [var.nodes]
+}
+
+run "windows_rejects_non_rsa_key" {
+  command = plan
+  variables {
+    public_ssh_key = "tests/fixtures/nested-worker.pub"
+  }
+  expect_failures = [aws_instance.windows]
+}
