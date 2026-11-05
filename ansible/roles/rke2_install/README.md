@@ -175,11 +175,11 @@ first if you need to force it. Prefer a version tag when one is available.
 ## Node Type Detection
 
 The role automatically determines whether to install RKE2 server or agent based on:
-- `node_type` (typically `master` for first node)
+- `rke2_node_role` (typically `master` for first node)
 - `node_roles` containing `cp` or `etcd`
 
 **Server installation** if:
-- `node_type == 'master'` OR
+- `rke2_node_role == 'master'` OR
 - `'cp' in node_roles` OR
 - `'etcd' in node_roles`
 

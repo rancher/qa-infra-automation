@@ -32,6 +32,9 @@ from datetime import datetime, timezone
 
 import yaml
 
+# Stops a loaded ssh-agent offering every key first ("Too many authentication failures").
+SSH_IDENTITIES_ONLY = "-o IdentitiesOnly=yes"
+
 
 def load_json(path: str) -> dict:
     with open(path) as f:
@@ -142,14 +145,14 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     # resolve to one specific, pre-designated node (e.g. "master") rather than
     # "whichever matching node happens to come first" - the JSON node order is
     # a Terraform map iteration, not a deliberate ordering. An optional `os` on
-    # the group restricts it to nodes of that OS; groups without it match any
-    # OS (the airgap path and older schemas rely on that).
+    # the group restricts it to nodes of that OS; groups without it default to
+    # linux, matching node_os().
     groups: dict[str, list[dict]] = {name: [] for name in groups_cfg}
 
     for group_name, group_def in groups_cfg.items():
-        wanted_os = group_def.get("os")
+        wanted_os = group_def.get("os") or "linux"
         candidates = [
-            n for n in nodes if wanted_os is None or node_os(n) == wanted_os
+            n for n in nodes if node_os(n) == wanted_os
         ]
         match_name = group_def.get("name")
         if match_name:
@@ -196,6 +199,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
 
     if default_key:
         inventory["all"]["vars"]["ansible_ssh_private_key_file"] = default_key
+        inventory["all"]["vars"]["ansible_ssh_extra_args"] = SSH_IDENTITIES_ONLY
 
     # Create reverse mapping: node name -> group for role determination
     node_to_group: dict[str, str] = {}
@@ -226,15 +230,15 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         os_name = node_os(node)
         group = node_to_group.get(node["name"])
         if group == "master":
-            node_type = "master"
+            rke2_node_role = "master"
         elif any(r in node_roles for r in ("cp", "etcd")):
-            node_type = "server"
+            rke2_node_role = "server"
         else:
-            node_type = "agent"
+            rke2_node_role = "agent"
         host_entry = {
             "ansible_host": node[ip_field],
             "node_roles": node_roles,
-            "node_type": node_type,
+            "rke2_node_role": rke2_node_role,
             "node_os": os_name,
         }
 
@@ -252,6 +256,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         node_key = node.get("ssh_private_key")
         if node_key:
             host_entry["ansible_ssh_private_key_file"] = node_key
+            host_entry["ansible_ssh_extra_args"] = SSH_IDENTITIES_ONLY
         elif default_key:
             host_entry["ansible_ssh_private_key_file"] = default_key
 

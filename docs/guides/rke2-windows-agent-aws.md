@@ -15,7 +15,7 @@
 ### What RKE2 supports on Windows
 
 These are upstream constraints, not choices this repo made
-([RKE2 requirements](https://docs.rke2.io/install/requirements)):
+([RKE2 requirements](https://docs.rke2.io/install/requirements#windows)):
 
 | | |
 |---|---|

@@ -156,11 +156,11 @@ With disabled components:
 ## Node Role Detection
 
 The role automatically detects whether a node should be configured as a server or agent based on:
-- `node_type` variable (typically `master` for first node)
+- `rke2_node_role` variable (typically `master` for first node)
 - `node_roles` variable as a YAML list (e.g., `['cp', 'etcd', 'worker']`)
 
 Server configuration is used if:
-- `node_type == 'master'` OR
+- `rke2_node_role == 'master'` OR
 - `'cp' in node_roles` OR
 - `'etcd' in node_roles`
 
@@ -191,7 +191,7 @@ The following variables should be set in your inventory:
 
 - `fqdn` - Fully qualified domain name for the cluster
 - `kube_api_host` - IP address of the first master node
-- `node_type` - Node role (`master`, `server`, or `agent`)
+- `rke2_node_role` - Node role (`master`, `server`, or `agent`)
 - `node_roles` - Comma-separated roles (`cp,etcd` or `worker`)
 - `rke2_token` - Cluster join token (for non-master nodes)
 
@@ -206,18 +206,18 @@ all:
     master:
       hosts:
         node-1:
-          node_type: master
+          rke2_node_role: master
           node_roles: cp,etcd
     server:
       hosts:
         node-2:
-          node_type: server
+          rke2_node_role: server
           node_roles: cp,etcd
           rke2_token: "{{ master_token }}"
     worker:
       hosts:
         node-3:
-          node_type: agent
+          rke2_node_role: agent
           node_roles: worker
           rke2_token: "{{ master_token }}"
 ```

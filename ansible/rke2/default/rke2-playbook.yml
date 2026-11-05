@@ -51,14 +51,22 @@
     # Flannel support Windows agents. RKE2's default, Canal, does not, and a
     # Windows node joined to a Canal cluster never becomes Ready.
     # https://docs.rke2.io/install/requirements
+    - name: Resolve effective CNI for Windows validation
+      ansible.builtin.set_fact:
+        _windows_cni: >-
+          {%- set base = rke2_cni | default(cni | default('')) -%}
+          {%- set extra = rke2_additional_config | default((server_flags | default('') | from_yaml) or {}) -%}
+          {{ base if base not in ['', 'calico'] else (extra.cni | default(base)) or 'canal' }}
+      when: groups['windows_workers'] | default([]) | length > 0
+
     - name: Validate CNI supports Windows when Windows agents are present
       assert:
         that:
-          - cni in ['calico', 'flannel']
+          - _windows_cni in ['calico', 'flannel']
         fail_msg: >-
           Inventory contains Windows agents ({{ groups['windows_workers'] | join(', ') }})
-          but cni is '{{ cni }}'. RKE2 supports Windows only with 'calico' or 'flannel';
-          canal (the RKE2 default) has no Windows support. Set cni in vars.yaml.
+          but the effective CNI is '{{ _windows_cni }}'. RKE2 supports Windows only with 'calico'
+          or 'flannel'; canal (the RKE2 default) has no Windows support. Set cni in vars.yaml.
       when: groups['windows_workers'] | default([]) | length > 0
 
 - hosts: all:!windows_workers
@@ -138,7 +146,7 @@
           {{ rke2_additional_config
              if rke2_additional_config is defined
              else (((server_flags
-                     if (node_type == 'master' or
+                     if (rke2_node_role == 'master' or
                          'cp' in (node_roles | default([])) or
                          'etcd' in (node_roles | default([])))
                      else worker_flags) | default('') | from_yaml) or {}) }}
@@ -221,7 +229,7 @@
     # CIS checks recompute the flags mapping here — --tags cluster included.
     - name: CIS | Resolve effective config
       set_fact:
-        _rke2_is_server: "{{ node_type == 'master' or 'cp' in (node_roles | default([])) or 'etcd' in (node_roles | default([])) }}"
+        _rke2_is_server: "{{ rke2_node_role == 'master' or 'cp' in (node_roles | default([])) or 'etcd' in (node_roles | default([])) }}"
         _rke2_srv_eff: >-
           {{ rke2_server_config | default({}) |
              combine(rke2_additional_config |

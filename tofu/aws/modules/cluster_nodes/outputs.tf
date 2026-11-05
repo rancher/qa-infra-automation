@@ -22,10 +22,10 @@ output "cluster_nodes_json" {
   value = jsonencode({
     type = "cluster_nodes"
     metadata = {
-      kube_api_host    = aws_instance.node[local.node_names[local.first_master_index].name].public_ip
-      fqdn             = aws_route53_record.aws_route53.fqdn
-      ssh_user         = var.aws_ssh_user
-      ssh_private_key  = var.private_ssh_key
+      kube_api_host   = aws_instance.node[local.node_names[local.first_master_index].name].public_ip
+      fqdn            = aws_route53_record.aws_route53.fqdn
+      ssh_user        = var.aws_ssh_user
+      ssh_private_key = var.private_ssh_key
     }
     nodes = concat(
       # Linux nodes

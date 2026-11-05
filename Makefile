@@ -726,6 +726,7 @@ infra-empty-buckets: ## Remove EMPTY S3 buckets (0 objects) account-wide; scope 
 
 .PHONY: bootstrap-python
 bootstrap-python: check-inventory ## Bootstrap Python 3.9+ on target nodes
+	@# Windows nodes are excluded: Ansible uses ansible.windows modules over PowerShell, no Python needed.
 	@echo "Bootstrapping Python on target nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) --limit 'all:!windows_workers' ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)

@@ -77,7 +77,7 @@ output "cluster_nodes_json" {
 > here. See `tofu/aws/modules/cluster_nodes/main.tf` for a reference `user_data`.
 
 > **Why `"master"`?** The inventory schema and Ansible roles identify the initial cluster node
-> by the group name `master`. The bridge script assigns `node_type: master` to any node
+> by the group name `master`. The bridge script assigns `rke2_node_role: master` to any node
 > named `"master"` in the JSON. Do not use any other name for the first etcd node.
 
 > **External datastore (kine/RDS) topologies must not emit an `etcd` role at all.**

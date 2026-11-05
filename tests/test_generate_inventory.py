@@ -154,8 +154,8 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         cfg = self.schema["k3s"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         master_hosts = result["all"]["children"]["master"]["hosts"]
-        self.assertEqual(list(master_hosts.keys()), ["master"])
-        self.assertEqual(result["all"]["hosts"]["master"]["node_roles"], ["cp"])
+        self.assertEqual(list(master_hosts.keys()), ["master-node"])
+        self.assertEqual(result["all"]["hosts"]["master-node"]["node_roles"], ["cp"])
 
     def test_rke2_external_datastore_master_falls_back_to_cp(self):
         """RKE2 external-datastore topology (no etcd nodes): Terraform falls back
@@ -166,11 +166,11 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         master_hosts = result["all"]["children"]["master"]["hosts"]
-        self.assertEqual(list(master_hosts.keys()), ["master"])
-        self.assertEqual(result["all"]["hosts"]["master"]["node_type"], "master")
+        self.assertEqual(list(master_hosts.keys()), ["master-node"])
+        self.assertEqual(result["all"]["hosts"]["master-node"]["rke2_node_role"], "master")
         # remaining cp node is a joining server, worker is an agent
-        self.assertEqual(result["all"]["hosts"]["cp-1"]["node_type"], "server")
-        self.assertEqual(result["all"]["hosts"]["worker-0"]["node_type"], "agent")
+        self.assertEqual(result["all"]["hosts"]["cp-1"]["rke2_node_role"], "server")
+        self.assertEqual(result["all"]["hosts"]["worker-0"]["rke2_node_role"], "agent")
 
     def test_k3s_split_role_master_is_first_etcd(self):
         """K3s split-role: master must be the node Terraform literally named
@@ -197,11 +197,11 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
         master_hosts = result["all"]["children"]["master"]["hosts"]
-        self.assertEqual(list(master_hosts.keys()), ["master"])
+        self.assertEqual(list(master_hosts.keys()), ["master-node"])
         server_hosts = result["all"]["children"]["servers"]["hosts"]
         self.assertEqual(list(server_hosts.keys()), ["etcd-cp-1"])
-        self.assertEqual(result["all"]["hosts"]["master"]["node_type"], "master")
-        self.assertEqual(result["all"]["hosts"]["etcd-cp-1"]["node_type"], "server")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["rke2_node_role"], "master")
+        self.assertEqual(result["all"]["hosts"]["etcd-cp-1"]["rke2_node_role"], "server")
 
     def test_k3s_split_role_servers_include_etcd_and_cp(self):
         """K3s split-role: servers group must include both remaining etcd
@@ -243,22 +243,22 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         self.assertNotIn("worker-0", master_hosts)
         self.assertNotIn("worker-1", master_hosts)
 
-    def test_node_type_master_for_master_group_node(self):
+    def test_rke2_node_role_master_for_master_group_node(self):
         data = load_fixture("rke2_single_master.json")
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
-        self.assertEqual(result["all"]["hosts"]["master-node"]["node_type"], "master")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["rke2_node_role"], "master")
 
-    def test_node_type_agent_for_worker_nodes(self):
+    def test_rke2_node_role_agent_for_worker_nodes(self):
         data = load_fixture("rke2_single_master.json")
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
-        self.assertEqual(result["all"]["hosts"]["worker-0"]["node_type"], "agent")
-        self.assertEqual(result["all"]["hosts"]["worker-1"]["node_type"], "agent")
+        self.assertEqual(result["all"]["hosts"]["worker-0"]["rke2_node_role"], "agent")
+        self.assertEqual(result["all"]["hosts"]["worker-1"]["rke2_node_role"], "agent")
 
-    def test_node_type_server_for_cp_node_outside_master_group(self):
+    def test_rke2_node_role_server_for_cp_node_outside_master_group(self):
         # A node with cp/etcd roles that isn't picked as the master group node
-        # should get node_type == 'server'
+        # should get rke2_node_role == 'server'
         data = load_fixture("rke2_single_master.json")
         data["nodes"].insert(1, {
             "name": "server-1",
@@ -268,7 +268,7 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         })
         cfg = self.schema["rke2"]["default"]
         result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
-        self.assertEqual(result["all"]["hosts"]["server-1"]["node_type"], "server")
+        self.assertEqual(result["all"]["hosts"]["server-1"]["rke2_node_role"], "server")
 
     def test_node_roles_is_list_not_string(self):
         data = load_fixture("rke2_single_master.json")
@@ -349,7 +349,7 @@ class TestWindowsAgentInventory(unittest.TestCase):
     def test_windows_host_gets_ssh_powershell_connection_vars(self):
         host = self.result["all"]["hosts"]["windows-worker-0"]
         self.assertEqual(host["node_os"], "windows")
-        self.assertEqual(host["node_type"], "agent")
+        self.assertEqual(host["rke2_node_role"], "agent")
         self.assertEqual(host["ansible_user"], "Administrator")
         self.assertEqual(host["ansible_connection"], "ssh")
         self.assertEqual(host["ansible_shell_type"], "powershell")
@@ -361,8 +361,40 @@ class TestWindowsAgentInventory(unittest.TestCase):
         host = self.result["all"]["hosts"]["windows-worker-0"]
         self.assertEqual(host["ansible_ssh_private_key_file"], "/keys/cluster.pem")
 
+    def test_identities_only_set_when_key_file_given(self):
+        self.assertEqual(
+            self.result["all"]["vars"]["ansible_ssh_extra_args"],
+            "-o IdentitiesOnly=yes",
+        )
+
+    def test_per_node_key_gets_identities_only(self):
+        data = load_fixture("rke2_windows_agent.json")
+        del data["metadata"]["ssh_private_key"]
+        data["nodes"][0]["ssh_private_key"] = "/keys/node.pem"
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, self.cfg))
+        host = next(
+            h for h in result["all"]["hosts"].values()
+            if h.get("ansible_ssh_private_key_file") == "/keys/node.pem"
+        )
+        self.assertEqual(host["ansible_ssh_extra_args"], "-o IdentitiesOnly=yes")
+
+    def test_group_without_os_excludes_windows_nodes(self):
+        cfg = {"groups": {"everyone": {"roles": ["worker"]}}}
+        data = load_fixture("rke2_windows_agent.json")
+        with self.assertRaisesRegex(ValueError, "windows-worker-0"):
+            generate_cluster_nodes_inventory(data, cfg)
+
+    def test_no_identities_only_without_key_file(self):
+        data = load_fixture("rke2_single_master.json")
+        result = yaml.safe_load(
+            generate_cluster_nodes_inventory(data, self.cfg)
+        )
+        self.assertNotIn("ansible_ssh_extra_args", result["all"]["vars"])
+        for host in result["all"]["hosts"].values():
+            self.assertNotIn("ansible_ssh_extra_args", host)
+
     def test_linux_hosts_get_no_windows_connection_vars(self):
-        for name in ("master", "worker-0"):
+        for name in ("master-node", "worker-0"):
             host = self.result["all"]["hosts"][name]
             self.assertNotIn("ansible_shell_type", host)
             self.assertNotIn("ansible_pipelining", host)

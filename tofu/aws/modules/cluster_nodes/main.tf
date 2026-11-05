@@ -268,15 +268,16 @@ data "aws_ec2_instance_type" "nested_worker" {
 }
 
 resource "aws_instance" "node" {
-  for_each = { for node in local.node_names : node.name => node }
-  ami = var.aws_ami
+  for_each      = { for node in local.node_names : node.name => node }
+  ami           = var.aws_ami
   instance_type = each.value.instance_type != null ? each.value.instance_type : var.instance_type
-  key_name = aws_key_pair.ssh_public_key.key_name
+  key_name      = aws_key_pair.ssh_public_key.key_name
   vpc_security_group_ids = compact(concat(
-    local.security_group_ids, 
+    local.security_group_ids,
     var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : [],
+    aws_security_group.windows_overlay[*].id,
   ))
-  subnet_id = local.subnet_id
+  subnet_id                   = local.subnet_id
   associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
 
   dynamic "cpu_options" {
@@ -305,7 +306,7 @@ resource "aws_instance" "node" {
 # Calico/Flannel VXLAN overlay on top of the standard RKE2 port matrix.
 resource "aws_security_group" "windows_overlay" {
   count       = local.has_windows_nodes ? 1 : 0
-  name        = "tf-${var.aws_hostname_prefix}-windows"
+  name        = "tf-${var.aws_hostname_prefix}-windows${local.name_suffix}"
   description = "VXLAN overlay + kubelet for Windows agents in ${var.aws_hostname_prefix}."
   vpc_id      = var.aws_vpc
 
@@ -345,7 +346,7 @@ resource "aws_security_group" "windows_overlay" {
   }
 
   tags = {
-    Name = "tf-${var.aws_hostname_prefix}-windows"
+    Name = "tf-${var.aws_hostname_prefix}-windows${local.name_suffix}"
   }
 }
 
@@ -396,16 +397,10 @@ resource "aws_instance" "windows" {
     New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
 
     $authorizedKeys = "C:\ProgramData\ssh\administrators_authorized_keys"
-    Set-Content -Path $authorizedKeys -Value '${trimspace(file(var.public_ssh_key))}' -Encoding ascii
+    $publicKey = [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('${base64encode(trimspace(file(var.public_ssh_key)))}'))
+    Set-Content -Path $authorizedKeys -Value $publicKey -Encoding ascii
     icacls.exe $authorizedKeys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
     Restart-Service sshd
-
-    # Install Chocolatey
-    Write-Output "Installing Chocolatey..."
-    Invoke-Expression ((New-Object net.webclient).DownloadString("https://community.chocolatey.org/install.ps1"))
-    choco feature enable -n allowGlobalConfirmation
-    choco install vim -y
-    choco install nano -y
 
     Enable-WindowsOptionalFeature -Online -FeatureName Containers -All -NoRestart
     Restart-Computer -Force
@@ -469,7 +464,7 @@ resource "aws_lb_target_group_attachment" "aws_tg_attachment_6443" {
 }
 
 resource "aws_lb" "aws_nlb" {
-  count              = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count              = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   internal           = false
   load_balancer_type = "network"
   subnets            = [local.subnet_id]
@@ -477,7 +472,7 @@ resource "aws_lb" "aws_nlb" {
 }
 
 resource "aws_lb_target_group" "aws_tg_80" {
-  count    = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count    = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   port     = 80
   protocol = "TCP"
   vpc_id   = local.vpc_id
@@ -495,7 +490,7 @@ resource "aws_lb_target_group" "aws_tg_80" {
 }
 
 resource "aws_lb_target_group" "aws_tg_443" {
-  count    = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count    = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   port     = 443
   protocol = "TCP"
   vpc_id   = local.vpc_id
@@ -513,7 +508,7 @@ resource "aws_lb_target_group" "aws_tg_443" {
 }
 
 resource "aws_lb_target_group" "aws_tg_6443" {
-  count    = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count    = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   port     = 6443
   protocol = "TCP"
   vpc_id   = local.vpc_id
@@ -531,7 +526,7 @@ resource "aws_lb_target_group" "aws_tg_6443" {
 }
 
 resource "aws_lb_target_group" "aws_tg_9345" {
-  count    = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count    = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   port     = 9345
   protocol = "TCP"
   vpc_id   = local.vpc_id
@@ -549,7 +544,7 @@ resource "aws_lb_target_group" "aws_tg_9345" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_80" {
-  count             = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count             = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port              = "80"
   protocol          = "TCP"
@@ -560,7 +555,7 @@ resource "aws_lb_listener" "aws_nlb_listener_80" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_443" {
-  count             = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count             = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port              = "443"
   protocol          = "TCP"
@@ -571,7 +566,7 @@ resource "aws_lb_listener" "aws_nlb_listener_443" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_6443" {
-  count             = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count             = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port              = "6443"
   protocol          = "TCP"
@@ -582,7 +577,7 @@ resource "aws_lb_listener" "aws_nlb_listener_6443" {
 }
 
 resource "aws_lb_listener" "aws_nlb_listener_9345" {
-  count             = (local.cp_node_count  > 1 && var.create_lb) ? 1 : 0
+  count             = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
   load_balancer_arn = aws_lb.aws_nlb[0].arn
   port              = "9345"
   protocol          = "TCP"

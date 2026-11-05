@@ -198,7 +198,7 @@ class TestInstallMethodContract(unittest.TestCase):
         for case, play_vars, extra_vars, expected in cases:
             with self.subTest(case=case):
                 merged = {
-                    "node_type": "master",
+                    "rke2_node_role": "master",
                     "node_roles": [],
                     "rke2_server_config": {},
                     "rke2_agent_config": {},

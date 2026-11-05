@@ -83,8 +83,8 @@ variable "nodes" {
   description = "Configuration for product nodes."
   type = list(object({
     count         = number
-    role          = list(string)     # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
-    instance_type = optional(string) # Override global instance_type for this node group
+    role          = list(string)              # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
+    instance_type = optional(string)          # Override global instance_type for this node group
     os            = optional(string, "linux") # Defaults to linux if omitted
   }))
   default = [
@@ -104,17 +104,19 @@ variable "nodes" {
     condition     = alltrue([for ng in var.nodes : contains(["linux", "windows"], ng.os)])
     error_message = "Each node group's \"os\" must be \"linux\" or \"windows\" (lowercase)."
   }
-  # validation {
-  #   # RKE2 has no Windows server role - Windows can only join as an agent.
-  #   condition     = alltrue([for ng in var.nodes : ng.os == "windows" && ng.role == ["worker"]])
-  #   error_message = "Windows node groups must declare role = [\"worker\"]; RKE2 supports Windows agents only."
-  # }
+  validation {
+    # RKE2 has no Windows server role - Windows can only join as an agent.
+    # Compare by element: list(string) == ["worker"] (a tuple) is always false.
+    condition     = alltrue([for ng in var.nodes : ng.os != "windows" || (length(ng.role) == 1 && ng.role[0] == "worker")])
+    error_message = "Windows node groups must declare role = [\"worker\"]; RKE2 supports Windows agents only."
+  }
 }
 variable "airgap_setup" {}
 variable "proxy_setup" {}
 variable "create_lb" {
-  type = bool
-  default = false
+  description = "This flag creates Load Balancer, Target Group and Route53 resources when set to true, default is true."
+  type        = bool
+  default     = true
 }
 
 variable "random_name_suffix" {
