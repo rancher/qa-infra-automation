@@ -90,6 +90,7 @@
   ansible.windows.win_template:
     src: config.yaml.j2
     dest: "{{ rke2_windows_config_dir }}\\config.yaml"
+  no_log: true
   notify: restart rke2 windows agent
 
 # Version guard, mirroring rke2_install/tasks/main.yml: skip the download and the
@@ -151,8 +152,8 @@
         -TarPrefix "{{ rke2_windows_tar_prefix }}"
         -AgentImagesDir "{{ rke2_windows_data_dir }}\agent\images"
         {% if _rke2_windows_is_commit %}-Commit "{{ rke2_windows_version }}"
-        {%- elif rke2_windows_version != '' %}-Version "{{ rke2_windows_version }}"
-        {%- else %}-Channel "{{ rke2_windows_channel }}"{% endif %}
+        {% elif rke2_windows_version != '' %}-Version "{{ rke2_windows_version }}"
+        {% else %}-Channel "{{ rke2_windows_channel }}"{% endif %}
       register: rke2_windows_install_result
       changed_when: rke2_windows_install_result.rc == 0
       notify: restart rke2 windows agent
@@ -190,9 +191,7 @@
 # one. Absorb that here rather than letting the next task die on a half-open
 # socket; `until` cannot save a task that is already blocked inside a module.
 - name: Wait for the host to come back after the CNI attaches to the NIC
-  ansible.builtin.wait_for_connection:
-    delay: 15
-    timeout: "{{ rke2_windows_wait_timeout }}"
+  ansible.builtin.include_tasks: wait_for_windows.yml
   when: not rke2_windows_agent_was_running | bool
 
 # The CNI can drop the SSH session again after the reconnect above, so nothing
@@ -201,7 +200,7 @@
   ansible.builtin.command: >-
     /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
     get nodes -l kubernetes.io/os=windows --no-headers
-  delegate_to: "{{ groups['master'][0] }}"
+  delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
   run_once: true
   become: true
   register: rke2_windows_ready_nodes

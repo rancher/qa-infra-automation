@@ -140,26 +140,30 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     default_key = metadata.get("ssh_private_key")
     groups_cfg = schema_cfg.get("groups", {})
 
-    # Build groups: `roles` matches any listed role. `name` matches a single
-    # exact node name and is used instead of `roles` whenever a group must
-    # resolve to one specific, pre-designated node (e.g. "master") rather than
-    # "whichever matching node happens to come first" - the JSON node order is
-    # a Terraform map iteration, not a deliberate ordering. An optional `os` on
-    # the group restricts it to nodes of that OS; groups without it default to
-    # linux, matching node_os().
+    # Build groups: `roles` matches any listed role; `roles_priority` tries each set in order and stops on first match.
+    # An optional group `os` restricts candidates to that OS (default linux, matching node_os()).
     groups: dict[str, list[dict]] = {name: [] for name in groups_cfg}
 
     for group_name, group_def in groups_cfg.items():
         wanted_os = group_def.get("os") or "linux"
-        candidates = [
-            n for n in nodes if node_os(n) == wanted_os
-        ]
-        match_name = group_def.get("name")
-        if match_name:
-            groups[group_name] = [n for n in candidates if n["name"] == match_name]
+        candidates = [n for n in nodes if node_os(n) == wanted_os]
+        roles_priority = group_def.get("roles_priority")
+        if roles_priority:
+            for role_set in roles_priority:
+                required = set(role_set)
+                matched = [n for n in candidates if required & set(n["roles"])]
+                if matched:
+                    groups[group_name] = matched
+
+                    break
         else:
             required = set(group_def.get("roles", []))
             groups[group_name] = [n for n in candidates if required & set(n["roles"])]
+
+    # Apply first_only constraint
+    for group_name, group_def in groups_cfg.items():
+        if group_def.get("first_only") and groups[group_name]:
+            groups[group_name] = [groups[group_name][0]]
 
     # Ensure mutual exclusivity: each node belongs to only one group (first match wins)
     node_to_group: dict[str, str] = {}

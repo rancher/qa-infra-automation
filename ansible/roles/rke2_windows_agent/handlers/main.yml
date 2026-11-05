@@ -21,9 +21,13 @@
   listen: restart rke2 windows agent
 
 - name: Wait for the Windows agent host to come back after the restart
-  ansible.builtin.wait_for_connection:
-    delay: 15
-    timeout: "{{ rke2_windows_wait_timeout }}"
+  ansible.windows.win_ping:
+  register: rke2_windows_ping_handler
+  ignore_unreachable: true
+  until: rke2_windows_ping_handler.ping | default('') == 'pong'
+  retries: "{{ (rke2_windows_wait_timeout | int / 15) | round(0, 'ceil') | int }}"
+  delay: 15
+  changed_when: false
   when: rke2_windows_agent_was_running | default(false) | bool
   listen: restart rke2 windows agent
 

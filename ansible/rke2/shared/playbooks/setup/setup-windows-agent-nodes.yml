@@ -23,7 +23,8 @@
         _windows_cni: >-
           {%- set base = rke2_cni | default(cni | default('')) -%}
           {%- set extra = rke2_additional_config | default((server_flags | default('') | from_yaml) or {}) -%}
-          {{ base if base not in ['', 'calico'] else (extra.cni | default(base)) or 'canal' }}
+          {%- set srv = rke2_server_config | default({}) -%}
+          {{ base if base not in ['', 'calico'] else ((extra.cni | default('')) or (srv.cni | default('')) or base) or 'canal' }}
       run_once: true
 
     - name: Validate required variables
@@ -53,9 +54,9 @@
   gather_facts: false
   pre_tasks:
     - name: Wait for SSH to become available
-      ansible.builtin.wait_for_connection:
-        delay: 10
-        timeout: 900
+      ansible.builtin.include_role:
+        name: rke2_windows_agent
+        tasks_from: wait_for_windows
   roles:
     - role: rke2_windows_agent
       vars:

@@ -748,6 +748,9 @@ windows-agents: check-inventory ## Join Windows agents (windows_workers group) t
 	@if [ "$(DISTRO)" != "rke2" ]; then \
 		echo "ERROR: Windows agents are only supported on DISTRO=rke2"; exit 1; \
 	fi
+	@if [ "$(ENV)" != "default" ]; then \
+		echo "ERROR: Windows agents are not supported with ENV=$(ENV) (air-gap has no Windows installer)"; exit 1; \
+	fi
 	@echo "Joining Windows agents to the cluster..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-windows-agent-nodes.yml -v \
