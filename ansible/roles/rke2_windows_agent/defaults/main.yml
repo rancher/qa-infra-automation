@@ -50,3 +50,7 @@ rke2_windows_wait_timeout: 900
 
 # Keys the role writes itself; rke2_windows_additional_config must not repeat them.
 rke2_windows_reserved_config_keys: [server, token, node-label, node-ip]
+
+# Where the readiness check finds kubectl on the control-plane node.
+rke2_windows_kubectl_path: /var/lib/rancher/rke2/bin/kubectl
+rke2_windows_kubeconfig: /etc/rancher/rke2/rke2.yaml

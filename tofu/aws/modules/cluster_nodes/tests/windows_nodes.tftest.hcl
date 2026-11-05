@@ -5,6 +5,13 @@ mock_provider "aws" {
   mock_resource "aws_instance" {
     defaults = { public_ip = "198.51.100.7" }
   }
+  # apply-mode runs validate these ARNs, so the mock default must be well formed.
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:targetgroup/mock/0123456789abcdef" }
+  }
+  mock_resource "aws_lb" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/mock/0123456789abcdef" }
+  }
 }
 
 mock_provider "random" {}
@@ -84,4 +91,21 @@ run "windows_rejects_non_rsa_key" {
     public_ssh_key = "tests/fixtures/nested-worker.pub"
   }
   expect_failures = [aws_instance.windows]
+}
+
+run "linux_nodes_keep_master_first_order" {
+  command = apply
+  variables {
+    nodes = [
+      { count = 3, role = ["etcd", "cp"] },
+      { count = 1, role = ["worker"] },
+      { count = 1, role = ["worker"], os = "windows" },
+    ]
+  }
+  assert {
+    condition = [
+      for n in jsondecode(output.cluster_nodes_json).nodes : n.name
+    ] == ["master", "etcd-cp-1", "etcd-cp-2", "worker-0", "windows-worker-0"]
+    error_message = "master must stay first so the first-etcd bootstrap pick matches kube_api_host; Windows nodes are appended after Linux."
+  }
 }

@@ -40,6 +40,17 @@
       {{ rke2_windows_service_pre.exists
          and rke2_windows_service_pre.services[0].state == 'running' }}
 
+# RKE2 registers the node under the lowercased machine hostname, which is not
+# the inventory name. Captured now, before the CNI can drop the SSH session.
+- name: Read the Windows hostname
+  ansible.windows.win_command: hostname
+  register: rke2_windows_hostname
+  changed_when: false
+
+- name: Record the Kubernetes node name
+  ansible.builtin.set_fact:
+    rke2_windows_node_name: "{{ rke2_windows_hostname.stdout | trim | lower }}"
+
 # Windows Server Containers is a prerequisite for containerd and its install
 # needs a reboot. The AWS user_data already does this, so on Tofu-provisioned
 # nodes both tasks are no-ops; they exist for bring-your-own hosts.
@@ -196,33 +207,8 @@
 
 # The CNI can drop the SSH session again after the reconnect above, so nothing
 # below touches the Windows host. Readiness is read from a control-plane node.
-- name: Wait for the Windows nodes to register and become Ready
-  ansible.builtin.command: >-
-    /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
-    get nodes -l kubernetes.io/os=windows --no-headers
-  delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
-  run_once: true
-  become: true
-  register: rke2_windows_ready_nodes
-  changed_when: false
-  failed_when: false
-  until: >-
-    rke2_windows_ready_nodes.rc == 0 and
-    (rke2_windows_ready_nodes.stdout_lines | select('search', '\\sReady\\s') | list | length)
-    >= (ansible_play_hosts_all | length)
-  retries: "{{ (rke2_windows_wait_timeout | int / 15) | round(0, 'ceil') | int }}"
-  delay: 15
-
-- name: Fail if the Windows nodes did not become Ready
-  ansible.builtin.assert:
-    that:
-      - rke2_windows_ready_nodes.rc == 0
-      - (rke2_windows_ready_nodes.stdout_lines | select('search', '\\sReady\\s') | list | length) >= (ansible_play_hosts_all | length)
-    fail_msg: >-
-      Expected {{ ansible_play_hosts_all | length }} Ready Windows node(s) within
-      {{ rke2_windows_wait_timeout }}s; kubectl reported:
-      {{ rke2_windows_ready_nodes.stdout | default('') }}
-  run_once: true
+- name: Wait for this run's Windows nodes to become Ready
+  ansible.builtin.include_tasks: wait_for_nodes_ready.yml
 
 - name: Display join completion
   ansible.builtin.debug:

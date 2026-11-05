@@ -203,5 +203,61 @@ class TestStandaloneWindowsPlaybookCniGate(unittest.TestCase):
         self.assertIn("Read cluster token from master", result.stdout)
 
 
+def run_ready_check(kubectl_output: str, expected_node: str) -> subprocess.CompletedProcess:
+    """Run the role's real readiness tasks against a stub kubectl on localhost."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        kubectl = os.path.join(temporary_directory, "kubectl")
+        with open(kubectl, "w", encoding="utf-8") as kubectl_file:
+            kubectl_file.write("#!/bin/sh\ncat <<'OUT'\n" + kubectl_output + "\nOUT\n")
+        os.chmod(kubectl, 0o755)
+        inventory = os.path.join(temporary_directory, "inventory.ini")
+        with open(inventory, "w", encoding="utf-8") as inventory_file:
+            inventory_file.write(
+                "[master]\nlocalhost ansible_connection=local "
+                f"rke2_windows_node_name={expected_node}\n"
+            )
+        playbook = os.path.join(temporary_directory, "playbook.yml")
+        with open(playbook, "w", encoding="utf-8") as playbook_file:
+            playbook_file.write(
+                textwrap.dedent(
+                    """\
+                    - hosts: master
+                      gather_facts: false
+                      tasks:
+                        - ansible.builtin.include_role:
+                            name: rke2_windows_agent
+                            tasks_from: wait_for_nodes_ready
+                          vars:
+                            rke2_windows_wait_timeout: 15
+                            rke2_windows_kubectl_path: "{{ kubectl_stub }}"
+                    """
+                )
+            )
+        environment = os.environ.copy()
+        environment["ANSIBLE_LOCAL_TEMP"] = os.path.join(temporary_directory, "tmp")
+        return subprocess.run(
+            ["ansible-playbook", "-i", inventory, playbook,
+             "-e", json.dumps({"kubectl_stub": kubectl, "ansible_become": False})],
+            cwd=REPOSITORY_ROOT, env=environment,
+            capture_output=True, text=True, check=False,
+        )
+
+
+@unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
+class TestWindowsReadinessByNodeIdentity(unittest.TestCase):
+    def test_passes_when_target_node_is_ready(self):
+        result = run_ready_check("old-win   True\nnew-win   True", "new-win")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_fails_when_only_an_older_windows_node_is_ready(self):
+        result = run_ready_check("old-win   True", "new-win")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("new-win", result.stdout + result.stderr)
+
+    def test_fails_when_target_node_is_not_ready(self):
+        result = run_ready_check("old-win   True\nnew-win   False", "new-win")
+        self.assertNotEqual(result.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

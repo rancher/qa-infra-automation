@@ -181,6 +181,23 @@ class TestGenerateClusterNodesInventory(unittest.TestCase):
         # Master node in the fixture has roles=[etcd]
         self.assertEqual(result["all"]["hosts"]["master-node"]["node_roles"], ["etcd"])
 
+    def test_rke2_three_server_bootstrap_matches_kube_api_host(self):
+        """Terraform emits master first; the bootstrap host must be the node
+        kube_api_host points at, or it would join itself as a server."""
+        data = load_fixture("rke2_ha_three_servers.json")
+        cfg = self.schema["rke2"]["default"]
+        result = yaml.safe_load(generate_cluster_nodes_inventory(data, cfg))
+        master_hosts = result["all"]["children"]["master"]["hosts"]
+        self.assertEqual(list(master_hosts), ["master-node"])
+        self.assertEqual(
+            master_hosts["master-node"]["ansible_host"],
+            data["metadata"]["kube_api_host"],
+        )
+        self.assertEqual(
+            list(result["all"]["children"]["servers"]["hosts"]),
+            ["etcd-cp-1", "etcd-cp-2"],
+        )
+
     def test_k3s_split_role_servers_include_etcd_and_cp(self):
         """K3s split-role: servers group must include both remaining etcd
         and cp nodes (not just cp). Otherwise the play silently drops etcd

@@ -28,13 +28,15 @@ output "cluster_nodes_json" {
       ssh_private_key = var.private_ssh_key
     }
     nodes = concat(
-      # Linux nodes
+      # Linux nodes keep local.node_names order (master first): the inventory
+      # bridge picks the first etcd node as bootstrap, and a map iteration would
+      # sort it alphabetically after etcd-cp-N.
       [
-        for name, instance in aws_instance.node : {
-          name       = name
-          roles      = local.instances_map[name].role # References your master/cp mappings
-          public_ip  = instance.public_ip
-          private_ip = instance.private_ip
+        for node in local.node_names : {
+          name       = node.name
+          roles      = node.role
+          public_ip  = aws_instance.node[node.name].public_ip
+          private_ip = aws_instance.node[node.name].private_ip
           os         = "linux"
         }
       ],
