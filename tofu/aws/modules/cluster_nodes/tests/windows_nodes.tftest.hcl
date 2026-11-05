@@ -131,3 +131,18 @@ run "overlay_peer_rules_skipped_with_ephemeral_sg" {
     error_message = "The ephemeral SG already admits node public IPs; the overlay peer rules must not duplicate it."
   }
 }
+
+run "route53_record_kept_when_lb_disabled" {
+  command = plan
+  variables {
+    create_lb = false
+    nodes = [
+      { count = 3, role = ["etcd", "cp"] },
+      { count = 1, role = ["worker"] },
+    ]
+  }
+  assert {
+    condition     = length(aws_lb.aws_nlb) == 0 && aws_route53_record.aws_route53.type == "A"
+    error_message = "create_lb=false must skip the load balancer but keep the Route53 record (A record to the first control-plane node) that backs the fqdn output."
+  }
+}

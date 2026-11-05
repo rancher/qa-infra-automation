@@ -415,6 +415,15 @@ class TestWindowsAgentInventory(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_cluster_nodes(data)
 
+    def test_empty_or_null_os_rejected_not_treated_as_linux(self):
+        """Only an omitted `os` means linux; malformed values must not slip into Linux groups."""
+        for bad in ("", None, False):
+            with self.subTest(os=bad):
+                data = load_fixture("rke2_windows_agent.json")
+                data["nodes"][0]["os"] = bad
+                with self.assertRaises(ValueError):
+                    validate_cluster_nodes(data)
+
     def test_unknown_os_rejected(self):
         data = load_fixture("rke2_windows_agent.json")
         data["nodes"][2]["os"] = "Windows"

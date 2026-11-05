@@ -69,8 +69,9 @@ def load_schema(path: str) -> dict:
 
 def node_os(node: dict) -> str:
     """OS of a node. `os` is optional in the cluster_nodes contract — providers
-    that predate Windows support omit it entirely, so absent means linux."""
-    return node.get("os") or "linux"
+    that predate Windows support omit it entirely, so only absent means linux;
+    an empty or null value is returned as-is so validation rejects it."""
+    return node["os"] if "os" in node else "linux"
 
 
 def validate_cluster_nodes(data: dict) -> None:

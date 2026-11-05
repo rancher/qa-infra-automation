@@ -75,8 +75,10 @@ and enables the Containers feature, which reboots the instance. **Expect the nod
 5–10 minutes to become reachable** — considerably longer than a Linux node.
 
 **Use an RSA key pair.** Windows EC2 instances only work with RSA keys; Ed25519 is not
-supported, so generate one with `ssh-keygen -t rsa -b 4096` and point `public_ssh_key` and
-`private_ssh_key` at it.
+supported, so generate one with `ssh-keygen -t rsa -b 4096 -m PEM` and point `public_ssh_key` and
+`private_ssh_key` at it. Use `-m PEM`: OpenTofu's `rsadecrypt` (behind the
+`windows_administrator_passwords` output) cannot read the default OpenSSH private-key format.
+To convert an existing RSA key in place, run `ssh-keygen -p -m PEM -f <private_key>`.
 
 Confirm the generated inventory placed the node correctly:
 

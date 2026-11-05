@@ -114,7 +114,7 @@ variable "nodes" {
 variable "airgap_setup" {}
 variable "proxy_setup" {}
 variable "create_lb" {
-  description = "This flag creates Load Balancer, Target Group and Route53 resources when set to true, default is true."
+  description = "Creates the Load Balancer, Target Groups and listeners when true (default) and there is more than one control-plane node. The Route53 record is always created; with no load balancer it is an A record to the first control-plane node."
   type        = bool
   default     = true
 }
