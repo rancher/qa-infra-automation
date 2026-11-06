@@ -40,16 +40,15 @@
       {{ rke2_windows_service_pre.exists
          and rke2_windows_service_pre.services[0].state == 'running' }}
 
-# RKE2 registers the node under the lowercased machine hostname, which is not
-# the inventory name. Captured now, before the CNI can drop the SSH session.
+# The node name is not the inventory name. Captured now, before the CNI can
+# drop the SSH session.
 - name: Read the Windows hostname
   ansible.windows.win_command: hostname
   register: rke2_windows_hostname
   changed_when: false
 
-- name: Record the Kubernetes node name
-  ansible.builtin.set_fact:
-    rke2_windows_node_name: "{{ rke2_windows_hostname.stdout | trim | lower }}"
+- name: Resolve the Kubernetes node name
+  ansible.builtin.include_tasks: record_node_name.yml
 
 # Windows Server Containers is a prerequisite for containerd and its install
 # needs a reboot. The AWS user_data already does this, so on Tofu-provisioned

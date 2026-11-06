@@ -277,5 +277,59 @@ class TestWindowsRoleFlushesHandlersBeforeReadiness(unittest.TestCase):
         self.assertLess(flush, ready, names)
 
 
+def run_node_name_resolution(hostname: str, additional_config: dict) -> str:
+    """Run the role's real node-name task on localhost and return the fact."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        playbook = os.path.join(temporary_directory, "playbook.yml")
+        with open(playbook, "w", encoding="utf-8") as playbook_file:
+            playbook_file.write(
+                textwrap.dedent(
+                    """\
+                    - hosts: localhost
+                      connection: local
+                      gather_facts: false
+                      tasks:
+                        - ansible.builtin.set_fact:
+                            rke2_windows_hostname: {stdout: "{{ stub_hostname }}\r\n"}
+                        - ansible.builtin.include_role:
+                            name: rke2_windows_agent
+                            tasks_from: record_node_name
+                        - ansible.builtin.debug:
+                            msg: "NODE_NAME={{ rke2_windows_node_name }}"
+                    """
+                )
+            )
+        environment = os.environ.copy()
+        environment["ANSIBLE_LOCAL_TEMP"] = os.path.join(temporary_directory, "tmp")
+        result = subprocess.run(
+            ["ansible-playbook", "-i", "localhost,", playbook, "-e",
+             json.dumps({"stub_hostname": hostname,
+                         "rke2_windows_additional_config": additional_config})],
+            cwd=REPOSITORY_ROOT, env=environment,
+            capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        return next(
+            line.split("NODE_NAME=")[1].split('"')[0]
+            for line in result.stdout.splitlines() if "NODE_NAME=" in line
+        )
+
+
+@unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
+class TestWindowsNodeNameResolution(unittest.TestCase):
+    def test_defaults_to_lowercased_hostname(self):
+        self.assertEqual(run_node_name_resolution("WIN-HOST", {}), "win-host")
+
+    def test_configured_node_name_overrides_hostname(self):
+        self.assertEqual(
+            run_node_name_resolution("WIN-HOST", {"node-name": "custom-win"}), "custom-win"
+        )
+
+    def test_empty_configured_node_name_falls_back_to_hostname(self):
+        self.assertEqual(
+            run_node_name_resolution("WIN-HOST", {"node-name": ""}), "win-host"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
