@@ -52,6 +52,24 @@ def _render_url(**overrides):
     return env.from_string(_select_url_task()).render(**variables)
 
 
+def _install_environment(**overrides):
+    with open(os.path.join(ROLE_ROOT, "tasks", "main.yml"), encoding="utf-8") as f:
+        tasks = yaml.safe_load(f)
+    env_template = None
+    for task in tasks:
+        for sub in task.get("block", []) or []:
+            if sub.get("name") == "Run RKE2 install script":
+                env_template = sub["environment"]
+    if env_template is None:
+        raise AssertionError("Run RKE2 install script task not found")
+    variables = dict(_defaults())
+    variables.update(overrides)
+    variables["omit"] = "__OMIT__"
+    env = jinja2.Environment()
+    rendered = {k: env.from_string(str(v)).render(**variables) for k, v in env_template.items()}
+    return {k: v for k, v in rendered.items() if v != "__OMIT__"}
+
+
 @unittest.skipIf(yaml is None or jinja2 is None, "pyyaml and jinja2 are required")
 class Rke2InstallScriptUrlTest(unittest.TestCase):
     def test_pinning_is_off_by_default(self):
@@ -78,6 +96,22 @@ class Rke2InstallScriptUrlTest(unittest.TestCase):
             _render_url(rke2_version="", rke2_install_script_pinned=True),
             "https://get.rke2.io",
         )
+
+    def test_commit_install_sends_commit_without_version_or_channel(self):
+        commit = "a" * 40
+        env = _install_environment(
+            rke2_version=commit, _rke2_is_commit=True, rke2_node_role="master", node_roles=["etcd"]
+        )
+        self.assertEqual(env["INSTALL_RKE2_COMMIT"], commit)
+        self.assertNotIn("INSTALL_RKE2_VERSION", env)
+        self.assertNotIn("INSTALL_RKE2_CHANNEL", env)
+
+    def test_version_install_still_sends_version(self):
+        env = _install_environment(
+            rke2_version="v1.34.11+rke2r1", _rke2_is_commit=False, rke2_node_role="master", node_roles=["etcd"]
+        )
+        self.assertEqual(env["INSTALL_RKE2_VERSION"], "v1.34.11+rke2r1")
+        self.assertNotIn("INSTALL_RKE2_COMMIT", env)
 
 
 if __name__ == "__main__":

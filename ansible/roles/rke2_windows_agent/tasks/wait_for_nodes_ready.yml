@@ -1,0 +1,49 @@
+---
+# Waits for the Windows hosts in this run, by node name, to be Ready. A total
+# count would pass for a new host when an older Windows node is already Ready.
+- name: Collect the node names expected to join
+  ansible.builtin.set_fact:
+    rke2_windows_expected_nodes: >-
+      {{ ansible_play_hosts | map('extract', hostvars, 'rke2_windows_node_name') | list }}
+  run_once: true
+
+- name: Wait for the Windows nodes to register and become Ready
+  ansible.builtin.command:
+    argv:
+      - "{{ rke2_windows_kubectl_path }}"
+      - --kubeconfig
+      - "{{ rke2_windows_kubeconfig }}"
+      - get
+      - nodes
+      - -l
+      - kubernetes.io/os=windows
+      - --no-headers
+      - -o
+      - 'custom-columns=NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status'
+  delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
+  run_once: true
+  become: true
+  register: rke2_windows_ready_nodes
+  changed_when: false
+  failed_when: false
+  until: >-
+    rke2_windows_ready_nodes.rc == 0 and
+    (rke2_windows_expected_nodes | difference(
+      rke2_windows_ready_nodes.stdout_lines | select('search', '\\sTrue$')
+      | map('regex_replace', '\\s.*$', '') | list)) | length == 0
+  retries: "{{ (rke2_windows_wait_timeout | int / 15) | round(0, 'ceil') | int }}"
+  delay: 15
+
+- name: Fail if the Windows nodes did not become Ready
+  ansible.builtin.assert:
+    that:
+      - rke2_windows_ready_nodes.rc == 0
+      - >-
+        (rke2_windows_expected_nodes | difference(
+          rke2_windows_ready_nodes.stdout_lines | select('search', '\\sTrue$')
+          | map('regex_replace', '\\s.*$', '') | list)) | length == 0
+    fail_msg: >-
+      Windows node(s) {{ rke2_windows_expected_nodes | join(', ') }} were not all
+      Ready within {{ rke2_windows_wait_timeout }}s; kubectl reported:
+      {{ rke2_windows_ready_nodes.stdout | default('') }}
+  run_once: true
