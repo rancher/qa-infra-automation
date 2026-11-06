@@ -310,33 +310,41 @@ resource "aws_security_group" "windows_overlay" {
   description = "VXLAN overlay + kubelet for Windows agents in ${var.aws_hostname_prefix}."
   vpc_id      = var.aws_vpc
 
-  ingress {
-    description = "Calico/Flannel VXLAN overlay"
-    from_port   = 4789
-    to_port     = 4789
-    protocol    = "udp"
-    cidr_blocks = [data.aws_vpc.selected.cidr_block]
-  }
-
-  ingress {
-    description = "kubelet"
-    from_port   = 10250
-    to_port     = 10250
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.selected.cidr_block]
-  }
-
-  egress {
-    description = "Allow all egress"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   tags = {
     Name = "tf-${var.aws_hostname_prefix}-windows${local.name_suffix}"
   }
+}
+
+# All overlay rules are standalone: inline rules cannot be mixed with them for one SG.
+resource "aws_vpc_security_group_ingress_rule" "windows_overlay_vpc_vxlan" {
+  count = local.has_windows_nodes ? 1 : 0
+
+  security_group_id = aws_security_group.windows_overlay[0].id
+  description       = "Calico/Flannel VXLAN overlay"
+  ip_protocol       = "udp"
+  from_port         = 4789
+  to_port           = 4789
+  cidr_ipv4         = data.aws_vpc.selected.cidr_block
+}
+
+resource "aws_vpc_security_group_ingress_rule" "windows_overlay_vpc_kubelet" {
+  count = local.has_windows_nodes ? 1 : 0
+
+  security_group_id = aws_security_group.windows_overlay[0].id
+  description       = "kubelet"
+  ip_protocol       = "tcp"
+  from_port         = 10250
+  to_port           = 10250
+  cidr_ipv4         = data.aws_vpc.selected.cidr_block
+}
+
+resource "aws_vpc_security_group_egress_rule" "windows_overlay_allow_all_egress" {
+  count = local.has_windows_nodes ? 1 : 0
+
+  security_group_id = aws_security_group.windows_overlay[0].id
+  description       = "Allow all egress"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
 }
 
 # RDP is attached to Windows instances only, so the overlay SG shared with the

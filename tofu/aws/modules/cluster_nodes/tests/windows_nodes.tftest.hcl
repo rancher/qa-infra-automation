@@ -61,8 +61,12 @@ run "rdp_is_attached_to_windows_only" {
     error_message = "windows_enable_rdp must create the RDP security group."
   }
   assert {
-    condition     = length(aws_security_group.windows_overlay[0].ingress) == 2
-    error_message = "The overlay SG shared with Linux must not carry the RDP rule."
+    condition = (
+      aws_vpc_security_group_ingress_rule.windows_overlay_vpc_vxlan[0].from_port == 4789
+      && aws_vpc_security_group_ingress_rule.windows_overlay_vpc_kubelet[0].from_port == 10250
+      && length(aws_security_group.windows_overlay[0].ingress) == 0
+    )
+    error_message = "The overlay SG must hold its overlay/kubelet rules as standalone rules only (no inline ingress), so per-node standalone rules can be added to it safely."
   }
 }
 
