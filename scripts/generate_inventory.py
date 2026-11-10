@@ -32,6 +32,9 @@ from datetime import datetime, timezone
 
 import yaml
 
+# Stops a loaded ssh-agent offering every key first ("Too many authentication failures").
+SSH_IDENTITIES_ONLY = "-o IdentitiesOnly=yes"
+
 
 def load_json(path: str) -> dict:
     with open(path) as f:
@@ -64,6 +67,13 @@ def load_schema(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def node_os(node: dict) -> str:
+    """OS of a node. `os` is optional in the cluster_nodes contract — providers
+    that predate Windows support omit it entirely, so only absent means linux;
+    an empty or null value is returned as-is so validation rejects it."""
+    return node["os"] if "os" in node else "linux"
+
+
 def validate_cluster_nodes(data: dict) -> None:
     required_metadata = {"kube_api_host", "fqdn", "ssh_user"}
     missing = required_metadata - set(data.get("metadata", {}).keys())
@@ -81,6 +91,19 @@ def validate_cluster_nodes(data: dict) -> None:
         for field in ("name", "roles", "public_ip", "private_ip"):
             if field not in node:
                 raise ValueError(f"Node missing required field '{field}': {node}")
+
+        known_os = {"linux", "windows"}
+        if node_os(node) not in known_os:
+            raise ValueError(
+                f"Node '{node['name']}' has unknown os '{node['os']}'. "
+                f"Known values: {known_os} (omit the field for linux)"
+            )
+        # Windows is agent-only in RKE2 — a cp/etcd Windows node cannot exist.
+        if node_os(node) == "windows" and {"cp", "etcd"} & set(node.get("roles", [])):
+            raise ValueError(
+                f"Windows node '{node['name']}' has roles {node['roles']}; "
+                "Windows nodes can only be workers (RKE2 has no Windows server role)."
+            )
 
 
 def validate_airgap(data: dict) -> None:
@@ -119,21 +142,24 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     groups_cfg = schema_cfg.get("groups", {})
 
     # Build groups: `roles` matches any listed role; `roles_priority` tries each set in order and stops on first match.
+    # An optional group `os` restricts candidates to that OS (default linux, matching node_os()).
     groups: dict[str, list[dict]] = {name: [] for name in groups_cfg}
 
     for group_name, group_def in groups_cfg.items():
+        wanted_os = group_def.get("os") or "linux"
+        candidates = [n for n in nodes if node_os(n) == wanted_os]
         roles_priority = group_def.get("roles_priority")
         if roles_priority:
             for role_set in roles_priority:
                 required = set(role_set)
-                matched = [n for n in nodes if required & set(n["roles"])]
+                matched = [n for n in candidates if required & set(n["roles"])]
                 if matched:
                     groups[group_name] = matched
 
                     break
         else:
             required = set(group_def.get("roles", []))
-            groups[group_name] = [n for n in nodes if required & set(n["roles"])]
+            groups[group_name] = [n for n in candidates if required & set(n["roles"])]
 
     # Apply first_only constraint
     for group_name, group_def in groups_cfg.items():
@@ -145,6 +171,16 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     for group_name, group_nodes in groups.items():
         for n in group_nodes:
             node_to_group.setdefault(n["name"], group_name)
+
+    # A node that matched no group would silently vanish from every play. The
+    # common cause is a windows node in a schema with no windows group (k3s).
+    ungrouped = [n["name"] for n in nodes if n["name"] not in node_to_group]
+    if ungrouped:
+        raise ValueError(
+            f"Nodes matched no inventory group: {ungrouped}. Check their roles/os "
+            f"against the groups defined for this distro/env in the schema "
+            f"({sorted(groups_cfg)})."
+        )
 
     # Rebuild groups with mutually exclusive membership
     groups = {name: [] for name in groups_cfg}
@@ -168,6 +204,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
 
     if default_key:
         inventory["all"]["vars"]["ansible_ssh_private_key_file"] = default_key
+        inventory["all"]["vars"]["ansible_ssh_extra_args"] = SSH_IDENTITIES_ONLY
 
     # Create reverse mapping: node name -> group for role determination
     node_to_group: dict[str, str] = {}
@@ -195,6 +232,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     # Add all nodes to the 'all' hosts section
     for node in nodes:
         node_roles = node["roles"]
+        os_name = node_os(node)
         group = node_to_group.get(node["name"])
         if group == "master":
             rke2_node_role = "master"
@@ -206,20 +244,33 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
             "ansible_host": node[ip_field],
             "node_roles": node_roles,
             "rke2_node_role": rke2_node_role,
+            "node_os": os_name,
         }
+
+        if os_name == "windows":
+            # Ansible reaches Windows over OpenSSH with PowerShell as the remote
+            # shell (the Tofu user_data sets that up). No become — the win_*
+            # modules already run as the connecting Administrator — and no
+            # pipelining, which is POSIX-only and breaks them.
+            host_entry["ansible_user"] = node.get("ssh_user") or metadata["ssh_user"]
+            host_entry["ansible_connection"] = "ssh"
+            host_entry["ansible_shell_type"] = "powershell"
+            host_entry["ansible_become"] = False
+            host_entry["ansible_pipelining"] = False
 
         node_key = node.get("ssh_private_key")
         if node_key:
             host_entry["ansible_ssh_private_key_file"] = node_key
+            host_entry["ansible_ssh_extra_args"] = SSH_IDENTITIES_ONLY
         elif default_key:
             host_entry["ansible_ssh_private_key_file"] = default_key
 
         inventory["all"]["hosts"][host_key(node["name"])] = host_entry
 
-    # Add named groups
+    # Add named groups. Empty ones are emitted too, so that a host pattern which
+    # excludes a group -- `all:!windows_workers` in the RKE2 playbook -- does not
+    # warn "Could not match supplied host pattern" on Linux-only clusters.
     for group_name, group_nodes in groups.items():
-        if not group_nodes:
-            continue
         inventory["all"]["children"][group_name] = {
             "hosts": {
                 host_key(node["name"]): {"ansible_host": node[ip_field]}
