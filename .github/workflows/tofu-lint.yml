@@ -29,7 +29,7 @@ jobs:
       # renovate: datasource=github-release-attachments depName=opentofu/opentofu digestVersion=v1.12.6
       TOFU_SUM_AMD64: 5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
