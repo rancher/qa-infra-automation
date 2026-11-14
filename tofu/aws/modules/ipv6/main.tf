@@ -50,6 +50,12 @@ locals {
     sed -i -e 's/127.0.0.1/::1/g' -e "s/ip6-loopback/ip6-loopback $(hostname)/g" /etc/hosts
   EOT
 
+  # IPv6-first dual-stack RKE2 binds control-plane health endpoints to ::1 while their
+  # probes target "localhost"; Ubuntu maps localhost to 127.0.0.1 only.
+  dualstack_hosts_fixup = <<-EOT
+    grep -qE '^::1[[:space:]](.*[[:space:]])?localhost([[:space:]]|$)' /etc/hosts || echo '::1 localhost' >> /etc/hosts
+  EOT
+
   ipv6_dns_fixup = <<-EOT
     systemctl stop systemd-resolved.service || true
     systemctl disable systemd-resolved.service || true
@@ -59,10 +65,10 @@ locals {
     RESOLVCONF
   EOT
 
-  node_user_data = local.ipv6_only ? join("\n", compact([
+  node_user_data = var.enable_ipv6 ? join("\n", compact([
     "#!/bin/bash",
     "set -eu",
-    trimspace(local.ipv6_hosts_fixup),
+    local.ipv6_only ? trimspace(local.ipv6_hosts_fixup) : trimspace(local.dualstack_hosts_fixup),
     local.ipv6_manage_dns ? trimspace(local.ipv6_dns_fixup) : "",
   ])) : null
 }

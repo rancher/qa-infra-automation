@@ -108,6 +108,13 @@ Independently of this setting, IPv6-only nodes always get an `/etc/hosts` fixup
 so they can resolve their own hostname: there is no `127.0.0.1` entry to match
 against once the node has no IPv4 address.
 
+Dual-stack nodes (`enable_ipv6 = true` with a public IPv4) get a smaller fixup instead:
+`::1 localhost` is added to `/etc/hosts` and the IPv4 entry is kept. An IPv6-first RKE2
+cluster binds etcd, kube-proxy and the controller managers' health endpoints to `::1`,
+while their liveness probes target `localhost`. Ubuntu maps `localhost` to `127.0.0.1`
+only, so without this the kubelet keeps killing those components. IPv4-first clusters
+are unaffected.
+
 ## Outputs
 
 Refer to `outputs.tf` for a list of exported values.
