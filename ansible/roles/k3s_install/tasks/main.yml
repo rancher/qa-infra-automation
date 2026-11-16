@@ -410,8 +410,10 @@
   lineinfile:
     path: /etc/rancher/k3s/k3s.yaml
     regexp: '^\s*server:\s*.*$'
-    line: "    server: https://{{ k3s_fqdn | default(k3s_api_host, true) }}:6443"
+    line: "    server: https://{{ ('[' ~ _host ~ ']') if ':' in _host and '[' not in _host else _host }}:6443"
     backrefs: false
+  vars:
+    _host: "{{ k3s_fqdn | default(k3s_api_host, true) }}"
   when:
     - k3s_node_type == 'cluster-init'
 

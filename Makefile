@@ -137,14 +137,6 @@ else
 RANCHER_TARGET :=
 endif
 
-# ansible/k3s has no dualstack/ipv6 playbooks; fail here rather than deep inside
-# a target with a missing-file error.
-ifneq ($(filter $(ENV),$(RANCHERLESS_ENVS)),)
-ifeq ($(DISTRO),k3s)
-$(error DISTRO=k3s is not supported with ENV=$(ENV): ansible/k3s/$(ENV) has no playbooks yet. Use DISTRO=rke2.)
-endif
-endif
-
 # ============================================================================
 # HELP
 # ============================================================================
@@ -163,9 +155,9 @@ help: ## Show this help message
 	@echo "  TARGET_GROUP = $(if $(TARGET_GROUP),$(TARGET_GROUP),<unset>)  (airgap node group, e.g. rancher/downstream; required for 'downstream')"
 	@echo ""
 	@echo "Override with: make <target> DISTRO=k3s ENV=default PROVIDER=aws WORKSPACE=myworkspace"
-	@echo "At the moment this only supports rke2, default/airgap/dualstack/ipv6, and aws"
+	@echo "At the moment this only supports rke2 default/airgap, rke2/k3s dualstack/ipv6, and aws"
 	@echo ""
-	@echo "NETWORKING MODES (rke2 + aws only):"
+	@echo "NETWORKING MODES (rke2/k3s + aws only):"
 	@echo "  ENV=dualstack   IPv4 + IPv6 on every node (tofu/aws/modules/dualstack)"
 	@echo "  ENV=ipv6        IPv6-only cluster nodes behind an IPv4+IPv6 bastion (tofu/aws/modules/ipv6)"
 	@echo "  Both skip the Rancher deploy step; 'make all' runs infra-up + cluster only."

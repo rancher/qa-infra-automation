@@ -74,5 +74,26 @@ k3s:
       workers:
         roles: [worker]
 
-  # No k3s dualstack/ipv6 entries: ansible/k3s has no playbooks for those
-  # environments yet, so the combination is rejected rather than half-wired.
+  ipv6:
+    input_type: cluster_nodes
+    ip_field: ipv6
+    groups:
+      master:
+        roles_priority: [[etcd], [cp]]
+        first_only: true
+      servers:
+        roles: [etcd, cp]
+      workers:
+        roles: [worker]
+
+  dualstack:
+    input_type: dualstack
+    ip_field: public_ip
+    groups:
+      master:
+        roles_priority: [[etcd], [cp]]
+        first_only: true
+      servers:
+        roles: [etcd, cp]
+      workers:
+        roles: [worker]

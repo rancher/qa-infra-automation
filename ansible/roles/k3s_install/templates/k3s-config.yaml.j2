@@ -69,19 +69,22 @@ node-label:
 # Skip cluster-init when external datastore is in use (server_flags has datastore-endpoint, or master is cp-only).
 {% set _flags_blob = (server_flags | default('')) ~ "\n" ~ (role_server_flags | default('')) %}
 {% set _uses_external_datastore = ('datastore-endpoint' in _flags_blob) or (has_cp and not has_etcd) %}
+{# IPv6 literals need brackets in the join URL; IPv4 and DNS names render unchanged. #}
+{% set _api_host = kube_api_host | default(k3s_api_host) | default('') %}
+{% set _join_host = '[' ~ _api_host ~ ']' if ':' in _api_host and '[' not in _api_host else _api_host %}
 {% if k3s_node_type == 'cluster-init' and not _uses_external_datastore %}
 cluster-init: true
 {% elif k3s_node_type == 'server' and (kube_api_host | default(k3s_api_host) | default('')) != '' %}
 # For joins this is the cluster-init/supervisor endpoint, which may be etcd-only
 # in split-role topologies. The saved kubeconfig is rewritten to a cp-bearing host.
-server: "https://{{ kube_api_host | default(k3s_api_host) }}:6443"
+server: "https://{{ _join_host }}:6443"
 {% if k3s_token | default('') | trim %}
 token: "{{ k3s_token }}"
 {% endif %}
 {% elif k3s_node_type == 'agent' and (kube_api_host | default(k3s_api_host) | default('')) != '' %}
 # For joins this is the cluster-init/supervisor endpoint, which may be etcd-only
 # in split-role topologies. The saved kubeconfig is rewritten to a cp-bearing host.
-server: "https://{{ kube_api_host | default(k3s_api_host) }}:6443"
+server: "https://{{ _join_host }}:6443"
 {% if k3s_token | default('') | trim %}
 token: "{{ k3s_token }}"
 {% endif %}
