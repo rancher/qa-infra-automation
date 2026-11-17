@@ -301,8 +301,11 @@
         # split on the first comma only so URLs containing commas stay intact.
         - name: Optional files | Validate "dest,url[,sha256]" format
           ansible.builtin.assert:
-            that: "',' in item"
-            fail_msg: "optional_files entry '{{ item }}' must be in 'dest,url[,sha256]' form"
+            that:
+              - "',' in item"
+              - (item.split(',', 1)[0] | trim) is match('^/[^,]*$')
+              - "'/../' not in (item.split(',', 1)[0] | trim) ~ '/'"
+            fail_msg: "optional_files entry '{{ item }}' must be 'dest,url[,sha256]' with an absolute dest and no '..'"
             quiet: true
           loop: "{{ optional_files.split() }}"
 
