@@ -13,7 +13,7 @@
     - name: Fail after max attempts
       ansible.builtin.fail:
         msg: "SSH to {{ inventory_hostname }} not ready after {{ ssh_wait_attempts }} attempts"
-      when: _ssh_wait_n | int >= ssh_wait_attempts | int
+      when: _ssh_wait_n | default(1) | int >= ssh_wait_attempts | int
 
     - name: Wait before retrying
       ansible.builtin.pause:
