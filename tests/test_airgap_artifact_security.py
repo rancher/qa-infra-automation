@@ -114,6 +114,28 @@ class ArtifactVerificationTests(unittest.TestCase):
                                     env=env, capture_output=True, text=True, timeout=30, check=False)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_k3s_agent_config_omits_the_system_default_registry(self):
+        """`k3s agent` exits with 'flag provided but not defined' when its config carries the key."""
+        src = ROLES / "airgap_product_install/templates/config.yaml.j2"
+        with tempfile.TemporaryDirectory() as tmp:
+            for product, role, expected in (("k3s", "agent", False), ("k3s", "server", True),
+                                            ("rke2", "agent", True), ("rke2", "server", True)):
+                with self.subTest(product=product, role=role):
+                    out = Path(tmp) / f"{product}-{role}.yaml"
+                    play = [{"hosts": "localhost", "connection": "local", "gather_facts": False,
+                             "vars": {"product": product, "airgap_node_role": role, "airgap_primary": role == "server",
+                                      "ansible_host": "10.0.0.5", "airgap_master_ip": "10.0.0.4", "airgap_api_port": 6443,
+                                      "airgap_join_token": "t", "airgap_registry_mode": "system_default",
+                                      "airgap_registry_host": "bastion.example.invalid", "server_flags": "", "worker_flags": ""},
+                             "tasks": [{"ansible.builtin.template": {"src": str(src), "dest": str(out)}}]}]
+                    playbook = Path(tmp) / "config.yml"
+                    playbook.write_text(yaml.safe_dump(play))
+                    env = dict(os.environ, ANSIBLE_LOCAL_TEMP=tmp + "/local", ANSIBLE_REMOTE_TEMP=tmp + "/remote")
+                    result = subprocess.run(["ansible-playbook", "-i", "localhost,", str(playbook)],
+                                            env=env, capture_output=True, text=True, timeout=30, check=False)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual("system-default-registry" in out.read_text(), expected, out.read_text())
+
     def test_every_image_list_line_becomes_one_image(self):
         build = next(t for t in tasks("airgap_image_publish") if t["name"] == "Build the unique image set")
         lists = ["docker.io/rancher/a:1\ndocker.io/rancher/b:2\n", "docker.io/rancher/b:2\n\n  rancher/c:3  \n"]

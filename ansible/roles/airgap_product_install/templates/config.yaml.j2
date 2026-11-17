@@ -8,7 +8,8 @@ node-ip: {{ ansible_host }}
 server: "https://{{ airgap_master_ip }}:{{ airgap_api_port }}"
 token: "{{ airgap_join_token }}"
 {% endif %}
-{% if airgap_registry_mode == 'system_default' %}
+{#- K3s agents get system-default-registry from the server and reject the flag. -#}
+{% if airgap_registry_mode == 'system_default' and not (product == 'k3s' and airgap_node_role == 'agent') %}
 system-default-registry: "{{ airgap_registry_host }}"
 {% endif %}
 {% set _cni = airgap_effective_cni | default('') | trim %}
