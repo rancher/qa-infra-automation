@@ -47,7 +47,8 @@ locals {
 
   # IPv6-only hosts have no 127.0.0.1 entry to resolve their own hostname against.
   ipv6_hosts_fixup = <<-EOT
-    sed -i -e 's/127.0.0.1/::1/g' -e "s/ip6-loopback/ip6-loopback $(hostname)/g" /etc/hosts
+    sed -i 's/127\.0\.0\.1/::1/g' /etc/hosts
+    grep -qw "$(hostname)" /etc/hosts || sed -i "s/ip6-loopback/ip6-loopback $(hostname)/" /etc/hosts
   EOT
 
   # IPv6-first dual-stack RKE2 binds control-plane health endpoints to ::1 while their
