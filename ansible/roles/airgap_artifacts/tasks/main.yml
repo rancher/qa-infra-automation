@@ -92,8 +92,8 @@
 - name: Pin the install script to that commit
   ansible.builtin.set_fact:
     airgap_install_script_commit: >-
-      {{ ((airgap_tag_refs.stdout_lines | select('search', '\\^\\{\\}$') | list)
-          or airgap_tag_refs.stdout_lines) | first | split('\t') | first }}
+      {{ (((airgap_tag_refs.stdout_lines | select('search', '\^\{\}$') | list)
+           or airgap_tag_refs.stdout_lines) | first).split()[0] }}
 
 - name: Download the official install script
   ansible.builtin.get_url:

@@ -159,6 +159,52 @@ class AirgapPlaybookStaticContractTests(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook not available")
+class AirgapInstallerRefTests(unittest.TestCase):
+    def test_release_tag_resolves_to_commit_without_ref_suffix(self):
+        tasks = _load(os.path.join(ANSIBLE_DIR, "roles", "airgap_artifacts", "tasks", "main.yml"))
+        pin_task = next(task for task in tasks if "airgap_install_script_commit" in
+                        task.get("ansible.builtin.set_fact", {}))
+        commit = "a" * 40
+        tag_object = "b" * 40
+        ref = "refs/tags/v1.36.0+rke2r1"
+        annotated = [f"{tag_object}\t{ref}", f"{commit}\t{ref}^{{}}"]
+        cases = {
+            "lightweight": [f"{commit}\t{ref}"],
+            "annotated": annotated,
+            "annotated_reversed": list(reversed(annotated)),
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            playbook = os.path.join(tmp, "installer-ref.yml")
+            env = dict(os.environ, ANSIBLE_LOCAL_TEMP=os.path.join(tmp, "local"),
+                       ANSIBLE_REMOTE_TEMP=os.path.join(tmp, "remote"))
+            for name, lines in cases.items():
+                with self.subTest(tag_type=name):
+                    play = {
+                        "name": "Check installer commit parsing",
+                        "hosts": "localhost",
+                        "connection": "local",
+                        "gather_facts": False,
+                        "vars": {"airgap_tag_refs": {"stdout_lines": lines},
+                                 "expected_commit": commit},
+                        "tasks": [pin_task, {
+                            "name": "Require only the peeled commit SHA",
+                            "ansible.builtin.assert": {
+                                "that": ["airgap_install_script_commit == expected_commit"],
+                            },
+                        }],
+                    }
+                    with open(playbook, "w", encoding="utf-8") as handle:
+                        yaml.safe_dump([play], handle)
+
+                    result = subprocess.run(
+                        ["ansible-playbook", "-i", "localhost,", playbook],
+                        capture_output=True, text=True, env=env, check=False, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+@unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook not available")
 class AirgapPlaybookSyntaxTests(unittest.TestCase):
     def test_syntax_check_every_product_and_method(self):
         with tempfile.TemporaryDirectory() as tmp:
