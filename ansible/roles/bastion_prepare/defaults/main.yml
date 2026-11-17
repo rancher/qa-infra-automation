@@ -1,0 +1,14 @@
+---
+# Kubectl configuration
+kubectl_version: "v1.35.3"
+kubectl_sha256_amd64: "fd31c7d7129260e608f6faf92d5984c3267ad0b5ead3bced2fe125686e286ad6"
+kubectl_sha256_arm64: "6f0cd088a82dde5d5807122056069e2fac4ed447cc518efc055547ae46525f14"
+
+# Set arch mapping for kubectl download
+kubectl_arch_map:
+  x86_64: "amd64"
+  aarch64: "arm64"
+
+kubectl_sha_map:
+  x86_64: "{{ kubectl_sha256_amd64 }}"
+  aarch64: "{{ kubectl_sha256_arm64 }}"

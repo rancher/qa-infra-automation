@@ -1,0 +1,16 @@
+# IPv6 only. Copy to ../vars.yaml.
+kubernetes_version: 'v1.34.2+k3s1'
+channel: "stable"
+kubeconfig_file: './kubeconfig.yaml'
+node_token_file: "/tmp/node_token.txt"
+
+# https://docs.k3s.io/networking/basic-network-options#single-stack-ipv6-networking
+# flannel-ipv6-masq lets pods reach the internet through the node (NAT64 on AWS).
+server_flags: |
+  cluster-cidr: 2001:cafe:42::/56
+  service-cidr: 2001:cafe:43::/112
+  flannel-ipv6-masq: true
+  node-ip: "{{ ansible_host_ipv6 }}"
+
+worker_flags: |
+  node-ip: "{{ ansible_host_ipv6 }}"

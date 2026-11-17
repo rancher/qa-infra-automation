@@ -1,0 +1,64 @@
+# Template inventory for bring-your-own nodes.
+# `make infra-up ENV=ipv6` overwrites inventory.yml with the generated version.
+# Copy this file to inventory.yml and replace the placeholder values.
+#
+# Remove the bastion_* vars, the ProxyCommand in ansible_ssh_common_args and the
+# 'bastion' group when the nodes are reachable directly.
+# ansible_host is the address Ansible connects over; ansible_host_ipv6 is what
+# RKE2 uses for IPv6 node-ip/tls-san values.
+all:
+  vars:
+    ansible_ssh_common_args: -o ProxyCommand='ssh -i {{ ansible_ssh_private_key_file
+      }} -W "[%h]:%p" {{ bastion_user }}@{{ bastion_host }} -o StrictHostKeyChecking=no
+      -o UserKnownHostsFile=/dev/null' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+    ansible_user: <SSH_USER>
+    kube_api_host: 2001:db8::10
+    fqdn: your-cluster.example.com
+    bastion_host: 198.51.100.7
+    bastion_user: <SSH_USER>
+    bastion_dns: bastion.example.com
+    ansible_ssh_private_key_file: /Path/To/your-key.pem
+  hosts:
+    master:
+      ansible_host: 2001:db8::10
+      ansible_host_ipv6: 2001:db8::10
+      node_roles:
+      - etcd
+      rke2_node_role: master
+      ansible_ssh_private_key_file: /Path/To/your-key.pem
+    cp-0:
+      ansible_host: 2001:db8::11
+      ansible_host_ipv6: 2001:db8::11
+      node_roles:
+      - cp
+      rke2_node_role: server
+      ansible_ssh_private_key_file: /Path/To/your-key.pem
+    worker-0:
+      ansible_host: 2001:db8::12
+      ansible_host_ipv6: 2001:db8::12
+      node_roles:
+      - worker
+      rke2_node_role: agent
+      ansible_ssh_private_key_file: /Path/To/your-key.pem
+  children:
+    bastion:
+      hosts:
+        bastion-node:
+          ansible_host: '{{ bastion_host }}'
+          ansible_user: '{{ bastion_user }}'
+          ansible_ssh_common_args: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+    master:
+      hosts:
+        master:
+          ansible_host: 2001:db8::10
+          ansible_host_ipv6: 2001:db8::10
+    servers:
+      hosts:
+        cp-0:
+          ansible_host: 2001:db8::11
+          ansible_host_ipv6: 2001:db8::11
+    workers:
+      hosts:
+        worker-0:
+          ansible_host: 2001:db8::12
+          ansible_host_ipv6: 2001:db8::12

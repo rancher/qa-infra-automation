@@ -1,0 +1,9 @@
+---
+- name: Include kubectl installation tasks
+  ansible.builtin.include_tasks: kubectl.yml
+
+- name: Include Docker installation tasks
+  ansible.builtin.include_tasks: docker.yml
+
+- name: Include Podman installation tasks
+  ansible.builtin.include_tasks: podman.yml

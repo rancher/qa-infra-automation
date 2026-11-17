@@ -1,0 +1,16 @@
+# Dual-stack, IPv4 first. Copy to ../vars.yaml.
+kubernetes_version: 'v1.34.2+k3s1'
+channel: "stable"
+kubeconfig_file: './kubeconfig.yaml'
+node_token_file: "/tmp/node_token.txt"
+
+# https://docs.k3s.io/networking/basic-network-options#dual-stack-ipv4--ipv6-networking
+# node-ip needs both families; facts and ansible_host_ipv6 resolve per host.
+server_flags: |
+  cluster-cidr: 10.42.0.0/16,2001:cafe:42::/56
+  service-cidr: 10.43.0.0/16,2001:cafe:43::/112
+  flannel-ipv6-masq: true
+  node-ip: "{{ ansible_facts.default_ipv4.address }},{{ ansible_host_ipv6 }}"
+
+worker_flags: |
+  node-ip: "{{ ansible_facts.default_ipv4.address }},{{ ansible_host_ipv6 }}"
