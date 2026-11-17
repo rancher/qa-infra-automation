@@ -126,6 +126,7 @@ The file must already exist on the controller (the run fails fast with a clear m
 | `make verify` | Verify supply chain integrity (version pins, lock files) |
 | `make clean` | Remove local temporary files |
 | `make collections` | Install Ansible collections from `requirements.yml` |
+| `make check-collections` | Verify installed collections match `requirements.yml` pins (auto-installs drift unless `OFFLINE=1`) |
 | `make debug-vars` | Print all current variable values and path status |
 
 ### Combined Workflows

@@ -7,4 +7,4 @@ variable "volume_size" {}
 variable "name" {}
 variable "user_id" {}
 variable "ssh_key" {}
-variable associate_public_ip {}
+variable "associate_public_ip" {}

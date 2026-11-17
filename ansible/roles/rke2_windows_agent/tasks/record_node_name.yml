@@ -1,0 +1,8 @@
+---
+# RKE2 registers the node as config.yaml's node-name when set, else the
+# lowercased hostname. The readiness check must wait for that exact name.
+- name: Record the Kubernetes node name
+  ansible.builtin.set_fact:
+    rke2_windows_node_name: >-
+      {{ ((rke2_windows_additional_config | default({}))['node-name'] | default('', true)
+          or rke2_windows_hostname.stdout | trim) | lower }}

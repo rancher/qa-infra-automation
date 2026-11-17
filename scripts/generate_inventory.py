@@ -32,6 +32,9 @@ from datetime import datetime, timezone
 
 import yaml
 
+# Stops a loaded ssh-agent offering every key first ("Too many authentication failures").
+SSH_IDENTITIES_ONLY = "-o IdentitiesOnly=yes"
+
 
 def load_json(path: str) -> dict:
     with open(path) as f:
@@ -64,6 +67,28 @@ def load_schema(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def node_os(node: dict) -> str:
+    """OS of a node. `os` is optional in the cluster_nodes contract — providers
+    that predate Windows support omit it entirely, so only absent means linux;
+    an empty or null value is returned as-is so validation rejects it."""
+    return node["os"] if "os" in node else "linux"
+
+
+def validate_node_os(node: dict) -> None:
+    known_os = {"linux", "windows"}
+    if node_os(node) not in known_os:
+        raise ValueError(
+            f"Node '{node['name']}' has unknown os '{node['os']}'. "
+            f"Known values: {known_os} (omit the field for linux)"
+        )
+    # Windows is agent-only in RKE2 — a cp/etcd Windows node cannot exist.
+    if node_os(node) == "windows" and {"cp", "etcd"} & set(node.get("roles", [])):
+        raise ValueError(
+            f"Windows node '{node['name']}' has roles {node['roles']}; "
+            "Windows nodes can only be workers (RKE2 has no Windows server role)."
+        )
+
+
 def validate_cluster_nodes(data: dict) -> None:
     required_metadata = {"kube_api_host", "fqdn", "ssh_user"}
     missing = required_metadata - set(data.get("metadata", {}).keys())
@@ -72,15 +97,17 @@ def validate_cluster_nodes(data: dict) -> None:
 
     known_roles = {"etcd", "cp", "worker"}
     for node in data.get("nodes", []):
-        unknown = set(node.get("roles", [])) - known_roles
+        for field in ("name", "roles", "public_ip", "private_ip"):
+            if field not in node:
+                raise ValueError(f"Node missing required field '{field}': {node}")
+        unknown = set(node["roles"]) - known_roles
         if unknown:
             raise ValueError(
                 f"Node '{node['name']}' has unknown roles: {unknown}. "
                 f"Known roles: {known_roles}"
             )
-        for field in ("name", "roles", "public_ip", "private_ip"):
-            if field not in node:
-                raise ValueError(f"Node missing required field '{field}': {node}")
+        validate_node_os(node)
+
 
 def validate_dualstack(data: dict) -> None:
     """Validate the dual-stack / IPv6-only payload.
@@ -95,15 +122,17 @@ def validate_dualstack(data: dict) -> None:
 
     known_roles = {"etcd", "cp", "worker"}
     for node in data.get("nodes", []):
-        unknown = set(node.get("roles", [])) - known_roles
+        for field in ("name", "roles", "public_ip", "private_ip", "ipv6"):
+            if field not in node:
+                raise ValueError(f"Node missing required field '{field}': {node}")
+        unknown = set(node["roles"]) - known_roles
         if unknown:
             raise ValueError(
                 f"Node '{node['name']}' has unknown roles: {unknown}. "
                 f"Known roles: {known_roles}"
             )
-        for field in ("name", "roles", "public_ip", "private_ip", "ipv6"):
-            if field not in node:
-                raise ValueError(f"Node missing required field '{field}': {node}")
+
+        validate_node_os(node)
 
 
 def validate_airgap(data: dict) -> None:
@@ -138,22 +167,25 @@ def build_groups(nodes: list[dict], groups_cfg: dict) -> dict[str, list[dict]]:
 
     `roles` matches any listed role; `roles_priority` tries each role set in
     order and stops at the first match (so a cp-only topology still yields a
-    `master`). Group membership is mutually exclusive, first match wins.
+    `master`). An optional group `os` restricts candidates (default linux).
+    Group membership is mutually exclusive, first match wins.
     """
     groups: dict[str, list[dict]] = {name: [] for name in groups_cfg}
 
     for group_name, group_def in groups_cfg.items():
+        wanted_os = group_def.get("os") or "linux"
+        candidates = [n for n in nodes if node_os(n) == wanted_os]
         roles_priority = group_def.get("roles_priority")
         if roles_priority:
             for role_set in roles_priority:
                 required = set(role_set)
-                matched = [n for n in nodes if required & set(n["roles"])]
+                matched = [n for n in candidates if required & set(n["roles"])]
                 if matched:
                     groups[group_name] = matched
                     break
         else:
             required = set(group_def.get("roles", []))
-            groups[group_name] = [n for n in nodes if required & set(n["roles"])]
+            groups[group_name] = [n for n in candidates if required & set(n["roles"])]
 
     for group_name, group_def in groups_cfg.items():
         if group_def.get("first_only") and groups[group_name]:
@@ -163,6 +195,16 @@ def build_groups(nodes: list[dict], groups_cfg: dict) -> dict[str, list[dict]]:
     for group_name, group_nodes in groups.items():
         for n in group_nodes:
             node_to_group.setdefault(n["name"], group_name)
+
+    # A node that matched no group would silently vanish from every play. The
+    # common cause is a windows node in a schema with no windows group (k3s).
+    ungrouped = [n["name"] for n in nodes if n["name"] not in node_to_group]
+    if ungrouped:
+        raise ValueError(
+            f"Nodes matched no inventory group: {ungrouped}. Check their roles/os "
+            f"against the groups defined for this distro/env in the schema "
+            f"({sorted(groups_cfg)})."
+        )
 
     groups = {name: [] for name in groups_cfg}
     for node_name, group_name in node_to_group.items():
@@ -206,6 +248,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
 
     if default_key:
         inventory["all"]["vars"]["ansible_ssh_private_key_file"] = default_key
+        inventory["all"]["vars"]["ansible_ssh_extra_args"] = SSH_IDENTITIES_ONLY
 
     # Create reverse mapping: node name -> group for role determination
     node_to_group: dict[str, str] = {}
@@ -232,24 +275,38 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
 
     # Add all nodes to the 'all' hosts section
     for node in nodes:
+        os_name = node_os(node)
         host_entry = {
             "ansible_host": node[ip_field],
             "node_roles": node["roles"],
             "rke2_node_role": node_role_label(node, node_to_group.get(node["name"])),
+            "node_os": os_name,
         }
+
+        if os_name == "windows":
+            # Ansible reaches Windows over OpenSSH with PowerShell as the remote
+            # shell (the Tofu user_data sets that up). No become — the win_*
+            # modules already run as the connecting Administrator — and no
+            # pipelining, which is POSIX-only and breaks them.
+            host_entry["ansible_user"] = node.get("ssh_user") or metadata["ssh_user"]
+            host_entry["ansible_connection"] = "ssh"
+            host_entry["ansible_shell_type"] = "powershell"
+            host_entry["ansible_become"] = False
+            host_entry["ansible_pipelining"] = False
 
         node_key = node.get("ssh_private_key")
         if node_key:
             host_entry["ansible_ssh_private_key_file"] = node_key
+            host_entry["ansible_ssh_extra_args"] = SSH_IDENTITIES_ONLY
         elif default_key:
             host_entry["ansible_ssh_private_key_file"] = default_key
 
         inventory["all"]["hosts"][host_key(node["name"])] = host_entry
 
-    # Add named groups
+    # Add named groups. Empty ones are emitted too, so that a host pattern which
+    # excludes a group -- `all:!windows_workers` in the RKE2 playbook -- does not
+    # warn "Could not match supplied host pattern" on Linux-only clusters.
     for group_name, group_nodes in groups.items():
-        if not group_nodes:
-            continue
         inventory["all"]["children"][group_name] = {
             "hosts": {
                 host_key(node["name"]): {"ansible_host": node[ip_field]}
@@ -324,7 +381,13 @@ def generate_dualstack_inventory(data: dict, schema_cfg: dict) -> str:
             node_to_group[n["name"]] = group_name
 
     def connect_ip(node: dict) -> str:
-        return node.get(ip_field) or node.get("ipv6", "")
+        ip = node.get(ip_field) or node.get("ipv6", "")
+        if not ip:
+            raise ValueError(
+                f"Node '{node['name']}' has no usable '{ip_field}' or 'ipv6' "
+                "address; is enable_ipv6 set on the tofu module?"
+            )
+        return ip
 
     for node in nodes:
         host_entry = {
@@ -493,10 +556,6 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Airgap payloads carry no 'nodes' key, so the etcd check would always warn.
-    if input_type != "airgap":
-        warn_if_k3s_needs_datastore(args.distro, data)
-
     if args.env in {"dualstack", "ipv6"}:
         if input_type not in {"cluster_nodes", "dualstack"}:
             print(
@@ -506,9 +565,11 @@ def main() -> None:
             )
             sys.exit(1)
         validate_dualstack(data)
+        warn_if_k3s_needs_datastore(args.distro, data)
         inventory_yaml = generate_dualstack_inventory(data, distro_schema)
     elif input_type == "cluster_nodes":
         validate_cluster_nodes(data)
+        warn_if_k3s_needs_datastore(args.distro, data)
         inventory_yaml = generate_cluster_nodes_inventory(data, distro_schema)
     elif input_type == "airgap":
         validate_airgap(data)

@@ -38,7 +38,9 @@
     # The API server runs on cp nodes, which may exclude an etcd-only master.
     - name: Resolve the kubeconfig API endpoint
       ansible.builtin.set_fact:
-        kubeconfig_api_host: "{{ hostvars[_dualstack_cp_hosts | first].ansible_host }}"
+        kubeconfig_api_host: >-
+          {{ lookup('env', 'KUBE_API_HOST')
+             | default(hostvars[_dualstack_cp_hosts | first].ansible_host, true) }}
 
     - name: Validate required variables
       ansible.builtin.assert:
@@ -67,15 +69,11 @@
       become: false
     - name: Gather facts
       ansible.builtin.setup:
-    - name: Resolve dualstack kube_api_host for cluster nodes
+    - name: Use the endpoints resolved on localhost (includes KUBE_API_HOST/FQDN overrides)
       ansible.builtin.set_fact:
-        kube_api_host: "{{ hostvars[groups['master'][0]].ansible_host }}"
-      when: (kube_api_host | default('')) == ''
+        kube_api_host: "{{ hostvars['localhost']['kube_api_host'] }}"
+        fqdn: "{{ hostvars['localhost']['fqdn'] }}"
 
-    - name: Sync FQDN from localhost if available
-      ansible.builtin.set_fact:
-        fqdn: "{{ hostvars['localhost']['fqdn'] | default(fqdn, true) }}"
-      when: (fqdn | default('')) == ''
     - name: Validate required variables
       ansible.builtin.assert:
         that:

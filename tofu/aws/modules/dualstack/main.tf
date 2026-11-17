@@ -47,7 +47,8 @@ locals {
 
   # IPv6-only hosts have no 127.0.0.1 entry to resolve their own hostname against.
   ipv6_hosts_fixup = <<-EOT
-    sed -i -e 's/127.0.0.1/::1/g' -e "s/ip6-loopback/ip6-loopback $(hostname)/g" /etc/hosts
+    sed -i 's/127\.0\.0\.1/::1/g' /etc/hosts
+    grep -qw "$(hostname)" /etc/hosts || sed -i "s/ip6-loopback/ip6-loopback $(hostname)/" /etc/hosts
   EOT
 
   # IPv6-first dual-stack RKE2 binds control-plane health endpoints to ::1 while their
@@ -176,7 +177,7 @@ resource "aws_lb" "aws_nlb" {
   count              = local.cp_node_count > 1 ? 1 : 0
   internal           = false
   load_balancer_type = "network"
-  subnets            = [var.aws_subnet]
+  subnets            = [coalesce(var.aws_nlb_subnet, var.aws_subnet)]
   name               = "${var.aws_hostname_prefix}-nlb"
   # An IPv4-only NLB is unreachable from IPv6-only clients and cannot publish an AAAA record.
   ip_address_type = var.enable_ipv6 ? "dualstack" : "ipv4"

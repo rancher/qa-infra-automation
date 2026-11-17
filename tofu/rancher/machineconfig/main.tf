@@ -1,22 +1,22 @@
 
 resource "rancher2_machine_config_v2" "rancher2_machine_config_v2" {
-  count                    = var.create_new ? 1 : 0
-  generate_name            = var.generate_name
+  count         = var.create_new ? 1 : 0
+  generate_name = var.generate_name
 
-  fleet_namespace         = try(var.fleet_namespace, null)
-  annotations             = try(var.annotations, null)
-  labels                  = try(var.labels, null)
+  fleet_namespace = try(var.fleet_namespace, null)
+  annotations     = try(var.annotations, null)
+  labels          = try(var.labels, null)
 
   dynamic "amazonec2_config" {
     for_each = var.cloud_provider == "aws" ? [1] : []
     content {
-      ami                        = try(var.node_config.aws_ami, null)
-      region                     = try(var.node_config.aws_region, null)
-      security_group             = try(var.node_config.aws_security_group, null)
-      subnet_id                  = try(var.node_config.aws_subnet, null)
-      vpc_id                     = try(var.node_config.aws_vpc, null)
-      zone                       = try(var.node_config.aws_availability_zone, null)
-      access_key                 = try(var.node_config.aws_access_key, null)
+      ami            = try(var.node_config.aws_ami, null)
+      region         = try(var.node_config.aws_region, null)
+      security_group = try(var.node_config.aws_security_group, null)
+      subnet_id      = try(var.node_config.aws_subnet, null)
+      vpc_id         = try(var.node_config.aws_vpc, null)
+      zone           = try(var.node_config.aws_availability_zone, null)
+      access_key     = try(var.node_config.aws_access_key, null)
       # When security groups are given as IDs (sg-*), docker-machine must be told
       # to use them as-is rather than treating them as names of groups to create.
       # Auto-detect sg-* IDs unless aws_security_group_readonly is set explicitly.
@@ -75,15 +75,15 @@ resource "rancher2_machine_config_v2" "rancher2_machine_config_v2" {
     for_each = var.cloud_provider == "harvester" ? [1] : []
     content {
       vm_namespace = try(var.node_config.harvester_vm_namespace, null)
-      cpu_count = try(var.node_config.harvester_cpu_count, null)
-      memory_size = try(var.node_config.harvester_memory_size, null)
-      disk_info = try(var.node_config.harvester_disk_info, null)
-      ssh_user = try(var.node_config.harvester_ssh_user, null)
+      cpu_count    = try(var.node_config.harvester_cpu_count, null)
+      memory_size  = try(var.node_config.harvester_memory_size, null)
+      disk_info    = try(var.node_config.harvester_disk_info, null)
+      ssh_user     = try(var.node_config.harvester_ssh_user, null)
       ssh_password = try(var.node_config.harvester_ssh_password, null)
       network_info = try(var.node_config.harvester_network_info, null)
-      user_data = try(var.node_config.harvester_user_data, null)
+      user_data    = try(var.node_config.harvester_user_data, null)
       network_data = try(var.node_config.harvester_network_data, null)
-      vm_affinity = try(var.node_config.harvester_vm_affinity, null)
+      vm_affinity  = try(var.node_config.harvester_vm_affinity, null)
     }
   }
 }

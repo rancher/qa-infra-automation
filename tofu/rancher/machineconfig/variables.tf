@@ -7,7 +7,7 @@ variable "create_new" {
 
 variable "generate_name" {
   type     = string
-  default = "tf"
+  default  = "tf"
   nullable = false
 }
 

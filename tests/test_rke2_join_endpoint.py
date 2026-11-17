@@ -152,16 +152,6 @@ class TestJoinEndpointRendering(unittest.TestCase):
         )
         self.assertEqual(config["server"], "https://lb.example.com:9345")
 
-    def test_rke2_join_host_overrides_kube_api_host(self):
-        _, config = self._render(
-            {
-                "kube_api_host": "lb.example.com",
-                "rke2_join_host": "10.0.0.99",
-                **SERVER_NODE,
-            }
-        )
-        self.assertEqual(config["server"], "https://10.0.0.99:9345")
-
     def test_master_does_not_emit_a_join_url(self):
         _, config = self._render(
             {

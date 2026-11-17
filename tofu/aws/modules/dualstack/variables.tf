@@ -24,6 +24,11 @@ variable "aws_vpc" {}
 variable "aws_volume_size" {}
 variable "aws_volume_type" {}
 variable "aws_subnet" {}
+variable "aws_nlb_subnet" {
+  description = "Dual-stack (IPv4+IPv6 CIDR) subnet for the NLB; required when aws_subnet is IPv6-native."
+  type        = string
+  default     = null
+}
 variable "instance_type" {}
 variable "nodes" {
   description = "Configuration for product nodes."
@@ -36,6 +41,15 @@ variable "nodes" {
     # Need >=1 cp node (count>0). Without it first_master_index = -1 → cryptic plan error.
     condition     = anytrue([for ng in var.nodes : ng.count > 0 && contains(ng.role, "cp")])
     error_message = "At least one node group must include the \"cp\" role with count > 0. K3s/RKE2 clusters need a real control-plane node."
+  }
+  validation {
+    condition     = alltrue([for ng in var.nodes : length(ng.role) > 0])
+    error_message = "Every node group must list at least one role."
+  }
+  validation {
+    # Instances are keyed "<roles>-<index>", so repeated role sets would collide.
+    condition     = length(distinct([for ng in var.nodes : join("-", ng.role)])) == length(var.nodes)
+    error_message = "Each node group must use a distinct role set; raise count instead of repeating a role set."
   }
 }
 variable "aws_bastion_subnet" {
@@ -60,8 +74,8 @@ variable "no_of_bastion_nodes" {
   default     = 0
 
   validation {
-    condition     = contains([0, 1], var.no_of_bastion_nodes)
-    error_message = "no_of_bastion_nodes must be 0 or 1."
+    condition     = contains([0, 1], var.no_of_bastion_nodes) && (var.enable_public_ip || var.no_of_bastion_nodes == 1)
+    error_message = "no_of_bastion_nodes must be 0 or 1, and 1 when enable_public_ip is false (nodes have no public IPv4)."
   }
 }
 
