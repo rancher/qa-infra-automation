@@ -29,6 +29,16 @@ locals {
   }
   cp_node_count = length(local.cp_nodes)
 
+  # IPv6-native nodes have no IPv4, and instance-ID targets in an IPv6 target group
+  # need a primary IPv6 address, so register those nodes by IPv6 address instead.
+  ipv6_native_nodes  = try(data.aws_subnet.nodes[0].ipv6_native, false)
+  nlb_target_type    = local.ipv6_native_nodes ? "ip" : "instance"
+  nlb_target_ip_type = local.ipv6_native_nodes ? "ipv6" : "ipv4"
+  nlb_target_ids = {
+    for name in keys(local.cp_nodes) : name =>
+    local.ipv6_native_nodes ? aws_instance.node[name].ipv6_addresses[0] : aws_instance.node[name].id
+  }
+
   create_bastion = var.no_of_bastion_nodes > 0
 
   # An IPv4-only record is useless to IPv6-only clients, and IPv6-only nodes have no public IPv4.
@@ -148,28 +158,28 @@ resource "aws_instance" "bastion" {
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
   for_each         = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_80[0].arn
-  target_id        = aws_instance.node[each.key].id
+  target_id        = local.nlb_target_ids[each.key]
   port             = 80
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_443" {
   for_each         = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_443[0].arn
-  target_id        = aws_instance.node[each.key].id
+  target_id        = local.nlb_target_ids[each.key]
   port             = 443
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_9345" {
   for_each         = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_9345[0].arn
-  target_id        = aws_instance.node[each.key].id
+  target_id        = local.nlb_target_ids[each.key]
   port             = 9345
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_6443" {
   for_each         = local.cp_node_count > 1 ? local.cp_nodes : {}
   target_group_arn = aws_lb_target_group.aws_tg_6443[0].arn
-  target_id        = aws_instance.node[each.key].id
+  target_id        = local.nlb_target_ids[each.key]
   port             = 6443
 }
 
@@ -181,14 +191,39 @@ resource "aws_lb" "aws_nlb" {
   name               = "${var.aws_hostname_prefix}-nlb"
   # An IPv4-only NLB is unreachable from IPv6-only clients and cannot publish an AAAA record.
   ip_address_type = var.enable_ipv6 ? "dualstack" : "ipv4"
+
+  lifecycle {
+    precondition {
+      condition     = !local.ipv6_native_nodes || var.aws_nlb_subnet != null
+      error_message = "aws_subnet is IPv6-native, so the NLB needs aws_nlb_subnet: a dual-stack (IPv4+IPv6) subnet in the same AZ."
+    }
+    # NLB nodes only send traffic to targets in AZs the NLB is enabled in.
+    precondition {
+      condition     = length(data.aws_subnet.nlb) == 0 || data.aws_subnet.nlb[0].availability_zone == data.aws_subnet.nodes[0].availability_zone
+      error_message = "aws_nlb_subnet must be in the same availability zone as aws_subnet, or the control-plane targets get no traffic."
+    }
+  }
+}
+
+# Looked up only when an NLB is built, so single-cp runs need no extra EC2 read permission.
+data "aws_subnet" "nodes" {
+  count = local.cp_node_count > 1 ? 1 : 0
+  id    = var.aws_subnet
+}
+
+data "aws_subnet" "nlb" {
+  count = local.cp_node_count > 1 && var.aws_nlb_subnet != null ? 1 : 0
+  id    = var.aws_nlb_subnet
 }
 
 resource "aws_lb_target_group" "aws_tg_80" {
-  count    = local.cp_node_count > 1 ? 1 : 0
-  port     = 80
-  protocol = "TCP"
-  vpc_id   = var.aws_vpc
-  name     = "${var.aws_hostname_prefix}-tg-80"
+  count           = local.cp_node_count > 1 ? 1 : 0
+  port            = 80
+  protocol        = "TCP"
+  vpc_id          = var.aws_vpc
+  name            = "${var.aws_hostname_prefix}-tg-80"
+  target_type     = local.nlb_target_type
+  ip_address_type = local.nlb_target_ip_type
   health_check {
     protocol            = "HTTP"
     port                = "traffic-port"
@@ -202,11 +237,13 @@ resource "aws_lb_target_group" "aws_tg_80" {
 }
 
 resource "aws_lb_target_group" "aws_tg_443" {
-  count    = local.cp_node_count > 1 ? 1 : 0
-  port     = 443
-  protocol = "TCP"
-  vpc_id   = var.aws_vpc
-  name     = "${var.aws_hostname_prefix}-tg-443"
+  count           = local.cp_node_count > 1 ? 1 : 0
+  port            = 443
+  protocol        = "TCP"
+  vpc_id          = var.aws_vpc
+  name            = "${var.aws_hostname_prefix}-tg-443"
+  target_type     = local.nlb_target_type
+  ip_address_type = local.nlb_target_ip_type
   health_check {
     protocol            = "HTTP"
     port                = 80
@@ -220,11 +257,13 @@ resource "aws_lb_target_group" "aws_tg_443" {
 }
 
 resource "aws_lb_target_group" "aws_tg_6443" {
-  count    = local.cp_node_count > 1 ? 1 : 0
-  port     = 6443
-  protocol = "TCP"
-  vpc_id   = var.aws_vpc
-  name     = "${var.aws_hostname_prefix}-tg-6443"
+  count           = local.cp_node_count > 1 ? 1 : 0
+  port            = 6443
+  protocol        = "TCP"
+  vpc_id          = var.aws_vpc
+  name            = "${var.aws_hostname_prefix}-tg-6443"
+  target_type     = local.nlb_target_type
+  ip_address_type = local.nlb_target_ip_type
   health_check {
     protocol            = "HTTP"
     port                = 80
@@ -238,11 +277,13 @@ resource "aws_lb_target_group" "aws_tg_6443" {
 }
 
 resource "aws_lb_target_group" "aws_tg_9345" {
-  count    = local.cp_node_count > 1 ? 1 : 0
-  port     = 9345
-  protocol = "TCP"
-  vpc_id   = var.aws_vpc
-  name     = "${var.aws_hostname_prefix}-tg-9345"
+  count           = local.cp_node_count > 1 ? 1 : 0
+  port            = 9345
+  protocol        = "TCP"
+  vpc_id          = var.aws_vpc
+  name            = "${var.aws_hostname_prefix}-tg-9345"
+  target_type     = local.nlb_target_type
+  ip_address_type = local.nlb_target_ip_type
   health_check {
     protocol            = "HTTP"
     port                = 80

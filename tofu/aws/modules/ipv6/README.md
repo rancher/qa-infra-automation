@@ -115,6 +115,14 @@ while their liveness probes target `localhost`. Ubuntu maps `localhost` to `127.
 only, so without this the kubelet keeps killing those components. IPv4-first clusters
 are unaffected.
 
+### Load balancer on IPv6-native subnets
+
+With two or more `cp` nodes the module builds an NLB, which needs a subnet with both IPv4 and
+IPv6 CIDRs. When `aws_subnet` is IPv6-native (no IPv4 CIDR), set `aws_nlb_subnet` to a dual-stack
+subnet in the **same availability zone**. The module then registers the control-plane nodes by
+IPv6 address in IPv6 target groups. Plan fails early if `aws_nlb_subnet` is missing or in another AZ.
+Multi-cp runs read the subnets, so the credentials need `ec2:DescribeSubnets`.
+
 ## Outputs
 
 Refer to `outputs.tf` for a list of exported values.
