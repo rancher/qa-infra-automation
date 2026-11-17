@@ -81,7 +81,7 @@ key on every host, including hosts the main playbook dropped after a failure.
 | `arch` | `amd64` \| `arm64` (node arch; the bastion downloads for its own arch separately) |
 | `airgap_method` | `tarball` \| `private_registry` \| `system_default_registry` |
 | `tarball_type` | `tar.zst` (default) \| `tar.gz` |
-| `image_registry_url` | optional Prime base (`https://prime.ribs.rancher.io`); artifacts come from `<base>/<product>/<version>` for **both** products, never with a community fallback |
+| `image_registry_url` | optional Prime artifact base URL supplied by the caller; artifacts come from `<base>/<product>/<version>` for **both** products, never with a community fallback |
 | `cni` | RKE2 only, e.g. `multus,canal` (drives image lists/tarballs AND `config.yaml`); when empty the `cni:` line of `server_flags` is used; if both are set they must match |
 | `server_flags` / `worker_flags` | YAML scalars appended to `config.yaml` |
 | `kubeconfig_file` | controller path for a protected (0600) copy of the kubeconfig |
