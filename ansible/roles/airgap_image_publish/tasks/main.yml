@@ -1,9 +1,8 @@
 ---
-- name: Log podman into the private registry
+- name: Log podman into the bastion registry
   ansible.builtin.command:
     argv: [podman, login, "{{ airgap_registry_host_fact }}", -u, "{{ registry_username }}", --password-stdin]
     stdin: "{{ registry_password }}"
-  when: airgap_registry_mode_fact == 'private'
   changed_when: true
   no_log: true
 
@@ -37,6 +36,13 @@
   ansible.builtin.debug:
     msg: "{{ airgap_images | length }} images -> {{ airgap_registry_host_fact }}"
 
+- name: Record source registries for the private node mirrors
+  ansible.builtin.set_fact:
+    airgap_source_registries: >-
+      {{ ['docker.io', 'registry.k8s.io', 'k8s.gcr.io']
+         | union(airgap_images | select('match', '^([^/]*[.:][^/]*|localhost)/')
+           | map('regex_replace', '/.*$', '') | list) | sort }}
+
 # Target name drops only the source registry prefix (docker.io/, registry.rancher.com/, <prime>/),
 # exactly as the legacy script did, so mirrors resolve rancher/<image> unchanged.
 - name: Publish each image (pull, tag, push)
@@ -51,7 +57,7 @@
     ca_path: "{{ airgap_registry_ca_path_fact }}"
     url_username: "{{ registry_username | default(omit) }}"
     url_password: "{{ registry_password | default(omit) }}"
-    force_basic_auth: "{{ airgap_registry_mode_fact == 'private' }}"
+    force_basic_auth: true
     return_content: true
   register: airgap_catalog
   no_log: true
@@ -60,7 +66,7 @@
   ansible.builtin.assert:
     that: >-
       airgap_images
-      | map('regex_replace', '^([^/]*[.:][^/]*|docker\\.io)/', '')
+      | map('regex_replace', '^([^/]*[.:][^/]*|localhost)/', '')
       | map('regex_replace', '[:@].*$', '')
       | difference(airgap_catalog.json.repositories) | length == 0
     fail_msg: "some images are missing from the registry catalog"

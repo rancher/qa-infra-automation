@@ -89,19 +89,19 @@
   ansible.builtin.include_tasks: trust_ca.yml
   when: airgap_registry_mode == 'system_default'
 
-- name: Render registries.yaml (private registry mode)
+- name: Render registries.yaml with registry credentials
   ansible.builtin.template:
     src: registries.yaml.j2
     dest: "{{ airgap_config_dir }}/registries.yaml"
     mode: "0600"
   become: true
   no_log: true
-  when: airgap_registry_mode == 'private'
+  when: airgap_registry_mode != ''
 
 - name: Find image tarballs copied to the node
   ansible.builtin.find:
     paths: "{{ airgap_node_dir }}"
-    patterns: "*.{{ tarball_type }}"
+    patterns: "*images*.{{ tarball_type }}"
   register: airgap_node_tarballs
   when: airgap_method == 'tarball'
 

@@ -25,6 +25,7 @@ airgap_master_ip: "{{ hostvars[airgap_master_host]['ansible_host'] }}"
 airgap_bastion_host: "{{ groups['bastion'][0] }}"
 airgap_registry_mode: "{{ hostvars[airgap_bastion_host]['airgap_registry_mode_fact'] | default('') }}"
 airgap_registry_host: "{{ hostvars[airgap_bastion_host]['airgap_registry_host_fact'] | default('') }}"
+airgap_registry_mirrors: "{{ hostvars[airgap_bastion_host]['airgap_source_registries'] | default([]) }}"
 airgap_artifacts_dir: "{{ hostvars[airgap_bastion_host]['airgap_artifacts_dir_fact'] }}"
 airgap_node_key: "{{ airgap_bastion_dir }}/.ssh/node_key"
 # YAML-defined escapes avoid Jinja block-scalar differences when parsing Jenkins flags.

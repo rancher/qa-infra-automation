@@ -94,7 +94,7 @@ DOWNSTREAM_PLAYBOOK :=
 REGISTRY_TARGET     :=
 # generate_inventory.py has no bastion/ProxyCommand layout: the inventory is hand-written
 # from cluster_nodes_json (docs/guides/airgap-cluster-nodes.md); DTF renders it itself.
-GENERATE_INVENTORY  := echo "" && echo "Infrastructure created. Write $(INVENTORY) from 'tofu output -raw cluster_nodes_json' (bastion + ProxyCommand), see docs/guides/airgap-cluster-nodes.md, then run 'make cluster ENV=airgap AIRGAP_WORKFLOW=distros DISTRO=$(DISTRO)'."
+GENERATE_INVENTORY  := echo "" && echo "Infrastructure created. Write $(INVENTORY) from 'tofu output -raw cluster_nodes_json' (bastion + ProxyCommand), then use the ansible-playbook command in docs/guides/airgap-cluster-nodes.md."
 else ifeq ($(ENV),default)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml

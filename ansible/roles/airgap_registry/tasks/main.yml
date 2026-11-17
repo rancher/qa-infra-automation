@@ -54,8 +54,7 @@
     remote_src: true
     mode: "0644"
 
-- name: Generate htpasswd credentials (private mode)
-  when: airgap_registry_mode == 'private'
+- name: Generate htpasswd credentials
   block:
     # -i reads the password from stdin: it never appears in the container argv / ps.
     - name: Create the bcrypt htpasswd entry with the httpd image
@@ -89,10 +88,10 @@
           '-e', 'REGISTRY_HTTP_ADDR=0.0.0.0:' ~ airgap_registry_port,
           '-e', 'REGISTRY_HTTP_TLS_CERTIFICATE=/certs/domain.crt',
           '-e', 'REGISTRY_HTTP_TLS_KEY=/certs/domain.key']
-         + (['-v', airgap_registry_auth_dir ~ ':/auth:ro,Z',
+         + ['-v', airgap_registry_auth_dir ~ ':/auth:ro,Z',
              '-e', 'REGISTRY_AUTH=htpasswd',
              '-e', 'REGISTRY_AUTH_HTPASSWD_REALM=airgap-registry',
-             '-e', 'REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd'] if airgap_registry_mode == 'private' else [])
+             '-e', 'REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd']
          + [airgap_registry_image] }}
   changed_when: true
 
@@ -100,18 +99,11 @@
   ansible.builtin.uri:
     url: "https://{{ airgap_registry_host }}:{{ airgap_registry_port }}/v2/"
     ca_path: "{{ airgap_registry_certs_dir }}/domain.crt"
-    status_code: [200, 401]
+    status_code: 401
   register: airgap_registry_ready
   retries: "{{ airgap_registry_ready_retries }}"
   delay: "{{ airgap_registry_ready_delay }}"
   until: airgap_registry_ready is succeeded
-
-- name: Assert the auth mode matches the request
-  ansible.builtin.assert:
-    that:
-      - (airgap_registry_mode == 'private' and airgap_registry_ready.status == 401) or
-        (airgap_registry_mode == 'system_default' and airgap_registry_ready.status == 200)
-    fail_msg: "registry answered {{ airgap_registry_ready.status }} but mode is {{ airgap_registry_mode }}"
 
 - name: Record registry facts for later plays
   ansible.builtin.set_fact:

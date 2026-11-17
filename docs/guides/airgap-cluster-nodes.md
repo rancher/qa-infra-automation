@@ -39,8 +39,8 @@ Existing consumers see no change unless they set the new inputs.
 `ansible/airgap/airgap-playbook.yml`, plays in order:
 
 1. `localhost` — validate the scenario (product, version, method, arch, one bastion, one master, no CIS/protect-kernel flags).
-2. `bastion` — `airgap_bastion_prepare` (kubectl of the cluster version for the bastion arch, podman), `airgap_artifacts` (download + sha256 verify; `install.sh` fetched at the commit the release tag resolves to, recorded in `manifest.json`), and for registry scenarios `airgap_registry` (TLS `registry` on podman, images pinned by digest, htpasswd in `private_registry`) + `airgap_image_publish` (podman pull/tag/push, catalog verified).
-3. `master` → 4. `servers` (serial) → 5. `workers` — `airgap_product_install`: artifacts copied bastion→node by `scp` with an ephemeral ed25519 key minted on the bastion (authorized on the nodes for the run, revoked and deleted by the last two plays), `config.yaml` rendered, `registries.yaml` (private) or OS trust store (system_default), image tarballs into `agent/images` (tarball), then the **official installer** with `INSTALL_K3S_SKIP_DOWNLOAD=true` / `INSTALL_RKE2_ARTIFACT_PATH`.
+2. `bastion` — `airgap_bastion_prepare` (kubectl of the cluster version for the bastion arch; podman only for registry methods), `airgap_artifacts` (download + sha256 verify; `install.sh` fetched at the commit the release tag resolves to, recorded in `manifest.json`), and for registry scenarios `airgap_registry` (TLS `registry` on podman, images pinned by digest, htpasswd in both registry methods) + `airgap_image_publish` (podman pull/tag/push, catalog verified).
+3. `master` → 4. `servers` (serial) → 5. `workers` — `airgap_product_install`: artifacts copied bastion→node by `scp` with an ephemeral ed25519 key minted on the bastion (authorized on the nodes for the run, revoked and deleted by the last two plays), `config.yaml` rendered, `registries.yaml` credentials (both registry methods), source mirrors (private only), OS trust store (system_default), image tarballs into `agent/images` (tarball), then the **official installer** with `INSTALL_K3S_SKIP_DOWNLOAD=true` / `INSTALL_RKE2_ARTIFACT_PATH`.
 6. `bastion` — `airgap_cluster_access`: kubeconfig at `/tmp/<product>_kubeconf.yaml` on the bastion (0600, SSH user; server rewritten to the master private IP), all nodes Ready, `airgap-facts.json` written on the controller.
 
 ### Inventory contract
@@ -86,7 +86,7 @@ key on every host, including hosts the main playbook dropped after a failure.
 | `server_flags` / `worker_flags` | YAML scalars appended to `config.yaml` |
 | `kubeconfig_file` | controller path for a protected (0600) copy of the kubeconfig |
 | `airgap_facts_file` | controller path for `airgap-facts.json` |
-| `registry_username` / `registry_password` | `private_registry` only; pass with `--extra-vars @secrets.json` (0600), never on the command line |
+| `registry_username` / `registry_password` | both registry methods; pass with `--extra-vars @secrets.json` (0600), never on the command line |
 
 Artifacts are cached on the bastion under
 `/opt/dtf-airgap/artifacts/<product>-<version>-<arch>-<community|prime>-<tar.zst|tar.gz|lists>-<cni key>/`
@@ -120,14 +120,25 @@ Written by the last play (paths and hostnames only, never credentials):
 # or:
 tofu -chdir=<root using cluster_nodes> apply -var airgap_setup=true -var 'bastion={enabled=true}' ...
 # write the inventory above from `tofu output -raw cluster_nodes_json` (infra-up does not
-# generate it for this flow), then `make cluster ENV=airgap AIRGAP_WORKFLOW=distros DISTRO=k3s` or:
+# generate it for this flow), then run the playbook directly:
 cd ansible/airgap
-ansible-playbook -i inventory.yml airgap-playbook.yml \
+ansible-playbook -i inventory.yml --private-key "$HOME/.ssh/key.pem" airgap-playbook.yml \
   -e product=rke2 -e kubernetes_version=v1.36.0+rke2r1 -e arch=amd64 \
   -e airgap_method=tarball -e tarball_type=tar.zst -e cni=multus,canal \
   -e kubeconfig_file=$PWD/kubeconfig.yaml -e airgap_facts_file=$PWD/airgap-facts.json \
-  -e ssh_private_key_file=~/.ssh/key.pem -e ssh_key_name=key
+  -e ssh_private_key_file="$HOME/.ssh/key.pem" -e ssh_key_name=key
 ```
+
+For either registry method, also pass `--extra-vars @secrets.json` with the two registry credentials.
+The DTF provisioner generates these when absent and passes them in a protected file.
+Use the updated DTF Airgap implementation with this playbook: anonymous registry probes now expect
+HTTP 401 in both methods, followed by an authenticated image pull. The system-default scenario
+still selects images through `system-default-registry`; it does not configure source mirrors.
+
+`download_verify` checks every binary and image archive against its exact SHA256 manifest entry;
+an absent entry or mismatched digest stops installation. Text image lists are not checksum-verified.
+Private-registry mirrors include the source hosts found in those image lists, including caller-supplied
+Prime sources. This local configuration coverage does not replace a live Prime registry validation.
 
 ## Tests
 

@@ -12,7 +12,7 @@
 
 - name: Install base tools (SUSE)
   community.general.zypper:
-    name: [curl, wget, tar, gzip, openssl, git, podman]
+    name: "{{ ['curl', 'wget', 'tar', 'gzip', 'openssl', 'git'] + (['podman'] if airgap_method != 'tarball' else []) }}"
     state: present
     update_cache: true
   when: ansible_facts.os_family == 'Suse'
@@ -23,7 +23,7 @@
 
 - name: Install base tools (Debian/Ubuntu)
   ansible.builtin.apt:
-    name: [curl, wget, tar, gzip, openssl, git, podman, ca-certificates]
+    name: "{{ ['curl', 'wget', 'tar', 'gzip', 'openssl', 'git', 'ca-certificates'] + (['podman'] if airgap_method != 'tarball' else []) }}"
     state: present
     update_cache: true
   when: ansible_facts.os_family == 'Debian'
@@ -34,7 +34,7 @@
 
 - name: Install base tools (RHEL family)
   ansible.builtin.dnf:
-    name: [curl, wget, tar, gzip, openssl, git, podman]
+    name: "{{ ['curl', 'wget', 'tar', 'gzip', 'openssl', 'git'] + (['podman'] if airgap_method != 'tarball' else []) }}"
     state: present
   when: ansible_facts.os_family == 'RedHat'
   register: airgap_dnf

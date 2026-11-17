@@ -23,15 +23,15 @@
           and exactly one master in the inventory.
       tags: ['always']
 
-    - name: Assert private registry credentials are provided out of band
+    - name: Assert registry credentials are provided out of band
       ansible.builtin.assert:
         that:
           - registry_username is defined and registry_username | length > 0
           - registry_password is defined and registry_password | length > 0
-        fail_msg: "airgap_method=private_registry needs registry_username/registry_password (use --extra-vars @secrets.json)"
+        fail_msg: "Registry methods need registry_username/registry_password (use --extra-vars @secrets.json)"
         quiet: true
       no_log: true
-      when: airgap_method == 'private_registry'
+      when: airgap_method != 'tarball'
       tags: ['always']
 
     - name: Refuse a CNI that differs between the cni extra-var and server_flags

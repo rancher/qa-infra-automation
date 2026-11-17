@@ -1,7 +1,7 @@
 ---
 - name: Derive the target reference for {{ airgap_image }}
   ansible.builtin.set_fact:
-    airgap_target_image: "{{ airgap_registry_host_fact }}/{{ airgap_image | regex_replace('^([^/]*[.:][^/]*|docker\\.io)/', '') }}"
+    airgap_target_image: "{{ airgap_registry_host_fact }}/{{ airgap_image | regex_replace('^([^/]*[.:][^/]*|localhost)/', '') }}"
 
 - name: Pull {{ airgap_image }}
   ansible.builtin.command:
