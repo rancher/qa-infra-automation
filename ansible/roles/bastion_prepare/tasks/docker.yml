@@ -11,3 +11,18 @@
     state: present
     update_cache: true
   when: ansible_facts['os_family'] == 'Debian'
+
+# RHEL does not ship Docker; podman-docker provides the docker CLI from distro repos.
+- name: Install the Podman docker CLI on RedHat systems
+  ansible.builtin.package:
+    name: podman-docker
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+
+# Distro packages do not always start the daemon (SUSE never does).
+- name: Enable and start the Docker service
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+  when: ansible_facts['os_family'] in ['Suse', 'Debian']
