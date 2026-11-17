@@ -1,5 +1,6 @@
 """Local regressions for artifact verification and registry configuration."""
 
+import base64
 import functools
 import fnmatch
 import hashlib
@@ -101,6 +102,22 @@ class ArtifactVerificationTests(unittest.TestCase):
             result = subprocess.run(["ansible-playbook", "-i", "localhost,", str(playbook)],
                                     env=env, capture_output=True, text=True, timeout=30, check=False)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_every_image_list_line_becomes_one_image(self):
+        build = next(t for t in tasks("airgap_image_publish") if t["name"] == "Build the unique image set")
+        lists = ["docker.io/rancher/a:1\ndocker.io/rancher/b:2\n", "docker.io/rancher/b:2\n\n  rancher/c:3  \n"]
+        play = [{"hosts": "localhost", "connection": "local", "gather_facts": False,
+                 "vars": {"airgap_image_list_contents": {"results": [
+                     {"content": base64.b64encode(text.encode()).decode()} for text in lists]}},
+                 "tasks": [build, {"ansible.builtin.assert": {"that": [
+                     "airgap_images == ['docker.io/rancher/a:1', 'docker.io/rancher/b:2', 'rancher/c:3']"]}}]}]
+        with tempfile.TemporaryDirectory() as tmp:
+            playbook = Path(tmp) / "images.yml"
+            playbook.write_text(yaml.safe_dump(play))
+            env = dict(os.environ, ANSIBLE_LOCAL_TEMP=tmp + "/local", ANSIBLE_REMOTE_TEMP=tmp + "/remote")
+            result = subprocess.run(["ansible-playbook", "-i", "localhost,", str(playbook)],
+                                    env=env, capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_each_download_requires_its_exact_checksum(self):
         all_tasks = tasks("airgap_artifacts")

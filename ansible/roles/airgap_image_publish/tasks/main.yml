@@ -28,9 +28,8 @@
 - name: Build the unique image set
   ansible.builtin.set_fact:
     airgap_images: >-
-      {{ airgap_image_list_contents.results
-         | map(attribute='content') | map('b64decode') | join('\n')
-         | split('\n') | map('trim') | reject('equalto', '') | unique | list }}
+      {{ airgap_image_list_contents.results | map(attribute='content') | map('b64decode')
+         | map('regex_findall', '\S+') | flatten | unique | list }}
 
 - name: Show how many images will be published
   ansible.builtin.debug:
