@@ -17,8 +17,9 @@
     update_cache: true
   when: ansible_facts.os_family == 'Suse'
   register: airgap_zypper
-  retries: 3
-  delay: 20
+  # A fresh SLES can answer "no repositories" (zypper exit 6) for a while; same budget as rke2_setup.
+  retries: 20
+  delay: 30
   until: airgap_zypper is succeeded
 
 - name: Install base tools (Debian/Ubuntu)
