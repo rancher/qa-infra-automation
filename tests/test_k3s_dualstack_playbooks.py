@@ -1,5 +1,6 @@
 """Contract tests for the k3s dualstack/ipv6 playbooks and their example vars."""
 
+import filecmp
 import json
 import os
 import shutil
@@ -167,6 +168,21 @@ class TestExampleFlagsRender(unittest.TestCase):
                 with open(os.path.join(K3S_DIR, env_name, "vars.yaml.example"), encoding="utf-8") as a, \
                         open(os.path.join(K3S_DIR, env_name, "examples", example), encoding="utf-8") as b:
                     self.assertEqual(a.read(), b.read())
+
+
+class TestBootstrapMatchesRke2(unittest.TestCase):
+    # The two copies were identical on main; dualstack/ipv6 fixes must reach both.
+    def test_shared_bootstrap_files_are_identical(self):
+        for name in ("bootstrap-python.yml", "wait-ssh.yml"):
+            with self.subTest(name=name):
+                self.assertTrue(
+                    filecmp.cmp(
+                        os.path.join(REPOSITORY_ROOT, "ansible", "rke2", "shared", name),
+                        os.path.join(K3S_DIR, "shared", name),
+                        shallow=False,
+                    ),
+                    f"ansible/k3s/shared/{name} drifted from ansible/rke2/shared/{name}",
+                )
 
 
 if __name__ == "__main__":
