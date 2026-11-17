@@ -94,6 +94,9 @@ RANCHER_PLAYBOOK :=
 REGISTRY_TARGET  :=
 else ifeq ($(ENV),ipv6)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/$(ENV)
+# Module defaults are dual-stack; tfvars still override these.
+export TF_VAR_enable_public_ip ?= false
+export TF_VAR_enable_ipv6 ?= true
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook-$(ENV).yml
 RANCHER_PLAYBOOK :=
 REGISTRY_TARGET  :=
