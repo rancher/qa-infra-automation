@@ -8,7 +8,7 @@
 {% set _scfg = _rke2_effective_server_config | default(rke2_server_config | default({})) %}
 {% set _token = rke2_token | default(rke2_config_existing_token | default('')) %}
 {# Join traffic follows kube_api_host so LB/DNS endpoints keep working; brackets are only for IPv6 literals. #}
-{% set _join_host = rke2_join_host | default(kube_api_host | default(''), true) %}
+{% set _join_host = kube_api_host | default('') %}
 {% set _join_endpoint = '[' ~ _join_host ~ ']' if ':' in _join_host and '[' not in _join_host else _join_host %}
 {% if rke2_node_role == 'master' or 'cp' in node_roles or 'etcd' in node_roles %}
 # Server node configuration
