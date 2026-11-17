@@ -3,10 +3,14 @@ collections:
   - name: kubernetes.core
     version: "6.5.0"
   - name: community.general
-    version: "13.3.0"
+    version: "13.4.0"
   - name: cloud.terraform
     version: "4.0.0"
   - name: ansible.posix
     version: "2.2.2"
   - name: amazon.aws
     version: "11.4.0"
+  # win_* modules for RKE2 Windows agents. Reached over SSH with
+  # ansible_shell_type=powershell, so pywinrm is not required.
+  - name: ansible.windows
+    version: "3.7.0"

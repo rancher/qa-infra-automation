@@ -494,6 +494,15 @@
       failed_when: false
       tags: [provision, setup]
 
+    - name: Set extension version under test in .env
+      ansible.builtin.lineinfile:
+        path: "{{ workspace_dir }}/.env"
+        regexp: "^CYPRESS_extensionVersion="
+        line: "CYPRESS_extensionVersion={{ extension_version | default('published') }}"
+      when: _is_setup_or_test
+      failed_when: false
+      tags: [provision, setup]
+
     - name: Update TEST_USERNAME for @standardUser
       ansible.builtin.lineinfile:
         path: "{{ workspace_dir }}/.env"

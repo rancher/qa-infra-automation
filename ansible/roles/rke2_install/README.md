@@ -33,7 +33,8 @@ Variables defined in `defaults/main.yml`:
 | `rke2_version` | `""` (latest stable) | Specific RKE2 version to install |
 | `rke2_install_method` | `online` | Network mode: `online` or `airgap` |
 | `rke2_installer_method` | `""` (auto) | Upstream installer method for online installs: `rpm` or `tar` (sets `INSTALL_RKE2_METHOD`) |
-| `rke2_install_script_url` | `https://get.rke2.io` | URL to download install script |
+| `rke2_install_script_url` | `https://get.rke2.io` | URL to download install script (always used unless pinned) |
+| `rke2_install_script_pinned` | `false` | Download `install.sh` from the `rke2_version` git tag instead of `get.rke2.io`; only for reproducing an old script |
 | `rke2_channel` | `stable` | Release channel: `stable`, `latest`, or `testing` |
 | `rke2_bin_dir` | `/usr/local/bin` | Directory for RKE2 binary |
 | `rke2_data_dir` | `/var/lib/rancher/rke2` | RKE2 data directory |
@@ -159,6 +160,17 @@ rke2_channel: latest  # or testing
 ```
 
 Leave `rke2_version` empty to install the latest from the selected channel.
+
+## Installing from a commit
+
+Setting `rke2_version` to a 40-hex-char commit hash (online installs only) installs
+that unreleased CI build instead of a released version: `INSTALL_RKE2_COMMIT` is
+set instead of `INSTALL_RKE2_VERSION`/`INSTALL_RKE2_CHANNEL`. These builds have no
+release checksum and `rke2 --version` doesn't reliably echo the full SHA, so
+idempotency for a commit install is "binary already exists" rather than a version
+string match — re-run with a different commit hash on a node that already has
+*some* rke2 binary and it will **not** reinstall. Remove `/usr/local/bin/rke2`
+first if you need to force it. Prefer a version tag when one is available.
 
 ## Node Type Detection
 

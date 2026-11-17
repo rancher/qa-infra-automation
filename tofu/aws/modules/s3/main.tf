@@ -1,10 +1,10 @@
 resource "aws_s3_bucket" "bucket" {
-  bucket = var.bucket_name
+  bucket        = var.bucket_name
   force_destroy = true
 }
 
 resource "aws_s3_bucket_policy" "bucket_policy" {
-  count = var.block_public_access ? 0 : 1
+  count  = var.block_public_access ? 0 : 1
   bucket = aws_s3_bucket.bucket.id
   policy = data.aws_iam_policy_document.policy_document.json
 

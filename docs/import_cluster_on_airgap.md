@@ -103,3 +103,17 @@ ansible-playbook -i inventory/inventory.yml playbooks/deploy/add-downstream-clus
 ```
 
 The playbook checks if the rancher agent pod started correctly and if it managed to connect to the Rancher server.
+
+When `enable_charts_mirror` is on, this step also repoints the **downstream
+cluster's own `rancher-charts` catalog** at the bastion mirror (the same
+`charts.git` the deploy playbook serves to the management-side ClusterRepo).
+The cluster-agent seeds a downstream `rancher-charts` ClusterRepo pointing at
+`git.rancher.io`, which the airgapped downstream nodes cannot reach — its
+index then stays at the bundled snapshot. Any chart install issued through
+the Rancher cluster proxy (`k8s/clusters/<id>/...` — the path the validation
+suites use) resolves against that stale index and fails with
+`no chart version found` for every chart revision published after the
+snapshot; the Go client masks the error as
+`an error on the server ("unknown")`. The playbook patches the downstream
+ClusterRepo to the mirror URL/branch persisted in the `charts_mirror` local
+fact and waits for the agent's re-sync before finishing.

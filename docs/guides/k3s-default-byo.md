@@ -27,24 +27,26 @@ all:
     kube_api_host: "1.2.3.4"
 
   children:
-    # The initial control-plane node — must be named "master"
+    # The initial control-plane node — the GROUP must be named "master".
+    # Host names must not match a group name (Ansible warns and group lookups
+    # become ambiguous), hence "master-node" rather than "master".
     master:
       hosts:
-        master:
+        master-node:
           ansible_host: "1.2.3.4"
 
     # All control-plane nodes (including master)
     servers:
       hosts:
-        master:
+        master-node:
           ansible_host: "1.2.3.4"
-        server-1:
+        servers-node-0:
           ansible_host: "5.6.7.8"
 
     # Worker-only nodes (optional)
     workers:
       hosts:
-        worker-0:
+        workers-node-0:
           ansible_host: "9.10.11.12"
 ```
 
@@ -61,15 +63,15 @@ all:
 >   children:
 >     master:
 >       hosts:
->         etcd-0:
+>         master-node:
 >           ansible_host: "1.2.3.4"
 >           node_roles: [etcd]
 >     servers:
 >       hosts:
->         etcd-1:
+>         servers-node-0:
 >           ansible_host: "1.2.3.5"
 >           node_roles: [etcd]
->         cp-0:
+>         servers-node-1:
 >           ansible_host: "1.2.3.6"
 >           node_roles: [cp]
 > ```
@@ -86,11 +88,11 @@ all:
   children:
     master:
       hosts:
-        master:
+        master-node:
           ansible_host: "1.2.3.4"
     servers:
       hosts:
-        master:
+        master-node:
           ansible_host: "1.2.3.4"
     workers:
       hosts: {}

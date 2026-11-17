@@ -11,9 +11,14 @@ pwd
 # Undo everything this script changes in the checkout, so --dashboard-dir leaves
 # a developer's tree as found. The only place every path shares.
 _project_root="$PWD"
-# Refuse to delete paths under anything that is not a dashboard checkout.
-if [ -z "$_project_root" ] || [ ! -f "${_project_root}/cypress/package.json" ]; then
-	echo "[cypress.sh] ERROR: ${_project_root:-<empty>} is not a dashboard checkout, no cypress/package.json found."
+# Two checkout shapes: dashboard keeps cypress/ as its own workspace, extension
+# repos declare Cypress in the root manifest. _test_dir is where the install runs.
+if [ -n "$_project_root" ] && [ -f "${_project_root}/cypress/package.json" ]; then
+	_test_dir="cypress"
+elif [ -n "$_project_root" ] && grep -qs '"cypress"[[:space:]]*:' "${_project_root}/package.json"; then
+	_test_dir="."
+else
+	echo "[cypress.sh] ERROR: ${_project_root:-<empty>} is not a Cypress checkout, no cypress/package.json and no root package.json declaring cypress."
 	exit 1
 fi
 # coreutils 9 also refuses to recurse across a mount point, which guards the
@@ -52,8 +57,8 @@ _yarn_sealed() {
 # Classic checkouts use Yarn 1 with --frozen-lockfile. Berry checkouts (yarn@4
 # packageManager or a '__metadata:' lockfile) need corepack and --immutable.
 _install_args=(install --frozen-lockfile --silent)
-if grep -qs '"packageManager"[[:space:]]*:[[:space:]]*"yarn@[2-9]' cypress/package.json ||
-	grep -qs '^__metadata:' cypress/yarn.lock; then
+if grep -qs '"packageManager"[[:space:]]*:[[:space:]]*"yarn@[2-9]' "${_test_dir}/package.json" ||
+	grep -qs '^__metadata:' "${_test_dir}/yarn.lock"; then
 	if ! command -v corepack >/dev/null 2>&1; then
 		echo "[cypress.sh] ERROR: checkout pins Yarn Berry but corepack is not in the image."
 		exit 1
@@ -69,11 +74,11 @@ fi
 # Install test dependencies inside the container (correct platform binaries for Debian/glibc)
 echo "[cypress.sh] Installing test dependencies..."
 echo "[cypress.sh] PWD=$(pwd)"
-if ! (cd cypress && _yarn_sealed "${_install_args[@]}"); then
-	echo "[cypress.sh] ERROR: yarn install failed in $(pwd)/cypress"
-	echo "[cypress.sh] Node: $(node -v), Yarn: $( (cd cypress && "${_pm_yarn[@]}" --version) 2>/dev/null)"
-	echo "[cypress.sh] package.json exists: $(test -f cypress/package.json && echo yes || echo no)"
-	echo "[cypress.sh] yarn.lock exists: $(test -f cypress/yarn.lock && echo yes || echo no)"
+if ! (cd "$_test_dir" && _yarn_sealed "${_install_args[@]}"); then
+	echo "[cypress.sh] ERROR: yarn install failed in $(pwd)/${_test_dir}"
+	echo "[cypress.sh] Node: $(node -v), Yarn: $( (cd "$_test_dir" && "${_pm_yarn[@]}" --version) 2>/dev/null)"
+	echo "[cypress.sh] package.json exists: $(test -f "${_test_dir}/package.json" && echo yes || echo no)"
+	echo "[cypress.sh] yarn.lock exists: $(test -f "${_test_dir}/yarn.lock" && echo yes || echo no)"
 	exit 1
 fi
 
@@ -89,9 +94,9 @@ else
 	echo "[cypress.sh]         Test dependencies are read from cypress/node_modules either way."
 fi
 
-# Use test deps from cypress/node_modules
-export NODE_PATH="${PWD}/cypress/node_modules:${NODE_PATH:-}"
-export PATH="${PWD}/cypress/node_modules/.bin:${PATH}"
+# Use test deps from the workspace that was just installed
+export NODE_PATH="${_project_root}/${_test_dir}/node_modules:${NODE_PATH:-}"
+export PATH="${_project_root}/${_test_dir}/node_modules/.bin:${PATH}"
 # Cypress evaluates the config from its own directory, so hand it the root.
 export E2E_PROJECT_ROOT="$_project_root"
 echo "[cypress.sh] node $(node -v), kubectl $(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*"' || kubectl version --client --short 2>&1 | head -1)"
@@ -107,6 +112,25 @@ if [ "${CYPRESS_GREP_DEBUG:-false}" = "true" ]; then
 	export DEBUG="${DEBUG:+$DEBUG,}@cypress/grep"
 fi
 export NODE_OPTIONS="--max-old-space-size=4096"
+
+# CYPRESS_extensionVersion selects which build of an extension is tested: a published
+# version ("published" or an explicit version, both handled by the specs themselves), or
+# "dev-load" to build it from this checkout. Dev load is the only way to exercise code
+# that has not been published yet. The repo's script builds the extension, serves it, and
+# registers it with Rancher as a developer load. Only the browser fetches that URL, and
+# the browser runs in this container, so the script's 127.0.0.1 endpoint resolves.
+if [ "${CYPRESS_extensionVersion:-published}" = "dev-load" ]; then
+	_ext_script="${_project_root}/scripts/e2e-create-uiplugin.sh"
+	if [ ! -f "$_ext_script" ]; then
+		echo "[cypress.sh] ERROR: CYPRESS_extensionVersion=dev-load but ${_ext_script} does not exist."
+		exit 1
+	fi
+	echo "[cypress.sh] Developer load: building and registering the extension from this checkout"
+	if ! (cd "$_project_root" && bash "$_ext_script"); then
+		echo "[cypress.sh] ERROR: developer load failed; the extension was never registered with Rancher, so every spec would run without it."
+		exit 1
+	fi
+fi
 
 # Use CYPRESS_grepTags from env (.env file) if set; fall back to baked-in placeholder
 TAGS="${CYPRESS_grepTags:-CYPRESSTAGS}"

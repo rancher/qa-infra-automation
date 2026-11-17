@@ -9,7 +9,14 @@ variable "aws_secret_key" {
 }
 variable "aws_region" {}
 variable "aws_ami" {}
-variable "aws_hostname_prefix" {}
+variable "aws_hostname_prefix" {
+  description = "Prefix for every AWS resource name this module creates (security group, load balancers, target groups, DNS records). It must leave room for the decorations the module adds on top of it, otherwise AWS rejects the names mid-apply."
+  validation {
+    # AWS resource names are capped at 32 characters for target group names; random_name_suffix adds 7 more. Keep this in sync with the names built in main.tf.
+    condition     = length("${var.aws_hostname_prefix}-tg-9345", ) + (var.random_name_suffix ? 7 : 0) <= 32
+    error_message = "aws_hostname_prefix \"${var.aws_hostname_prefix}\" is ${length(var.aws_hostname_prefix)} characters long, so the AWS resource names built from it exceed the 32-character AWS limit. Shorten aws_hostname_prefix to ${32 - length("-tg-9345") - (var.random_name_suffix ? 7 : 0)} characters or fewer so the longest one (the target group, \"<prefix>-tg-9345${var.random_name_suffix ? "-<6 chars>" : ""}\") still fits."
+  }
+}
 variable "aws_route53_zone" {}
 variable "aws_ssh_user" {}
 variable "private_ssh_key" {
@@ -33,17 +40,75 @@ variable "aws_subnet" {
   type        = string
 }
 variable "instance_type" {}
+variable "worker_nested_virtualization" {
+  description = "Manage EC2 nested virtualization on worker-only nodes: null leaves it unmanaged, true enables it and requires a supported instance type, false explicitly disables it on supported types and omits the CPU option on unsupported types. Combined control-plane nodes are unchanged."
+  type        = bool
+  default     = null
+}
+
+# Windows Instance Variables (RKE2 Agent only).
+# Required when var.nodes contains a group with os = "windows"; enforced by
+# lifecycle preconditions on aws_instance.windows so the error names the variable.
+variable "aws_ami_windows" {
+  description = "Windows Server AMI ID. RKE2 validates against Windows Server 2019/2022 LTSC."
+  type        = string
+  default     = null
+}
+variable "instance_type_windows" {
+  description = "Instance type for Windows agents. Windows Server + containerd needs noticeably more than a Linux worker; t3.xlarge is a reasonable floor."
+  type        = string
+  default     = null
+}
+variable "aws_volume_size_windows" {
+  description = "Root volume size (GiB) for Windows agents. Defaults to 50 - the Windows AMI's own 30 GiB default does not leave room for the RKE2 Windows container images."
+  type        = number
+  default     = null
+}
+variable "aws_volume_type_windows" {
+  description = "Root volume type for Windows agents. Falls back to aws_volume_type."
+  type        = string
+  default     = null
+}
+variable "aws_windows_ssh_user" {
+  description = "SSH user for Windows agents. The user_data authorized-keys file is C:\\ProgramData\\ssh\\administrators_authorized_keys, which only applies to members of the local Administrators group - change this only if you also change that file."
+  type        = string
+  default     = "Administrator"
+}
+variable "windows_enable_rdp" {
+  description = "Open TCP 3389 to ssh_allowed_cidrs on Windows agents for interactive debugging. Retrieve the Administrator password from the windows_administrator_passwords output."
+  type        = bool
+  default     = false
+}
 variable "nodes" {
   description = "Configuration for product nodes."
   type = list(object({
     count         = number
-    role          = list(string)     # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
-    instance_type = optional(string) # Override global instance_type for this node group
+    role          = list(string)              # Allow multiple roles per node (e.g., ["etcd", "cp"], ["worker"])
+    instance_type = optional(string)          # Override global instance_type for this node group
+    os            = optional(string, "linux") # Defaults to linux if omitted
   }))
+  default = [
+    { role = ["etcd", "cp"], count = 1, os = "linux" },
+    { role = ["worker"], count = 1, os = "linux" }
+  ]
   validation {
-    # Need >=1 cp node (count>0). Without it first_master_index = -1 → cryptic plan error.
-    condition     = anytrue([for ng in var.nodes : ng.count > 0 && contains(ng.role, "cp")])
-    error_message = "At least one node group must include the \"cp\" role with count > 0. K3s/RKE2 clusters need a real control-plane node."
+    # Need >=1 LINUX cp node (count>0). Without it first_master_index = -1 → cryptic plan error.
+    # Windows groups are excluded: they are agent-only, so a windows cp group
+    # would satisfy this check and then crash on local.temp_node_names[-1].
+    condition     = anytrue([for ng in var.nodes : ng.count > 0 && contains(ng.role, "cp") && ng.os == "linux"])
+    error_message = "At least one linux node group must include the \"cp\" role with count > 0. K3s/RKE2 clusters need a real control-plane node, and Windows cannot be one."
+  }
+  validation {
+    # An unrecognised value (e.g. "Windows", "win") matches neither the linux nor
+    # the windows filter in main.tf, producing zero instances with no error.
+    condition     = alltrue([for ng in var.nodes : contains(["linux", "windows"], ng.os)])
+    error_message = "Each node group's \"os\" must be \"linux\" or \"windows\" (lowercase)."
+  }
+  validation {
+    # RKE2 has no Windows server role - Windows can only join as an agent.
+    # Compare by element: list(string) == ["worker"] (a tuple) is always false.
+    condition     = alltrue([for ng in var.nodes : ng.os != "windows" || (length(ng.role) == 1 && ng.role[0] == "worker")])
+    error_message = "Windows node groups must declare role = [\"worker\"]; RKE2 supports Windows agents only."
   }
 }
 variable "airgap_setup" {
@@ -90,6 +155,18 @@ variable "arch" {
   }
 }
 
+variable "create_lb" {
+  description = "Creates the Load Balancer, Target Groups and listeners when true (default) and there is more than one control-plane node. The Route53 record is always created; with no load balancer it is an A record to the first control-plane node."
+  type        = bool
+  default     = true
+}
+
+variable "random_name_suffix" {
+  description = "When true, append a random string to resource names to avoid naming conflicts across concurrent deployments. Defaults to false (names are used as-is)."
+  type        = bool
+  default     = false
+}
+
 variable "create_ssh_security_group" {
   description = "Create a dedicated SG that grants SSH (22) from stable CIDRs (ssh_allowed_cidrs) plus the VPC CIDR, and attach it alongside var.aws_security_group. Enable when SSH access is granted only via a managed prefix list - prefix-list rules propagate to each new ENI asynchronously and can silently drop SSH to a freshly launched node; plain CIDR rules realize instantly."
   type        = bool
@@ -132,14 +209,12 @@ variable "ephemeral_sg_ingress_cidrs" {
 }
 
 variable "ephemeral_sg_egress_cidrs" {
-  description = "IPv4 CIDRs allowed on egress from the self-provisioned ephemeral security group (used only when var.aws_security_group is empty). Defaults to the selected VPC's CIDR block (looked up from var.aws_vpc). Must not be 0.0.0.0/0/::/0 - extend with additional specific CIDRs if nodes need broader outbound access (e.g. via a NAT gateway/proxy)."
+  description = "Deprecated/unused: the self-provisioned ephemeral security group now always egresses all protocols to 0.0.0.0/0, so this variable has no effect. Kept only for backward compatibility with existing callers."
   type        = list(string)
   default     = null
-  validation {
-    condition = var.ephemeral_sg_egress_cidrs == null ? true : alltrue([
-      for c in var.ephemeral_sg_egress_cidrs :
-      c != "0.0.0.0/0" && c != "::/0"
-    ])
-    error_message = "ephemeral_sg_egress_cidrs must not contain 0.0.0.0/0 or ::/0 (world-open egress is not permitted). Use specific CIDRs."
-  }
+}
+
+variable "aws_default_tags" {
+  type    = map(string)
+  default = {}
 }

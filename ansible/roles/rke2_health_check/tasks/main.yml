@@ -140,7 +140,7 @@
           'running': (item.stdout | from_json)['items'] | selectattr('status.phase', 'equalto', 'Running') | list | length,
           'pending': (item.stdout | from_json)['items'] | selectattr('status.phase', 'equalto', 'Pending') | list | length,
           'failed': (item.stdout | from_json)['items'] | selectattr('status.phase', 'equalto', 'Failed') | list | length
-        }] }}"
+         }] }}"
       loop: "{{ system_pods_json.results }}"
       run_once: true
       no_log: true

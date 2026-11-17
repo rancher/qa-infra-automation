@@ -22,10 +22,10 @@ variable "cloud_provider" {
 
 variable "node_config" {
   type = object({
-    aws_access_key         = optional(string)             # for amazonec2_credential_config
-    aws_secret_key         = optional(string)             # for amazonec2_credential_config
-    aws_region             = optional(string)             # for amazonec2_credential_config
-    linode_token              = optional(string)             # for linode_credential_config
+    aws_access_key               = optional(string)             # for amazonec2_credential_config
+    aws_secret_key               = optional(string)             # for amazonec2_credential_config
+    aws_region                   = optional(string)             # for amazonec2_credential_config
+    linode_token                 = optional(string)             # for linode_credential_config
     harvester_cluster_v1_id      = optional(string)             # for harvester_credential_config
     harvester_cluster_type       = optional(string, "imported") # for harvester_credential_config
     harvester_kubeconfig_content = optional(string)             # for harvester_credential_config
@@ -35,9 +35,9 @@ variable "node_config" {
   sensitive   = true
 }
 
-variable fqdn {}
-variable api_key {}
-variable insecure {
-    default = true
-    type    = bool
+variable "fqdn" {}
+variable "api_key" {}
+variable "insecure" {
+  default = true
+  type    = bool
 }

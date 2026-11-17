@@ -4,7 +4,7 @@ output "fqdn" {
 
 output "kube_api_host" {
   value       = local.node_ip[local.node_names[local.first_master_index].name]
-  description = "Reachable IP of the cluster-init / master node (first etcd-having node, else first cp-having node). Public IP normally; private IP when airgap_setup/proxy_setup place nodes without one."
+  description = "Reachable IP (private in airgap/proxy) of the cluster-init / master node: first etcd-having node if any, otherwise first cp-having node (cp-only + external datastore topology)."
 }
 
 output "instance_public_ips" {
@@ -12,8 +12,11 @@ output "instance_public_ips" {
   value       = compact([for instance in aws_instance.node : instance.public_ip])
 }
 
-# Schema v2 (backwards compatible: v1 fields unchanged, new fields added).
-# Consumers must not read secrets from here; only paths and addresses are exposed.
+output "windows_instance_public_ips" {
+  description = "The public IP addresses assigned to the EC2 instances for windows"
+  value       = [for instance in aws_instance.windows : instance.public_ip]
+}
+
 output "cluster_nodes_json" {
   description = "Complete node metadata for bridge script consumption (schema_version 2)."
   value = jsonencode({
@@ -29,16 +32,37 @@ output "cluster_nodes_json" {
       run_id          = var.run_id
       qa_infra_sha    = var.qa_infra_sha
     }
-    nodes = [
-      for node in local.node_names : {
-        name        = node.name
-        roles       = node.role
-        public_ip   = aws_instance.node[node.name].public_ip
-        private_ip  = aws_instance.node[node.name].private_ip
-        instance_id = aws_instance.node[node.name].id
-        az          = aws_instance.node[node.name].availability_zone
-      }
-    ]
+    nodes = concat(
+      # Linux nodes keep local.node_names order (master first): the inventory
+      # bridge picks the first etcd node as bootstrap, and a map iteration would
+      # sort it alphabetically after etcd-cp-N.
+      [
+        for node in local.node_names : {
+          name        = node.name
+          roles       = node.role
+          public_ip   = aws_instance.node[node.name].public_ip
+          private_ip  = aws_instance.node[node.name].private_ip
+          instance_id = aws_instance.node[node.name].id
+          az          = aws_instance.node[node.name].availability_zone
+          os          = "linux"
+        }
+      ],
+      # Windows nodes. No password here on purpose: the documented flow is
+      # `tofu output -raw cluster_nodes_json > /tmp/nodes.json`, which would write
+      # a plaintext Administrator password to disk and into CI logs. Ansible
+      # reaches Windows over SSH with the same key as the Linux nodes; the
+      # password is available separately via windows_administrator_passwords.
+      [
+        for name, instance in aws_instance.windows : {
+          name       = name
+          roles      = local.windows_instances_map[name].roles
+          public_ip  = instance.public_ip
+          private_ip = instance.private_ip
+          ssh_user   = var.aws_windows_ssh_user
+          os         = "windows"
+        }
+      ]
+    )
     bastion = local.bastion_enabled ? {
       public_ip   = aws_instance.bastion[0].public_ip
       public_dns  = aws_instance.bastion[0].public_dns
@@ -61,6 +85,15 @@ output "bastion_public_dns" {
 output "bastion_private_ip" {
   description = "Private IP of the bastion, null when disabled."
   value       = local.bastion_enabled ? aws_instance.bastion[0].private_ip : null
+}
+
+output "windows_administrator_passwords" {
+  description = "Decrypted Administrator password per Windows agent, for RDP/console debugging only. Empty unless private_ssh_key is set - rsadecrypt(file(...)) would otherwise fail at plan time on the \"\" default."
+  sensitive   = true
+  value = var.private_ssh_key != "" ? {
+    for name, instance in aws_instance.windows :
+    name => rsadecrypt(instance.password_data, file(var.private_ssh_key))
+  } : {}
 }
 
 output "ssh_security_group_id" {

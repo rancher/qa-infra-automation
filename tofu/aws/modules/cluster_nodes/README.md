@@ -69,10 +69,144 @@ The `nodes` variable defines cluster node groups. Each group accepts:
 | `count` | number | Yes | Number of instances |
 | `role` | list(string) | Yes | Node roles: `["etcd"]`, `["cp"]`, `["worker"]`, or combined like `["etcd", "cp", "worker"]` |
 | `instance_type` | string | No | Override the global `instance_type` for this node group |
+| `os` | string | No | `linux` (default) or `windows` |
 
-The first node in the first group with `etcd` role becomes the `master` node.
+The first node in the first group with `etcd` role becomes the `master` node. Windows
+groups are numbered separately as `windows-worker-N` and take no part in master
+selection.
+
+**External datastore (kine/RDS) clusters must not declare an `etcd`-role group.**
+Master selection always prefers an etcd node over a cp node when one exists, so an
+`etcd` group present anywhere in `nodes` wins master selection regardless of your
+intent to use an external datastore. Use `cp`-only groups (e.g.
+`{ count = 2, role = ["cp"] }`) and configure `datastore-endpoint` via
+`server_flags` in Ansible's `vars.yaml` instead.
 
 **Important:** Nodes with the same role must be in a single group (e.g., `{ count = 2, role = ["etcd"] }`). Splitting them into multiple groups causes duplicate hostname conflicts.
+
+#### Windows node groups
+
+Set `os = "windows"` on a node group to launch Windows Server RKE2 agents. RKE2 has no
+Windows server role, so those groups must declare `role = ["worker"]` and at least one
+**linux** group must still carry `cp`; both are enforced by `variables.tf` validations.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `aws_ami_windows` | `null` | **Required for Windows groups.** Windows Server 2019/2022 LTSC AMI |
+| `instance_type_windows` | `null` | **Required for Windows groups.** Windows + containerd needs more than a Linux worker; `t3.xlarge` is a reasonable floor |
+| `aws_volume_size_windows` | `50` | Root volume GiB. The Windows AMI's own 30 GiB default has no room for the RKE2 container images |
+| `aws_volume_type_windows` | falls back to `aws_volume_type` | Root volume type |
+| `aws_windows_ssh_user` | `Administrator` | SSH user placed in `cluster_nodes_json` |
+| `windows_enable_rdp` | `false` | Open TCP 3389 to `ssh_allowed_cidrs` for interactive debugging |
+
+When any Windows group is present the module also creates a `-windows` security group
+allowing **UDP 4789** (Calico/Flannel VXLAN overlay) and TCP 10250 (kubelet) from the VPC
+CIDR, and attaches it to *both* the Linux and Windows instances — VXLAN is bidirectional,
+so a rule on the Windows node alone is not enough.
+
+The Windows `user_data` installs OpenSSH Server, sets PowerShell as the default shell,
+writes `public_ssh_key` into `C:\ProgramData\ssh\administrators_authorized_keys`, and
+enables the Containers feature with a reboot. Writing the key by hand is not optional:
+EC2 Windows AMIs use the key pair *only* to encrypt the Administrator password, so
+without it Ansible's key-based SSH cannot authenticate. The key pair must be **RSA** (enforced by a plan-time precondition);
+Windows instances do not support Ed25519.
+
+For RDP or console debugging, the Administrator password is exported separately:
+
+```bash
+tofu output -json windows_administrator_passwords
+```
+
+It is deliberately **not** in `cluster_nodes_json` — the documented flow pipes that output
+to a temp file, which would leave a plaintext password on disk and in CI logs. The output
+is empty unless `private_ssh_key` is set.
+
+```terraform
+aws_ami_windows       = "ami-0abcdef1234567890"   # Windows Server 2022 LTSC
+instance_type_windows = "t3.xlarge"
+nodes = [
+  { count = 1, role = ["etcd", "cp", "worker"] },
+  { count = 1, role = ["worker"], os = "windows" },
+]
+```
+
+Follow up with the [Windows agent guide](../../../../docs/guides/rke2-windows-agent-aws.md)
+for the Ansible side; the cluster's CNI must be `calico` or `flannel`.
+
+### Nested virtualization for Kata workers
+
+`worker_nested_virtualization` manages EC2 `cpu_options.nested_virtualization`
+on **worker-only** node groups:
+
+| Value | Behavior |
+| --- | --- |
+| Omitted or `null` (default) | Unmanaged: no additional instance-type query or CPU option; preserves existing settings |
+| `true` | Require a supported instance type and explicitly request `enabled` |
+| `false` | Request `disabled` on supported types, including previously enabled workers; omit the CPU option on unsupported types |
+
+Control-plane/combined-role nodes are never managed by this input. AWS provider
+6.34.0 or newer (below 7.0) is required for in-place CPU-option changes; the module
+lock remains at 6.66.0. Refresh older consumer provider locks with
+`tofu init -upgrade` and review the plan before applying.
+
+Removing an existing `true` does not switch virtualization off: use `false` and
+apply the reviewed plan before returning to unmanaged, if desired.
+
+Example addition to an existing configuration (reuse its VPC/subnet/SG):
+
+```hcl
+worker_nested_virtualization = true
+nodes = [
+  { count = 1, role = ["etcd", "cp", "worker"] },
+  { count = 2, role = ["worker"], instance_type = "c7i.2xlarge" },
+]
+```
+
+For either explicit boolean, the module checks `DescribeInstanceTypes` through
+`aws_ec2_instance_type` before changing instances. Unsupported worker types fail
+closed only when enabling. With `false`, types that do not advertise the feature
+(for example, `t3.large` or `m5.xlarge`) receive no nested CPU option. The caller
+needs `ec2:DescribeInstanceTypes` in addition to its existing provisioning permissions.
+This enables hardware virtualization only; it does not install Kata or select
+Kubernetes runtimes. Changing the option on existing workers can stop/start them.
+Restrict both kata-deploy installation and Kata pod placement to eligible workers
+with node selectors/affinity; the combined-role master may have no `/dev/kvm`.
+See [AWS nested virtualization](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html).
+The provider added the field in [6.33.0](https://github.com/hashicorp/terraform-provider-aws/releases/tag/v6.33.0)
+and in-place changes in [6.34.0](https://github.com/hashicorp/terraform-provider-aws/releases/tag/v6.34.0).
+
+### Module tests
+
+From the repository root, run:
+
+```bash
+make test-tofu-cluster-nodes
+```
+
+The target discovers the module's tracked root-level `.tf` files with `git ls-files`
+and copies them and the test fixtures into a temporary directory. Stage newly added
+module source files before testing so discovery includes them. It checks formatting,
+initializes with the committed lockfile, validates, and runs the tests.
+Creation/cleanup and ordinary plans use mocked AWS/random providers. The `null`
+preservation test uses the real AWS planner against that mock state, with refresh
+disabled, data sources overridden, fake credentials and loopback-only endpoints.
+This exercises Optional+Computed CPU-setting preservation rather than assuming
+the mock implements it. No AWS credentials or resources are needed.
+Local tfvars, backend configuration and state are not copied; the repository's
+lockfile is not modified. Provider installation requires network access unless
+the providers are available through your configured OpenTofu cache/mirror.
+
+### Resource name length
+
+`aws_hostname_prefix` seeds every AWS resource name the module creates: the key
+pair (`tf-<prefix>-<12 hex chars>`), the security groups
+(`tf-<prefix>-sg`, `tf-<prefix>-ssh`), the NLB (`<prefix>-nlb`), the target
+groups (`<prefix>-tg-<port>`) and the DNS record. AWS caps most resource names at
+63 characters and load balancer and target group names cap at **32**.
+So the prefix has to leave room for the decoration the module adds:
+**at most 24 characters, or 17 with `random_name_suffix = true`** (the
+suffix adds 7). The module validates this during `tofu plan` and reports the
+budget instead of letting AWS reject a name halfway through `tofu apply`.
 
 ### Ephemeral networking (security group)
 
@@ -82,26 +216,33 @@ own equivalent instead:
 
 * A security group opening SSH (22, restricted to `ephemeral_sg_ingress_cidrs`),
   plus full intra-group traffic
-* Egress restricted to `ephemeral_sg_egress_cidrs` (defaults to the VPC's own
-  CIDR when unset; `0.0.0.0/0`/`::/0` are rejected here too — extend with
-  additional specific CIDRs if nodes need broader outbound access, e.g. via a
-  NAT gateway/proxy)
-* Outbound-only exceptions to `0.0.0.0/0` on TCP/80, TCP/443, TCP/53, and
-  UDP/53 — required for package managers (apt/yum), RKE2/K3s
-  downloads, and container registries/DNS resolution. These are egress-only
-  (no inbound access is opened) and narrowly scoped to those ports; all other
-  egress remains restricted to `ephemeral_sg_egress_cidrs`.
+* Egress: all protocols, all ports, to `0.0.0.0/0` (a single unrestricted
+  outbound rule). `ephemeral_sg_egress_cidrs` is kept only for backward
+  compatibility with existing callers and no longer has any effect.
+  **Upgrade note:** for any already-`apply`d deployment, this rule replaces
+  several previously separate egress rules. One (`ephemeral_self_egress`) is
+  migrated in place via a `moved` block; the rest (default/listener/HTTP/
+  HTTPS/DNS and the per-node RKE2/LB egress rules) have no equivalent target
+  and will show as destroyed on the next `plan`/`apply`, briefly narrowing
+  egress until the new rule is created.
 * Inbound access on TCP/80 and TCP/443 from `ephemeral_sg_ingress_cidrs`
   plus the VPC's own CIDR (RKE2/Rancher NLB health checks, which originate
   from AWS-managed ENIs inside the VPC rather than instances in this SG).
-  Node-to-node LB traffic addressed via public IPs egresses out through the
+  Node-to-node traffic addressed via public IPs egresses out through the
   IGW and re-enters tagged with the *source node's public IP* - not the VPC
-  CIDR and not `ephemeral_sg_ingress_cidrs` - so per-node `/32` ingress and
-  egress rules are additionally created once each node's public IP is known
-  (standalone `aws_vpc_security_group_ingress_rule`/`egress_rule` resources,
-  same as every other rule on this SG). Only egress on 80/443
-  falls back to `0.0.0.0/0` (grouped with the package-manager/DNS egress
-  exceptions above); ingress on 80/443 never opens to `0.0.0.0/0`.
+  CIDR and not `ephemeral_sg_ingress_cidrs` - so a single all-protocol,
+  all-port `/32` ingress rule per node (`rke2_node_ingress`) is additionally
+  created once each node's public IP is known; ingress on 80/443 never opens
+  to `0.0.0.0/0`. Egress for this hairpin traffic is already covered by the
+  unrestricted `0.0.0.0/0` egress rule above, so no per-node egress rule is
+  needed.
+  **Upgrade note:** for any already-`apply`d deployment, `rke2_node_ingress`
+  replaces the previously separate `rke2_lb_node_ingress` (ports 80/443) and
+  `rke2_api_node_ingress` (ports 6443/9345) resources, each keyed per
+  `"<port>-<node>"` pair. Because multiple old keys collapse into one new
+  key per node, there is no 1:1 `moved` mapping - the old rules will show as
+  destroyed on the next `plan`/`apply`, briefly dropping node-to-node ingress
+  on 80/443/6443/9345 until the new rule is created.
 
 ### SSH access (avoiding prefix-list propagation lag)
 

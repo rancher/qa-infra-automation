@@ -67,15 +67,10 @@ class ClusterNodesAirgapContractTofuTests(unittest.TestCase):
     """Runs the module's mocked tofu tests (needs provider download on first run)."""
 
     def test_tofu_test_passes(self):
-        init = subprocess.run(
-            ["tofu", "init", "-backend=false", "-input=false", "-no-color"],
-            cwd=MODULE_DIR, capture_output=True, text=True, check=False,
-        )
-        if init.returncode != 0:
-            self.skipTest(f"tofu init failed (offline?): {init.stderr[-400:]}")
         result = subprocess.run(
-            ["tofu", "test", "-no-color"],
-            cwd=MODULE_DIR, capture_output=True, text=True, check=False,
+            ["bash", "scripts/test-tofu-cluster-nodes.sh"],
+            cwd=REPOSITORY_ROOT, capture_output=True, text=True, check=False,
+            timeout=600,
         )
         self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-1000:])
         self.assertIn('run "airgap_with_bastion"... pass', result.stdout)

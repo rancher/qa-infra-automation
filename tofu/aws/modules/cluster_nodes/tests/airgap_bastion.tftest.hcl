@@ -3,6 +3,18 @@
 # Providers are mocked, so no AWS credentials or resources are involved.
 
 mock_provider "aws" {
+  mock_data "aws_vpc" {
+    defaults = { cidr_block = "10.0.0.0/16" }
+  }
+  mock_resource "aws_instance" {
+    defaults = { private_ip = "10.0.0.10", public_ip = "198.51.100.10" }
+  }
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:targetgroup/mock/0123456789abcdef" }
+  }
+  mock_resource "aws_lb" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/mock/0123456789abcdef" }
+  }
   mock_data "aws_subnet" {
     defaults = { assign_ipv6_address_on_creation = false }
   }
@@ -161,6 +173,50 @@ run "run_id_tag_is_optional" {
   assert {
     condition     = !contains(keys(aws_instance.node["master"].tags), "RunId")
     error_message = "without run_id no RunId tag may be added (existing consumers unchanged)"
+  }
+}
+
+run "airgap_security_group_uses_private_addresses" {
+  command = apply
+
+  variables {
+    airgap_setup               = true
+    bastion                    = { enabled = true }
+    aws_security_group         = []
+    ephemeral_sg_ingress_cidrs = ["203.0.113.10/32"]
+    random_name_suffix         = true
+    aws_hostname_prefix        = "airgap-test"
+    run_id                     = "airgap-merge-test"
+  }
+
+  assert {
+    condition = alltrue([
+      for name, rule in aws_vpc_security_group_ingress_rule.rke2_node_ingress :
+      rule.cidr_ipv4 == "${aws_instance.node[name].private_ip}/32"
+    ])
+    error_message = "Airgap ingress rules must use private IPs after the upstream SG refactor."
+  }
+  assert {
+    condition = (
+      aws_instance.node["master"].tags["RunId"] == var.run_id &&
+      aws_instance.node["master"].tags["Name"] == "tf-${var.aws_hostname_prefix}-master${local.name_suffix}"
+    )
+    error_message = "Both the airgap ownership tag and the upstream name suffix must survive the merge."
+  }
+}
+
+run "airgap_ha_load_balancer_stays_private" {
+  command = plan
+
+  variables {
+    airgap_setup = true
+    bastion      = { enabled = true }
+    nodes        = [{ count = 3, role = ["etcd", "cp"] }]
+  }
+
+  assert {
+    condition     = length(aws_lb.aws_nlb) == 1 && aws_lb.aws_nlb[0].internal
+    error_message = "The upstream create_lb option must preserve a private NLB for airgap HA clusters."
   }
 }
 

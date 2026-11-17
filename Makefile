@@ -18,6 +18,9 @@ WORKSPACE     ?= default
 TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
 AUTO_APPROVE  ?= no
+# Set OFFLINE=1 to require pinned Ansible collections to be pre-installed;
+# check-collections then fails instead of auto-installing from galaxy
+OFFLINE       ?= no
 # Opt-in: include the standalone ui-plugin-mirror step in `all`/`setup-from-infra`
 # and set enable_ui_plugin_mirror=true for every ansible invocation (airgap
 # only, incl. airgap-downstream, which has no standalone mirror step). Default
@@ -35,11 +38,37 @@ else
 UI_PLUGIN_MIRROR_TARGET :=
 UI_PLUGIN_MIRROR_ANSIBLE_VAR :=
 endif
+# Opt-in: include the standalone charts-mirror step in `all`/`setup-from-infra`
+# and set enable_charts_mirror=true for every ansible invocation (airgap +
+# RKE2 only — k3s has no airgap env, so the gate would point at a nonexistent
+# playbook; incl. airgap-downstream, whose downstream catalog-repoint block is
+# otherwise disabled even though the run stood the mirror up). Default off so
+# ordinary airgap runs are unaffected.
+ENABLE_CHARTS_MIRROR ?= no
+ifeq ($(ENV),airgap)
+ifeq ($(DISTRO),rke2)
+ifeq ($(ENABLE_CHARTS_MIRROR),yes)
+CHARTS_MIRROR_TARGET := charts-mirror
+CHARTS_MIRROR_ANSIBLE_VAR := enable_charts_mirror=true
+else
+CHARTS_MIRROR_TARGET :=
+CHARTS_MIRROR_ANSIBLE_VAR :=
+endif
+else
+CHARTS_MIRROR_TARGET :=
+CHARTS_MIRROR_ANSIBLE_VAR :=
+endif
+else
+CHARTS_MIRROR_TARGET :=
+CHARTS_MIRROR_ANSIBLE_VAR :=
+endif
+
 
 # Downstream cluster via the Rancher API (tofu/rancher/cluster).
 # Your downstream cluster vars (kubernetes_version, machine_pools,
-# cloud_provider, node_config, ...). See tofu/rancher/cluster/vars.tfvars.
-DOWNSTREAM_TFVARS ?=
+# cloud_provider, node_config, ...). Defaults to the in-repo sample; copy and
+# edit it per environment, then override with DOWNSTREAM_TFVARS=<path>.
+DOWNSTREAM_TFVARS ?= tofu/rancher/cluster/vars.tfvars
 # fqdn + api_key written by the Rancher install. Override if your Rancher
 # outputs live elsewhere.
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
@@ -186,13 +215,14 @@ help: ## Show this help message
 	@echo "  downstream          Register an airgap cluster into Rancher (requires ENV=airgap and TARGET_GROUP=downstream)"
 	@echo ""
 	@echo "RANCHER DOWNSTREAM CLUSTER (TOFU - managed by the Rancher API):"
-	@echo "  downstream-tofu          Create/apply a Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... required)"
+	@echo "  downstream-tofu          Create/apply a Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... optional, defaults to tofu/rancher/cluster/vars.tfvars)"
 	@echo "  downstream-tofu-plan     Plan downstream cluster changes"
 	@echo "  downstream-tofu-destroy  Destroy the downstream cluster (AUTO_APPROVE=yes to skip prompt)"
 	@echo "  downstream-tofu-output   Show downstream cluster tofu outputs"
 	@echo "  upgrade-cluster     Upgrade Kubernetes cluster"
 	@echo "  kubectl-setup       Setup kubectl access on bastion"
 	@echo "  ui-plugin-mirror   Mirror ui-plugin-charts on the bastion (airgap UI extension installs)"
+	@echo "  charts-mirror      Mirror rancher-charts on the bastion (airgap catalog installs)"
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  status              Show cluster status"
@@ -203,6 +233,7 @@ help: ## Show this help message
 	@echo "  ssh-bastion         SSH to bastion host"
 	@echo "  ping                Ping all hosts"
 	@echo "  validate            Validate configuration and prerequisites"
+	@echo "  test-tofu-cluster-nodes  Validate/test the AWS cluster_nodes module offline (no AWS resources)"
 	@echo "  verify              Verify supply chain integrity"
 	@echo "  clean               Clean local temporary files"
 	@echo ""
@@ -250,8 +281,12 @@ help: ## Show this help message
 # VALIDATION
 # ============================================================================
 
+.PHONY: test-tofu-cluster-nodes
+test-tofu-cluster-nodes: ## Validate/test AWS cluster_nodes without AWS resources
+	bash scripts/test-tofu-cluster-nodes.sh
+
 .PHONY: validate
-validate: check-prereqs check-config ## Validate configuration and prerequisites
+validate: check-prereqs check-collections check-config ## Validate configuration and prerequisites
 	@echo "Validation complete"
 
 .PHONY: check-prereqs
@@ -261,12 +296,23 @@ check-prereqs: ## Check all prerequisites are installed
 	@command -v ansible >/dev/null 2>&1 || { echo "Error: ansible is not installed"; exit 1; }
 	@command -v ansible-playbook >/dev/null 2>&1 || { echo "Error: ansible-playbook is not installed"; exit 1; }
 	@python3 -c "import yaml" 2>/dev/null || { echo "Installing Python dependencies..."; if [ -n "$$VIRTUAL_ENV" ]; then pip3 install -r requirements.txt; else pip3 install --user -r requirements.txt; fi; }
-	@ansible-galaxy collection list 2>/dev/null | grep -q kubernetes.core || { echo "Installing Ansible collections..."; ansible-galaxy collection install -r requirements.yml; }
 	@echo "All prerequisites found"
 
 .PHONY: collections
 collections: ## Install pinned Ansible collections
 	ansible-galaxy collection install -r requirements.yml
+
+.PHONY: check-collections
+check-collections: ## Ensure installed Ansible collections match requirements.yml pins (auto-installs drift unless OFFLINE=1)
+	@if python3 scripts/check_collections.py; then \
+		exit 0; \
+	elif [ "$(OFFLINE)" = "1" ]; then \
+		echo "Error: OFFLINE=1 set; install pinned collections into the image or run 'make collections' in a networked environment."; \
+		exit 1; \
+	else \
+		echo "Installing pinned Ansible collections from requirements.yml..."; \
+		ansible-galaxy collection install -r requirements.yml && python3 scripts/check_collections.py; \
+	fi
 
 .PHONY: check-config
 check-config: ## Validate configuration parameters
@@ -283,8 +329,10 @@ check-config: ## Validate configuration parameters
 	fi
 	@echo "Configuration valid"
 
+# check-inventory gates every ansible-invoking target, so verifying the pinned
+# collections here guarantees plays never run against drifted bundles.
 .PHONY: check-inventory
-check-inventory: ## Verify inventory exists and is not stale
+check-inventory: check-collections ## Verify inventory exists and is not stale
 	@if [ ! -f "$(INVENTORY)" ]; then \
 		echo "Error: Inventory file not found at $(INVENTORY)"; \
 		echo "Run 'make infra-up' first to generate inventory"; \
@@ -699,9 +747,10 @@ infra-empty-buckets: ## Remove EMPTY S3 buckets (0 objects) account-wide; scope 
 
 .PHONY: bootstrap-python
 bootstrap-python: check-inventory ## Bootstrap Python 3.9+ on target nodes
+	@# Windows nodes are excluded: Ansible uses ansible.windows modules over PowerShell, no Python needed.
 	@echo "Bootstrapping Python on target nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) --limit 'all:!windows_workers' ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: cluster
 cluster: check-inventory bootstrap-python ## Install Kubernetes cluster (use TARGET_GROUP=downstream for airgap multi-cluster)
@@ -714,6 +763,19 @@ agents: check-inventory ## Setup additional agent nodes
 	@echo "Setting up agent nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-agent-nodes.yml -v $(ANSIBLE_EXTRA_VARS)
+
+.PHONY: windows-agents
+windows-agents: check-inventory ## Join Windows agents (windows_workers group) to an existing RKE2 cluster
+	@if [ "$(DISTRO)" != "rke2" ]; then \
+		echo "ERROR: Windows agents are only supported on DISTRO=rke2"; exit 1; \
+	fi
+	@if [ "$(ENV)" != "default" ]; then \
+		echo "ERROR: Windows agents are not supported with ENV=$(ENV) (air-gap has no Windows installer)"; exit 1; \
+	fi
+	@echo "Joining Windows agents to the cluster..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-windows-agent-nodes.yml -v \
+		--extra-vars "@$(ANSIBLE_DIR)/vars.yaml" $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: rancher
 rancher: check-inventory ## Deploy Rancher to cluster
@@ -745,6 +807,13 @@ ui-plugin-mirror: check-inventory ## Mirror ui-plugin-charts on the bastion for 
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/ui-plugin-mirror-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
 
+.PHONY: charts-mirror
+charts-mirror: check-inventory ## Mirror rancher-charts on the bastion for airgap catalog installs (ENV=airgap)
+	@echo "Mirroring rancher-charts on the bastion..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_DIR)/playbooks/setup/charts-mirror-playbook.yml -v $(ANSIBLE_EXTRA_VARS)
+
+
 .PHONY: downstream
 downstream: check-inventory ## Register an existing airgap cluster into Rancher as a downstream (requires ENV=airgap and TARGET_GROUP, e.g. TARGET_GROUP=downstream)
 	@if [ "$(ENV)" != "airgap" ]; then \
@@ -769,8 +838,9 @@ downstream: check-inventory ## Register an existing airgap cluster into Rancher 
 # the tofu/rancher/cluster module. This is distinct from the infra modules
 # (TOFU_DIR), which only provision raw VMs. Required inputs:
 #   * DOWNSTREAM_TFVARS - your cluster vars (kubernetes_version, machine_pools,
-#                         cloud_provider, node_config, ...). See
-#                         tofu/rancher/cluster/vars.tfvars for a sample.
+#                         cloud_provider, node_config, ...). Defaults to the
+#                         in-repo sample tofu/rancher/cluster/vars.tfvars;
+#                         override with DOWNSTREAM_TFVARS=<path>.
 #   * RANCHER_TFVARS    - fqdn + api_key written by the Rancher install
 #                         (ansible/rancher/default-ha/generated.tfvars).
 # Override WORKSPACE to manage multiple downstream clusters independently,
@@ -785,8 +855,8 @@ check-downstream-tofu: check-prereqs ## Validate downstream tofu inputs (DOWNSTR
 		echo "Error: downstream tofu module not found: $(DOWNSTREAM_TOFU_DIR)"; exit 1; \
 	fi
 	@if [ -z "$(DOWNSTREAM_TFVARS)" ]; then \
-		echo "Error: DOWNSTREAM_TFVARS is required (your downstream cluster vars)."; \
-		echo "       Example: make downstream-tofu DOWNSTREAM_TFVARS=tofu/rancher/cluster/vars.tfvars"; \
+		echo "Error: DOWNSTREAM_TFVARS is empty (cleared explicitly?)."; \
+		echo "       Pass your cluster vars: make downstream-tofu DOWNSTREAM_TFVARS=<path-to-tfvars>"; \
 		exit 1; \
 	fi
 	@if [ ! -f "$(DOWNSTREAM_TFVARS)" ]; then \
@@ -813,7 +883,7 @@ downstream-tofu-plan: downstream-tofu-init ## Plan downstream cluster changes
 	cd $(DOWNSTREAM_TOFU_DIR) && tofu plan $(DOWNSTREAM_VAR_FILES)
 
 .PHONY: downstream-tofu
-downstream-tofu: downstream-tofu-init ## Create/apply the Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... required)
+downstream-tofu: downstream-tofu-init ## Create/apply the Rancher-managed downstream cluster (DOWNSTREAM_TFVARS=... optional, defaults to tofu/rancher/cluster/vars.tfvars)
 	@echo "Applying downstream cluster for workspace '$(WORKSPACE)'..."
 	cd $(DOWNSTREAM_TOFU_DIR) && tofu apply $(DOWNSTREAM_VAR_FILES) $(if $(filter yes,$(AUTO_APPROVE)),-auto-approve)
 
@@ -940,14 +1010,14 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
 	@echo ""
 	@echo "$(DISTRO) cluster and Rancher setup complete!"
 	@echo ""
@@ -975,6 +1045,13 @@ airgap-downstream: check-inventory ## Full airgap multi-cluster: downstream RKE2
 	@if [ -n "$(UI_PLUGIN_MIRROR_TARGET)" ]; then \
 		echo "==> Standing up ui-plugin-charts mirror on the bastion (ENABLE_UI_PLUGIN_MIRROR=yes)..."; \
 		$(MAKE) $(UI_PLUGIN_MIRROR_TARGET) DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER); \
+	fi
+	# Standalone rancher-charts mirror (opt-in, same gate as 'all'/'setup-from-infra').
+	# Must run before the Rancher deploy: the deploy repoints the rancher-charts
+	# ClusterRepo at the mirror only when the bastion mirror fact exists.
+	@if [ -n "$(CHARTS_MIRROR_TARGET)" ]; then \
+		echo "==> Standing up rancher-charts mirror on the bastion (ENABLE_CHARTS_MIRROR=yes)..."; \
+		$(MAKE) $(CHARTS_MIRROR_TARGET) DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER); \
 	fi
 	@echo "==> [4/5] Deploying Rancher on rancher group..."
 	# Intentionally clear TARGET_GROUP so the Rancher deploy step never inherits a
@@ -1011,9 +1088,10 @@ debug-vars: ## Show current variable values
 	@echo "  Ansible dir exists:    $$([ -d "$(ANSIBLE_DIR)" ] && echo "yes" || echo "no")"
 	@echo "  Inventory exists:      $$([ -f "$(INVENTORY)" ] && echo "yes" || echo "no")"
 
-# Extra vars support. UI_PLUGIN_MIRROR_ANSIBLE_VAR is prepended so an explicit
-# enable_ui_plugin_mirror=... in EXTRA_VARS takes precedence (later keys win).
-ANSIBLE_EXTRA_VARS_KEYS := $(strip $(UI_PLUGIN_MIRROR_ANSIBLE_VAR) $(EXTRA_VARS))
+# Extra vars support. The mirror gates are prepended so an explicit
+# enable_ui_plugin_mirror=.../enable_charts_mirror=... in EXTRA_VARS takes
+# precedence (later keys win).
+ANSIBLE_EXTRA_VARS_KEYS := $(strip $(UI_PLUGIN_MIRROR_ANSIBLE_VAR) $(CHARTS_MIRROR_ANSIBLE_VAR) $(EXTRA_VARS))
 ifneq ($(ANSIBLE_EXTRA_VARS_KEYS),)
 ANSIBLE_EXTRA_VARS := --extra-vars "$(ANSIBLE_EXTRA_VARS_KEYS)"
 else

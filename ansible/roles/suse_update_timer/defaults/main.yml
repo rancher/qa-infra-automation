@@ -1,0 +1,3 @@
+---
+# Same switch the rke2_setup and suse_selinux_policy roles honour; the test playbooks set it to true.
+suse_disable_update_timer: false
