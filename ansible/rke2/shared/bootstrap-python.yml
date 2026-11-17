@@ -8,6 +8,8 @@
     python_url: "https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.9.20+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz"
     python_local_path: "/tmp/python39.tar.gz"
     has_bastion: "{{ bastion_host is defined and bastion_user is defined }}"
+    # Only dualstack/ipv6 inventories publish ansible_host_ipv6; airgap relay stays the default.
+    dualstack_inventory: "{{ groups['all'] | map('extract', hostvars) | selectattr('ansible_host_ipv6', 'defined') | list | length > 0 }}"
 
   pre_tasks:
     # This is the first play `make cluster` runs, so it hits nodes straight out
@@ -43,7 +45,7 @@
       run_once: true
       when:
         - has_bastion
-        - "'airgap_nodes' in groups"
+        - not dualstack_inventory
 
     - name: Copy Python binary from bastion to target nodes (airgap)
       ansible.builtin.shell: |
@@ -52,7 +54,7 @@
       become: false
       when:
         - has_bastion
-        - "'airgap_nodes' in groups"
+        - not dualstack_inventory
         - "'NEEDS_INSTALL' in check_python.stdout"
 
     - name: Copy Python binary to target nodes (dualstack/ipv6)
@@ -62,13 +64,12 @@
       become: false
       when:
         - has_bastion
-        - "'airgap_nodes' not in groups"
+        - dualstack_inventory
         - "'NEEDS_INSTALL' in check_python.stdout"
-
 
     - name: Copy Python binary directly to target nodes (default)
       ansible.builtin.shell: |
-        scp -i {{ ansible_ssh_private_key_file }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{{ python_local_path }}" {{ ansible_user }}@{{ ansible_host }}:/tmp/python39.tar.gz
+        scp -i {{ ansible_ssh_private_key_file }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{{ python_local_path }}" {{ ansible_user }}@{{ '[' ~ ansible_host ~ ']' if ':' in ansible_host else ansible_host }}:/tmp/python39.tar.gz
       delegate_to: localhost
       become: false
       when:
