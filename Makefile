@@ -18,6 +18,9 @@ WORKSPACE     ?= default
 TARGET_GROUP  ?=
 # Set AUTO_APPROVE=yes to skip interactive confirmation prompts (for CI use)
 AUTO_APPROVE  ?= no
+# Set OFFLINE=1 to require pinned Ansible collections to be pre-installed;
+# check-collections then fails instead of auto-installing from galaxy
+OFFLINE       ?= no
 # Opt-in: include the standalone ui-plugin-mirror step in `all`/`setup-from-infra`
 # and set enable_ui_plugin_mirror=true for every ansible invocation (airgap
 # only, incl. airgap-downstream, which has no standalone mirror step). Default
@@ -292,7 +295,7 @@ test-tofu-cluster-nodes: ## Validate/test AWS cluster_nodes without AWS resource
 	bash scripts/test-tofu-cluster-nodes.sh
 
 .PHONY: validate
-validate: check-prereqs check-config ## Validate configuration and prerequisites
+validate: check-prereqs check-collections check-config ## Validate configuration and prerequisites
 	@echo "Validation complete"
 
 .PHONY: check-prereqs
@@ -302,12 +305,23 @@ check-prereqs: ## Check all prerequisites are installed
 	@command -v ansible >/dev/null 2>&1 || { echo "Error: ansible is not installed"; exit 1; }
 	@command -v ansible-playbook >/dev/null 2>&1 || { echo "Error: ansible-playbook is not installed"; exit 1; }
 	@python3 -c "import yaml" 2>/dev/null || { echo "Installing Python dependencies..."; if [ -n "$$VIRTUAL_ENV" ]; then pip3 install -r requirements.txt; else pip3 install --user -r requirements.txt; fi; }
-	@ansible-galaxy collection list 2>/dev/null | grep -q kubernetes.core || { echo "Installing Ansible collections..."; ansible-galaxy collection install -r requirements.yml; }
 	@echo "All prerequisites found"
 
 .PHONY: collections
 collections: ## Install pinned Ansible collections
 	ansible-galaxy collection install -r requirements.yml
+
+.PHONY: check-collections
+check-collections: ## Ensure installed Ansible collections match requirements.yml pins (auto-installs drift unless OFFLINE=1)
+	@if python3 scripts/check_collections.py; then \
+		exit 0; \
+	elif [ "$(OFFLINE)" = "1" ]; then \
+		echo "Error: OFFLINE=1 set; install pinned collections into the image or run 'make collections' in a networked environment."; \
+		exit 1; \
+	else \
+		echo "Installing pinned Ansible collections from requirements.yml..."; \
+		ansible-galaxy collection install -r requirements.yml && python3 scripts/check_collections.py; \
+	fi
 
 .PHONY: check-config
 check-config: ## Validate configuration parameters
@@ -324,8 +338,10 @@ check-config: ## Validate configuration parameters
 	fi
 	@echo "Configuration valid"
 
+# check-inventory gates every ansible-invoking target, so verifying the pinned
+# collections here guarantees plays never run against drifted bundles.
 .PHONY: check-inventory
-check-inventory: ## Verify inventory exists and is not stale
+check-inventory: check-collections ## Verify inventory exists and is not stale
 	@if [ ! -f "$(INVENTORY)" ]; then \
 		echo "Error: Inventory file not found at $(INVENTORY)"; \
 		echo "Run 'make infra-up' first to generate inventory"; \
@@ -746,9 +762,10 @@ infra-empty-buckets: ## Remove EMPTY S3 buckets (0 objects) account-wide; scope 
 
 .PHONY: bootstrap-python
 bootstrap-python: check-inventory ## Bootstrap Python 3.9+ on target nodes
+	@# Windows nodes are excluded: Ansible uses ansible.windows modules over PowerShell, no Python needed.
 	@echo "Bootstrapping Python on target nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
-	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
+	ansible-playbook -i $(INVENTORY) --limit 'all:!windows_workers' ansible/$(DISTRO)/shared/bootstrap-python.yml -v $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: cluster
 cluster: check-inventory bootstrap-python ## Install Kubernetes cluster (use TARGET_GROUP=downstream for airgap multi-cluster)
@@ -761,6 +778,19 @@ agents: check-inventory ## Setup additional agent nodes
 	@echo "Setting up agent nodes..."
 	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
 	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-agent-nodes.yml -v $(ANSIBLE_EXTRA_VARS)
+
+.PHONY: windows-agents
+windows-agents: check-inventory ## Join Windows agents (windows_workers group) to an existing RKE2 cluster
+	@if [ "$(DISTRO)" != "rke2" ]; then \
+		echo "ERROR: Windows agents are only supported on DISTRO=rke2"; exit 1; \
+	fi
+	@if [ "$(ENV)" != "default" ]; then \
+		echo "ERROR: Windows agents are not supported with ENV=$(ENV) (air-gap has no Windows installer)"; exit 1; \
+	fi
+	@echo "Joining Windows agents to the cluster..."
+	@export ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg; \
+	ansible-playbook -i $(INVENTORY) ansible/$(DISTRO)/shared/playbooks/setup/setup-windows-agent-nodes.yml -v \
+		--extra-vars "@$(ANSIBLE_DIR)/vars.yaml" $(ANSIBLE_EXTRA_VARS)
 
 .PHONY: rancher
 rancher: check-inventory ## Deploy Rancher to cluster

@@ -1,0 +1,33 @@
+{
+  "type": "cluster_nodes",
+  "metadata": {
+    "kube_api_host": "1.2.3.4",
+    "fqdn": "my-cluster.example.com",
+    "ssh_user": "ec2-user",
+    "ssh_private_key": "/keys/cluster.pem"
+  },
+  "nodes": [
+    {
+      "name": "master",
+      "roles": ["etcd", "cp", "worker"],
+      "public_ip": "1.2.3.4",
+      "private_ip": "10.0.1.1",
+      "os": "linux"
+    },
+    {
+      "name": "worker-0",
+      "roles": ["worker"],
+      "public_ip": "1.2.3.5",
+      "private_ip": "10.0.1.2",
+      "os": "linux"
+    },
+    {
+      "name": "windows-worker-0",
+      "roles": ["worker"],
+      "public_ip": "1.2.3.6",
+      "private_ip": "10.0.1.3",
+      "os": "windows",
+      "ssh_user": "Administrator"
+    }
+  ]
+}

@@ -30,6 +30,7 @@ locals {
     aws_tags = join(",", compact([
       try(var.node_config.aws_tags, null),
       "${local.downstream_discovery_tag_key},${local.downstream_discovery_tag_value}",
+      join(",", flatten([for key, value in var.aws_default_tags : [key, value]])),
     ]))
   }) : merge(var.node_config, { aws_tags = try(var.node_config.aws_tags, null) })
 }

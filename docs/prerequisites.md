@@ -51,7 +51,7 @@ The Makefile includes a one-command check:
 make validate
 ```
 
-This confirms `tofu`, `ansible`, and `ansible-playbook` are available, Python dependencies are importable, and Ansible collections are present.
+This confirms `tofu`, `ansible`, and `ansible-playbook` are available, Python dependencies are importable, and the pinned Ansible collections from `requirements.yml` are installed (drift is auto-installed unless `OFFLINE=1`).
 
 ## Cloud Provider Credentials
 

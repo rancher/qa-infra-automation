@@ -1,0 +1,11 @@
+---
+# Windows hosts have no Python, so wait_for_connection (built-in ping) cannot be
+# used. unreachable is ignored so the retry loop absorbs HNS/NIC disconnects.
+- name: Wait for the Windows host to accept connections
+  ansible.windows.win_ping:
+  register: rke2_windows_ping
+  ignore_unreachable: true
+  until: rke2_windows_ping.ping | default('') == 'pong'
+  retries: "{{ (rke2_windows_wait_timeout | int / 15) | round(0, 'ceil') | int }}"
+  delay: 15
+  changed_when: false

@@ -12,6 +12,11 @@ output "instance_public_ips" {
   value       = [for instance in aws_instance.node : instance.public_ip]
 }
 
+output "windows_instance_public_ips" {
+  description = "The public IP addresses assigned to the EC2 instances for windows"
+  value       = [for instance in aws_instance.windows : instance.public_ip]
+}
+
 output "cluster_nodes_json" {
   description = "Complete node metadata for bridge script consumption"
   value = jsonencode({
@@ -22,15 +27,45 @@ output "cluster_nodes_json" {
       ssh_user        = var.aws_ssh_user
       ssh_private_key = var.private_ssh_key
     }
-    nodes = [
-      for node in local.node_names : {
-        name       = node.name
-        roles      = node.role
-        public_ip  = aws_instance.node[node.name].public_ip
-        private_ip = aws_instance.node[node.name].private_ip
-      }
-    ]
+    nodes = concat(
+      # Linux nodes keep local.node_names order (master first): the inventory
+      # bridge picks the first etcd node as bootstrap, and a map iteration would
+      # sort it alphabetically after etcd-cp-N.
+      [
+        for node in local.node_names : {
+          name       = node.name
+          roles      = node.role
+          public_ip  = aws_instance.node[node.name].public_ip
+          private_ip = aws_instance.node[node.name].private_ip
+          os         = "linux"
+        }
+      ],
+      # Windows nodes. No password here on purpose: the documented flow is
+      # `tofu output -raw cluster_nodes_json > /tmp/nodes.json`, which would write
+      # a plaintext Administrator password to disk and into CI logs. Ansible
+      # reaches Windows over SSH with the same key as the Linux nodes; the
+      # password is available separately via windows_administrator_passwords.
+      [
+        for name, instance in aws_instance.windows : {
+          name       = name
+          roles      = local.windows_instances_map[name].roles
+          public_ip  = instance.public_ip
+          private_ip = instance.private_ip
+          ssh_user   = var.aws_windows_ssh_user
+          os         = "windows"
+        }
+      ]
+    )
   })
+}
+
+output "windows_administrator_passwords" {
+  description = "Decrypted Administrator password per Windows agent, for RDP/console debugging only. Empty unless private_ssh_key is set - rsadecrypt(file(...)) would otherwise fail at plan time on the \"\" default."
+  sensitive   = true
+  value = var.private_ssh_key != "" ? {
+    for name, instance in aws_instance.windows :
+    name => rsadecrypt(instance.password_data, file(var.private_ssh_key))
+  } : {}
 }
 
 output "ssh_security_group_id" {

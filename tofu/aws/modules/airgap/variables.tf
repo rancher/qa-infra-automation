@@ -77,3 +77,8 @@ variable "node_groups" {
     error_message = "A group must have at least one node"
   }
 }
+
+variable "aws_default_tags" {
+  type    = map(string)
+  default = {}
+}
