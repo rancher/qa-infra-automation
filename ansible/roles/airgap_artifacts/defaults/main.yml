@@ -18,12 +18,12 @@ airgap_k3s_release_base: "https://github.com/k3s-io/k3s/releases/download"
 airgap_rke2_release_base: "https://github.com/rancher/rke2/releases/download"
 
 airgap_origin: "{{ 'prime' if (image_registry_url | default('')) | length > 0 else 'community' }}"
-# Prime layout: <base>/<product>/<version> with the raw '+' (what legacy get_artifacts.sh
-# fetched for years); community: GitHub releases.
+# Prime layout is <base>/<product>/<version>; the version is URL-encoded because Prime 404s on a literal '+'.
+airgap_release_version: "{{ kubernetes_version | urlencode }}"
 airgap_release_url: >-
-  {{ (image_registry_url | regex_replace('/$', '') ~ '/' ~ product ~ '/' ~ kubernetes_version)
+  {{ (image_registry_url | regex_replace('/$', '') ~ '/' ~ product ~ '/' ~ airgap_release_version)
      if airgap_origin == 'prime'
-     else ((airgap_k3s_release_base if product == 'k3s' else airgap_rke2_release_base) ~ '/' ~ kubernetes_version) }}
+     else ((airgap_k3s_release_base if product == 'k3s' else airgap_rke2_release_base) ~ '/' ~ airgap_release_version) }}
 # YAML-defined escapes avoid Jinja block-scalar differences when parsing Jenkins flags.
 # CNI normalization and precedence: docs/guides/airgap-cluster-nodes.md.
 airgap_backslash_n: "\\n"

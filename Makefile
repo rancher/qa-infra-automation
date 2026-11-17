@@ -13,6 +13,8 @@ DISTRO       ?= rke2
 ENV          ?= default
 PROVIDER     ?= aws
 WORKSPACE     ?= default
+# S3 state key folder (backend-s3 default); the distros airgap flow overrides it to stay apart from Rancher airgap.
+STATE_NAME    ?= $(ENV)
 # Target inventory group for airgap cluster installs (e.g. rancher, downstream).
 # Leave empty to use each playbook's default (rancher).
 TARGET_GROUP  ?=
@@ -84,6 +86,7 @@ INVENTORY   := $(ANSIBLE_DIR)/inventory/inventory.yml
 
 # Environment-specific paths
 ifeq ($(ENV)/$(AIRGAP_WORKFLOW),airgap/distros)
+STATE_NAME          := airgap-distros
 ANSIBLE_DIR         := ansible/airgap
 GROUP_VARS          := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
 INVENTORY           := $(ANSIBLE_DIR)/inventory/inventory.yml
@@ -254,7 +257,7 @@ help: ## Show this help message
 	@echo "  make status                                 # Check current cluster"
 	@echo ""
 	@echo "Backend Configuration:"
-	@echo "  make backend-s3 BUCKET=my-bucket REGION=us-east-1   # KEY optional, defaults to <PROVIDER>/<ENV>/terraform.tfstate"
+	@echo "  make backend-s3 BUCKET=my-bucket REGION=us-east-1   # KEY optional, defaults to <PROVIDER>/<ENV>/terraform.tfstate (airgap-distros with AIRGAP_WORKFLOW=distros)"
 	@echo "  make backend-local PATH=terraform.tfstate"
 	@echo ""
 	@echo "Workspace Examples:"
@@ -361,10 +364,10 @@ backend-s3: ## Configure S3 backend (BUCKET= REGION= required; KEY= optional, de
 	@if [ -z "$(BUCKET)" ] || [ -z "$(REGION)" ]; then \
 		echo "Error: BUCKET and REGION are required"; \
 		echo "Usage: make backend-s3 BUCKET=my-bucket REGION=us-east-1 [KEY=<provider>/<env>/terraform.tfstate] [DYNAMODB_TABLE=table] [ENCRYPT=true]"; \
-		echo "  KEY is optional; if omitted it defaults to $(PROVIDER)/$(ENV)/terraform.tfstate so each ENV gets isolated state."; \
+		echo "  KEY is optional; if omitted it defaults to $(PROVIDER)/$(STATE_NAME)/terraform.tfstate so each ENV gets isolated state."; \
 		exit 1; \
 	fi
-	@key="$(if $(KEY),$(KEY),$(PROVIDER)/$(ENV)/terraform.tfstate)"; \
+	@key="$(if $(KEY),$(KEY),$(PROVIDER)/$(STATE_NAME)/terraform.tfstate)"; \
 	echo "Configuring S3 backend for $(TOFU_DIR) with key '$$key' ..."; \
 	cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh s3 --bucket "$(BUCKET)" --key "$$key" --region "$(REGION)" $(if $(DYNAMODB_TABLE),--dynamodb-table "$(DYNAMODB_TABLE)") $(if $(ENCRYPT),--encrypt "$(ENCRYPT)")
 
