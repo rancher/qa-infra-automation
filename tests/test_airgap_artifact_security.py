@@ -61,12 +61,23 @@ class RegistryConfigTests(unittest.TestCase):
                 self.assertIn("/tmp/auth:/auth:ro,Z", argv)
 
     def test_runtime_archive_is_not_an_image(self):
-        find = next(t for t in tasks("airgap_product_install") if "ansible.builtin.find" in t)
+        find = next(t for t in tasks("airgap_product_install") if t["name"].startswith("Find image tarballs"))
         for extension in ("tar.gz", "tar.zst"):
             pattern = template(find["ansible.builtin.find"]["patterns"], tarball_type=extension)
             self.assertFalse(fnmatch.fnmatch("rke2.linux-amd64.tar.gz", pattern))
             for image in ("rke2-images-core.linux-amd64", "k3s-airgap-images-arm64"):
                 self.assertTrue(fnmatch.fnmatch(f"{image}.{extension}", pattern))
+
+    def test_artifact_copy_names_every_file_instead_of_a_dot_source(self):
+        """OpenSSH < 9 (Ubuntu 22.04, RHEL 9) rejects a '<dir>/.' scp source as 'unexpected filename'."""
+        copy = next(t for t in tasks("airgap_product_install") if t["name"] == "Copy artifacts and install script from the bastion")
+        files = ["/opt/dtf-airgap/artifacts/k/k3s", "/opt/dtf-airgap/artifacts/k/k3s-install.sh"]
+        argv = yaml.safe_load(template(copy["ansible.builtin.command"]["argv"], airgap_node_key="/opt/k",
+                                       airgap_artifact_files={"files": [{"path": p} for p in reversed(files)]},
+                                       ansible_user="ubuntu", ansible_host="10.0.0.5", airgap_node_dir="/home/ubuntu/dtf-airgap"))
+        self.assertEqual(argv[-1], "ubuntu@10.0.0.5:/home/ubuntu/dtf-airgap/")
+        self.assertEqual([a for a in argv if a.startswith("/opt/dtf-airgap/")], files)
+        self.assertFalse(any(a == "." or a.endswith("/.") for a in argv), argv)
 
 
 @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook not available")

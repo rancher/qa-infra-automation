@@ -31,20 +31,23 @@
     owner: "{{ ansible_user }}"
   become: true
 
+- name: List the artifacts on the bastion
+  ansible.builtin.find:
+    paths: "{{ airgap_artifacts_dir }}"
+    file_type: file
+  delegate_to: "{{ airgap_bastion_host }}"
+  become: false
+  register: airgap_artifact_files
+  failed_when: airgap_artifact_files.files | length == 0
+
 # scp from the bastion with the ephemeral key minted in the bastion play (revoked at the end).
+# Name each file: OpenSSH < 9 (Ubuntu 22.04, RHEL 9) rejects a '<dir>/.' source as 'unexpected filename'.
 - name: Copy artifacts and install script from the bastion
   ansible.builtin.command:
-    argv:
-      - scp
-      - -r
-      - -o
-      - StrictHostKeyChecking=no
-      - -o
-      - UserKnownHostsFile=/dev/null
-      - -i
-      - "{{ airgap_node_key }}"
-      - "{{ airgap_artifacts_dir }}/."
-      - "{{ ansible_user }}@{{ ansible_host }}:{{ airgap_node_dir }}/"
+    argv: >-
+      {{ ['scp', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-i', airgap_node_key]
+         + (airgap_artifact_files.files | map(attribute='path') | sort | list)
+         + [ansible_user ~ '@' ~ ansible_host ~ ':' ~ airgap_node_dir ~ '/'] }}
   delegate_to: "{{ airgap_bastion_host }}"
   become: false
   changed_when: true
