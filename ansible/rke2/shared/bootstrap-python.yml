@@ -12,13 +12,12 @@
     dualstack_inventory: "{{ groups['all'] | map('extract', hostvars) | selectattr('ansible_host_ipv6', 'defined') | list | length > 0 }}"
 
   pre_tasks:
-    # This is the first play `make cluster` runs, so it hits nodes straight out
-    # of `infra-up` while sshd may still be coming up.
+    # First play after infra-up, so sshd may still be starting.
     - name: Wait for SSH to become available
-      ansible.builtin.wait_for_connection:
-        delay: 5
-        timeout: 300
-      become: false
+      ansible.builtin.include_tasks: wait-ssh.yml
+      vars:
+        ssh_wait_attempts: 60
+        ssh_wait_delay: 5
 
   tasks:
     - name: Check if Python 3.9+ exists

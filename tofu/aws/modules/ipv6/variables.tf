@@ -24,6 +24,11 @@ variable "aws_vpc" {}
 variable "aws_volume_size" {}
 variable "aws_volume_type" {}
 variable "aws_subnet" {}
+variable "aws_nlb_subnet" {
+  description = "Dual-stack (IPv4+IPv6 CIDR) subnet for the NLB; required when aws_subnet is IPv6-native."
+  type        = string
+  default     = null
+}
 variable "instance_type" {}
 variable "nodes" {
   description = "Configuration for product nodes."

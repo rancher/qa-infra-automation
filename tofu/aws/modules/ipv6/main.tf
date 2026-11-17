@@ -177,7 +177,7 @@ resource "aws_lb" "aws_nlb" {
   count              = local.cp_node_count > 1 ? 1 : 0
   internal           = false
   load_balancer_type = "network"
-  subnets            = [var.aws_subnet]
+  subnets            = [coalesce(var.aws_nlb_subnet, var.aws_subnet)]
   name               = "${var.aws_hostname_prefix}-nlb"
   # An IPv4-only NLB is unreachable from IPv6-only clients and cannot publish an AAAA record.
   ip_address_type = var.enable_ipv6 ? "dualstack" : "ipv4"
