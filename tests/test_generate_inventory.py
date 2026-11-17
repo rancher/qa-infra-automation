@@ -777,3 +777,37 @@ class TestWriteManifest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestInventoryInputErrors(unittest.TestCase):
+    META = {"kube_api_host": "h", "fqdn": "f", "ssh_user": "u"}
+
+    def test_node_without_name_raises_value_error(self):
+        data = {"metadata": self.META, "nodes": [{"roles": ["etcd"], "public_ip": "", "private_ip": "", "ipv6": ""}]}
+        for fn in (validate_dualstack, validate_cluster_nodes):
+            with self.assertRaisesRegex(ValueError, "'name'"):
+                fn(data)
+
+    def test_node_without_roles_raises_value_error(self):
+        data = {"metadata": self.META, "nodes": [{"name": "n", "public_ip": "", "private_ip": "", "ipv6": ""}]}
+        with self.assertRaisesRegex(ValueError, "'roles'"):
+            validate_dualstack(data)
+
+    def test_ipv6_env_rejects_nodes_without_ipv6_address(self):
+        data = {"metadata": self.META, "nodes": [{"name": "n", "roles": ["etcd"], "public_ip": "", "private_ip": "10.0.0.1", "ipv6": ""}]}
+        with self.assertRaisesRegex(ValueError, "enable_ipv6"):
+            generate_dualstack_inventory(data, IPV6_CFG)
+
+    def test_validation_error_is_reported_before_k3s_warning(self):
+        bad = {"type": "cluster_nodes", "metadata": self.META, "nodes": [{"roles": ["etcd"]}]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "in.json")
+            with open(path, "w") as f:
+                json.dump(bad, f)
+            argv = ["generate_inventory.py", "--input", path, "--distro", "k3s", "--env", "default", "--output-dir", tmpdir]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                generate_inventory, "warn_if_k3s_needs_datastore"
+            ) as warn:
+                with self.assertRaises(ValueError):
+                    generate_inventory.main()
+            self.assertFalse(warn.called)

@@ -72,15 +72,15 @@ def validate_cluster_nodes(data: dict) -> None:
 
     known_roles = {"etcd", "cp", "worker"}
     for node in data.get("nodes", []):
-        unknown = set(node.get("roles", [])) - known_roles
+        for field in ("name", "roles", "public_ip", "private_ip"):
+            if field not in node:
+                raise ValueError(f"Node missing required field '{field}': {node}")
+        unknown = set(node["roles"]) - known_roles
         if unknown:
             raise ValueError(
                 f"Node '{node['name']}' has unknown roles: {unknown}. "
                 f"Known roles: {known_roles}"
             )
-        for field in ("name", "roles", "public_ip", "private_ip"):
-            if field not in node:
-                raise ValueError(f"Node missing required field '{field}': {node}")
 
 def validate_dualstack(data: dict) -> None:
     """Validate the dual-stack / IPv6-only payload.
@@ -95,15 +95,15 @@ def validate_dualstack(data: dict) -> None:
 
     known_roles = {"etcd", "cp", "worker"}
     for node in data.get("nodes", []):
-        unknown = set(node.get("roles", [])) - known_roles
+        for field in ("name", "roles", "public_ip", "private_ip", "ipv6"):
+            if field not in node:
+                raise ValueError(f"Node missing required field '{field}': {node}")
+        unknown = set(node["roles"]) - known_roles
         if unknown:
             raise ValueError(
                 f"Node '{node['name']}' has unknown roles: {unknown}. "
                 f"Known roles: {known_roles}"
             )
-        for field in ("name", "roles", "public_ip", "private_ip", "ipv6"):
-            if field not in node:
-                raise ValueError(f"Node missing required field '{field}': {node}")
 
 
 def validate_airgap(data: dict) -> None:
@@ -324,7 +324,13 @@ def generate_dualstack_inventory(data: dict, schema_cfg: dict) -> str:
             node_to_group[n["name"]] = group_name
 
     def connect_ip(node: dict) -> str:
-        return node.get(ip_field) or node.get("ipv6", "")
+        ip = node.get(ip_field) or node.get("ipv6", "")
+        if not ip:
+            raise ValueError(
+                f"Node '{node['name']}' has no usable '{ip_field}' or 'ipv6' "
+                "address; is enable_ipv6 set on the tofu module?"
+            )
+        return ip
 
     for node in nodes:
         host_entry = {
@@ -493,10 +499,6 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Airgap payloads carry no 'nodes' key, so the etcd check would always warn.
-    if input_type != "airgap":
-        warn_if_k3s_needs_datastore(args.distro, data)
-
     if args.env in {"dualstack", "ipv6"}:
         if input_type not in {"cluster_nodes", "dualstack"}:
             print(
@@ -506,9 +508,11 @@ def main() -> None:
             )
             sys.exit(1)
         validate_dualstack(data)
+        warn_if_k3s_needs_datastore(args.distro, data)
         inventory_yaml = generate_dualstack_inventory(data, distro_schema)
     elif input_type == "cluster_nodes":
         validate_cluster_nodes(data)
+        warn_if_k3s_needs_datastore(args.distro, data)
         inventory_yaml = generate_cluster_nodes_inventory(data, distro_schema)
     elif input_type == "airgap":
         validate_airgap(data)
