@@ -1,28 +1,6 @@
 ---
-# Airgap K3s/RKE2 cluster: bastion prepares artifacts (and a registry), nodes
-# without internet are installed with the OFFICIAL install.sh in offline mode.
-#
-# Inventory contract (written by distros-test-framework, see README.md):
-#   groups: bastion (1 host, public IP), master (1), servers (0..n), workers (0..n)
-#   all.vars: ansible_user, ssh_private_key_file, ssh_key_name, bastion_host,
-#             bastion_public_dns, bastion_private_ip
-#   node hosts: ansible_host (private IP), ansible_ssh_common_args with a
-#               ProxyCommand through the bastion.
-#
-# Extra-vars contract (all strings unless noted):
-#   product (k3s|rke2)         kubernetes_version (vX.Y.Z+k3s1 / +rke2r1)
-#   arch (amd64|arm64)         airgap_method (tarball|private_registry|system_default_registry)
-#   tarball_type (tar.zst|tar.gz, default tar.zst)   image_registry_url (Prime base URL, optional)
-#   cni (rke2 only, e.g. "multus,canal")             server_flags / worker_flags (YAML scalars)
-#   kubeconfig_file (controller path for the fetched kubeconfig)
-#   airgap_facts_file (controller path for airgap-facts.json)
-#   registry_username / registry_password (private_registry only; pass via --extra-vars @secrets.json)
-#
-# Always run airgap-cleanup-keys.yml afterwards (DTF does): the ephemeral scp key is revoked
-# in the last plays here, but a host that failed earlier drops out of those plays.
-#
-# Every play keeps the inventory's ansible_ssh_common_args (no play-level override),
-# so private nodes stay reachable through the bastion ProxyCommand.
+# Inventory, inputs and mandatory key cleanup: docs/guides/airgap-cluster-nodes.md.
+# Preserve inventory SSH arguments so private nodes remain reachable via the bastion.
 
 - name: Validate the airgap scenario before touching any host
   hosts: localhost

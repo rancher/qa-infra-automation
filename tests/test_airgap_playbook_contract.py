@@ -125,10 +125,7 @@ class AirgapPlaybookStaticContractTests(unittest.TestCase):
                 self._assert_no_log_on_secret_tasks(task["block"], where)
                 continue
             text = json.dumps(task)
-            # Secrets by identifier: the registry password, the registered htpasswd output
-            # and every variable carrying kubeconfig *content* (airgap_kubeconfig,
-            # airgap_kubeconfig_raw, airgap_kubeconfig_fetched). Path-only references
-            # (kubectl --kubeconfig <path>, file state=absent, mounting /auth) may log.
+            # Require no_log for secret values and kubeconfig content; path-only references may log.
             secret_ids = ("registry_password", "airgap_htpasswd", "airgap_kubeconfig")
             if any(sid in text for sid in secret_ids):
                 self.assertTrue(task.get("no_log"), f"{where}: task {task.get('name')!r} touches a secret without no_log")

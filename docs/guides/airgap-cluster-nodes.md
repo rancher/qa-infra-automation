@@ -92,6 +92,20 @@ Artifacts are cached on the bastion under
 `/opt/dtf-airgap/artifacts/<product>-<version>-<arch>-<community|prime>-<tar.zst|tar.gz|lists>-<cni key>/`
 with a `manifest.json`; changing the CNI, format or origin selects another directory.
 
+Jenkins flags may contain literal `\n` separators. The roles convert these to
+newlines before parsing YAML, so quoted CNI strings and YAML lists normalize
+consistently. YAML-defined escape helpers avoid Jinja block-scalar differences
+in Ansible 2.19. Compound CNIs remain distinct cache keys (`multus,canal` differs
+from `canal`).
+
+### Egress probe
+
+Nodes are probed by IP with TLS verification disabled. A curl timeout (exit 28),
+or exit 7 with `Network is unreachable` / `No route to host`, proves the probe
+could not reach its destination. `Connection refused`, successful responses,
+and TLS/HTTP errors do not prove isolation. The roles also reject global IPv6
+addresses on nodes.
+
 ### `airgap-facts.json`
 
 Written by the last play (paths and hostnames only, never credentials):

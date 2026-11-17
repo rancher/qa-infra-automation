@@ -1,7 +1,5 @@
 ---
-# TLS registry on the bastion, run with podman (works on Ubuntu, SLES and RHEL
-# bastions; replaces legacy private_registry.sh / system_default_registry.sh).
-# Mode "private" adds htpasswd basic auth.
+# The bastion registry uses TLS; private mode also requires htpasswd authentication.
 airgap_bastion_dir: /opt/dtf-airgap
 airgap_registry_mode: "{{ 'private' if airgap_method == 'private_registry' else 'system_default' }}"
 # Hostname clients use; must match the certificate SAN. Inside the VPC the EC2

@@ -73,10 +73,8 @@ DOWNSTREAM_TFVARS ?= tofu/rancher/cluster/vars.tfvars
 # outputs live elsewhere.
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 
-# Opt-in: AIRGAP_WORKFLOW=distros selects the distros QA airgap flow (K3s/RKE2
-# private nodes + bastion from cluster_nodes, installed offline by
-# ansible/airgap/airgap-playbook.yml, see docs/guides/airgap-cluster-nodes.md).
-# Only honored with ENV=airgap; the Rancher airgap flow stays the default.
+# ENV=airgap AIRGAP_WORKFLOW=distros opts into K3s/RKE2 offline installs.
+# The Rancher flow remains the default; see docs/guides/airgap-cluster-nodes.md.
 AIRGAP_WORKFLOW ?=
 
 # Derived paths

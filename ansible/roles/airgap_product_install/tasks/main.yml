@@ -1,7 +1,6 @@
 ---
-# By IP with TLS verification off. Proof of no egress: a timeout (curl rc 28) or rc 7 with
-# "Network is unreachable"/"No route to host" (subnet without any default route). rc 7 with
-# "Connection refused" means a host answered; rc 0 or a TLS/HTTP error means it got through.
+# Only timeout or no-route errors prove no egress; refused connections still reached a host.
+# Probe interpretation: docs/guides/airgap-cluster-nodes.md.
 - name: Probe internet egress by IP (airgap precondition)
   ansible.builtin.command:
     argv: [sh, -c, "msg=$(curl -k -sS --max-time 5 -o /dev/null https://140.82.112.3/ 2>&1 >/dev/null); echo \"rc=$? $msg\""]

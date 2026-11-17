@@ -327,11 +327,8 @@ resource "aws_instance" "node" {
   }
 }
 
-# Bastion: the single public entry point of an airgap run. Same subnet, SG and
-# key as the nodes; downloads artifacts and hosts the registry for them.
-# Airgap precondition: the subnet's effective route table (explicit association, else the
-# VPC main table) may only send default traffic to an internet gateway, which private
-# nodes cannot use; NAT, TGW, peering, egress-only IGW etc. would give them a way out.
+# Inspect the effective subnet route table so NAT or other gateways cannot bypass isolation.
+# Topology and preconditions: docs/guides/airgap-cluster-nodes.md.
 data "aws_route_tables" "airgap_subnet_assoc" {
   count  = var.airgap_setup ? 1 : 0
   vpc_id = local.vpc_id
@@ -363,9 +360,7 @@ data "aws_subnet" "airgap" {
 }
 
 locals {
-  # IPv4 default traffic may only point at an IGW (useless without a public IP). An IPv6
-  # default route is egress only if the nodes can get an IPv6 address, i.e. the subnet
-  # auto-assigns one (the provider sends no ipv6_address_count=0, so the subnet decides).
+  # An IGW cannot route private IPv4; subnet IPv6 auto-assignment can bypass that isolation.
   airgap_subnet_assigns_ipv6 = var.airgap_setup ? data.aws_subnet.airgap[0].assign_ipv6_address_on_creation : false
   airgap_egress_routes = var.airgap_setup ? [
     for r in data.aws_route_table.airgap_subnet[0].routes : r

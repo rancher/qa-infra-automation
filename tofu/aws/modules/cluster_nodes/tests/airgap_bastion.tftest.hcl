@@ -1,6 +1,4 @@
-# Contract tests for the optional bastion and the airgap outputs.
-# Run from the module dir: tofu init -backend=false && tofu test
-# Providers are mocked, so no AWS credentials or resources are involved.
+# Mocked providers: no AWS credentials or resources; run tofu init -backend=false && tofu test.
 
 mock_provider "aws" {
   mock_data "aws_vpc" {

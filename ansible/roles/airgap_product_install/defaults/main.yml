@@ -27,11 +27,8 @@ airgap_registry_mode: "{{ hostvars[airgap_bastion_host]['airgap_registry_mode_fa
 airgap_registry_host: "{{ hostvars[airgap_bastion_host]['airgap_registry_host_fact'] | default('') }}"
 airgap_artifacts_dir: "{{ hostvars[airgap_bastion_host]['airgap_artifacts_dir_fact'] }}"
 airgap_node_key: "{{ airgap_bastion_dir }}/.ssh/node_key"
-# Effective CNI (RKE2): the cni extra-var, else the "cni:" line of server_flags.
-# server_flags are YAML lines joined by a literal "\n": parse them as YAML so quoted and
-# list values ("canal", 'canal', [multus, canal]) are read the same way everywhere.
-# Jinja string escapes are not reliable in Ansible 2.19 block scalars; these YAML-defined
-# helpers hold a literal backslash-n and a real newline for the flags conversion.
+# YAML-defined escapes avoid Jinja block-scalar differences when parsing Jenkins flags.
+# CNI normalization and precedence: docs/guides/airgap-cluster-nodes.md.
 airgap_backslash_n: "\\n"
 airgap_newline: "\n"
 airgap_flags_yaml: >-

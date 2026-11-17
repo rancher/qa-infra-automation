@@ -1,7 +1,6 @@
 ---
-# Best-effort revocation of the ephemeral scp key minted by airgap-playbook.yml.
-# Run it after every airgap-playbook.yml invocation, successful or not: hosts that
-# failed mid-install are skipped by the main playbook's final plays. Never fails.
+# Always revoke ephemeral scp keys after airgap-playbook.yml: failed hosts skip its final plays.
+# Cleanup is best-effort; see docs/guides/airgap-cluster-nodes.md.
 - name: Revoke the ephemeral key on the nodes
   hosts: master,servers,workers
   become: true
