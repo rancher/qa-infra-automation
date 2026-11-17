@@ -32,24 +32,47 @@ variables {
   enable_public_ip    = false
   no_of_bastion_nodes = 1
   aws_bastion_subnet  = "subnet-bastion"
-  nodes               = [{ count = 2, role = ["etcd", "cp", "worker"] }]
+  # Pinned so a local terraform.tfvars, which tofu test also loads, cannot leak in.
+  kube_api_host_ipv6 = false
+  aws_nlb_subnet     = null
+  nodes              = [{ count = 2, role = ["etcd", "cp", "worker"] }]
 }
 
-run "dual_stack_subnet_keeps_ipv4_instance_targets" {
+run "no_nlb_subnet_skips_lookups_and_keeps_instance_targets" {
   command = apply
 
+  assert {
+    condition     = length(data.aws_subnet.nodes) == 0 && length(data.aws_subnet.nlb) == 0
+    error_message = "Without aws_nlb_subnet the module must not need ec2:DescribeSubnets."
+  }
+  assert {
+    condition     = aws_lb_target_group.aws_tg_6443[0].target_type == "instance" && aws_lb_target_group.aws_tg_6443[0].ip_address_type == "ipv4"
+    error_message = "Existing callers must keep the instance/ipv4 target groups."
+  }
+  assert {
+    condition     = alltrue([for a in aws_lb_target_group_attachment.aws_tg_attachment_6443 : a.target_id == "i-0123456789abcdef0"])
+    error_message = "Existing callers must register targets by instance ID."
+  }
+}
+
+run "dual_stack_nodes_subnet_keeps_instance_targets" {
+  command = apply
+
+  variables {
+    aws_nlb_subnet = "subnet-nlb"
+  }
   override_data {
     target = data.aws_subnet.nodes
+    values = { ipv6_native = false, availability_zone = "us-west-1a" }
+  }
+  override_data {
+    target = data.aws_subnet.nlb
     values = { ipv6_native = false, availability_zone = "us-west-1a" }
   }
 
   assert {
     condition     = aws_lb_target_group.aws_tg_6443[0].target_type == "instance" && aws_lb_target_group.aws_tg_6443[0].ip_address_type == "ipv4"
-    error_message = "Dual-stack subnets must keep the existing instance/ipv4 target groups."
-  }
-  assert {
-    condition     = alltrue([for a in aws_lb_target_group_attachment.aws_tg_attachment_6443 : a.target_id == "i-0123456789abcdef0"])
-    error_message = "Dual-stack subnets must register targets by instance ID."
+    error_message = "A dual-stack aws_subnet must keep instance/ipv4 targets."
   }
 }
 
@@ -83,12 +106,22 @@ run "ipv6_native_subnet_registers_ipv6_addresses" {
   }
 }
 
-run "ipv6_native_subnet_requires_nlb_subnet" {
+run "ipv6_native_subnet_requires_enable_ipv6" {
   command = plan
 
+  variables {
+    aws_nlb_subnet      = "subnet-nlb"
+    enable_ipv6         = false
+    enable_public_ip    = true
+    no_of_bastion_nodes = 0
+  }
   override_data {
     target = data.aws_subnet.nodes
     values = { ipv6_native = true, availability_zone = "us-west-1a" }
+  }
+  override_data {
+    target = data.aws_subnet.nlb
+    values = { ipv6_native = false, availability_zone = "us-west-1a" }
   }
 
   expect_failures = [aws_lb.aws_nlb]

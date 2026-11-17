@@ -7,6 +7,9 @@
 aws_region          = "region"
 aws_vpc             = "vpc"
 aws_subnet          = "subnet"
+# Multi-cp on an IPv6-native aws_subnet only: a dual-stack subnet in the same AZ for the NLB.
+# See README "Load balancer on IPv6-native subnets".
+# aws_nlb_subnet    = "subnet-dualstack"
 aws_security_group  = ["sg"]
 
 # DNS settings/hosted zone: 

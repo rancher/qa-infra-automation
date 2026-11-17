@@ -193,9 +193,10 @@ resource "aws_lb" "aws_nlb" {
   ip_address_type = var.enable_ipv6 ? "dualstack" : "ipv4"
 
   lifecycle {
+    # An IPv4 NLB cannot forward to the ipv6 target groups an IPv6-native subnet needs.
     precondition {
-      condition     = !local.ipv6_native_nodes || var.aws_nlb_subnet != null
-      error_message = "aws_subnet is IPv6-native, so the NLB needs aws_nlb_subnet: a dual-stack (IPv4+IPv6) subnet in the same AZ."
+      condition     = !local.ipv6_native_nodes || var.enable_ipv6
+      error_message = "aws_subnet is IPv6-native, so enable_ipv6 must be true for the NLB to reach the control-plane nodes."
     }
     # NLB nodes only send traffic to targets in AZs the NLB is enabled in.
     precondition {
@@ -205,9 +206,9 @@ resource "aws_lb" "aws_nlb" {
   }
 }
 
-# Looked up only when an NLB is built, so single-cp runs need no extra EC2 read permission.
+# Read only when aws_nlb_subnet is set, so existing callers need no ec2:DescribeSubnets.
 data "aws_subnet" "nodes" {
-  count = local.cp_node_count > 1 ? 1 : 0
+  count = local.cp_node_count > 1 && var.aws_nlb_subnet != null ? 1 : 0
   id    = var.aws_subnet
 }
 

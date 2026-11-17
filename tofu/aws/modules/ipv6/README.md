@@ -119,9 +119,11 @@ are unaffected.
 
 With two or more `cp` nodes the module builds an NLB, which needs a subnet with both IPv4 and
 IPv6 CIDRs. When `aws_subnet` is IPv6-native (no IPv4 CIDR), set `aws_nlb_subnet` to a dual-stack
-subnet in the **same availability zone**. The module then registers the control-plane nodes by
-IPv6 address in IPv6 target groups. Plan fails early if `aws_nlb_subnet` is missing or in another AZ.
-Multi-cp runs read the subnets, so the credentials need `ec2:DescribeSubnets`.
+subnet in the **same availability zone**, and keep `enable_ipv6 = true`. The module then reads both
+subnets (credentials need `ec2:DescribeSubnets`) and registers the control-plane nodes by IPv6
+address in IPv6 target groups. Plan fails early if the NLB subnet is in another AZ or
+`enable_ipv6` is false. Without `aws_nlb_subnet` nothing is looked up and the NLB uses
+`aws_subnet`; AWS rejects that at apply when the subnet is IPv6-native.
 
 ## Outputs
 

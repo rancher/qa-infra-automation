@@ -8,7 +8,8 @@ MODULES = os.path.join(os.path.dirname(__file__), "..", "tofu", "aws", "modules"
 class TestIPv6ModuleMatchesDualstack(unittest.TestCase):
     # modules/ipv6 is a path consumers source directly, so it stays a copy.
     def test_tf_files_are_identical(self):
-        for name in ("main.tf", "variables.tf", "outputs.tf", "terraform.tf"):
+        tests = [os.path.join("tests", n) for n in ("nlb_targets.tftest.hcl", "variables.tftest.hcl", os.path.join("fixtures", "test.pub"))]
+        for name in ("main.tf", "variables.tf", "outputs.tf", "terraform.tf", *tests):
             self.assertTrue(
                 filecmp.cmp(
                     os.path.join(MODULES, "dualstack", name),
