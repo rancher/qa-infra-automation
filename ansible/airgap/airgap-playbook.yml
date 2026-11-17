@@ -65,10 +65,18 @@
 - name: Prepare the bastion (tools, artifacts, registry)
   hosts: bastion
   become: true
-  gather_facts: true
+  gather_facts: false
   vars:
     airgap_node_key: "{{ airgap_bastion_dir | default('/opt/dtf-airgap') }}/.ssh/node_key"
   pre_tasks:
+    # First contact right after tofu apply: slow-booting images (SLES) refuse SSH for a while.
+    - name: Wait for SSH on the new bastion
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+      become: false
+    - name: Gather facts
+      ansible.builtin.setup:
     # The account PEM never lands on the bastion. A throwaway ed25519 key pair is minted here,
     # authorized on the nodes for the artifact scp, and deleted again in the last play.
     - name: Create the bastion .ssh dir for the ephemeral node key

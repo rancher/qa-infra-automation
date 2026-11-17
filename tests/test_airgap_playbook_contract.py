@@ -92,6 +92,15 @@ class AirgapPlaybookStaticContractTests(unittest.TestCase):
         self.assertEqual(revoke["hosts"], "master,servers,workers")
         self.assertEqual(revoke["tasks"][0]["ansible.posix.authorized_key"]["state"], "absent")
 
+    def test_bastion_play_waits_for_ssh_before_gathering_facts(self):
+        """A bastion that has just booted (SLES) refuses SSH; fact gathering must not be the first contact."""
+        bastion = self.plays[1]
+        self.assertEqual(bastion["hosts"], "bastion")
+        self.assertIs(bastion.get("gather_facts"), False)
+        first, second = bastion["pre_tasks"][:2]
+        self.assertIn("ansible.builtin.wait_for_connection", first)
+        self.assertIn("ansible.builtin.setup", second)
+
     def test_cleanup_playbook_is_best_effort_on_every_host(self):
         """Hosts that failed mid-install are gone from the main playbook's last plays."""
         plays = _load(CLEANUP_PLAYBOOK)
