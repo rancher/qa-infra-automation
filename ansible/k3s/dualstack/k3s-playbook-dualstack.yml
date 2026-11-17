@@ -133,14 +133,15 @@
       run_once: true
       become: false
 
-    # Prefer a real fqdn, as the default k3s playbook does; IPv6 literals need brackets.
+    # Not the fqdn: with kube_api_host_ipv6 it is AAAA-only, unreachable from IPv4-only
+    # controllers. Use the cp node's ansible_host (public IPv4), as rke2 dualstack does.
     - name: Update kubeconfig server address
       ansible.builtin.lineinfile:
         path: "{{ playbook_dir }}/kubeconfig.yaml"
         regexp: '^\s*server:\s+https://[^\s]+'
         line: "    server: https://{{ ('[' ~ _host ~ ']') if ':' in _host else _host }}:6443"
       vars:
-        _host: "{{ fqdn | default(hostvars['localhost'].kube_api_apiserver_host, true) }}"
+        _host: "{{ hostvars['localhost'].kube_api_apiserver_host }}"
       delegate_to: localhost
       run_once: true
       become: false

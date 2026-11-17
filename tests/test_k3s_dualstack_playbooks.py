@@ -96,6 +96,22 @@ class TestEndpointResolution(unittest.TestCase):
         facts = self._localhost_facts("ipv6", "", env={"KUBE_API_HOST": "2001:db8::99"})
         self.assertEqual(facts["kube_api_host"], "2001:db8::99")
 
+    def test_dualstack_kubeconfig_uses_cp_ipv4_not_fqdn(self):
+        # IPv6-first runs publish an AAAA-only fqdn that IPv4-only controllers cannot dial.
+        import jinja2
+
+        with open(PLAYBOOKS["dualstack"], encoding="utf-8") as handle:
+            plays = yaml.safe_load(handle)
+        task = next(
+            t for play in plays for t in play.get("tasks", [])
+            if t.get("name") == "Update kubeconfig server address"
+        )
+        host = jinja2.Environment().from_string(task["vars"]["_host"]).render(
+            fqdn="api.example.test",
+            hostvars={"localhost": {"kube_api_apiserver_host": "203.0.113.11"}},
+        )
+        self.assertEqual(host, "203.0.113.11")
+
     def test_playbooks_pass_syntax_check(self):
         for name, playbook in PLAYBOOKS.items():
             with self.subTest(env=name), tempfile.TemporaryDirectory() as tmpdir:
