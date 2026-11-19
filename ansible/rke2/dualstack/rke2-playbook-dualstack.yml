@@ -35,6 +35,14 @@
       ansible.builtin.set_fact:
         fqdn: "{{ lookup('env', 'FQDN') | default(fqdn | default(''), true) | default(kube_api_host, true) }}"
 
+    # An etcd-only master runs no apiserver, so the health check targets a cp node.
+    - name: Resolve the health check host
+      ansible.builtin.add_host:
+        name: "{{ _dualstack_cp_hosts | first }}"
+        groups: rke2_health_check
+      changed_when: false
+      tags: ['always']
+
     # The API server runs on cp nodes, which may exclude an etcd-only master.
     - name: Resolve the kubeconfig API endpoint
       ansible.builtin.set_fact:
@@ -213,7 +221,7 @@
         rke2_kubeconfig_dest: "./kubeconfig.yaml"
       tags: ['cluster', 'rke2']
 
-- hosts: master
+- hosts: rke2_health_check
   name: Check RKE2 cluster health
   become: true
   gather_facts: false
@@ -241,7 +249,9 @@
   vars:
     # IPv6 literals must be bracketed in the kubeconfig server URL.
     _kubeconfig_server: >-
-      {{ '[' ~ kubeconfig_api_host ~ ']' if ':' in kubeconfig_api_host else kubeconfig_api_host }}
+      {{ '[' ~ kubeconfig_api_host ~ ']'
+         if ':' in kubeconfig_api_host and not kubeconfig_api_host.startswith('[')
+         else kubeconfig_api_host }}
   tasks:
     - name: Format server address in local kubeconfig
       ansible.builtin.replace:

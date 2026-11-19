@@ -109,7 +109,7 @@ Before running the playbook, ensure you have the following in addition to the [g
 **Via Makefile (recommended)** — run from the repository root:
 
 ```bash
-make cluster ENV=dualstack
+make cluster ENV=ipv6
 ```
 
 **Manually** — run from the repository root:
@@ -145,7 +145,7 @@ ansible-playbook -i ansible/rke2/ipv6/inventory/inventory.yml ansible/rke2/ipv6/
 
 ## Inventory
 
-The inventory file is generated automatically by `make infra-up` at `ansible/rke2/dualstack/inventory/inventory.yml`.
+The inventory file is generated automatically by `make infra-up` at `ansible/rke2/ipv6/inventory/inventory.yml`.
 For manual setup, see [QUICKSTART.md](./QUICKSTART.md) for the expected inventory structure.
 
 ## Sample `vars.yaml`

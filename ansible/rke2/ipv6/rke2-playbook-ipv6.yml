@@ -36,6 +36,14 @@
       ansible.builtin.set_fact:
         fqdn: "{{ lookup('env', 'FQDN') | default(fqdn | default(''), true) | default(kube_api_host, true) }}"
 
+    # An etcd-only master runs no apiserver, so the health check targets a cp node.
+    - name: Resolve the health check host
+      ansible.builtin.add_host:
+        name: "{{ _ipv6_cp_hosts | first }}"
+        groups: rke2_health_check
+      changed_when: false
+      tags: ['always']
+
     # The API server runs on cp nodes, which may exclude an etcd-only master.
     - name: Resolve the kubeconfig API endpoint
       ansible.builtin.set_fact:
@@ -215,7 +223,7 @@
         rke2_kubeconfig_dest: "./kubeconfig.yaml"
       tags: ['cluster', 'rke2']
 
-- hosts: master
+- hosts: rke2_health_check
   name: Check RKE2 cluster health
   become: true
   gather_facts: false
@@ -240,12 +248,18 @@
   name: Format local kubeconfig for IPv6
   connection: local
   gather_facts: false
+  vars:
+    # Bracket only a bare IPv6 literal; DNS names and pre-bracketed values pass through.
+    _kubeconfig_server: >-
+      {{ '[' ~ kubeconfig_api_host ~ ']'
+         if ':' in kubeconfig_api_host and not kubeconfig_api_host.startswith('[')
+         else kubeconfig_api_host }}
   tasks:
     - name: Add brackets to IPv6 server address in local kubeconfig
       ansible.builtin.replace:
         path: "{{ playbook_dir }}/kubeconfig.yaml"
         regexp: 'server: https://.*:6443'
-        replace: 'server: https://[{{ kubeconfig_api_host }}]:6443'
+        replace: 'server: https://{{ _kubeconfig_server }}:6443'
 
 - hosts: bastion
   name: Copy kubeconfig to bastion node

@@ -14,7 +14,7 @@ INVENTORY = {"all": {"vars": {"kube_api_host": "inventory.example", "fqdn": "inv
 
 @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook not installed")
 class TestEndpointOverrides(unittest.TestCase):
-    def _run(self, playbook, env):
+    def _run(self, playbook, env, inventory=INVENTORY, extra=None, args=()):
         """Run only the localhost resolution play and return its facts."""
         with open(os.path.join(ROOT, playbook)) as f:
             plays = yaml.safe_load(f)
@@ -22,14 +22,15 @@ class TestEndpointOverrides(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             dest = os.path.join(tmp, "out.json")
             play["tasks"].append({"ansible.builtin.copy": {"dest": dest, "content": json.dumps(
-                {"k": "{{ kube_api_host }}", "f": "{{ fqdn }}", "c": "{{ kubeconfig_api_host }}"})}})
+                extra or {"k": "{{ kube_api_host }}", "f": "{{ fqdn }}", "c": "{{ kubeconfig_api_host }}"})},
+                "tags": ["always"]})
             with open(os.path.join(tmp, "pb.yml"), "w") as f:
                 yaml.safe_dump([play], f)
             with open(os.path.join(tmp, "vars.yaml"), "w") as f:
                 f.write("kubernetes_version: v1.30.0\n")
             with open(os.path.join(tmp, "inv.yml"), "w") as f:
-                yaml.safe_dump(INVENTORY, f)
-            out = subprocess.run(["ansible-playbook", "-i", os.path.join(tmp, "inv.yml"), os.path.join(tmp, "pb.yml")],
+                yaml.safe_dump(inventory, f)
+            out = subprocess.run(["ansible-playbook", "-i", os.path.join(tmp, "inv.yml"), os.path.join(tmp, "pb.yml"), *args],
                                  capture_output=True, text=True, env={**os.environ, **env}, timeout=120)
             self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
             with open(dest) as f:
@@ -40,6 +41,31 @@ class TestEndpointOverrides(unittest.TestCase):
         for pb in ("dualstack/rke2-playbook-dualstack.yml", "ipv6/rke2-playbook-ipv6.yml"):
             got = self._run(pb, env)
             self.assertEqual((got["k"], got["f"], got["c"]), ("lb.example", "cluster.example", "lb.example"), pb)
+
+    def test_health_check_targets_a_cp_node_not_an_etcd_only_master(self):
+        inventory = json.loads(json.dumps(INVENTORY))
+        inventory["all"]["children"]["master"]["hosts"]["master"]["node_roles"] = ["etcd"]
+        inventory["all"]["children"]["servers"] = {"hosts": {"cp-0": {
+            "ansible_connection": "local", "ansible_host": "2001:db8::2", "ansible_host_ipv6": "2001:db8::2", "node_roles": ["cp"]}}}
+        for pb in ("dualstack/rke2-playbook-dualstack.yml", "ipv6/rke2-playbook-ipv6.yml"):
+            # --tags health alone must still resolve the host the health play targets.
+            got = self._run(pb, {}, inventory, {"h": "{{ groups['rke2_health_check'] | join(',') }}"}, ("--tags", "health"))
+            self.assertEqual(got["h"], "cp-0", pb)
+            with open(os.path.join(ROOT, pb)) as f:
+                health = next(p for p in yaml.safe_load(f) if p.get("name") == "Check RKE2 cluster health")
+            self.assertEqual(health["hosts"], "rke2_health_check", pb)
+
+    def test_kubeconfig_server_brackets_only_bare_ipv6(self):
+        from jinja2 import Environment
+
+        cases = {"2001:db8::1": "[2001:db8::1]", "[2001:db8::1]": "[2001:db8::1]",
+                 "lb.example": "lb.example", "203.0.113.10": "203.0.113.10"}
+        for pb in ("dualstack/rke2-playbook-dualstack.yml", "ipv6/rke2-playbook-ipv6.yml"):
+            with open(os.path.join(ROOT, pb)) as f:
+                play = next(p for p in yaml.safe_load(f) if p.get("name", "").startswith("Format local kubeconfig"))
+            tmpl = Environment().from_string(play["vars"]["_kubeconfig_server"])
+            for host, want in cases.items():
+                self.assertEqual(tmpl.render(kubeconfig_api_host=host).strip(), want, f"{pb}: {host}")
 
     def test_node_plays_take_localhost_facts_unconditionally(self):
         for pb in ("dualstack/rke2-playbook-dualstack.yml", "ipv6/rke2-playbook-ipv6.yml"):
