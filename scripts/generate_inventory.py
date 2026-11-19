@@ -222,6 +222,25 @@ def node_role_label(node: dict, group: str | None) -> str:
     return "agent"
 
 
+def make_host_key(nodes: list[dict], groups_cfg: dict):
+    """Return a node-name -> host-name mapper that avoids host/group name clashes,
+    which Ansible warns about."""
+    group_names = set(groups_cfg)
+    existing_names = {node["name"] for node in nodes}
+    host_name_map: dict[str, str] = {}
+    for name in existing_names:
+        if name not in group_names:
+            continue
+        candidate = f"{name}-node"
+        suffix = 1
+        while candidate in existing_names or candidate in group_names or candidate in host_name_map.values():
+            suffix += 1
+            candidate = f"{name}-node-{suffix}"
+        host_name_map[name] = candidate
+
+    return lambda node_name: host_name_map.get(node_name, node_name)
+
+
 def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
     """Generate inventory YAML for cluster_nodes input type."""
     metadata = data["metadata"]
@@ -256,22 +275,7 @@ def generate_cluster_nodes_inventory(data: dict, schema_cfg: dict) -> str:
         for n in group_nodes:
             node_to_group[n["name"]] = group_name
 
-    # Ansible warns against host and group sharing the same name.
-    group_names = set(groups_cfg)
-    existing_names = {node["name"] for node in nodes}
-    host_name_map: dict[str, str] = {}
-    for name in existing_names:
-        if name not in group_names:
-            continue
-        candidate = f"{name}-node"
-        suffix = 1
-        while candidate in existing_names or candidate in group_names or candidate in host_name_map.values():
-            suffix += 1
-            candidate = f"{name}-node-{suffix}"
-        host_name_map[name] = candidate
-
-    def host_key(node_name: str) -> str:
-        return host_name_map.get(node_name, node_name)
+    host_key = make_host_key(nodes, groups_cfg)
 
     # Add all nodes to the 'all' hosts section
     for node in nodes:
@@ -334,10 +338,15 @@ def generate_dualstack_inventory(data: dict, schema_cfg: dict) -> str:
 
     groups = build_groups(nodes, groups_cfg)
 
+    # The proxy hop uses the same key as the node; without one it falls back to the agent.
+    proxy_key_args = (
+        "{{ ('-i ' ~ ansible_ssh_private_key_file ~ ' " + SSH_IDENTITIES_ONLY + "') "
+        "if ansible_ssh_private_key_file is defined else '' }}"
+    )
     # %h is bracketed so the ProxyCommand can parse IPv6 node addresses.
     if bastion_ip:
         common_args = (
-            "-o ProxyCommand='ssh -i {{ ansible_ssh_private_key_file }} -W \"[%h]:%p\" "
+            f"-o ProxyCommand='ssh {proxy_key_args} -W \"[%h]:%p\" "
             "{{ bastion_user }}@{{ bastion_host }} "
             "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' "
             "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -374,7 +383,9 @@ def generate_dualstack_inventory(data: dict, schema_cfg: dict) -> str:
 
     if default_key:
         inventory["all"]["vars"]["ansible_ssh_private_key_file"] = default_key
+        inventory["all"]["vars"]["ansible_ssh_extra_args"] = SSH_IDENTITIES_ONLY
 
+    host_key = make_host_key(nodes, groups_cfg)
     node_to_group: dict[str, str] = {}
     for group_name, group_nodes in groups.items():
         for n in group_nodes:
@@ -400,17 +411,18 @@ def generate_dualstack_inventory(data: dict, schema_cfg: dict) -> str:
         node_key = node.get("ssh_private_key")
         if node_key:
             host_entry["ansible_ssh_private_key_file"] = node_key
+            host_entry["ansible_ssh_extra_args"] = SSH_IDENTITIES_ONLY
         elif default_key:
             host_entry["ansible_ssh_private_key_file"] = default_key
 
-        inventory["all"]["hosts"][node["name"]] = host_entry
+        inventory["all"]["hosts"][host_key(node["name"])] = host_entry
 
     for group_name, group_nodes in groups.items():
         if not group_nodes:
             continue
         inventory["all"]["children"][group_name] = {
             "hosts": {
-                node["name"]: {
+                host_key(node["name"]): {
                     "ansible_host": connect_ip(node),
                     "ansible_host_ipv6": node.get("ipv6", ""),
                 }

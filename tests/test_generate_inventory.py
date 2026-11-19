@@ -185,8 +185,8 @@ class TestGenerateDualstackInventory(unittest.TestCase):
         cfg = {"ip_field": "public_ip", "groups": {"master": {"roles": ["etcd"], "first_only": True}, "servers": {"roles": ["cp", "etcd"]}, "workers": {"roles": ["worker"]}}}
         result = yaml.safe_load(generate_dualstack_inventory(data, cfg))
 
-        self.assertEqual(result["all"]["hosts"]["master"]["ansible_host"], "203.0.113.10")
-        self.assertEqual(result["all"]["hosts"]["master"]["ansible_host_ipv6"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host"], "203.0.113.10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host_ipv6"], "2001:db8::10")
         self.assertNotIn("bastion_host", result["all"]["vars"])
         self.assertNotIn("bastion-node", result["all"]["children"].get("bastion", {}).get("hosts", {}))
 
@@ -209,8 +209,8 @@ class TestGenerateDualstackInventory(unittest.TestCase):
         cfg = {"ip_field": "public_ip", "groups": {"master": {"roles": ["etcd"], "first_only": True}, "servers": {"roles": ["cp", "etcd"]}, "workers": {"roles": ["worker"]}}}
         result = yaml.safe_load(generate_dualstack_inventory(data, cfg))
 
-        self.assertEqual(result["all"]["hosts"]["master"]["ansible_host"], "2001:db8::10")
-        self.assertEqual(result["all"]["hosts"]["master"]["ansible_host_ipv6"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host_ipv6"], "2001:db8::10")
 
     def test_dualstack_bastion_inventory_includes_proxy_details(self):
         data = {
@@ -263,9 +263,9 @@ class TestGenerateIPv6Inventory(unittest.TestCase):
         result = yaml.safe_load(generate_dualstack_inventory(data, IPV6_CFG))
 
         self.assertEqual(result["all"]["vars"]["kube_api_host"], "2001:db8::10")
-        self.assertEqual(result["all"]["hosts"]["master"]["ansible_host"], "2001:db8::10")
-        self.assertEqual(result["all"]["hosts"]["master"]["ansible_host_ipv6"], "2001:db8::10")
-        self.assertEqual(result["all"]["children"]["master"]["hosts"]["master"]["ansible_host"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host_ipv6"], "2001:db8::10")
+        self.assertEqual(result["all"]["children"]["master"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
         self.assertEqual(result["all"]["hosts"]["worker-0"]["rke2_node_role"], "agent")
 
     def test_ipv6_only_inventory_has_no_bastion_group_without_bastion(self):
@@ -305,7 +305,50 @@ class TestGenerateIPv6Inventory(unittest.TestCase):
         # IPv6 node addresses only parse in a ProxyCommand when %h is bracketed.
         self.assertIn('-W "[%h]:%p"', result["all"]["vars"]["ansible_ssh_common_args"])
         self.assertIn("bastion-node", result["all"]["children"]["bastion"]["hosts"])
-        self.assertEqual(result["all"]["hosts"]["master"]["ansible_host"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+
+    def test_bastion_proxy_uses_key_with_identities_only(self):
+        data = self._bastion_payload()
+        data["metadata"]["ssh_private_key"] = "/keys/id"
+        data["nodes"][1]["ssh_private_key"] = "/keys/worker"
+
+        result = yaml.safe_load(generate_dualstack_inventory(data, IPV6_CFG))
+
+        args = result["all"]["vars"]["ansible_ssh_common_args"]
+        self.assertIn("'-i ' ~ ansible_ssh_private_key_file", args)
+        self.assertIn("if ansible_ssh_private_key_file is defined", args)
+        self.assertEqual(result["all"]["vars"]["ansible_ssh_extra_args"], "-o IdentitiesOnly=yes")
+        self.assertEqual(result["all"]["hosts"]["worker-0"]["ansible_ssh_extra_args"], "-o IdentitiesOnly=yes")
+
+    def test_bastion_proxy_without_key_renders_for_agent_auth(self):
+        from jinja2 import Environment, StrictUndefined
+
+        result = yaml.safe_load(generate_dualstack_inventory(self._bastion_payload(), IPV6_CFG))
+
+        args = result["all"]["vars"]["ansible_ssh_common_args"]
+        self.assertNotIn("ansible_ssh_private_key_file", result["all"]["vars"])
+        self.assertNotIn("ansible_ssh_extra_args", result["all"]["vars"])
+        # Rendering must not reference the undefined key variable.
+        rendered = Environment(undefined=StrictUndefined).from_string(args).render(bastion_user="u", bastion_host="b")
+        self.assertIn("ProxyCommand='ssh  -W", rendered)
+        self.assertNotIn("-i ", rendered)
+
+    def test_master_host_does_not_collide_with_master_group(self):
+        result = yaml.safe_load(generate_dualstack_inventory(self._bastion_payload(), IPV6_CFG))
+
+        self.assertNotIn("master", result["all"]["hosts"])
+        self.assertIn("master-node", result["all"]["children"]["master"]["hosts"])
+
+    def _bastion_payload(self):
+        return {
+            "type": "cluster_nodes",
+            "metadata": {"kube_api_host": "2001:db8::10", "fqdn": "example.test", "ssh_user": "ubuntu",
+                         "bastion_ip": "198.51.100.7", "bastion_dns": "bastion.example.test"},
+            "nodes": [
+                {"name": "master", "roles": ["etcd", "cp"], "public_ip": "", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+            ],
+        }
 
 
 class TestDualstackRolesPriority(unittest.TestCase):
@@ -338,7 +381,7 @@ class TestDualstackRolesPriority(unittest.TestCase):
 
         result = yaml.safe_load(generate_dualstack_inventory(data, schema))
 
-        self.assertEqual(list(result["all"]["children"]["master"]["hosts"]), ["master"])
+        self.assertEqual(list(result["all"]["children"]["master"]["hosts"]), ["master-node"])
         self.assertEqual(result["all"]["hosts"]["cp-0"]["rke2_node_role"], "server")
 
     def test_build_groups_is_shared_with_the_default_path(self):
@@ -397,7 +440,7 @@ class TestCLIInventoryDispatch(unittest.TestCase):
                 generate_inventory.main()
             with open(os.path.join(tmpdir, "inventory.yml")) as handle:
                 inventory = yaml.safe_load(handle)
-            self.assertEqual(inventory["all"]["hosts"]["master"]["ansible_host"], "2001:db8::10")
+            self.assertEqual(inventory["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
 
     def test_main_dispatches_dualstack_input(self):
         data = {
@@ -413,7 +456,7 @@ class TestCLIInventoryDispatch(unittest.TestCase):
                 generate_inventory.main()
             with open(os.path.join(tmpdir, "inventory.yml")) as handle:
                 inventory = yaml.safe_load(handle)
-            self.assertEqual(inventory["all"]["hosts"]["master"]["ansible_host"], "2001:db8::10")
+            self.assertEqual(inventory["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
 
     def test_main_dispatches_dualstack_cluster_nodes_input_with_bastion(self):
         data = {
@@ -438,7 +481,7 @@ class TestCLIInventoryDispatch(unittest.TestCase):
                 generate_inventory.main()
             with open(os.path.join(tmpdir, "inventory.yml")) as handle:
                 inventory = yaml.safe_load(handle)
-            self.assertEqual(inventory["all"]["hosts"]["master"]["ansible_host"], "203.0.113.10")
+            self.assertEqual(inventory["all"]["hosts"]["master-node"]["ansible_host"], "203.0.113.10")
             self.assertIn("bastion", inventory["all"]["children"])
 
     def test_main_rejects_k3s_dualstack(self):
