@@ -1,0 +1,34 @@
+---
+- name: Include kubectl installation tasks
+  ansible.builtin.include_tasks: kubectl.yml
+
+# SLE Micro and other transactional systems have a read-only root, so zypper cannot install here.
+- name: Detect a transactional (read-only root) system
+  ansible.builtin.stat:
+    path: /usr/sbin/transactional-update
+  register: bastion_prepare_transactional
+
+# Warn rather than fail: the bastion shares the nodes' AMI, so SLE Micro runs would otherwise break.
+- name: Skip container runtime packages on transactional systems
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ inventory_hostname }} has a read-only root (transactional-update);
+      skipping Docker and Podman installs. Use the image's preinstalled podman.
+  when: bastion_prepare_transactional.stat.exists
+
+- name: Fail on unsupported OS families
+  ansible.builtin.fail:
+    msg: >-
+      bastion_prepare supports Suse, Debian and RedHat OS families for container runtimes;
+      {{ inventory_hostname }} reports '{{ ansible_facts['os_family'] }}'.
+  when:
+    - not bastion_prepare_transactional.stat.exists
+    - ansible_facts['os_family'] not in ['Suse', 'Debian', 'RedHat']
+
+- name: Include Docker installation tasks
+  ansible.builtin.include_tasks: docker.yml
+  when: not bastion_prepare_transactional.stat.exists
+
+- name: Include Podman installation tasks
+  ansible.builtin.include_tasks: podman.yml
+  when: not bastion_prepare_transactional.stat.exists

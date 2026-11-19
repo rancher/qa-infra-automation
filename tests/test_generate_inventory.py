@@ -8,14 +8,19 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import scripts.generate_inventory as generate_inventory
 from scripts.generate_inventory import (
     generate_airgap_inventory,
     generate_cluster_nodes_inventory,
+    build_groups,
+    generate_dualstack_inventory,
     validate_airgap,
     validate_cluster_nodes,
+    validate_dualstack,
     warn_if_k3s_needs_datastore,
     write_manifest,
 )
@@ -92,6 +97,440 @@ class TestK3sDatastoreWarning(unittest.TestCase):
     def test_silent_for_non_k3s_without_etcd_node(self):
         data = load_fixture("k3s_external_datastore.json")
         self.assertEqual(self.capture_warning("rke2", data), "")
+
+    def _main_warns(self, fixture, distro, env):
+        """Did main() consult the etcd check for this input type?"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "input.json")
+            with open(input_path, "w") as handle:
+                json.dump(load_fixture(fixture), handle)
+            argv = ["generate_inventory.py", "--input", input_path, "--distro",
+                    distro, "--env", env, "--output-dir", tmpdir]
+            with mock.patch.object(
+                generate_inventory, "warn_if_k3s_needs_datastore"
+            ) as warn:
+                with mock.patch.object(sys, "argv", argv):
+                    generate_inventory.main()
+            return warn.called
+
+    def test_airgap_input_skips_the_etcd_check(self):
+        # Airgap JSON has no 'nodes' key, so the check would always report an
+        # empty topology regardless of how the airgap groups are actually built.
+        self.assertFalse(self._main_warns("rke2_ha_airgap.json", "rke2", "airgap"))
+
+    def test_cluster_nodes_input_still_runs_the_etcd_check(self):
+        self.assertTrue(
+            self._main_warns("rke2_single_master.json", "rke2", "default")
+        )
+
+
+class TestValidateDualstack(unittest.TestCase):
+    def test_valid_dualstack_payload_passes(self):
+        data = {
+            "type": "dualstack",
+            "metadata": {
+                "kube_api_host": "203.0.113.10",
+                "fqdn": "example.test",
+                "ssh_user": "ubuntu",
+                "bastion_ip": "",
+                "bastion_dns": "",
+            },
+            "nodes": [
+                {"name": "master", "roles": ["etcd"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "203.0.113.11", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+            ],
+        }
+        validate_dualstack(data)
+
+    def test_dualstack_missing_metadata_raises(self):
+        data = {"metadata": {"kube_api_host": "203.0.113.10", "fqdn": "example.test"}, "nodes": []}
+        with self.assertRaises(ValueError):
+            validate_dualstack(data)
+
+    def test_dualstack_bastion_metadata_is_optional(self):
+        data = {
+            "type": "dualstack",
+            "metadata": {"kube_api_host": "203.0.113.10", "fqdn": "example.test", "ssh_user": "ubuntu"},
+            "nodes": [{"name": "master", "roles": ["etcd"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"}],
+        }
+        validate_dualstack(data)
+
+    def test_dualstack_missing_ipv6_field_raises(self):
+        data = {
+            "type": "dualstack",
+            "metadata": {"kube_api_host": "203.0.113.10", "fqdn": "example.test", "ssh_user": "ubuntu", "bastion_ip": "", "bastion_dns": ""},
+            "nodes": [{"name": "master", "roles": ["etcd"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10"}],
+        }
+        with self.assertRaises(ValueError):
+            validate_dualstack(data)
+
+
+class TestGenerateDualstackInventory(unittest.TestCase):
+    def test_dualstack_ipv4_first_inventory_uses_public_ip(self):
+        data = {
+            "type": "dualstack",
+            "metadata": {
+                "kube_api_host": "203.0.113.10",
+                "fqdn": "example.test",
+                "ssh_user": "ubuntu",
+                "bastion_ip": "",
+                "bastion_dns": "",
+            },
+            "nodes": [
+                {"name": "master", "roles": ["etcd"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "203.0.113.11", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+            ],
+        }
+
+        cfg = {"ip_field": "public_ip", "groups": {"master": {"roles": ["etcd"], "first_only": True}, "servers": {"roles": ["cp", "etcd"]}, "workers": {"roles": ["worker"]}}}
+        result = yaml.safe_load(generate_dualstack_inventory(data, cfg))
+
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host"], "203.0.113.10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host_ipv6"], "2001:db8::10")
+        self.assertNotIn("bastion_host", result["all"]["vars"])
+        self.assertNotIn("bastion-node", result["all"]["children"].get("bastion", {}).get("hosts", {}))
+
+    def test_dualstack_ipv6_first_inventory_uses_ipv6_when_public_ipv4_disabled(self):
+        data = {
+            "type": "dualstack",
+            "metadata": {
+                "kube_api_host": "2001:db8::10",
+                "fqdn": "example.test",
+                "ssh_user": "ubuntu",
+                "bastion_ip": "",
+                "bastion_dns": "",
+            },
+            "nodes": [
+                {"name": "master", "roles": ["etcd"], "public_ip": "", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+            ],
+        }
+
+        cfg = {"ip_field": "public_ip", "groups": {"master": {"roles": ["etcd"], "first_only": True}, "servers": {"roles": ["cp", "etcd"]}, "workers": {"roles": ["worker"]}}}
+        result = yaml.safe_load(generate_dualstack_inventory(data, cfg))
+
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host_ipv6"], "2001:db8::10")
+
+    def test_dualstack_bastion_inventory_includes_proxy_details(self):
+        data = {
+            "type": "dualstack",
+            "metadata": {
+                "kube_api_host": "2001:db8::10",
+                "fqdn": "example.test",
+                "ssh_user": "ubuntu",
+                "bastion_ip": "198.51.100.7",
+                "bastion_dns": "bastion.example.test",
+            },
+            "nodes": [
+                {"name": "master", "roles": ["etcd"], "public_ip": "", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+            ],
+        }
+
+        cfg = {"ip_field": "public_ip", "groups": {"master": {"roles": ["etcd"], "first_only": True}}}
+        result = yaml.safe_load(generate_dualstack_inventory(data, cfg))
+
+        self.assertEqual(result["all"]["vars"]["bastion_host"], "198.51.100.7")
+        self.assertEqual(result["all"]["vars"]["bastion_dns"], "bastion.example.test")
+        self.assertIn("bastion-node", result["all"]["children"]["bastion"]["hosts"])
+
+
+IPV6_CFG = {
+    "ip_field": "ipv6",
+    "groups": {
+        "master": {"roles_priority": [["etcd"], ["cp"]], "first_only": True},
+        "servers": {"roles": ["etcd", "cp"]},
+        "workers": {"roles": ["worker"]},
+    },
+}
+
+
+class TestGenerateIPv6Inventory(unittest.TestCase):
+    def test_ipv6_only_inventory_prefers_ipv6_addresses(self):
+        data = {
+            "type": "cluster_nodes",
+            "metadata": {
+                "kube_api_host": "2001:db8::10",
+                "fqdn": "example.test",
+                "ssh_user": "ubuntu",
+            },
+            "nodes": [
+                {"name": "master", "roles": ["etcd", "cp"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "203.0.113.11", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+            ],
+        }
+
+        result = yaml.safe_load(generate_dualstack_inventory(data, IPV6_CFG))
+
+        self.assertEqual(result["all"]["vars"]["kube_api_host"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host_ipv6"], "2001:db8::10")
+        self.assertEqual(result["all"]["children"]["master"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+        self.assertEqual(result["all"]["hosts"]["worker-0"]["rke2_node_role"], "agent")
+
+    def test_ipv6_only_inventory_has_no_bastion_group_without_bastion(self):
+        data = {
+            "type": "cluster_nodes",
+            "metadata": {"kube_api_host": "2001:db8::10", "fqdn": "example.test", "ssh_user": "ubuntu"},
+            "nodes": [
+                {"name": "master", "roles": ["etcd", "cp"], "public_ip": "", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+            ],
+        }
+
+        result = yaml.safe_load(generate_dualstack_inventory(data, IPV6_CFG))
+
+        self.assertNotIn("bastion", result["all"]["children"])
+        self.assertNotIn("ProxyCommand", result["all"]["vars"]["ansible_ssh_common_args"])
+
+    def test_ipv6_only_inventory_uses_bastion_proxy_when_present(self):
+        data = {
+            "type": "cluster_nodes",
+            "metadata": {
+                "kube_api_host": "2001:db8::10",
+                "fqdn": "example.test",
+                "ssh_user": "ubuntu",
+                "bastion_ip": "198.51.100.7",
+                "bastion_dns": "bastion.example.test",
+            },
+            "nodes": [
+                {"name": "master", "roles": ["etcd", "cp"], "public_ip": "", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+            ],
+        }
+
+        result = yaml.safe_load(generate_dualstack_inventory(data, IPV6_CFG))
+
+        self.assertEqual(result["all"]["vars"]["bastion_host"], "198.51.100.7")
+        self.assertIn("ProxyCommand", result["all"]["vars"]["ansible_ssh_common_args"])
+        # IPv6 node addresses only parse in a ProxyCommand when %h is bracketed.
+        self.assertIn('-W "[%h]:%p"', result["all"]["vars"]["ansible_ssh_common_args"])
+        self.assertIn("bastion-node", result["all"]["children"]["bastion"]["hosts"])
+        self.assertEqual(result["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+
+    def test_bastion_proxy_uses_key_with_identities_only(self):
+        data = self._bastion_payload()
+        data["metadata"]["ssh_private_key"] = "/keys/id"
+        data["nodes"][1]["ssh_private_key"] = "/keys/worker"
+
+        result = yaml.safe_load(generate_dualstack_inventory(data, IPV6_CFG))
+
+        args = result["all"]["vars"]["ansible_ssh_common_args"]
+        self.assertIn("'-i ' ~ ansible_ssh_private_key_file", args)
+        self.assertIn("if ansible_ssh_private_key_file is defined", args)
+        self.assertEqual(result["all"]["vars"]["ansible_ssh_extra_args"], "-o IdentitiesOnly=yes")
+        self.assertEqual(result["all"]["hosts"]["worker-0"]["ansible_ssh_extra_args"], "-o IdentitiesOnly=yes")
+
+    def test_bastion_proxy_without_key_renders_for_agent_auth(self):
+        from jinja2 import Environment, StrictUndefined
+
+        result = yaml.safe_load(generate_dualstack_inventory(self._bastion_payload(), IPV6_CFG))
+
+        args = result["all"]["vars"]["ansible_ssh_common_args"]
+        self.assertNotIn("ansible_ssh_private_key_file", result["all"]["vars"])
+        self.assertNotIn("ansible_ssh_extra_args", result["all"]["vars"])
+        # Rendering must not reference the undefined key variable.
+        rendered = Environment(undefined=StrictUndefined).from_string(args).render(bastion_user="u", bastion_host="b")
+        self.assertIn("ProxyCommand='ssh  -W", rendered)
+        self.assertNotIn("-i ", rendered)
+
+    def test_master_host_does_not_collide_with_master_group(self):
+        result = yaml.safe_load(generate_dualstack_inventory(self._bastion_payload(), IPV6_CFG))
+
+        self.assertNotIn("master", result["all"]["hosts"])
+        self.assertIn("master-node", result["all"]["children"]["master"]["hosts"])
+
+    def _bastion_payload(self):
+        return {
+            "type": "cluster_nodes",
+            "metadata": {"kube_api_host": "2001:db8::10", "fqdn": "example.test", "ssh_user": "ubuntu",
+                         "bastion_ip": "198.51.100.7", "bastion_dns": "bastion.example.test"},
+            "nodes": [
+                {"name": "master", "roles": ["etcd", "cp"], "public_ip": "", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+            ],
+        }
+
+
+class TestDualstackRolesPriority(unittest.TestCase):
+    """roles_priority must behave the same on the dual-stack/IPv6 path as on the default path."""
+
+    def _cp_only_payload(self):
+        return {
+            "type": "dualstack",
+            "metadata": {"kube_api_host": "203.0.113.10", "fqdn": "example.test", "ssh_user": "ubuntu"},
+            "nodes": [
+                {"name": "cp-0", "roles": ["cp"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "cp-1", "roles": ["cp"], "public_ip": "203.0.113.11", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "203.0.113.12", "private_ip": "10.0.0.12", "ipv6": "2001:db8::12"},
+            ],
+        }
+
+    def test_cp_only_topology_still_has_a_master(self):
+        schema = load_schema()["rke2"]["dualstack"]
+
+        result = yaml.safe_load(generate_dualstack_inventory(self._cp_only_payload(), schema))
+
+        self.assertIn("master", result["all"]["children"])
+        self.assertEqual(list(result["all"]["children"]["master"]["hosts"]), ["cp-0"])
+        self.assertEqual(result["all"]["hosts"]["cp-0"]["rke2_node_role"], "master")
+
+    def test_etcd_wins_over_cp_when_both_present(self):
+        data = self._cp_only_payload()
+        data["nodes"].insert(0, {"name": "master", "roles": ["etcd"], "public_ip": "203.0.113.9", "private_ip": "10.0.0.9", "ipv6": "2001:db8::9"})
+        schema = load_schema()["rke2"]["dualstack"]
+
+        result = yaml.safe_load(generate_dualstack_inventory(data, schema))
+
+        self.assertEqual(list(result["all"]["children"]["master"]["hosts"]), ["master-node"])
+        self.assertEqual(result["all"]["hosts"]["cp-0"]["rke2_node_role"], "server")
+
+    def test_build_groups_is_shared_with_the_default_path(self):
+        nodes = self._cp_only_payload()["nodes"]
+        cfg = load_schema()["rke2"]["dualstack"]["groups"]
+
+        groups = build_groups(nodes, cfg)
+
+        self.assertEqual([n["name"] for n in groups["master"]], ["cp-0"])
+        self.assertEqual([n["name"] for n in groups["servers"]], ["cp-1"])
+        self.assertEqual([n["name"] for n in groups["workers"]], ["worker-0"])
+
+
+class TestSchemaSupportedEnvironments(unittest.TestCase):
+    def test_rke2_supports_dualstack_and_ipv6(self):
+        schema = load_schema()
+        self.assertIn("dualstack", schema["rke2"])
+        self.assertIn("ipv6", schema["rke2"])
+
+    def test_k3s_dualstack_and_ipv6_are_not_wired_up(self):
+        # ansible/k3s has no dualstack/ipv6 playbooks, so the schema must not
+        # advertise them - otherwise `make cluster` fails late on a missing file.
+        schema = load_schema()
+        self.assertNotIn("dualstack", schema["k3s"])
+        self.assertNotIn("ipv6", schema["k3s"])
+
+
+class TestCLIInventoryDispatch(unittest.TestCase):
+    def test_main_dispatches_default_cluster_nodes(self):
+        data = {
+            "type": "cluster_nodes",
+            "metadata": {"kube_api_host": "1.2.3.4", "fqdn": "example.test", "ssh_user": "ubuntu"},
+            "nodes": [{"name": "master", "roles": ["etcd"], "public_ip": "1.2.3.4", "private_ip": "10.0.0.10"}],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "nodes.json")
+            with open(input_path, "w") as f:
+                json.dump(data, f)
+            with mock.patch.object(sys, "argv", ["generate_inventory.py", "--input", input_path, "--distro", "rke2", "--env", "default", "--output-dir", tmpdir]):
+                generate_inventory.main()
+            with open(os.path.join(tmpdir, "inventory.yml")) as handle:
+                inventory = yaml.safe_load(handle)
+            self.assertEqual(inventory["all"]["vars"]["kube_api_host"], "1.2.3.4")
+
+    def test_main_dispatches_ipv6_cluster_nodes(self):
+        data = {
+            "type": "cluster_nodes",
+            "metadata": {"kube_api_host": "2001:db8::10", "fqdn": "example.test", "ssh_user": "ubuntu"},
+            "nodes": [{"name": "master", "roles": ["etcd"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"}],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "nodes.json")
+            with open(input_path, "w") as f:
+                json.dump(data, f)
+            with mock.patch.object(sys, "argv", ["generate_inventory.py", "--input", input_path, "--distro", "rke2", "--env", "ipv6", "--output-dir", tmpdir]):
+                generate_inventory.main()
+            with open(os.path.join(tmpdir, "inventory.yml")) as handle:
+                inventory = yaml.safe_load(handle)
+            self.assertEqual(inventory["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+
+    def test_main_dispatches_dualstack_input(self):
+        data = {
+            "type": "dualstack",
+            "metadata": {"kube_api_host": "2001:db8::10", "fqdn": "example.test", "ssh_user": "ubuntu", "bastion_ip": "", "bastion_dns": ""},
+            "nodes": [{"name": "master", "roles": ["etcd"], "public_ip": "", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"}],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "nodes.json")
+            with open(input_path, "w") as f:
+                json.dump(data, f)
+            with mock.patch.object(sys, "argv", ["generate_inventory.py", "--input", input_path, "--distro", "rke2", "--env", "dualstack", "--output-dir", tmpdir]):
+                generate_inventory.main()
+            with open(os.path.join(tmpdir, "inventory.yml")) as handle:
+                inventory = yaml.safe_load(handle)
+            self.assertEqual(inventory["all"]["hosts"]["master-node"]["ansible_host"], "2001:db8::10")
+
+    def test_main_dispatches_dualstack_cluster_nodes_input_with_bastion(self):
+        data = {
+            "type": "cluster_nodes",
+            "metadata": {
+                "kube_api_host": "203.0.113.10",
+                "fqdn": "example.test",
+                "ssh_user": "ubuntu",
+                "bastion_ip": "198.51.100.7",
+                "bastion_dns": "bastion.example.test",
+            },
+            "nodes": [
+                {"name": "master", "roles": ["etcd", "cp"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"},
+                {"name": "worker-0", "roles": ["worker"], "public_ip": "203.0.113.11", "private_ip": "10.0.0.11", "ipv6": "2001:db8::11"},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "nodes.json")
+            with open(input_path, "w") as f:
+                json.dump(data, f)
+            with mock.patch.object(sys, "argv", ["generate_inventory.py", "--input", input_path, "--distro", "rke2", "--env", "dualstack", "--output-dir", tmpdir]):
+                generate_inventory.main()
+            with open(os.path.join(tmpdir, "inventory.yml")) as handle:
+                inventory = yaml.safe_load(handle)
+            self.assertEqual(inventory["all"]["hosts"]["master-node"]["ansible_host"], "203.0.113.10")
+            self.assertIn("bastion", inventory["all"]["children"])
+
+    def test_main_rejects_k3s_dualstack(self):
+        data = {
+            "type": "dualstack",
+            "metadata": {"kube_api_host": "203.0.113.10", "fqdn": "example.test", "ssh_user": "ubuntu"},
+            "nodes": [{"name": "master", "roles": ["etcd"], "public_ip": "203.0.113.10", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"}],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "nodes.json")
+            with open(input_path, "w") as f:
+                json.dump(data, f)
+            stderr = io.StringIO()
+            with mock.patch.object(sys, "argv", ["generate_inventory.py", "--input", input_path, "--distro", "k3s", "--env", "dualstack", "--output-dir", tmpdir]):
+                with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as ctx:
+                    generate_inventory.main()
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("No schema entry", stderr.getvalue())
+            self.assertFalse(os.path.exists(os.path.join(tmpdir, "inventory.yml")))
+
+    def test_main_rejects_k3s_ipv6(self):
+        data = {
+            "type": "cluster_nodes",
+            "metadata": {"kube_api_host": "2001:db8::10", "fqdn": "example.test", "ssh_user": "ubuntu"},
+            "nodes": [{"name": "master", "roles": ["etcd"], "public_ip": "", "private_ip": "10.0.0.10", "ipv6": "2001:db8::10"}],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "nodes.json")
+            with open(input_path, "w") as f:
+                json.dump(data, f)
+            stderr = io.StringIO()
+            with mock.patch.object(sys, "argv", ["generate_inventory.py", "--input", input_path, "--distro", "k3s", "--env", "ipv6", "--output-dir", tmpdir]):
+                with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as ctx:
+                    generate_inventory.main()
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("No schema entry", stderr.getvalue())
+
+    def test_main_rejects_airgap_payload_for_dualstack_env(self):
+        data = {"type": "airgap", "bastion_host": "198.51.100.7"}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "nodes.json")
+            with open(input_path, "w") as f:
+                json.dump(data, f)
+            stderr = io.StringIO()
+            with mock.patch.object(sys, "argv", ["generate_inventory.py", "--input", input_path, "--distro", "rke2", "--env", "dualstack", "--output-dir", tmpdir]):
+                with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as ctx:
+                    generate_inventory.main()
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("expects a 'cluster_nodes' or 'dualstack' input type", stderr.getvalue())
 
 
 class TestGenerateClusterNodesInventory(unittest.TestCase):
@@ -523,3 +962,37 @@ class TestWriteManifest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestInventoryInputErrors(unittest.TestCase):
+    META = {"kube_api_host": "h", "fqdn": "f", "ssh_user": "u"}
+
+    def test_node_without_name_raises_value_error(self):
+        data = {"metadata": self.META, "nodes": [{"roles": ["etcd"], "public_ip": "", "private_ip": "", "ipv6": ""}]}
+        for fn in (validate_dualstack, validate_cluster_nodes):
+            with self.assertRaisesRegex(ValueError, "'name'"):
+                fn(data)
+
+    def test_node_without_roles_raises_value_error(self):
+        data = {"metadata": self.META, "nodes": [{"name": "n", "public_ip": "", "private_ip": "", "ipv6": ""}]}
+        with self.assertRaisesRegex(ValueError, "'roles'"):
+            validate_dualstack(data)
+
+    def test_ipv6_env_rejects_nodes_without_ipv6_address(self):
+        data = {"metadata": self.META, "nodes": [{"name": "n", "roles": ["etcd"], "public_ip": "", "private_ip": "10.0.0.1", "ipv6": ""}]}
+        with self.assertRaisesRegex(ValueError, "enable_ipv6"):
+            generate_dualstack_inventory(data, IPV6_CFG)
+
+    def test_validation_error_is_reported_before_k3s_warning(self):
+        bad = {"type": "cluster_nodes", "metadata": self.META, "nodes": [{"roles": ["etcd"]}]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "in.json")
+            with open(path, "w") as f:
+                json.dump(bad, f)
+            argv = ["generate_inventory.py", "--input", path, "--distro", "k3s", "--env", "default", "--output-dir", tmpdir]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                generate_inventory, "warn_if_k3s_needs_datastore"
+            ) as warn:
+                with self.assertRaises(ValueError):
+                    generate_inventory.main()
+            self.assertFalse(warn.called)
