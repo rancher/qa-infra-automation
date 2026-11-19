@@ -114,3 +114,33 @@ run "role_sets_must_be_distinct" {
 
   expect_failures = [var.nodes]
 }
+
+run "dns64_resolvers_must_be_ipv6_literals" {
+  command = plan
+
+  variables {
+    ipv6_dns64_resolvers = ["2a00:1098:2c::1\nRESOLVCONF\ntouch /tmp/pwned"]
+  }
+
+  expect_failures = [var.ipv6_dns64_resolvers]
+}
+
+run "dns64_resolvers_reject_ipv4" {
+  command = plan
+
+  variables {
+    ipv6_dns64_resolvers = ["8.8.8.8"]
+  }
+
+  expect_failures = [var.ipv6_dns64_resolvers]
+}
+
+run "dns64_resolvers_must_not_be_empty" {
+  command = plan
+
+  variables {
+    ipv6_dns64_resolvers = []
+  }
+
+  expect_failures = [var.ipv6_dns64_resolvers]
+}

@@ -62,11 +62,6 @@ variable "aws_bastion_subnet" {
     error_message = "aws_bastion_subnet must be set when no_of_bastion_nodes > 0."
   }
 }
-variable "key_name" {
-  description = "The name of the SSH key pair to use for the bastion host."
-  type        = string
-  default     = ""
-}
 
 variable "no_of_bastion_nodes" {
   description = "Number of bastion hosts to create. Only 0 or 1 is supported; 1 is required when the cluster nodes have no public IPv4."
@@ -116,4 +111,12 @@ variable "ipv6_dns64_resolvers" {
   description = "DNS64 resolver(s) for IPv6-only nodes. Defaults to the public nat64.net service; override with a VPC DNS64 resolver where available. Ignored when ipv6_manage_dns = false."
   type        = list(string)
   default     = ["2a00:1098:2c::1"]
+
+  # Entries are written into a root user-data script, so only bare IPv6 literals are allowed.
+  validation {
+    condition = length(var.ipv6_dns64_resolvers) > 0 && alltrue([
+      for r in var.ipv6_dns64_resolvers : strcontains(r, ":") && can(cidrhost("${r}/128", 0))
+    ])
+    error_message = "ipv6_dns64_resolvers must be a non-empty list of IPv6 addresses, e.g. [\"2a00:1098:2c::1\"]."
+  }
 }

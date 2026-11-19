@@ -27,13 +27,10 @@ instance_type         = "t3a.medium" # Low-cost option, 2cpu 4GB
 aws_vpc               = "vpc-id" # Fill in your VPC
 aws_subnet            = "subnet-id" # Fill in your subnet
 aws_security_group    = ["sg-id"] # Fill in your security group ID
-airgap_setup          = false
-proxy_setup           = false
 aws_volume_size       = 40
 aws_volume_type       = "gp3"
 public_ssh_key        = "/path/to/.ssh/id_rsa.pub" # Fill in path to your public key
 private_ssh_key       = "/path/to/jenkins.pem" # generate the .pem file from .pub file if needed. 
-key_name              = "jenkins"
 nodes = [
   # Split topology with per-role instance types:
   # {
@@ -73,22 +70,22 @@ Initialize the module, verify the plan, and apply. Run from the root of this rep
 
 ```sh
 # Initialize Tofu
-tofu -chdir=tofu/aws/modules/dualstack init
+tofu -chdir=tofu/aws/modules/ipv6 init
 
 # Check the execution plan
-tofu -chdir=tofu/aws/modules/dualstack plan
+tofu -chdir=tofu/aws/modules/ipv6 plan
 
 # Apply the infrastructure
-tofu -chdir=tofu/aws/modules/dualstack apply
+tofu -chdir=tofu/aws/modules/ipv6 apply
 ```
 
 ### Step2a. Deploy using make commands
 
 ```
-make infra-up ENV=dualstack # Deploys setup/inventory and creates inventory.yml file
-make cluster ENV=dualstack # Performs rke2 install and creates rke2 cluster
-make infra-output ENV=dualstack # to get output/setup information
-make status ENV=dualstack # to get nodes and pods status of rke2 cluster. 
+make infra-up ENV=ipv6 # Deploys setup/inventory and creates inventory.yml file
+make cluster ENV=ipv6 # Performs rke2 install and creates rke2 cluster
+make infra-output ENV=ipv6 # to get output/setup information
+make status ENV=ipv6 # to get nodes and pods status of rke2 cluster. 
 ```
 Note: May have to login to bastion node for ipv6 scenarios to get kubectl outputs. ~/.kube/config is updated in bastion node with rke2 cluster's kubeconfig file.
 
@@ -97,9 +94,9 @@ Note: May have to login to bastion node for ipv6 scenarios to get kubectl output
 To destroy the infrastructure when finished:
 
 ```sh
-tofu -chdir=tofu/aws/modules/dualstack destroy
+tofu -chdir=tofu/aws/modules/ipv6 destroy
 ```
 or 
 ```
-make infra-down ENV=dualstack
+make infra-down ENV=ipv6
 ```

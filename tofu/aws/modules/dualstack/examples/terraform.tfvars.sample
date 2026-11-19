@@ -26,7 +26,6 @@ aws_hostname_prefix  = "prefix"
 # SSH Key settings:
 public_ssh_key      = "/Path_to/jenkins.pub"
 private_ssh_key   = "/Path_to/jenkins.pem"
-key_name           = "jenkins"
 # Cluster topology settings:
 nodes = [
   {

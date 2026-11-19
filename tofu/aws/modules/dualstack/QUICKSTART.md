@@ -27,13 +27,10 @@ instance_type         = "t3a.medium" # Low-cost option, 2cpu 4GB
 aws_vpc               = "vpc-id" # Fill in your VPC
 aws_subnet            = "subnet-id" # Fill in your subnet
 aws_security_group    = ["sg-id"] # Fill in your security group ID
-airgap_setup          = false
-proxy_setup           = false
 aws_volume_size       = 40
 aws_volume_type       = "gp3"
 public_ssh_key        = "/path/to/.ssh/id_rsa.pub" # Fill in path to your public key
 private_ssh_key       = "/path/to/jenkins.pem" # generate the .pem file from .pub file if needed. 
-key_name              = "jenkins"
 nodes = [
   # Split topology with per-role instance types:
   # {

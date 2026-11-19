@@ -143,8 +143,6 @@ instance_type         = "t3a.medium"
 aws_vpc               = "vpc-"
 aws_subnet            = "subnet-"
 aws_security_group    = ["sg-"]
-airgap_setup          = false
-proxy_setup           = false
 aws_volume_size       = 40
 aws_volume_type       = "gp3"
 aws_hostname_prefix   = "hostnameprefix"
@@ -164,7 +162,7 @@ enable_ipv6  = true # Associate ipv6 ip to nodes and bastion node.
 enable_public_ip  = true # Associate ipv4 public ip to nodes
 kube_api_host_ipv6 = false # Set for dualstack ipv4/ipv6 kube_api_host value in dualstack scenarios.
 ```
-Refer to tofu/aws/modules/dualstack/examples/notes.md for setting these variables in detail.
+Refer to tofu/aws/modules/ipv6/examples/notes.md for setting these variables in detail.
 
 ### Split topology with per-role instance types
 
@@ -180,8 +178,6 @@ instance_type         = "t3a.medium"    # Default for all nodes
 aws_vpc               = "vpc-"
 aws_subnet            = "subnet-"
 aws_security_group    = ["sg-"]
-airgap_setup          = false
-proxy_setup           = false
 aws_volume_size       = 40
 aws_volume_type       = "gp3"
 aws_hostname_prefix   = "hostnameprefix"
@@ -211,7 +207,7 @@ enable_ipv6  = true # associate ipv6 to nodes and bastion node.
 enable_public_ip  = true # Associate ipv4 public ip to nodes
 kube_api_host_ipv6 = false # Set for choosing ipv4/ipv6 value for kube_api_host in dualstack scenario. 
 ```
-Refer to tofu/aws/modules/dualstack/examples/notes.md for further information on these variables. 
+Refer to tofu/aws/modules/ipv6/examples/notes.md for further information on these variables. 
 
 ## Dualstack vars.yaml file content: 
 `$ cat ansible/rke2/default/vars.yaml`
