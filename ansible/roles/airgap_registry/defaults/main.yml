@@ -4,7 +4,7 @@ airgap_bastion_dir: /opt/dtf-airgap
 airgap_registry_mode: "{{ 'private' if airgap_method == 'private_registry' else 'system_default' }}"
 # Hostname clients use; must match the certificate SAN. Inside the VPC the EC2
 # public DNS name resolves to the private IP, so nodes never leave the VPC.
-airgap_registry_host: "{{ bastion_public_dns | default(ansible_facts.fqdn) }}"
+airgap_registry_host: "{{ bastion_public_dns | default(ansible_facts.fqdn | default(''), true) }}"
 airgap_registry_port: 443
 airgap_registry_container: airgap-registry
 # Pinned by manifest-list digest (multi-arch) so a moving tag cannot change the run.

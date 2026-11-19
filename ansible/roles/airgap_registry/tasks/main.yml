@@ -1,4 +1,11 @@
 ---
+- name: Require a registry hostname before generating certificates
+  ansible.builtin.assert:
+    that:
+      - airgap_registry_host is string
+      - airgap_registry_host | trim | length > 0
+    fail_msg: "Set airgap_registry_host to a hostname reachable from the nodes, or provide bastion public DNS/FQDN."
+
 - name: Create registry directories
   ansible.builtin.file:
     path: "{{ item }}"

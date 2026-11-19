@@ -133,12 +133,17 @@ ansible-playbook -i inventory.yml --private-key "$HOME/.ssh/key.pem" airgap-play
 
 For either registry method, also pass `--extra-vars @secrets.json` with the two registry credentials.
 The DTF provisioner generates these when absent and passes them in a protected file.
+
+The registry hostname defaults to the bastion public DNS, falling back to its FQDN when empty.
+If neither is usable from the nodes, set `airgap_registry_host` to a reachable hostname explicitly.
+
 Use the updated DTF Airgap implementation with this playbook: anonymous registry probes now expect
 HTTP 401 in both methods, followed by an authenticated image pull. The system-default scenario
 still selects images through `system-default-registry`; it does not configure source mirrors.
 
-`download_verify` checks every binary and image archive against its exact SHA256 manifest entry;
-an absent entry or mismatched digest stops installation. Text image lists are not checksum-verified.
+`download_verify` checks every binary, image archive and RKE2 image list against its exact SHA256
+manifest entry; an absent entry or mismatched digest stops installation. K3s publishes no checksum
+for `k3s-images.txt`, so that list is fetched over HTTPS without checksum verification.
 Private-registry mirrors include the source hosts found in those image lists, including caller-supplied
 Prime sources. This local configuration coverage does not replace a live Prime registry validation.
 

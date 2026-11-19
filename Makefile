@@ -1011,16 +1011,16 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) $(if $(strip $(RANCHER_PLAYBOOK)),rancher) ## Full setup: infrastructure + cluster + Rancher when configured
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) $(if $(strip $(RANCHER_PLAYBOOK)),rancher) ## Setup cluster + Rancher when configured (infra exists)
 	@echo ""
-	@echo "$(DISTRO) cluster and Rancher setup complete!"
+	@echo "$(DISTRO) $(ENV) setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 

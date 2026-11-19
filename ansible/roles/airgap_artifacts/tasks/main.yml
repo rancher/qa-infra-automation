@@ -1,14 +1,19 @@
 ---
-# Everything is downloaded and checksum-verified on the bastion BEFORE any node
-# is touched. A failure here stops the play; the caller owns cleanup.
+# Downloads and available checksums are verified before any node is touched.
+# K3s publishes no checksum for its image list; the caller owns cleanup on failure.
 - name: Validate artifact inputs
   ansible.builtin.assert:
     that:
       - product in ['k3s', 'rke2']
-      - kubernetes_version is search('k3s') or kubernetes_version is search('rke2')
+      - >-
+        kubernetes_version is match('^v[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.-]+)?[+]'
+        ~ ('rke2r' if product == 'rke2' else 'k3s') ~ '[0-9]+\\Z')
+      - airgap_effective_cni is not search('[^a-z0-9,-]')
       - arch in ['amd64', 'arm64']
       - tarball_type in ['tar.zst', 'tar.gz']
-    fail_msg: "artifacts need product k3s|rke2, a release version (not a commit), arch amd64|arm64 and tarball_type tar.zst|tar.gz"
+    fail_msg: >-
+      Artifacts require a matching K3s/RKE2 release tag, comma-separated CNI names
+      (letters, digits and hyphens only), arch amd64|arm64 and tarball_type tar.zst|tar.gz.
 
 - name: Show artifact selection
   ansible.builtin.debug:
@@ -51,9 +56,12 @@
          + (['rke2-images-' ~ item ~ '.linux-' ~ arch ~ '.' ~ tarball_type] if airgap_method == 'tarball' else []) }}
   loop: "{{ airgap_rke2_cni_names | select('in', ['calico', 'canal', 'cilium', 'flannel', 'multus']) | list }}"
 
-# ingress-nginx ships inside rke2-images-core; only traefik has its own list.
+# RKE2 v1.36+ bundles Traefik into core instead of publishing a separate artifact.
 - name: Add the RKE2 traefik image list when pinned in server flags
-  when: product == 'rke2' and (server_flags | default('')) is search(item)
+  when:
+    - product == 'rke2'
+    - (server_flags | default('')) is search(item)
+    - ((kubernetes_version | regex_replace('^v', '')).split('+')[0].split('-')[0]) is version('1.36.0', '<')
   ansible.builtin.set_fact:
     airgap_release_files: >-
       {{ airgap_release_files
@@ -67,7 +75,7 @@
     dest: "{{ airgap_artifacts_dir }}/{{ item }}"
     mode: "0644"
     timeout: "{{ airgap_download_timeout }}"
-  loop: "{{ airgap_release_files | select('search', '\\.txt$') | unique }}"
+  loop: "{{ airgap_release_files | select('in', ['sha256sum-' ~ arch ~ '.txt', 'k3s-images.txt']) | unique }}"
   register: airgap_release_download
   retries: "{{ airgap_download_retries }}"
   delay: "{{ airgap_download_delay }}"
@@ -86,7 +94,7 @@
     dv_timeout: "{{ airgap_download_timeout }}"
     dv_retries: "{{ airgap_download_retries }}"
     dv_delay: "{{ airgap_download_delay }}"
-  loop: "{{ airgap_release_files | reject('search', '\\.txt$') | unique }}"
+  loop: "{{ airgap_release_files | reject('in', ['sha256sum-' ~ arch ~ '.txt', 'k3s-images.txt']) | unique }}"
   loop_control:
     loop_var: airgap_release_file
 
