@@ -26,19 +26,24 @@
   when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'
 
 - name: Extract expected checksum from file
-  ansible.builtin.shell: |
-    {% if dv_checksum_format == 'github_sha256sum' %}
-    grep -E "^[0-9a-f]+[[:space:]]+{{ dv_github_artifact_name }}$" "{{ _dv_checksum_file }}" | head -1 | awk '{print $1}'
-    {% else %}
-    head -1 "{{ _dv_checksum_file }}" | awk '{print $1}'
-    {% endif %}
+  ansible.builtin.command:
+    argv:
+      - awk
+      - >-
+        ENVIRON["DV_CHECKSUM_FORMAT"] == "sha256sum_file" { print $1; exit }
+        { name = ENVIRON["DV_ARTIFACT_NAME"] }
+        $2 == name || $2 == "*" name || $2 == "./" name || $2 == "*./" name { print $1 }
+      - "{{ _dv_checksum_file }}"
+  environment:
+    DV_CHECKSUM_FORMAT: "{{ dv_checksum_format }}"
+    DV_ARTIFACT_NAME: "{{ dv_github_artifact_name }}"
   register: _dv_checksum_extract
   changed_when: false
   when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'
 
 - name: Set expected checksum fact (file-based formats)
   ansible.builtin.set_fact:
-    _dv_expected_checksum: "{{ _dv_checksum_extract.stdout | default('') | trim }}"
+    _dv_expected_checksum: "{{ _dv_checksum_extract.stdout | default('') | trim | lower }}"
   when: dv_checksum_format == 'github_sha256sum' or dv_checksum_format == 'sha256sum_file'
 
 - name: Set expected checksum fact (inline format)
@@ -198,6 +203,12 @@
   retries: "{{ dv_retries }}"
   delay: "{{ dv_delay }}"
   when: dv_checksum_format == 'github_release'
+
+- name: Require one valid SHA256 before downloading the artifact
+  ansible.builtin.assert:
+    that: _dv_expected_checksum is match('^[0-9a-fA-F]{64}$')
+    fail_msg: "Missing, ambiguous or invalid SHA256 for {{ dv_dest | basename }}"
+  when: dv_checksum_format != 'github_release'
 
 - name: Download artifact with checksum verification (non-release formats)
   ansible.builtin.get_url:

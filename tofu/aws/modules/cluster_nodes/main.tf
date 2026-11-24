@@ -46,6 +46,18 @@ locals {
   create_security_group = length(var.aws_security_group) == 0
   security_group_ids    = local.create_security_group ? [aws_security_group.ephemeral[0].id] : var.aws_security_group
 
+  # Airgap/proxy nodes have no public IP: every place that addressed a node by
+  # public IP (API host, Route53, per-node SG rules) falls back to the private one.
+  private_nodes = var.airgap_setup || var.proxy_setup
+  node_ip = {
+    for node in local.node_names : node.name => (
+      local.private_nodes ? aws_instance.node[node.name].private_ip : aws_instance.node[node.name].public_ip
+    )
+  }
+
+  bastion_enabled = var.bastion.enabled
+  run_tags        = var.run_id != "" ? { RunId = var.run_id } : {}
+
   name_suffix = var.random_name_suffix ? "-${random_string.name_suffix[0].result}" : ""
 
   # Map used for the linux aws_instance for_each engine
@@ -278,7 +290,7 @@ resource "aws_instance" "node" {
     aws_security_group.windows_overlay[*].id,
   ))
   subnet_id                   = local.subnet_id
-  associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
+  associate_public_ip_address = local.private_nodes ? false : true
 
   dynamic "cpu_options" {
     for_each = contains(keys(local.nested_cpu_workers), each.key) ? [true] : []
@@ -295,10 +307,90 @@ resource "aws_instance" "node" {
     delete_on_termination = true
   }
 
-  tags = {
+  tags = merge({
     Name = "tf-${var.aws_hostname_prefix}-${each.value.name}${local.name_suffix}"
+  }, local.run_tags)
+
+  lifecycle {
+    precondition {
+      condition     = !var.airgap_setup || local.bastion_enabled
+      error_message = "airgap_setup = true places nodes without a public IP; set bastion = { enabled = true } so they stay reachable."
+    }
+    precondition {
+      condition     = length(local.airgap_egress_routes) == 0
+      error_message = "airgap_setup = true but the subnet's route table has an IPv4 default route that is not an internet gateway, or an IPv6 default route on a subnet that auto-assigns IPv6: the nodes would not be airgapped."
+    }
+    precondition {
+      condition     = !local.airgap_subnet_assigns_ipv6
+      error_message = "airgap_setup = true but the subnet auto-assigns IPv6 addresses (nodes would reach the internet over IPv6): use a subnet without IPv6 auto-assign."
+    }
   }
 }
+
+# Inspect the effective subnet route table so NAT or other gateways cannot bypass isolation.
+# Topology and preconditions: docs/guides/airgap-cluster-nodes.md.
+data "aws_route_tables" "airgap_subnet_assoc" {
+  count  = var.airgap_setup ? 1 : 0
+  vpc_id = local.vpc_id
+  filter {
+    name   = "association.subnet-id"
+    values = [local.subnet_id]
+  }
+}
+
+data "aws_route_table" "airgap_main" {
+  count  = var.airgap_setup ? 1 : 0
+  vpc_id = local.vpc_id
+  filter {
+    name   = "association.main"
+    values = ["true"]
+  }
+}
+
+data "aws_route_table" "airgap_subnet" {
+  count = var.airgap_setup ? 1 : 0
+  route_table_id = (length(data.aws_route_tables.airgap_subnet_assoc[0].ids) > 0
+    ? tolist(data.aws_route_tables.airgap_subnet_assoc[0].ids)[0]
+  : data.aws_route_table.airgap_main[0].id)
+}
+
+data "aws_subnet" "airgap" {
+  count = var.airgap_setup ? 1 : 0
+  id    = local.subnet_id
+}
+
+locals {
+  # An IGW cannot route private IPv4; subnet IPv6 auto-assignment can bypass that isolation.
+  airgap_subnet_assigns_ipv6 = var.airgap_setup ? data.aws_subnet.airgap[0].assign_ipv6_address_on_creation : false
+  airgap_egress_routes = var.airgap_setup ? [
+    for r in data.aws_route_table.airgap_subnet[0].routes : r
+    if(r.cidr_block == "0.0.0.0/0" && !startswith(r.gateway_id, "igw-")) || (r.ipv6_cidr_block == "::/0" && local.airgap_subnet_assigns_ipv6)
+  ] : []
+}
+
+resource "aws_instance" "bastion" {
+  count                       = local.bastion_enabled ? 1 : 0
+  ami                         = coalesce(var.bastion.ami, var.aws_ami)
+  instance_type               = coalesce(var.bastion.instance_type, var.instance_type)
+  key_name                    = aws_key_pair.ssh_public_key.key_name
+  vpc_security_group_ids      = compact(concat(local.security_group_ids, var.create_ssh_security_group ? [aws_security_group.ssh[0].id] : []))
+  subnet_id                   = local.subnet_id
+  associate_public_ip_address = true
+
+  ebs_block_device {
+    device_name           = "/dev/sda1"
+    volume_size           = coalesce(var.bastion.volume_size, var.aws_volume_size)
+    volume_type           = var.aws_volume_type
+    encrypted             = true
+    delete_on_termination = true
+  }
+
+  tags = merge({
+    Name = "tf-${var.aws_hostname_prefix}-bastion"
+    Role = "bastion"
+  }, local.run_tags)
+}
+
 # Overlay/kubelet traffic for mixed Linux+Windows clusters. Attached to BOTH
 # instance types because VXLAN is bidirectional: a rule on the Windows node
 # alone does not let its traffic reach the Linux pods.
@@ -384,7 +476,7 @@ resource "aws_instance" "windows" {
     aws_security_group.windows_rdp[*].id,
   ))
   key_name                    = aws_key_pair.ssh_public_key.key_name
-  associate_public_ip_address = var.airgap_setup || var.proxy_setup ? false : true
+  associate_public_ip_address = local.private_nodes ? false : true
   # Kept for RDP debugging; surfaced only via the sensitive
   # windows_administrator_passwords output, never in cluster_nodes_json.
   get_password_data = true
@@ -441,10 +533,10 @@ resource "aws_instance" "windows" {
     }
   }
 
-  tags = {
+  tags = merge({
     Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
     OS   = "windows"
-  }
+  }, local.run_tags)
 }
 
 # Allow all node-to-node traffic over public IPs. Nodes address each other by
@@ -455,7 +547,7 @@ resource "aws_vpc_security_group_ingress_rule" "rke2_node_ingress" {
   security_group_id = aws_security_group.ephemeral[0].id
   description       = "All traffic from node ${each.key} public IP"
   ip_protocol       = "-1"
-  cidr_ipv4         = "${each.value.public_ip}/32"
+  cidr_ipv4         = "${local.private_nodes ? each.value.private_ip : each.value.public_ip}/32"
 }
 
 # With a caller-supplied SG the all-traffic rules above are skipped, and the VPC
@@ -472,7 +564,7 @@ resource "aws_vpc_security_group_ingress_rule" "windows_overlay_vxlan" {
   ip_protocol       = "udp"
   from_port         = 4789
   to_port           = 4789
-  cidr_ipv4         = "${each.value.public_ip}/32"
+  cidr_ipv4         = "${local.private_nodes ? each.value.private_ip : each.value.public_ip}/32"
 }
 
 resource "aws_vpc_security_group_ingress_rule" "windows_overlay_kubelet" {
@@ -483,7 +575,7 @@ resource "aws_vpc_security_group_ingress_rule" "windows_overlay_kubelet" {
   ip_protocol       = "tcp"
   from_port         = 10250
   to_port           = 10250
-  cidr_ipv4         = "${each.value.public_ip}/32"
+  cidr_ipv4         = "${local.private_nodes ? each.value.private_ip : each.value.public_ip}/32"
 }
 
 # Windows agents reach the Linux supervisor/API over public IPs too.
@@ -493,7 +585,7 @@ resource "aws_vpc_security_group_ingress_rule" "rke2_windows_node_ingress" {
   security_group_id = aws_security_group.ephemeral[0].id
   description       = "All traffic from node ${each.key} public IP"
   ip_protocol       = "-1"
-  cidr_ipv4         = "${each.value.public_ip}/32"
+  cidr_ipv4         = "${local.private_nodes ? each.value.private_ip : each.value.public_ip}/32"
 }
 
 resource "aws_lb_target_group_attachment" "aws_tg_attachment_80" {
@@ -526,7 +618,7 @@ resource "aws_lb_target_group_attachment" "aws_tg_attachment_6443" {
 
 resource "aws_lb" "aws_nlb" {
   count              = (local.cp_node_count > 1 && var.create_lb) ? 1 : 0
-  internal           = false
+  internal           = var.airgap_setup # private nodes must never sit behind a public NLB
   load_balancer_type = "network"
   subnets            = [local.subnet_id]
   name               = "${var.aws_hostname_prefix}-nlb${local.name_suffix}"
@@ -653,7 +745,7 @@ resource "aws_route53_record" "aws_route53" {
   name    = var.aws_hostname_prefix
   type    = (local.cp_node_count > 1 && var.create_lb) ? "CNAME" : "A"
   ttl     = "300"
-  records = (local.cp_node_count > 1 && var.create_lb) ? [aws_lb.aws_nlb[0].dns_name] : [aws_instance.node[keys(local.cp_nodes)[0]].public_ip]
+  records = (local.cp_node_count > 1 && var.create_lb) ? [aws_lb.aws_nlb[0].dns_name] : [local.node_ip[keys(local.cp_nodes)[0]]]
 }
 
 data "aws_route53_zone" "selected" {

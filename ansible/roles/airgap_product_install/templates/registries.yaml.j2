@@ -1,0 +1,16 @@
+---
+{% if airgap_registry_mode == 'private' %}
+mirrors:
+{% for registry in ([airgap_registry_host] + airgap_registry_mirrors) | unique %}
+  {{ registry | to_json }}:
+    endpoint:
+      - {{ ('https://' ~ airgap_registry_host) | to_json }}
+{% endfor %}
+{% endif %}
+configs:
+  {{ airgap_registry_host | to_json }}:
+    auth:
+      username: {{ registry_username | to_json }}
+      password: {{ registry_password | to_json }}
+    tls:
+      ca_file: "{{ airgap_ca_dest }}"

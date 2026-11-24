@@ -13,6 +13,8 @@ DISTRO       ?= rke2
 ENV          ?= default
 PROVIDER     ?= aws
 WORKSPACE     ?= default
+# S3 state key folder (backend-s3 default); the distros airgap flow overrides it to stay apart from Rancher airgap.
+STATE_NAME    ?= $(ENV)
 # Target inventory group for airgap cluster installs (e.g. rancher, downstream).
 # Leave empty to use each playbook's default (rancher).
 TARGET_GROUP  ?=
@@ -73,13 +75,34 @@ DOWNSTREAM_TFVARS ?= tofu/rancher/cluster/vars.tfvars
 # outputs live elsewhere.
 RANCHER_TFVARS    ?= ansible/rancher/default-ha/generated.tfvars
 
+# ENV=airgap AIRGAP_WORKFLOW=distros opts into K3s/RKE2 offline installs.
+# The Rancher flow remains the default; see docs/guides/airgap-cluster-nodes.md.
+AIRGAP_WORKFLOW ?=
+
 # Derived paths
 ANSIBLE_DIR := ansible/$(DISTRO)/$(ENV)
 GROUP_VARS  := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
 INVENTORY   := $(ANSIBLE_DIR)/inventory/inventory.yml
 
 # Environment-specific paths
-ifeq ($(ENV),default)
+ifeq ($(ENV)/$(AIRGAP_WORKFLOW),airgap/distros)
+# Reject unsupported entrypoints before their prerequisites can provision or bootstrap hosts.
+ifneq ($(filter cluster bootstrap-python all setup-from-infra airgap-downstream,$(MAKECMDGOALS)),)
+$(error ENV=airgap AIRGAP_WORKFLOW=distros: use infra-up and the direct Ansible workflow in docs/guides/airgap-cluster-nodes.md)
+endif
+STATE_NAME          := airgap-distros
+ANSIBLE_DIR         := ansible/airgap
+GROUP_VARS          := $(ANSIBLE_DIR)/inventory/group_vars/all.yml
+INVENTORY           := $(ANSIBLE_DIR)/inventory/inventory.yml
+TOFU_DIR            := tofu/$(PROVIDER)/modules/cluster_nodes
+CLUSTER_PLAYBOOK    := $(ANSIBLE_DIR)/airgap-playbook.yml
+RANCHER_PLAYBOOK    :=
+DOWNSTREAM_PLAYBOOK :=
+REGISTRY_TARGET     :=
+# generate_inventory.py has no bastion/ProxyCommand layout: the inventory is hand-written
+# from cluster_nodes_json (docs/guides/airgap-cluster-nodes.md); DTF renders it itself.
+GENERATE_INVENTORY  := echo "" && echo "Infrastructure created. Write $(INVENTORY) from 'tofu output -raw cluster_nodes_json' (bastion + ProxyCommand), then use the ansible-playbook command in docs/guides/airgap-cluster-nodes.md."
+else ifeq ($(ENV),default)
 TOFU_DIR         := tofu/$(PROVIDER)/modules/cluster_nodes
 CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/$(DISTRO)-playbook.yml
 RANCHER_PLAYBOOK := ansible/rancher/default-ha/rancher-playbook.yml
@@ -96,6 +119,15 @@ CLUSTER_PLAYBOOK := $(ANSIBLE_DIR)/playbooks/deploy/$(DISTRO)-install-playbook.y
 RANCHER_PLAYBOOK := ansible/$(DISTRO)/shared/playbooks/deploy/rancher-helm-deploy-playbook.yml
 REGISTRY_TARGET  :=
 endif
+
+# Inventory generation step of infra-up (the distros airgap opt-in overrides it above).
+GENERATE_INVENTORY ?= python3 scripts/generate_inventory.py \
+		--input /tmp/tofu-nodes-$(DISTRO)-$(ENV).json \
+		--distro $(DISTRO) \
+		--env $(ENV) \
+		--schema ansible/_inventory-schema.yaml \
+		--output-dir $(ANSIBLE_DIR)/inventory \
+	&& { [ -f "$(INVENTORY)" ] && echo "" && echo "Infrastructure created. Inventory generated at $(INVENTORY)" || { echo "Error: Inventory generation failed" && exit 1; }; }
 
 # Extra --extra-vars for selecting a target inventory group (airgap multi-cluster).
 # Applies to targets that install on a node group (cluster, downstream).
@@ -229,7 +261,7 @@ help: ## Show this help message
 	@echo "  make status                                 # Check current cluster"
 	@echo ""
 	@echo "Backend Configuration:"
-	@echo "  make backend-s3 BUCKET=my-bucket REGION=us-east-1   # KEY optional, defaults to <PROVIDER>/<ENV>/terraform.tfstate"
+	@echo "  make backend-s3 BUCKET=my-bucket REGION=us-east-1   # KEY optional, defaults to <PROVIDER>/<ENV>/terraform.tfstate (airgap-distros with AIRGAP_WORKFLOW=distros)"
 	@echo "  make backend-local PATH=terraform.tfstate"
 	@echo ""
 	@echo "Workspace Examples:"
@@ -336,10 +368,10 @@ backend-s3: ## Configure S3 backend (BUCKET= REGION= required; KEY= optional, de
 	@if [ -z "$(BUCKET)" ] || [ -z "$(REGION)" ]; then \
 		echo "Error: BUCKET and REGION are required"; \
 		echo "Usage: make backend-s3 BUCKET=my-bucket REGION=us-east-1 [KEY=<provider>/<env>/terraform.tfstate] [DYNAMODB_TABLE=table] [ENCRYPT=true]"; \
-		echo "  KEY is optional; if omitted it defaults to $(PROVIDER)/$(ENV)/terraform.tfstate so each ENV gets isolated state."; \
+		echo "  KEY is optional; if omitted it defaults to $(PROVIDER)/$(STATE_NAME)/terraform.tfstate so each ENV gets isolated state."; \
 		exit 1; \
 	fi
-	@key="$(if $(KEY),$(KEY),$(PROVIDER)/$(ENV)/terraform.tfstate)"; \
+	@key="$(if $(KEY),$(KEY),$(PROVIDER)/$(STATE_NAME)/terraform.tfstate)"; \
 	echo "Configuring S3 backend for $(TOFU_DIR) with key '$$key' ..."; \
 	cd $(TOFU_DIR) && $(CURDIR)/tofu/scripts/init-backend.sh s3 --bucket "$(BUCKET)" --key "$$key" --region "$(REGION)" $(if $(DYNAMODB_TABLE),--dynamodb-table "$(DYNAMODB_TABLE)") $(if $(ENCRYPT),--encrypt "$(ENCRYPT)")
 
@@ -474,13 +506,7 @@ infra-up: infra-init check-state-env ## Create infrastructure (generates Ansible
 		echo "Error: No inventory JSON output found in Tofu module $(TOFU_DIR). Has 'make infra-up' been run?"; \
 		exit 1; \
 	fi
-	@python3 scripts/generate_inventory.py \
-		--input /tmp/tofu-nodes-$(DISTRO)-$(ENV).json \
-		--distro $(DISTRO) \
-		--env $(ENV) \
-		--schema ansible/_inventory-schema.yaml \
-		--output-dir $(ANSIBLE_DIR)/inventory
-	@[ -f "$(INVENTORY)" ] && echo "" && echo "Infrastructure created. Inventory generated at $(INVENTORY)" || (echo "Error: Inventory generation failed" && exit 1)
+	@$(GENERATE_INVENTORY)
 
 .PHONY: infra-down
 infra-down: check-tofu-dir check-state-env ## Destroy infrastructure
@@ -989,16 +1015,16 @@ clean: ## Clean local temporary files
 # ============================================================================
 
 .PHONY: all
-all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Full setup: infrastructure + cluster + Rancher
+all: infra-up cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) $(if $(strip $(RANCHER_PLAYBOOK)),rancher) ## Full setup: infrastructure + cluster + Rancher when configured
 	@echo ""
 	@echo "Full $(DISTRO) $(ENV) environment setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
 .PHONY: setup-from-infra
-setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) rancher ## Setup cluster + Rancher (infra exists)
+setup-from-infra: check-inventory cluster $(REGISTRY_TARGET) $(UI_PLUGIN_MIRROR_TARGET) $(CHARTS_MIRROR_TARGET) $(if $(strip $(RANCHER_PLAYBOOK)),rancher) ## Setup cluster + Rancher when configured (infra exists)
 	@echo ""
-	@echo "$(DISTRO) cluster and Rancher setup complete!"
+	@echo "$(DISTRO) $(ENV) setup complete!"
 	@echo ""
 	@$(MAKE) status DISTRO=$(DISTRO) ENV=$(ENV) PROVIDER=$(PROVIDER)
 
