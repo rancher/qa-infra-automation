@@ -9,11 +9,16 @@
         kubernetes_version is match('^v[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.-]+)?[+]'
         ~ ('rke2r' if product == 'rke2' else 'k3s') ~ '[0-9]+\\Z')
       - airgap_effective_cni is not search('[^a-z0-9,-]')
+      - >-
+        product != 'rke2' or
+        (airgap_effective_cni | split(',') | reject('equalto', '')
+         | difference(['calico', 'canal', 'cilium', 'flannel', 'multus', 'none']) | length == 0)
       - arch in ['amd64', 'arm64']
       - tarball_type in ['tar.zst', 'tar.gz']
     fail_msg: >-
       Artifacts require a matching K3s/RKE2 release tag, comma-separated CNI names
       (letters, digits and hyphens only), arch amd64|arm64 and tarball_type tar.zst|tar.gz.
+      RKE2 CNI names must be calico, canal, cilium, flannel, multus or none; empty uses the default.
 
 - name: Show artifact selection
   ansible.builtin.debug:

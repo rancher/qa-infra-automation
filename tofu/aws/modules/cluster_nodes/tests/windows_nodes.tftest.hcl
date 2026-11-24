@@ -54,6 +54,31 @@ run "windows_instance_type_honors_group_override" {
   }
 }
 
+run "run_id_tags_linux_and_windows" {
+  command = plan
+
+  variables {
+    run_id = "windows-ownership-test"
+  }
+
+  assert {
+    condition = alltrue([
+      for node in merge(aws_instance.node, aws_instance.windows) :
+      lookup(node.tags, "RunId", "") == var.run_id
+    ])
+    error_message = "Every Linux and Windows instance must carry the requested RunId."
+  }
+}
+
+run "windows_run_id_remains_optional" {
+  command = plan
+
+  assert {
+    condition     = alltrue([for node in aws_instance.windows : !contains(keys(node.tags), "RunId")])
+    error_message = "Windows instances must omit RunId when run_id is empty."
+  }
+}
+
 run "rdp_is_attached_to_windows_only" {
   command = plan
   assert {

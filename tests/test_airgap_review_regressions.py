@@ -42,7 +42,7 @@ class AirgapReviewRegressions(unittest.TestCase):
 
     def test_composite_make_targets_only_install_rancher_when_configured(self):
         for target in ("all", "setup-from-infra"):
-            for environment, workflow in (("airgap", "distros"), ("airgap", ""), ("default", "")):
+            for environment, workflow in (("airgap", ""), ("default", "")):
                 with self.subTest(target=target, environment=environment, workflow=workflow):
                     result = subprocess.run(
                         ["make", "-n", target, "OFFLINE=1", "-o", "infra-up", "-o", "check-inventory",
@@ -50,12 +50,27 @@ class AirgapReviewRegressions(unittest.TestCase):
                          "UI_PLUGIN_MIRROR_TARGET=", "CHARTS_MIRROR_TARGET=", "REGISTRY_TARGET="],
                         cwd=ROOT, capture_output=True, text=True, timeout=30, check=False)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    commands = [line for line in result.stdout.splitlines() if line.startswith("ansible-playbook ")]
+                    commands = [line.strip() for line in result.stdout.splitlines()
+                                if line.lstrip().startswith("ansible-playbook ")]
                     self.assertTrue(commands, result.stdout)
                     self.assertTrue(all("-playbook.yml" in line or "bootstrap-python.yml" in line
                                         for line in commands), commands)
                     rancher = [line for line in commands if "rancher" in line]
                     self.assertEqual(bool(rancher), workflow != "distros", commands)
+
+    def test_distros_make_rejects_cluster_targets_before_provisioning(self):
+        for target in ("cluster", "bootstrap-python", "all", "setup-from-infra", "airgap-downstream", "infra-up"):
+            with self.subTest(target=target):
+                result = subprocess.run(
+                    ["make", "-n", "-j6", target, "ENV=airgap", "AIRGAP_WORKFLOW=distros"],
+                    cwd=ROOT, capture_output=True, text=True, timeout=30, check=False)
+                if target == "infra-up":
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("tofu apply", result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("use infra-up and the direct Ansible workflow", result.stderr)
+                    self.assertNotIn("tofu apply", result.stdout)
 
     def test_invalid_artifact_components_fail_before_creating_the_cache(self):
         tasks = role_tasks("airgap_artifacts")
@@ -68,6 +83,12 @@ class AirgapReviewRegressions(unittest.TestCase):
             ("rke2", "v1.36.0+rke2r1\n", "", False),
             ("rke2", "v1.36.0+k3s1", "", False),
             ("rke2", "v1.36.0+rke2r1", "canal/../../escape", False),
+            ("rke2", "v1.36.0+rke2r1", "typo", False),
+            ("rke2", "v1.36.0+rke2r1", "multus,typo", False),
+            ("rke2", "v1.36.0+rke2r1", "none", True),
+            ("rke2", "v1.36.0+rke2r1", "calico", True),
+            ("rke2", "v1.36.0+rke2r1", "cilium", True),
+            ("rke2", "v1.36.0+rke2r1", "flannel", True),
         ]
         for index, (product, version, cni, succeeds) in enumerate(cases):
             with self.subTest(product=product, version=version, cni=cni):
@@ -77,6 +98,13 @@ class AirgapReviewRegressions(unittest.TestCase):
                     "airgap_bastion_dir": str(cache), "airgap_method": "tarball"})
                 self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
                 self.assertEqual(cache.exists(), succeeds)
+
+        result = self.run_tasks("airgap_artifacts", tasks[:end], {
+            "product": "rke2", "kubernetes_version": "v1.36.0+rke2r1",
+            "server_flags": "cni: [multus, typo]", "airgap_method": "tarball",
+            "airgap_bastion_dir": str(self.directory / "from-flags")})
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.directory / "from-flags").exists())
 
     def test_rke2_traefik_selection_matches_release_layout(self):
         tasks = role_tasks("airgap_artifacts")

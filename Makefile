@@ -86,6 +86,10 @@ INVENTORY   := $(ANSIBLE_DIR)/inventory/inventory.yml
 
 # Environment-specific paths
 ifeq ($(ENV)/$(AIRGAP_WORKFLOW),airgap/distros)
+# Reject unsupported entrypoints before their prerequisites can provision or bootstrap hosts.
+ifneq ($(filter cluster bootstrap-python all setup-from-infra airgap-downstream,$(MAKECMDGOALS)),)
+$(error ENV=airgap AIRGAP_WORKFLOW=distros: use infra-up and the direct Ansible workflow in docs/guides/airgap-cluster-nodes.md)
+endif
 STATE_NAME          := airgap-distros
 ANSIBLE_DIR         := ansible/airgap
 GROUP_VARS          := $(ANSIBLE_DIR)/inventory/group_vars/all.yml

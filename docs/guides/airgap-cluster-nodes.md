@@ -82,7 +82,7 @@ key on every host, including hosts the main playbook dropped after a failure.
 | `airgap_method` | `tarball` \| `private_registry` \| `system_default_registry` |
 | `tarball_type` | `tar.zst` (default) \| `tar.gz` |
 | `image_registry_url` | optional Prime artifact base URL supplied by the caller; artifacts come from `<base>/<product>/<version>` (the version's `+` is sent as `%2B`, which Prime requires) for **both** products, never with a community fallback |
-| `cni` | RKE2 only, e.g. `multus,canal` (drives image lists/tarballs AND `config.yaml`); when empty the `cni:` line of `server_flags` is used; if both are set they must match |
+| `cni` | RKE2 only: `calico`, `canal`, `cilium`, `flannel`, `multus`, `none` (comma-separated, e.g. `multus,canal`). Drives image lists/tarballs AND `config.yaml`; when empty the `cni:` line of `server_flags` is used; if both are set they must match. With neither set, use the product default. |
 | `server_flags` / `worker_flags` | YAML scalars appended to `config.yaml` |
 | `kubeconfig_file` | controller path for a protected (0600) copy of the kubeconfig |
 | `airgap_facts_file` | controller path for `airgap-facts.json` |
@@ -114,6 +114,10 @@ Written by the last play (paths and hostnames only, never credentials):
 `release_url`, `bastion_kubeconfig_path`, `kubectl_path`, `bastion_host`, `bastion_public_dns`, `node_count`.
 
 ## Running by hand
+
+In this mode, `make infra-up` provisions infrastructure only. `cluster`, `bootstrap-python`,
+`all`, `setup-from-infra` and `airgap-downstream` are rejected before any prerequisite runs;
+write the inventory and invoke Ansible directly as shown below.
 
 With an S3 backend, `make backend-s3` stores this flow under `<provider>/airgap-distros/`, separate from the Rancher Airgap state (`<provider>/airgap/`); never point both at one key.
 

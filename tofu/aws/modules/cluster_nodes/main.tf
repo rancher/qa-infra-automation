@@ -533,10 +533,10 @@ resource "aws_instance" "windows" {
     }
   }
 
-  tags = {
+  tags = merge({
     Name = "tf-${var.aws_hostname_prefix}-${each.value.name}"
     OS   = "windows"
-  }
+  }, local.run_tags)
 }
 
 # Allow all node-to-node traffic over public IPs. Nodes address each other by
