@@ -1,0 +1,27 @@
+---
+# raw needs no remote Python; until/retries cannot retry UNREACHABLE, so recurse.
+- name: Probe SSH
+  ansible.builtin.raw: "true"
+  register: _ssh_probe
+  ignore_unreachable: true
+  become: false
+  changed_when: false
+
+- name: Retry SSH probe
+  when: _ssh_probe.rc is not defined or _ssh_probe.rc != 0
+  block:
+    - name: Fail after max attempts
+      ansible.builtin.fail:
+        msg: "SSH to {{ inventory_hostname }} not ready after {{ ssh_wait_attempts }} attempts"
+      when: _ssh_wait_n | default(1) | int >= ssh_wait_attempts | int
+
+    - name: Wait before retrying
+      ansible.builtin.pause:
+        seconds: "{{ ssh_wait_delay }}"
+
+    - name: Count attempt
+      ansible.builtin.set_fact:
+        _ssh_wait_n: "{{ _ssh_wait_n | default(1) | int + 1 }}"
+
+    - name: Probe again
+      ansible.builtin.include_tasks: wait-ssh.yml
