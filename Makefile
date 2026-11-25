@@ -168,11 +168,14 @@ VALID_PROVIDERS := aws gcp harvester
 # Environments that have no Rancher deploy step yet (empty RANCHER_PLAYBOOK).
 RANCHERLESS_ENVS := dualstack ipv6
 
-# ansible/k3s has no dualstack/ipv6 playbooks; fail here rather than deep inside
+# dualstack/ipv6 exist only for rke2 on aws; fail here rather than deep inside
 # a target with a missing-file error.
 ifneq ($(filter $(ENV),$(RANCHERLESS_ENVS)),)
 ifeq ($(DISTRO),k3s)
 $(error DISTRO=k3s is not supported with ENV=$(ENV): ansible/k3s/$(ENV) has no playbooks yet. Use DISTRO=rke2.)
+endif
+ifneq ($(PROVIDER),aws)
+$(error PROVIDER=$(PROVIDER) is not supported with ENV=$(ENV): only tofu/aws/modules/$(ENV) exists. Use PROVIDER=aws.)
 endif
 endif
 

@@ -158,8 +158,7 @@ kubeconfig_file: './kubeconfig.yaml'   # Used by: rke2_cluster, rke2_health_chec
 # Network Configuration (Required)
 cni: 'calico'                           # Used by: rke2_config (CNI plugin: calico, canal, cilium)
 
-# Infrastructure Variables (Required if not using Terraform)
-# These are automatically loaded from Terraform state if available
+# Endpoint Variables: set by the generated inventory; KUBE_API_HOST/FQDN env vars override
 # kube_api_host: '1.2.3.4'             # Used by: rke2_config, rke2_cluster (initial node IP)
 # fqdn: '1.2.3.4.sslip.io'             # Used by: rke2_config (cluster FQDN for TLS SANs)
 
@@ -168,5 +167,8 @@ channel: 'stable'                       # Used by: rke2_install (RKE2 channel: s
 install_method: 'online'               # Used by: rke2_install (installation method: online, airgap)
 
 # Advanced Configuration (Optional)
-# server_flags: '--disable=traefik'    # Used by: rke2_config (additional server flags)
-# worker_flags: '--node-label=type=worker'  # Used by: rke2_config (additional agent flags)
+# Must be YAML mappings (RKE2 config keys), not CLI-style --flags
+# server_flags: |                      # Used by: rke2_config (additional server config)
+#   disable: [rke2-ingress-nginx]
+# worker_flags: |                      # Used by: rke2_config (additional agent config)
+#   node-label: [type=worker]
