@@ -3,3 +3,11 @@
 # These are RKE2 installation conventions, not configuration options.
 rke2_config_dir: /etc/rancher/rke2
 rke2_kubeconfig_source: /etc/rancher/rke2/rke2.yaml
+
+# First server/master with the cp role: an etcd-only node runs no apiserver
+# (disable-apiserver in role_config.yaml.j2), so kubectl and fetch must go elsewhere.
+rke2_cluster_api_host: >-
+  {{ ((groups.get('servers', []) + groups['master']) | map('extract', hostvars)
+      | selectattr('node_roles', 'defined') | selectattr('node_roles', 'contains', 'cp')
+      | map(attribute='inventory_hostname') | list
+      + [(groups.get('servers', []) + groups['master'])[0]]) | first }}

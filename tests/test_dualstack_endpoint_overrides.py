@@ -75,6 +75,49 @@ class TestEndpointOverrides(unittest.TestCase):
             task = node_play["pre_tasks"][names.index(next(n for n in names if n.startswith("Use the endpoints")))]
             self.assertNotIn("when", task, pb)
 
+    def test_cluster_role_delegates_to_a_cp_node_not_an_etcd_only_server(self):
+        role_vars = os.path.abspath(os.path.join(ROOT, "..", "roles", "rke2_cluster", "vars", "main.yml"))
+        local = {"ansible_connection": "local"}
+        cases = {  # split topology: second etcd-only node lands first in servers
+            "cp-0": {"master": {"m": {**local, "node_roles": ["etcd"]}},
+                     "servers": {"etcd-1": {**local, "node_roles": ["etcd"]}, "cp-0": {**local, "node_roles": ["cp"]}}},
+            "s-0": {"master": {"m": {**local, "node_roles": ["etcd", "cp"]}},
+                    "servers": {"s-0": {**local, "node_roles": ["etcd", "cp"]}}},
+        }
+        for want, children in cases.items():
+            inv = {"all": {"children": {g: {"hosts": h} for g, h in children.items()}}}
+            with tempfile.TemporaryDirectory() as tmp:
+                dest = os.path.join(tmp, "out.txt")
+                pb = [{"hosts": "localhost", "gather_facts": False, "vars_files": [role_vars],
+                       "tasks": [{"ansible.builtin.copy": {"dest": dest, "content": "{{ rke2_cluster_api_host }}"}}]}]
+                with open(os.path.join(tmp, "pb.yml"), "w") as f:
+                    yaml.safe_dump(pb, f)
+                with open(os.path.join(tmp, "inv.yml"), "w") as f:
+                    yaml.safe_dump(inv, f)
+                out = subprocess.run(["ansible-playbook", "-i", os.path.join(tmp, "inv.yml"), os.path.join(tmp, "pb.yml")],
+                                     capture_output=True, text=True, timeout=120)
+                self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+                with open(dest) as f:
+                    self.assertEqual(f.read().strip(), want)
+        with open(os.path.join(ROOT, "..", "roles", "rke2_cluster", "tasks", "main.yml")) as f:
+            self.assertNotIn("groups['master'])[0]", f.read())
+
+    def test_kubeconfig_is_fetched_where_later_plays_read_it(self):
+        for pb in ("dualstack/rke2-playbook-dualstack.yml", "ipv6/rke2-playbook-ipv6.yml"):
+            with open(os.path.join(ROOT, pb)) as f:
+                plays = yaml.safe_load(f)
+            role = next(r for p in plays for r in p.get("roles", []) if isinstance(r, dict) and r.get("role") == "rke2_cluster")
+            fmt = next(p for p in plays if p.get("name", "").startswith("Format local kubeconfig"))
+            self.assertEqual(role["vars"]["rke2_kubeconfig_dest"], fmt["tasks"][0]["ansible.builtin.replace"]["path"], pb)
+
+    def test_ipv6_vars_example_uses_ipv6_node_ip(self):
+        with open(os.path.join(ROOT, "ipv6", "vars.yaml.example")) as f:
+            example = yaml.safe_load(f)
+        for key in ("server_flags", "worker_flags"):
+            flags = yaml.safe_load(example[key])
+            self.assertEqual(flags["node-ip"], "{{ ansible_host_ipv6 }}", key)
+            self.assertNotIn("0.0.0.0", example[key], key)
+
 
 if __name__ == "__main__":
     unittest.main()

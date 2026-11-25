@@ -126,7 +126,7 @@
       changed_when: false
       become: true
       when: rke2_wait_for_ready
-      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
+      delegate_to: "{{ rke2_cluster_api_host }}"
       run_once: true
 
     - name: Display all ready nodes
@@ -136,7 +136,7 @@
       register: all_nodes
       changed_when: false
       become: true
-      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
+      delegate_to: "{{ rke2_cluster_api_host }}"
       run_once: true
 
     - name: Show cluster nodes
@@ -174,7 +174,7 @@
       changed_when: false
       become: true
       when: rke2_wait_for_ready
-      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
+      delegate_to: "{{ rke2_cluster_api_host }}"
       run_once: true
 
     - name: Display all nodes after workers joined
@@ -184,7 +184,7 @@
       register: final_nodes
       changed_when: false
       become: true
-      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
+      delegate_to: "{{ rke2_cluster_api_host }}"
       run_once: true
       when: rke2_wait_for_ready
 
@@ -203,14 +203,14 @@
         dest: "{{ rke2_kubeconfig_dest }}"
         flat: true
       become: true
-      delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
+      delegate_to: "{{ rke2_cluster_api_host }}"
       run_once: true
 
     - name: Replace localhost with master IP in kubeconfig
       ansible.builtin.replace:
         path: "{{ rke2_kubeconfig_dest }}"
         regexp: '127\.0\.0\.1'
-        replace: "{{ hostvars[(groups.get('servers', []) + groups['master'])[0]]['ansible_host'] }}"
+        replace: "{{ hostvars[rke2_cluster_api_host]['ansible_host'] }}"
       delegate_to: localhost
       run_once: true
       become: false
@@ -220,10 +220,8 @@
         msg: "Kubeconfig saved to {{ rke2_kubeconfig_dest }}"
 
 # Final cluster status
-# Delegated like the other kubectl tasks above (servers before master) rather
-# than run directly on the master host: a split-role master is etcd-only
-# (disable-apiserver: true, see role_config.yaml.j2), so it has no live local
-# apiserver or kubeconfig to query.
+# Delegated to rke2_cluster_api_host like the kubectl tasks above: an etcd-only master
+# has no apiserver (see vars/main.yml).
 - name: Get cluster status
   ansible.builtin.command: >
     /var/lib/rancher/rke2/bin/kubectl --kubeconfig {{ rke2_kubeconfig_source }}
@@ -231,7 +229,7 @@
   register: cluster_status
   changed_when: false
   become: true
-  delegate_to: "{{ (groups.get('servers', []) + groups['master'])[0] }}"
+  delegate_to: "{{ rke2_cluster_api_host }}"
   run_once: true
 
 - name: Display cluster status
