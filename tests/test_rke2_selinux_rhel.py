@@ -43,6 +43,7 @@ class Rke2RhelSelinuxTest(unittest.TestCase):
         self.assertEqual(steps, [
             "Add the signed RKE2 SELinux policy repository",
             "Install the rke2-selinux policy",
+            "Find the installed RKE2 paths for SELinux relabeling",
             "Restore the SELinux contexts RKE2 needs",
         ])
 
@@ -74,10 +75,73 @@ class Rke2RhelSelinuxTest(unittest.TestCase):
         self.assertIn("rke2_install_selinux_policy | bool", when)
 
     def test_the_relabel_covers_the_data_dir(self):
-        argv = _step("Restore the SELinux contexts RKE2 needs")["ansible.builtin.command"]["argv"]
+        paths = _step("Find the installed RKE2 paths for SELinux relabeling")["loop"]
 
-        self.assertEqual(argv[:3], ["restorecon", "-R", "-v"])
-        self.assertIn("/var/lib/rancher", argv)
+        self.assertIn("{{ rke2_data_dir }}", paths)
+        self.assertNotIn("/var/lib/rancher", paths)
+        self.assertNotIn("/etc/rancher", paths)
+        self.assertNotIn("/usr/local/bin", paths)
+
+    @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
+    def test_relabel_only_existing_rke2_paths_with_ansible(self):
+        cases = {
+            "rpm": "/usr/bin/rke2", "tar": "/usr/local/bin/rke2",
+            "opt": "/opt/rke2/bin/rke2", "custom": "/srv/rke2/bin/rke2", "absent": None,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / "tools"
+            tools.mkdir()
+            restorecon = tools / "restorecon"
+            restorecon.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$RELABEL_LOG"\n', encoding="utf-8")
+            restorecon.chmod(0o755)
+            plays, expected = [], {}
+
+            for name, binary in cases.items():
+                host = root / name
+                data = host / "var/lib/rancher/rke2"
+                config = host / "etc/rancher/rke2"
+                data.mkdir(parents=True)
+                config.mkdir(parents=True)
+                unrelated = host / "usr/local/bin/unrelated-tool"
+                unrelated.parent.mkdir(parents=True)
+                unrelated.touch()
+                paths = [str(data), str(config)]
+                if binary:
+                    installed = host / binary.lstrip("/")
+                    installed.parent.mkdir(parents=True, exist_ok=True)
+                    installed.touch()
+                    paths.append(str(installed))
+
+                discover = copy.deepcopy(_step("Find the installed RKE2 paths for SELinux relabeling"))
+                discover["loop"] = [str(host) + path if path.startswith("/") else path
+                                    for path in discover["loop"]]
+                log = host / "relabel.log"
+                expected[log] = [arg for path in paths for arg in ["-R", "-v", path]]
+                plays.append({
+                    "hosts": "localhost", "gather_facts": False,
+                    "vars": {
+                        "ansible_python_interpreter": sys.executable,
+                        "rke2_data_dir": str(data),
+                        "rke2_bin_dir": str(host / ("srv/rke2/bin" if name == "custom" else "usr/local/bin")),
+                    },
+                    "environment": {"PATH": str(tools) + os.pathsep + os.environ["PATH"], "RELABEL_LOG": str(log)},
+                    "tasks": [discover, _step("Restore the SELinux contexts RKE2 needs")],
+                })
+
+            playbook = root / "relabel.yml"
+            playbook.write_text(yaml.safe_dump(plays), encoding="utf-8")
+            for _ in range(2):
+                for log in expected:
+                    log.write_text("", encoding="utf-8")
+                result = subprocess.run(
+                    ["ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook)],
+                    text=True, capture_output=True, timeout=90,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertRegex(result.stdout, r"changed=0\s")
+                for log, args in expected.items():
+                    self.assertEqual(log.read_text(encoding="utf-8").splitlines(), args)
 
     @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
     def test_repository_mapping_with_ansible(self):

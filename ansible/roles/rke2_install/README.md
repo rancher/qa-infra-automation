@@ -54,6 +54,8 @@ with package signature verification. Selection follows the official RKE2 install
 9 and 10 use their own major; other RedHat-family versions, including Fedora and
 Amazon Linux 2023, use EL8. The role configures the repository, ensures the policy
 package is present, and restores RKE2 file contexts before enabling the service.
+Relabeling checks the installed paths after installation and only touches the RKE2
+data/config directories and existing RKE2 binaries, including RPM and tarball locations.
 This mapping does not establish support for an OS beyond RKE2's supported platforms.
 
 ## Dependencies
