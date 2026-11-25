@@ -403,9 +403,20 @@
       no_log: true
       register: _k3s_commit_install_result
       changed_when: true
+      failed_when: false
       retries: 3
       delay: 20
       until: _k3s_commit_install_result.rc == 0
+
+    - name: Report a failed K3s commit install without exposing the token
+      ansible.builtin.fail:
+        msg: |-
+          K3s commit {{ kubernetes_version }} install failed (rc={{ _k3s_commit_install_result.rc }}).
+          stdout (last 2000 characters, token redacted):
+          {{ (_k3s_commit_install_result.stdout | default('') | replace(k3s_github_token, '[REDACTED]'))[-2000:] }}
+          stderr (last 2000 characters, token redacted):
+          {{ (_k3s_commit_install_result.stderr | default('') | replace(k3s_github_token, '[REDACTED]'))[-2000:] }}
+      when: _k3s_commit_install_result.rc != 0
 
     - name: Remove the K3s install script
       ansible.builtin.file:

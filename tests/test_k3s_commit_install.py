@@ -108,31 +108,46 @@ class K3sCommitInstallRuntimeTest(unittest.TestCase):
         return result.returncode, output
 
     def test_token_reaches_installer_without_leaking_on_success_or_failure(self):
-        for exit_code in (0, 1):
-            with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as directory:
+        for failed_attempts in (0, 2, 4):
+            with self.subTest(failed_attempts=failed_attempts), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                token = "dummy-secret-for-commit-install"
+                token = "dummy-token.with+regex[characters]?"
                 installer = root / "installer.sh"
                 installer.write_text(
                     f'test "$GITHUB_TOKEN" = "{token}" || exit 91\n'
                     'test "$INSTALL_K3S_COMMIT" = "0123456789abcdef" || exit 92\n'
                     'test "$INSTALL_K3S_EXEC" = "agent" || exit 93\n'
                     'test "$INSTALL_K3S_SKIP_START" = "true" || exit 94\n'
-                    f'touch "{root / "installed"}"\n'
-                    'printf "%s\\n" "$GITHUB_TOKEN"\n'
-                    f"exit {exit_code}\n", encoding="utf-8",
+                    f'count=$(cat "{root / "attempts"}" 2>/dev/null || echo 0)\n'
+                    'count=$((count + 1))\n'
+                    f'printf "%s\\n" "$count" > "{root / "attempts"}"\n'
+                    'printf "old-output-marker\\n"\n'
+                    'printf "%3000s\\n" " "\n'
+                    'printf "%s%1980s\\n" "$GITHUB_TOKEN" " "\n'
+                    'printf "artifact download failed: %s\\n" "$GITHUB_TOKEN" >&2\n'
+                    f'[ "$count" -le {failed_attempts} ] && exit 22\n'
+                    'exit 0\n', encoding="utf-8",
                 )
                 task = next(t for t in _commit_block_tasks() if t["name"] == "Install K3s via install script")
                 task["ansible.builtin.shell"] = task["ansible.builtin.shell"].replace(
                     "/tmp/k3s-install.sh", str(installer),
                 )
-                task.update(retries=0, delay=0)
+                task["delay"] = 0
+                report = next(t for t in _commit_block_tasks() if "ansible.builtin.fail" in t)
+                following = {"ansible.builtin.file": {"path": str(root / "continued"), "state": "touch"}}
 
-                rc, output = self._run(root, [task], token=token)
+                rc, output = self._run(root, [task, report, following], token=token)
 
-                self.assertEqual(rc == 0, exit_code == 0, output)
-                self.assertTrue((root / "installed").exists(), output)
+                succeeded = failed_attempts < 4
+                self.assertEqual(rc == 0, succeeded, output)
+                self.assertEqual((root / "continued").exists(), succeeded, output)
+                self.assertEqual(int((root / "attempts").read_text()), min(failed_attempts + 1, 4))
                 self.assertNotIn(token, output)
+                self.assertNotIn("regex[characters]?", output)
+                self.assertNotIn("old-output-marker", output)
+                if not succeeded:
+                    self.assertIn("artifact download failed: [REDACTED]", output)
+                    self.assertIn("rc=22", output)
 
     def test_missing_token_stops_before_install(self):
         with tempfile.TemporaryDirectory() as directory:

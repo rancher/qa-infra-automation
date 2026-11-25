@@ -120,6 +120,10 @@ the token to the remote installer through stdin with `no_log: true`. A missing
 token stops the commit-install block before its prerequisites are installed.
 Version-tag installs do not require the token.
 
+After the install retries are exhausted, the role fails with the exit code
+and the last 2000 characters of each output stream. It replaces
+the literal token before truncating or displaying stdout and stderr.
+
 The role installs both tools before downloading the installer. On transactional
 hosts such as SLE Micro, it reboots if the tools are still missing from the running
 system, then waits for both tools and the SSH user's home before continuing.
