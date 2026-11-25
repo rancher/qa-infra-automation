@@ -16,6 +16,19 @@ k3s_bin_dir: "/usr/local/bin"
 # Commit installs download GitHub Actions artifacts, which need a token with read access to k3s-io/k3s.
 k3s_github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
 
+# Official jq-1.8.2 sha256sum.txt; keep the release and both digests together.
+k3s_install_jq_release_url: "https://github.com/jqlang/jq/releases/download/jq-1.8.2"
+k3s_install_jq_assets:
+  x86_64:
+    name: jq-linux-amd64
+    sha256: b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
+  aarch64:
+    name: jq-linux-arm64
+    sha256: 8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309
+
+# Use an executable filesystem; hardened hosts can mount /tmp and /var/tmp noexec.
+k3s_install_tools_parent: /usr/local/bin
+
 # Install k3s-selinux before K3s starts, matching the get.k3s.io behavior
 # bypassed by this role's direct binary install path.
 k3s_install_selinux_policy: true

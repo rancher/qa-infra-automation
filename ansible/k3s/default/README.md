@@ -127,3 +127,12 @@ the literal token before truncating or displaying stdout and stderr.
 The role installs both tools before downloading the installer. On transactional
 hosts such as SLE Micro, it reboots if the tools are still missing from the running
 system, then waits for both tools and the SSH user's home before continuing.
+
+On nontransactional SUSE hosts, if zypper cannot find `jq` (exit 104), the role
+downloads jq 1.8.2 from the official jqlang release through `download_verify`.
+AMD64 and ARM64 assets have pinned SHA256 digests. Other package errors still
+stop installation; `unzip` and transactional hosts keep the package path.
+The fallback lives in a private temporary directory under `/usr/local/bin`
+(`k3s_install_tools_parent`), so it works when `/tmp` is mounted `noexec`.
+Only the installer gets that directory in its PATH; the role removes it on
+success or failure. The host must be able to download GitHub release assets.
