@@ -36,10 +36,8 @@ rke2_airgap_install_script: ""
 rke2_start_on_boot: true
 rke2_start_after_install: false  # Let rke2_cluster role handle starting
 
-# Install rke2-selinux before RKE2 starts on SELinux-enabled SUSE hosts during
-# online installs, matching the RedHat-family behavior of the official installer.
-# Airgap installs never contact the configured RPM site; preinstall/bundle the
-# policy package when it is required in an offline environment.
+# Online installs ensure rke2-selinux on SELinux-enabled SUSE and RedHat-family hosts.
+# Airgap never contacts RPM sites; SUSE also verifies the preinstalled policy.
 rke2_install_selinux_policy: true
 rke2_selinux_rpm_site: "rpm.rancher.io"
 rke2_selinux_testing_rpm_site: "rpm-testing.rancher.io"

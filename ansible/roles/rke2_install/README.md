@@ -15,6 +15,8 @@ This role downloads and installs RKE2 on target nodes. It supports both online (
 
 For online installation:
 - Internet connectivity to get.rke2.io
+- SELinux-enabled SUSE and RedHat-family hosts also use the configured RPM site
+  and dependency repositories for policy installation.
 
 For airgap installation:
 - RKE2 tarball available on target or control node
@@ -43,9 +45,16 @@ Variables defined in `defaults/main.yml`:
 | `rke2_airgap_install_script` | `""` | Path to install script for airgap |
 | `rke2_start_on_boot` | `true` | Enable RKE2 service to start on boot |
 | `rke2_start_after_install` | `false` | Start RKE2 immediately after install |
-| `rke2_install_selinux_policy` | `true` | Install and verify `rke2-selinux` on online SELinux-enabled SUSE hosts; verify the preinstalled policy without network access in airgap mode |
-| `rke2_selinux_rpm_site` | `rpm.rancher.io` | RPM host used for stable/latest SUSE SELinux policy installs |
+| `rke2_install_selinux_policy` | `true` | Ensure `rke2-selinux` on online SELinux-enabled SUSE and RedHat-family hosts; SUSE also verifies the preinstalled policy without network access in airgap mode |
+| `rke2_selinux_rpm_site` | `rpm.rancher.io` | RPM host for stable/latest SUSE policy installs and stable RedHat-family policy installs |
 | `rke2_selinux_testing_rpm_site` | `rpm-testing.rancher.io` | RPM host used for testing-channel SUSE SELinux policy installs |
+
+On RedHat-family hosts, the policy comes from the stable common RPM repository
+with package signature verification. Selection follows the official RKE2 installer: EL 7, 8,
+9 and 10 use their own major; other RedHat-family versions, including Fedora and
+Amazon Linux 2023, use EL8. The role configures the repository, ensures the policy
+package is present, and restores RKE2 file contexts before enabling the service.
+This mapping does not establish support for an OS beyond RKE2's supported platforms.
 
 ## Dependencies
 

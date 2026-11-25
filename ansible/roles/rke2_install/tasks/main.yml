@@ -220,13 +220,18 @@
     - ansible_facts.os_family | default('') == "RedHat"
     - ansible_facts.selinux.status | default('disabled') == "enabled"
   become: true
+  vars:
+    # Match install.sh: EL 7..10 use their major; other RedHat-family hosts use EL8.
+    rke2_install_selinux_el_major: >-
+      {{ ansible_facts.distribution_major_version
+         if ansible_facts.distribution_major_version in ['7', '8', '9', '10'] else '8' }}
   block:
     # Its own repo id: the rpm install method writes rancher-rke2-common.
     - name: Add the signed RKE2 SELinux policy repository
       ansible.builtin.yum_repository:
         name: rancher-rke2-selinux
         description: Rancher RKE2 SELinux policy
-        baseurl: "https://{{ rke2_selinux_rpm_site }}/rke2/stable/common/centos/{{ ansible_facts.distribution_major_version }}/noarch"
+        baseurl: "https://{{ rke2_selinux_rpm_site }}/rke2/stable/common/centos/{{ rke2_install_selinux_el_major }}/noarch"
         gpgcheck: true
         gpgkey: "https://{{ rke2_selinux_rpm_site }}/public.key"
 
