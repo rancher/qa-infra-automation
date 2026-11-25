@@ -118,15 +118,21 @@ environment variable into the container too. Do not put the token in inventory,
 The role reads the controller environment through `k3s_github_token` and passes
 the token to the remote installer through stdin with `no_log: true`. A missing
 token stops the commit-install block before its prerequisites are installed.
+Surrounding whitespace is trimmed once for both transport and diagnostics;
+tokens with internal CR/LF characters are rejected before installation.
 Version-tag installs do not require the token.
 
 After the install retries are exhausted, the role fails with the exit code
-and the last 2000 characters of each output stream. It replaces
+and the last 2000 characters of the module message and each output stream. It replaces
 the literal token before truncating or displaying stdout and stderr.
+Module errors without an exit code retain their sanitized message.
 
 The role installs both tools before downloading the installer. On transactional
 hosts such as SLE Micro, it reboots if the tools are still missing from the running
 system, then waits for both tools and the SSH user's home before continuing.
+Package installation retries up to 20 times at 30-second intervals on transactional
+hosts, or 3 times at 20-second intervals elsewhere. Zypper's missing-package
+exit 104 is handled immediately instead of repeating a deterministic failure.
 
 On nontransactional SUSE hosts, if zypper cannot find `jq` (exit 104), the role
 downloads jq 1.8.2 from the official jqlang release through `download_verify`.

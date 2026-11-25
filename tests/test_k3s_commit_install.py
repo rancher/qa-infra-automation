@@ -30,8 +30,16 @@ def _commit_block():
         if task.get("name") == "Install K3s from commit hash via install script"
     )
 
+
 def _commit_block_tasks():
     return _commit_block()["block"]
+
+
+def _token_preflight():
+    return [task for task in _commit_block_tasks() if task["name"] in (
+        "Normalize the GitHub token for transport and diagnostics",
+        "Require a GitHub token for commit installs",
+    )]
 
 
 class K3sCommitInstallTest(unittest.TestCase):
@@ -54,7 +62,7 @@ class K3sCommitInstallTest(unittest.TestCase):
         )
 
         self.assertNotIn("environment", install)
-        self.assertEqual(install["args"]["stdin"], "{{ k3s_github_token }}")
+        self.assertEqual(install["args"]["stdin"], "{{ k3s_install_github_token }}")
         self.assertTrue(install["no_log"])
         self.assertEqual(
             _load("defaults", "main.yml")["k3s_github_token"],
@@ -66,7 +74,7 @@ class K3sCommitInstallTest(unittest.TestCase):
         names = [task["name"] for task in tasks]
         check = tasks[names.index("Require a GitHub token for commit installs")]
 
-        self.assertIn("k3s_github_token | length > 0", check["ansible.builtin.assert"]["that"])
+        self.assertIn("k3s_install_github_token | length > 0", check["ansible.builtin.assert"]["that"])
         self.assertNotIn("k3s_github_token", check["ansible.builtin.assert"]["fail_msg"].replace(
             "or k3s_github_token.", ""))
         self.assertLess(
@@ -141,7 +149,7 @@ class K3sCommitInstallRuntimeTest(unittest.TestCase):
                 report = next(t for t in _commit_block_tasks() if "ansible.builtin.fail" in t)
                 following = {"ansible.builtin.file": {"path": str(root / "continued"), "state": "touch"}}
 
-                rc, output = self._run(root, [task, report, following], token=token)
+                rc, output = self._run(root, _token_preflight() + [task, report, following], token=token)
 
                 succeeded = failed_attempts < 4
                 self.assertEqual(rc == 0, succeeded, output)
@@ -157,14 +165,105 @@ class K3sCommitInstallRuntimeTest(unittest.TestCase):
     def test_missing_token_stops_before_install(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            check = next(t for t in _commit_block_tasks() if t["name"] == "Require a GitHub token for commit installs")
             marker = {"ansible.builtin.file": {"path": str(root / "installed"), "state": "touch"}}
 
-            rc, output = self._run(root, [check, marker])
+            rc, output = self._run(root, _token_preflight() + [marker])
 
             self.assertNotEqual(rc, 0, output)
             self.assertIn("needs GITHUB_TOKEN", output)
             self.assertFalse((root / "installed").exists())
+
+    def test_token_normalization_and_rejection_do_not_leak(self):
+        token = "fixture_token_for_normalization"
+        cases = (
+            (token + "\n", True), (token + "\r\n", True), (" " + token + " ", True),
+            (token + "\nsecond", False), (token + "\rsecond", False), (" \r\n ", False),
+        )
+        for raw, accepted in cases:
+            with self.subTest(raw=repr(raw)), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                installer = root / "installer.sh"
+                installer.write_text(
+                    f'test "$GITHUB_TOKEN" = "{token}" || exit 91\n'
+                    f'touch "{root / "installed"}"\n'
+                    'printf "installer error: <%s>\\n" "$GITHUB_TOKEN" >&2\nexit 22\n',
+                    encoding="utf-8",
+                )
+                task = next(t for t in _commit_block_tasks() if t["name"] == "Install K3s via install script")
+                task["ansible.builtin.shell"] = task["ansible.builtin.shell"].replace(
+                    "/tmp/k3s-install.sh", str(installer),
+                )
+                task["retries"] = 0
+                report = next(t for t in _commit_block_tasks() if "ansible.builtin.fail" in t)
+
+                rc, output = self._run(root, _token_preflight() + [task, report], token=raw)
+
+                self.assertNotEqual(rc, 0, output)
+                self.assertEqual((root / "installed").exists(), accepted, output)
+                self.assertNotIn(token, output)
+                if accepted:
+                    self.assertIn("installer error: <[REDACTED]>", output)
+                else:
+                    self.assertIn("The token must be non-empty", output)
+
+    def test_module_failure_without_rc_keeps_the_sanitized_reason(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            token = "fixture_token_in_module_error"
+            task = next(t for t in _commit_block_tasks() if t["name"] == "Install K3s via install script")
+            task["args"][token] = True
+            task["delay"] = 0
+            report = next(t for t in _commit_block_tasks() if "ansible.builtin.fail" in t)
+            marker = {"ansible.builtin.file": {"path": str(root / "continued"), "state": "touch"}}
+
+            rc, output = self._run(root, _token_preflight() + [task, report, marker], token=token)
+
+            self.assertNotEqual(rc, 0, output)
+            self.assertFalse((root / "continued").exists(), output)
+            self.assertIn("rc=unavailable", output)
+            self.assertIn("Unsupported parameters", output)
+            self.assertIn("[REDACTED]", output)
+            self.assertNotIn("has no attribute 'rc'", output)
+            self.assertNotIn(token, output)
+
+    def test_package_retries_recover_stop_at_the_budget_and_skip_missing_packages(self):
+        packages = [
+            child for task in _commit_block_tasks()
+            for child in task.get("block", [task]) if "ansible.builtin.package" in child
+        ]
+        for original in packages:
+            for transactional in (False, True):
+                for failed_attempts, failure_rc in ((2, 7), (99, 7), (99, 104)):
+                    with self.subTest(package=original["name"], transactional=transactional,
+                                      failures=failed_attempts, rc=failure_rc):
+                        with tempfile.TemporaryDirectory() as directory:
+                            root = Path(directory)
+                            task = dict(original)
+                            task.pop("ansible.builtin.package")
+                            task["delay"] = 0
+                            task["ansible.builtin.command"] = {"argv": [
+                                sys.executable, "-c",
+                                "from pathlib import Path; import sys; "
+                                "p=Path(sys.argv[1]); n=int(p.read_text())+1 if p.exists() else 1; "
+                                "p.write_text(str(n)); "
+                                "sys.exit(int(sys.argv[3]) if n <= int(sys.argv[2]) else 0)",
+                                str(root / "attempts"), str(failed_attempts), str(failure_rc),
+                            ]}
+                            marker = {"ansible.builtin.file": {
+                                "path": str(root / "continued"), "state": "touch",
+                            }}
+
+                            rc, output = self._run(root, [task, marker], variables={
+                                "k3s_install_transactional": {"stat": {"exists": transactional}},
+                                "ansible_facts": {"os_family": "Suse"},
+                            })
+
+                            budget = 21 if transactional else 4
+                            attempts = 1 if failure_rc == 104 else min(failed_attempts + 1, budget)
+                            succeeded = failed_attempts < budget and failure_rc != 104
+                            self.assertEqual(int((root / "attempts").read_text()), attempts, output)
+                            self.assertEqual(rc == 0, succeeded, output)
+                            self.assertEqual((root / "continued").exists(), succeeded, output)
 
     def _fallback_tasks(self, root, base_url, package_rc):
         block = _commit_block()
@@ -174,9 +273,11 @@ class K3sCommitInstallRuntimeTest(unittest.TestCase):
             elif "ansible.builtin.package" in task:
                 task.pop("ansible.builtin.package")
                 task["ansible.builtin.command"] = {"argv": ["/bin/true"]}
+                task["delay"] = 0
             elif "block" in task:
                 package = task["block"][0]
                 package.pop("ansible.builtin.package")
+                package["delay"] = 0
                 package["ansible.builtin.command"] = {
                     "argv": [sys.executable, "-c", f"raise SystemExit({package_rc})"],
                 }
