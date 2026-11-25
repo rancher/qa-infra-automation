@@ -211,6 +211,61 @@
   when:
     - rke2_install_selinux_policy | bool
 
+# A tarball install (a commit, or INSTALL_RKE2_METHOD=tar) skips the rke2-selinux RPM; without it runc
+# fails with "keycreate: invalid argument" and rke2-server never starts.
+- name: Ensure the RKE2 SELinux policy on RHEL-family hosts
+  when:
+    - rke2_install_selinux_policy | bool
+    - rke2_install_method == "online"
+    - ansible_facts.os_family | default('') == "RedHat"
+    - ansible_facts.selinux.status | default('disabled') == "enabled"
+  become: true
+  vars:
+    # Match install.sh: EL 7..10 use their major; other RedHat-family hosts use EL8.
+    rke2_install_selinux_el_major: >-
+      {{ ansible_facts.distribution_major_version
+         if ansible_facts.distribution_major_version in ['7', '8', '9', '10'] else '8' }}
+  block:
+    # Its own repo id: the rpm install method writes rancher-rke2-common.
+    - name: Add the signed RKE2 SELinux policy repository
+      ansible.builtin.yum_repository:
+        name: rancher-rke2-selinux
+        description: Rancher RKE2 SELinux policy
+        baseurl: "https://{{ rke2_selinux_rpm_site }}/rke2/stable/common/centos/{{ rke2_install_selinux_el_major }}/noarch"
+        gpgcheck: true
+        gpgkey: "https://{{ rke2_selinux_rpm_site }}/public.key"
+
+    - name: Install the rke2-selinux policy
+      ansible.builtin.package:
+        name: rke2-selinux
+        state: present
+      register: rke2_install_rhel_selinux_policy
+      retries: 3
+      delay: 10
+      until: rke2_install_rhel_selinux_policy is succeeded
+
+    - name: Find the installed RKE2 paths for SELinux relabeling
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ rke2_data_dir }}"
+        - /etc/rancher/rke2
+        - /usr/bin/rke2
+        - "{{ rke2_bin_dir }}/rke2"
+        - /opt/rke2/bin/rke2
+      register: rke2_install_selinux_paths
+
+    - name: Restore the SELinux contexts RKE2 needs
+      ansible.builtin.command:
+        argv: [restorecon, -R, -v, "{{ item.item }}"]
+      loop: "{{ rke2_install_selinux_paths.results | selectattr('stat.exists') | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+      register: rke2_install_rhel_selinux_relabel
+      changed_when: rke2_install_rhel_selinux_relabel.stdout | length > 0
+
 - name: Enable RKE2 service
   ansible.builtin.systemd:
     name: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"

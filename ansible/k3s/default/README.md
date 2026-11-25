@@ -106,3 +106,39 @@ kubeconfig_file: './kubeconfig.yaml'
 ### Registry Support
 
 If you would like to use a mirror or registry, upload a file to `roles/k3s_install/tasks/` named `k3s_registy.yaml`
+
+### Commit builds
+
+Commit installs require `jq`, `unzip` and a GitHub token with permission to read
+Actions artifacts in `k3s-io/k3s`. Store the token in Jenkins Credentials and bind
+it as `GITHUB_TOKEN` for the job. If Ansible runs inside a container, pass that
+environment variable into the container too. Do not put the token in inventory,
+`vars.yaml` or command-line arguments.
+
+The role reads the controller environment through `k3s_github_token` and passes
+the token to the remote installer through stdin with `no_log: true`. A missing
+token stops the commit-install block before its prerequisites are installed.
+Surrounding whitespace is trimmed once for both transport and diagnostics;
+tokens with internal CR/LF characters are rejected before installation.
+Version-tag installs do not require the token.
+
+After the install retries are exhausted, the role fails with the exit code
+and the last 2000 characters of the module message and each output stream. It replaces
+the literal token before truncating or displaying stdout and stderr.
+Module errors without an exit code retain their sanitized message.
+
+The role installs both tools before downloading the installer. On transactional
+hosts such as SLE Micro, it reboots if the tools are still missing from the running
+system, then waits for both tools and the SSH user's home before continuing.
+Package installation retries up to 20 times at 30-second intervals on transactional
+hosts, or 3 times at 20-second intervals elsewhere. Zypper's missing-package
+exit 104 is handled immediately instead of repeating a deterministic failure.
+
+On nontransactional SUSE hosts, if zypper cannot find `jq` (exit 104), the role
+downloads jq 1.8.2 from the official jqlang release through `download_verify`.
+AMD64 and ARM64 assets have pinned SHA256 digests. Other package errors still
+stop installation; `unzip` and transactional hosts keep the package path.
+The fallback lives in a private temporary directory under `/usr/local/bin`
+(`k3s_install_tools_parent`), so it works when `/tmp` is mounted `noexec`.
+Only the installer gets that directory in its PATH; the role removes it on
+success or failure. The host must be able to download GitHub release assets.

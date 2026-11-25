@@ -1,0 +1,23 @@
+---
+- name: Require a verified jq artifact for the node architecture
+  ansible.builtin.assert:
+    that: ansible_facts.architecture in k3s_install_jq_assets
+    fail_msg: "No verified jq fallback for architecture {{ ansible_facts.architecture }}"
+
+- name: Create a private temporary directory for jq
+  ansible.builtin.tempfile:
+    state: directory
+    path: "{{ k3s_install_tools_parent }}"
+    prefix: .k3s-jq-
+  register: k3s_install_jq_temp
+
+- name: Download the pinned jq binary with SHA256 verification
+  ansible.builtin.include_role:
+    name: download_verify
+  # download_verify's existing input contract uses dv_* names.
+  vars:
+    dv_artifact_url: "{{ k3s_install_jq_release_url }}/{{ k3s_install_jq_assets[ansible_facts.architecture].name }}"  # noqa var-naming[no-role-prefix]
+    dv_dest: "{{ k3s_install_jq_temp.path }}/jq"  # noqa var-naming[no-role-prefix]
+    dv_checksum_format: sha256sum_inline  # noqa var-naming[no-role-prefix]
+    dv_checksum_inline_value: "{{ k3s_install_jq_assets[ansible_facts.architecture].sha256 }}"  # noqa var-naming[no-role-prefix]
+    dv_mode: '0755'  # noqa var-naming[no-role-prefix]

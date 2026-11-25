@@ -332,6 +332,91 @@
           Commit hash installs use the upstream install script (requires GITHUB_TOKEN).
           For full checksum verification, prefer a version tag instead.
 
+    - name: Reset the temporary jq directory for this install
+      ansible.builtin.set_fact:
+        k3s_install_jq_temp: {}
+
+    - name: Normalize the GitHub token for transport and diagnostics
+      ansible.builtin.set_fact:
+        k3s_install_github_token: "{{ k3s_github_token | trim }}"
+      no_log: true
+
+    # get.k3s.io fetches commit builds from GitHub Actions artifacts: jq, unzip and a token.
+    - name: Require a GitHub token for commit installs
+      ansible.builtin.assert:
+        that:
+          - k3s_install_github_token | length > 0
+          - k3s_install_github_token is not search('[\r\n]')
+        fail_msg: >-
+          Installing K3s commit {{ kubernetes_version }} needs GITHUB_TOKEN (read access to
+          k3s-io/k3s) in the environment that runs Ansible, or k3s_github_token.
+          The token must be non-empty and contain no internal line breaks.
+        quiet: true
+
+    - name: Detect transactional package installation
+      ansible.builtin.stat:
+        path: /usr/sbin/transactional-update
+      register: k3s_install_transactional
+
+    - name: Install unzip for the commit install script
+      ansible.builtin.package:
+        name: unzip
+        state: present
+      register: k3s_install_unzip_result
+      retries: "{{ 20 if k3s_install_transactional.stat.exists else 3 }}"
+      delay: "{{ 30 if k3s_install_transactional.stat.exists else 20 }}"
+      until: >-
+        k3s_install_unzip_result is succeeded or
+        (ansible_facts.os_family == 'Suse' and k3s_install_unzip_result.rc | default(-1) | int == 104)
+
+    - name: Install jq for the commit install script
+      block:
+        - name: Install the jq package
+          ansible.builtin.package:
+            name: jq
+            state: present
+          register: k3s_install_jq_result
+          retries: "{{ 20 if k3s_install_transactional.stat.exists else 3 }}"
+          delay: "{{ 30 if k3s_install_transactional.stat.exists else 20 }}"
+          until: >-
+            k3s_install_jq_result is succeeded or
+            (ansible_facts.os_family == 'Suse' and k3s_install_jq_result.rc | default(-1) | int == 104)
+      rescue:
+        - name: Preserve package failures other than unavailable jq on nontransactional SUSE
+          ansible.builtin.fail:
+            msg: "{{ ansible_failed_result }}"
+          when: >-
+            k3s_install_transactional.stat.exists or
+            ansible_facts.os_family != 'Suse' or
+            ansible_failed_result.rc | default(-1) | int != 104
+
+        - name: Prepare a verified temporary jq binary
+          ansible.builtin.include_tasks: commit-jq-fallback.yml
+
+    - name: Check that commit install tools are available in the running system
+      ansible.builtin.command:
+        argv:
+          - /bin/sh
+          - -c
+          - >-
+            command -v unzip >/dev/null &&
+            {{ (k3s_install_jq_temp.path ~ '/jq') | quote if k3s_install_jq_temp.path is defined else 'jq' }} --version >/dev/null
+      register: k3s_install_tools_check
+      changed_when: false
+      failed_when:
+        - k3s_install_tools_check.rc != 0
+        - not k3s_install_transactional.stat.exists
+
+    - name: Reboot to activate missing commit install tools
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        test_command: >-
+          command -v jq >/dev/null && command -v unzip >/dev/null &&
+          test -d "$(getent passwd {{ ansible_user | quote }} | cut -d: -f6)"
+      when:
+        - k3s_install_transactional.stat.exists
+        - k3s_install_tools_check.rc | default(0) != 0
+
     - name: Download the K3s install script
       ansible.builtin.get_url:
         url: https://get.k3s.io
@@ -343,23 +428,53 @@
       until: _k3s_commit_script_download is succeeded
 
     - name: Install K3s via install script
+      # Task environment appears in verbose transport logs; keep the token in module stdin.
       ansible.builtin.shell: |
+        IFS= read -r GITHUB_TOKEN
+        export GITHUB_TOKEN
+
+        {% if k3s_install_jq_temp.path is defined %}
+        export PATH={{ k3s_install_jq_temp.path | quote }}:"$PATH"
+        {% endif %}
         export INSTALL_K3S_COMMIT="{{ kubernetes_version }}"
         export INSTALL_K3S_SKIP_START="true"
         {% if k3s_node_type == 'agent' %}
         export INSTALL_K3S_EXEC="agent"
         {% endif %}
         sh /tmp/k3s-install.sh
+      args:
+        stdin: "{{ k3s_install_github_token }}"
+      no_log: true
       register: _k3s_commit_install_result
       changed_when: true
+      failed_when: false
       retries: 3
       delay: 20
-      until: _k3s_commit_install_result.rc == 0
+      until: _k3s_commit_install_result.rc | default(1) == 0
+
+    - name: Report a failed K3s commit install without exposing the token
+      ansible.builtin.fail:
+        msg: |-
+          K3s commit {{ kubernetes_version }} install failed (rc={{ _k3s_commit_install_result.rc | default('unavailable', true) }}).
+          module message (last 2000 characters, token redacted):
+          {{ (_k3s_commit_install_result.msg | default('No module message', true) | replace(k3s_install_github_token, '[REDACTED]'))[-2000:] }}
+          stdout (last 2000 characters, token redacted):
+          {{ (_k3s_commit_install_result.stdout | default('', true) | replace(k3s_install_github_token, '[REDACTED]'))[-2000:] }}
+          stderr (last 2000 characters, token redacted):
+          {{ (_k3s_commit_install_result.stderr | default('', true) | replace(k3s_install_github_token, '[REDACTED]'))[-2000:] }}
+      when: _k3s_commit_install_result.rc | default(1) != 0
 
     - name: Remove the K3s install script
       ansible.builtin.file:
         path: /tmp/k3s-install.sh
         state: absent
+
+  always:
+    - name: Remove the temporary jq binary
+      ansible.builtin.file:
+        path: "{{ k3s_install_jq_temp.path }}"
+        state: absent
+      when: k3s_install_jq_temp.path is defined
 
 # --- Systemd service ---
 - name: Enable and start K3s service
