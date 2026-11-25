@@ -106,3 +106,20 @@ kubeconfig_file: './kubeconfig.yaml'
 ### Registry Support
 
 If you would like to use a mirror or registry, upload a file to `roles/k3s_install/tasks/` named `k3s_registy.yaml`
+
+### Commit builds
+
+Commit installs require `jq`, `unzip` and a GitHub token with permission to read
+Actions artifacts in `k3s-io/k3s`. Store the token in Jenkins Credentials and bind
+it as `GITHUB_TOKEN` for the job. If Ansible runs inside a container, pass that
+environment variable into the container too. Do not put the token in inventory,
+`vars.yaml` or command-line arguments.
+
+The role reads the controller environment through `k3s_github_token` and passes
+the token to the remote installer through stdin with `no_log: true`. A missing
+token stops the commit-install block before its prerequisites are installed.
+Version-tag installs do not require the token.
+
+The role installs both tools before downloading the installer. On transactional
+hosts such as SLE Micro, it reboots if the tools are still missing from the running
+system, then waits for both tools and the SSH user's home before continuing.

@@ -342,12 +342,39 @@
           k3s-io/k3s) in the environment that runs Ansible, or k3s_github_token.
         quiet: true
 
+    - name: Detect transactional package installation
+      ansible.builtin.stat:
+        path: /usr/sbin/transactional-update
+      register: k3s_install_transactional
+
     - name: Install the tools the commit install script needs
       ansible.builtin.package:
         name:
           - jq
           - unzip
         state: present
+
+    - name: Check that commit install tools are available in the running system
+      ansible.builtin.command:
+        argv:
+          - /bin/sh
+          - -c
+          - command -v jq >/dev/null && command -v unzip >/dev/null
+      register: k3s_install_tools_check
+      changed_when: false
+      failed_when:
+        - k3s_install_tools_check.rc != 0
+        - not k3s_install_transactional.stat.exists
+
+    - name: Reboot to activate missing commit install tools
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        test_command: >-
+          command -v jq >/dev/null && command -v unzip >/dev/null &&
+          test -d "$(getent passwd {{ ansible_user | quote }} | cut -d: -f6)"
+      when:
+        - k3s_install_transactional.stat.exists
+        - k3s_install_tools_check.rc | default(0) != 0
 
     - name: Download the K3s install script
       ansible.builtin.get_url:
@@ -360,15 +387,20 @@
       until: _k3s_commit_script_download is succeeded
 
     - name: Install K3s via install script
-      environment:
-        GITHUB_TOKEN: "{{ k3s_github_token }}"
+      # Task environment appears in verbose transport logs; keep the token in module stdin.
       ansible.builtin.shell: |
+        IFS= read -r GITHUB_TOKEN
+        export GITHUB_TOKEN
+
         export INSTALL_K3S_COMMIT="{{ kubernetes_version }}"
         export INSTALL_K3S_SKIP_START="true"
         {% if k3s_node_type == 'agent' %}
         export INSTALL_K3S_EXEC="agent"
         {% endif %}
         sh /tmp/k3s-install.sh
+      args:
+        stdin: "{{ k3s_github_token }}"
+      no_log: true
       register: _k3s_commit_install_result
       changed_when: true
       retries: 3
