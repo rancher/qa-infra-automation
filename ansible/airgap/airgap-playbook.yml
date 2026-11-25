@@ -1,0 +1,192 @@
+---
+# Inventory, inputs and mandatory key cleanup: docs/guides/airgap-cluster-nodes.md.
+# Preserve inventory SSH arguments so private nodes remain reachable via the bastion.
+
+- name: Validate the airgap scenario before touching any host
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Assert required extra-vars
+      ansible.builtin.assert:
+        that:
+          - product is defined and product in ['k3s', 'rke2']
+          - kubernetes_version is defined and kubernetes_version | length > 0
+          - airgap_method is defined and airgap_method in ['tarball', 'private_registry', 'system_default_registry']
+          - arch | default('amd64') in ['amd64', 'arm64']
+          - groups['bastion'] | default([]) | length == 1
+          - groups['master'] | default([]) | length == 1
+          - ssh_private_key_file is defined and ssh_private_key_file | length > 0
+        fail_msg: >-
+          airgap-playbook needs product (k3s|rke2), kubernetes_version, airgap_method
+          (tarball|private_registry|system_default_registry), arch (amd64|arm64),
+          ssh_private_key_file (controller path for the ProxyCommand), exactly one bastion
+          and exactly one master in the inventory.
+      tags: ['always']
+
+    - name: Assert registry credentials are provided out of band
+      ansible.builtin.assert:
+        that:
+          - registry_username is defined and registry_username | length > 0
+          - registry_password is defined and registry_password | length > 0
+        fail_msg: "Registry methods need registry_username/registry_password (use --extra-vars @secrets.json)"
+        quiet: true
+      no_log: true
+      when: airgap_method != 'tarball'
+      tags: ['always']
+
+    - name: Refuse a CNI that differs between the cni extra-var and server_flags
+      ansible.builtin.assert:
+        that:
+          - >-
+            (cni | default('') | length == 0) or (_flags_cni | length == 0) or
+            ((cni | lower | replace(' ', '') | split(',') | reject('equalto', '') | sort)
+             == (_flags_cni | split(',') | reject('equalto', '') | sort))
+        fail_msg: "cni={{ cni | default('') }} conflicts with server_flags cni: {{ _flags_cni }}; set only one or make them match"
+      vars:
+        _bs_n: "\\n"
+        _nl: "\n"
+        _flags_yaml: >-
+          {{ ((server_flags | default('')) | replace(_bs_n, _nl) | from_yaml) | default({}, true) }}
+        _flags_cni: >-
+          {{ (((_flags_yaml.cni | default('')) if (_flags_yaml.cni | default('')) is string
+              else (_flags_yaml.cni | join(','))) | string | replace(' ', '') | lower | regex_replace(',,+', ',') | trim(',')) }}
+      tags: ['always']
+
+    - name: Refuse hardening flags the airgap flow does not support yet
+      ansible.builtin.assert:
+        that:
+          - "'profile:' not in (server_flags | default(''))"
+          - "'protect-kernel-defaults' not in (server_flags | default(''))"
+          - "'profile:' not in (worker_flags | default(''))"
+          - "'protect-kernel-defaults' not in (worker_flags | default(''))"
+        fail_msg: "airgap does not support profile: cis / protect-kernel-defaults yet (tracked as a follow-up)"
+      tags: ['always']
+
+- name: Prepare the bastion (tools, artifacts, registry)
+  hosts: bastion
+  become: true
+  gather_facts: false
+  vars:
+    airgap_node_key: "{{ airgap_bastion_dir | default('/opt/dtf-airgap') }}/.ssh/node_key"
+  pre_tasks:
+    # First contact right after tofu apply: slow-booting images (SLES) refuse SSH for a while.
+    - name: Wait for SSH on the new bastion
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+      become: false
+    - name: Gather facts
+      ansible.builtin.setup:
+    # The account PEM never lands on the bastion. A throwaway ed25519 key pair is minted here,
+    # authorized on the nodes for the artifact scp, and deleted again in the last play.
+    - name: Create the bastion .ssh dir for the ephemeral node key
+      ansible.builtin.file:
+        path: "{{ airgap_bastion_dir }}/.ssh"
+        state: directory
+        mode: "0700"
+        owner: "{{ ansible_user }}"
+    - name: Mint the ephemeral node key
+      ansible.builtin.command:
+        argv: [ssh-keygen, -q, -t, ed25519, -N, "", -C, "dtf-airgap-ephemeral", -f, "{{ airgap_node_key }}"]
+        creates: "{{ airgap_node_key }}"
+      become: true
+      become_user: "{{ ansible_user }}"
+    - name: Read the ephemeral public key
+      ansible.builtin.slurp:
+        src: "{{ airgap_node_key }}.pub"
+      register: airgap_node_pubkey_raw
+    - name: Share the ephemeral public key with the node plays
+      ansible.builtin.set_fact:
+        airgap_node_pubkey: "{{ airgap_node_pubkey_raw.content | b64decode | trim }}"
+  roles:
+    - role: airgap_bastion_prepare
+    - role: airgap_artifacts
+    - role: airgap_registry
+      when: airgap_method != 'tarball'
+    - role: airgap_image_publish
+      when: airgap_method != 'tarball'
+
+- name: Install the primary server
+  hosts: master
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Authorize the bastion's ephemeral key for the artifact copy
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ hostvars[groups['bastion'][0]]['airgap_node_pubkey'] }}"
+        comment: dtf-airgap-ephemeral
+        state: present
+  roles:
+    - role: airgap_product_install
+      vars:
+        airgap_node_role: server
+        airgap_primary: true
+
+- name: Join the remaining servers
+  hosts: servers
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Authorize the bastion's ephemeral key for the artifact copy
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ hostvars[groups['bastion'][0]]['airgap_node_pubkey'] }}"
+        comment: dtf-airgap-ephemeral
+        state: present
+  serial: 1
+  roles:
+    - role: airgap_product_install
+      vars:
+        airgap_node_role: server
+        airgap_primary: false
+
+- name: Join the agents
+  hosts: workers
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Authorize the bastion's ephemeral key for the artifact copy
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ hostvars[groups['bastion'][0]]['airgap_node_pubkey'] }}"
+        comment: dtf-airgap-ephemeral
+        state: present
+  roles:
+    - role: airgap_product_install
+      vars:
+        airgap_node_role: agent
+        airgap_primary: false
+
+- name: Expose cluster access on the bastion and record facts
+  hosts: bastion
+  become: true
+  gather_facts: true
+  roles:
+    - role: airgap_cluster_access
+
+- name: Revoke the ephemeral key on the nodes
+  hosts: master,servers,workers
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Remove the ephemeral public key from authorized_keys
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ hostvars[groups['bastion'][0]]['airgap_node_pubkey'] }}"
+        state: absent
+
+- name: Remove the ephemeral private key from the bastion
+  hosts: bastion
+  become: true
+  gather_facts: false
+  vars:
+    airgap_node_key: "{{ airgap_bastion_dir | default('/opt/dtf-airgap') }}/.ssh/node_key"
+  tasks:
+    - name: Delete the ephemeral key pair
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ airgap_node_key }}"
+        - "{{ airgap_node_key }}.pub"

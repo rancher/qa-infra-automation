@@ -1,0 +1,7 @@
+---
+# Publish images from the release lists, then verify each repository through the registry API.
+airgap_bastion_dir: /opt/dtf-airgap
+arch: amd64
+airgap_publish_platform: "linux/{{ arch }}"
+airgap_publish_retries: 3
+airgap_publish_delay: 10
