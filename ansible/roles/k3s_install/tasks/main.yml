@@ -332,6 +332,23 @@
           Commit hash installs use the upstream install script (requires GITHUB_TOKEN).
           For full checksum verification, prefer a version tag instead.
 
+    # get.k3s.io fetches commit builds from GitHub Actions artifacts: jq, unzip and a token.
+    - name: Require a GitHub token for commit installs
+      ansible.builtin.assert:
+        that:
+          - k3s_github_token | length > 0
+        fail_msg: >-
+          Installing K3s commit {{ kubernetes_version }} needs GITHUB_TOKEN (read access to
+          k3s-io/k3s) in the environment that runs Ansible, or k3s_github_token.
+        quiet: true
+
+    - name: Install the tools the commit install script needs
+      ansible.builtin.package:
+        name:
+          - jq
+          - unzip
+        state: present
+
     - name: Download the K3s install script
       ansible.builtin.get_url:
         url: https://get.k3s.io
@@ -343,6 +360,8 @@
       until: _k3s_commit_script_download is succeeded
 
     - name: Install K3s via install script
+      environment:
+        GITHUB_TOKEN: "{{ k3s_github_token }}"
       ansible.builtin.shell: |
         export INSTALL_K3S_COMMIT="{{ kubernetes_version }}"
         export INSTALL_K3S_SKIP_START="true"

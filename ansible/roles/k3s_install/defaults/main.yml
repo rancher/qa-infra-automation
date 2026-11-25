@@ -13,6 +13,9 @@ k3s_channel_url: "https://update.k3s.io/v1-release/channels"
 # Binary install directory
 k3s_bin_dir: "/usr/local/bin"
 
+# Commit installs download GitHub Actions artifacts, which need a token with read access to k3s-io/k3s.
+k3s_github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+
 # Install k3s-selinux before K3s starts, matching the get.k3s.io behavior
 # bypassed by this role's direct binary install path.
 k3s_install_selinux_policy: true
