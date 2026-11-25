@@ -211,6 +211,43 @@
   when:
     - rke2_install_selinux_policy | bool
 
+# A tarball install (a commit, or INSTALL_RKE2_METHOD=tar) skips the rke2-selinux RPM; without it runc
+# fails with "keycreate: invalid argument" and rke2-server never starts.
+- name: Ensure the RKE2 SELinux policy on RHEL-family hosts
+  ansible.builtin.shell: |
+    set -eu
+    if rpm -q rke2-selinux >/dev/null 2>&1; then
+      echo "rke2-selinux already installed"
+      exit 0
+    fi
+
+    el=$(rpm --eval '%{rhel}')
+    # rpm.rancher.io publishes centos/7..9 only.
+    if [ "${el}" -gt 9 ] 2>/dev/null; then
+      el=9
+    fi
+    if command -v dnf >/dev/null 2>&1; then
+      package_manager=dnf
+    else
+      package_manager=yum
+    fi
+
+    "${package_manager}" install -y \
+      --nogpgcheck \
+      --repofrompath="rancher-rke2-common,https://{{ rke2_selinux_rpm_site }}/rke2/stable/common/centos/${el}/noarch/" \
+      rke2-selinux
+    restorecon -R /var/lib/rancher /etc/rancher /usr/local/bin
+  args:
+    executable: /bin/bash
+  become: true
+  register: rke2_install_rhel_selinux_policy
+  changed_when: "'already installed' not in rke2_install_rhel_selinux_policy.stdout"
+  when:
+    - rke2_install_selinux_policy | bool
+    - rke2_install_method == "online"
+    - ansible_facts.os_family | default('') == "RedHat"
+    - ansible_facts.selinux.status | default('disabled') == "enabled"
+
 - name: Enable RKE2 service
   ansible.builtin.systemd:
     name: "{% if rke2_node_role in ['master', 'server'] or 'cp' in node_roles or 'etcd' in node_roles %}rke2-server{% else %}rke2-agent{% endif %}"
